@@ -164,13 +164,26 @@ async function getMyStationNames(workerId) {
   return (stationAssigns || []).map(s => s.station);
 }
 
-async function getMyStationScope(workerId) {
+// Station restriction for impersonated ("work as") sessions: when the token
+// carries act_stations, the operator may only touch those (ngo_id, station)
+// pairs — every data surface funnels through getMyStationScope below.
+export function froActPairs(req) {
+  const u = req?.user;
+  if (!u?.impersonation || !Array.isArray(u.act_stations)) return null;
+  return u.act_stations.length > 0 ? u.act_stations : null;
+}
+
+async function getMyStationScope(workerId, restrictPairs = null) {
   const { data: stationAssigns, error } = await db
     .from('fro_station_assignments')
     .select('station, ngo_id')
     .eq('fro_worker_id', workerId);
   if (error) throw error;
-  const scope = (stationAssigns || []).map(s => ({ station: s.station, ngo_id: s.ngo_id }));
+  let scope = (stationAssigns || []).map(s => ({ station: s.station, ngo_id: s.ngo_id }));
+  if (restrictPairs && restrictPairs.length > 0) {
+    const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
+    scope = scope.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station).trim()}`));
+  }
   const stationNames = scope.map(s => s.station);
   const allowedNgoIds = [...new Set(scope.map(s => s.ngo_id).filter(Boolean))];
   return { scope, stationNames, allowedNgoIds };
@@ -363,7 +376,7 @@ export const getDashboard = async (req, res) => {
     const workerId = req.user.id;
 
     // Count donors by this FRO's stations (from fro_assignments)
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     let totalDonors = 0;
     let assignedByNgo = {};
     let assignedByStation = {};
@@ -672,7 +685,7 @@ export const getMyCollections = async (req, res) => {
     const workerId = req.user.id;
     const worker = await getWorkerBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Worker not found' });
-    const { scope: myScope, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const ngoFilter = (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) ? req.query.ngo_id : null;
 
     const now = new Date();
@@ -797,7 +810,7 @@ const NGO_PROJECT_ALIASES = {
 };
 
 async function myProjectSet(workerId) {
-  const { allowedNgoIds } = await getMyStationScope(workerId);
+  const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
   if (allowedNgoIds.length === 0) return [];
   const { data: ngos } = await db.from('ngos').select('id, name').in('id', allowedNgoIds);
   const names = (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
@@ -1310,7 +1323,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     // Only allow claiming for a donor allotted to this FRO's station scope
     // (enforced for donors selected from the FRO's own donor search).
     if (explicitDonor) {
-      const { scope: myScope, stationNames } = await getMyStationScope(workerId);
+      const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
       if (stationNames.length > 0) {
         const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
         const { data: donorAssignments } = await db
@@ -1390,7 +1403,7 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
-      const { scope: claimScope } = await getMyStationScope(workerId);
+      const { scope: claimScope } = await getMyStationScope(workerId, froActPairs(req));
       const scopeRow = (claimScope || []).find(s => s.ngo_id === receiptNgoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
@@ -1484,7 +1497,7 @@ export const getReactivatedDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
     const period = req.query.period === 'month' ? 'month' : 'today';
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const nowUtc = new Date();
@@ -1550,7 +1563,7 @@ export const getMyDonors = async (req, res) => {
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
 
     let effectiveScope = myScope;
     let effectiveStations = stationNames;
@@ -1970,7 +1983,7 @@ export const getMyDonors = async (req, res) => {
 export const getTransferredLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     let effectiveScope = myScope;
@@ -2415,7 +2428,7 @@ export const createDonorLogHandler = async (req, res) => {
 export const getRejectedLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
 
     if (stationNames.length === 0) return res.json([]);
 
@@ -2617,7 +2630,7 @@ export const getMyTarget = async (req, res) => {
 
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
-    const { allowedNgoIds } = await getMyStationScope(workerId);
+    const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
     const collectedByNgo = await getCollectedByNgo(workerId, monthStart, monthEnd, allowedNgoIds);
 
@@ -2715,7 +2728,7 @@ export const getMyStations = async (req, res) => {
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: contacts, error } = await withStationNgoPairs(
@@ -2768,7 +2781,7 @@ export const getFroScheduled = async (req, res) => {
 export const getFroCallbacks = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: assignments, error } = await withStationNgoPairs(
@@ -2910,7 +2923,7 @@ export const getMyDataRequests = async (req, res) => {
 export const getFollowUps = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const nowUtc = new Date();
@@ -2967,7 +2980,7 @@ export const getFollowUps = async (req, res) => {
 export const getLeadStats = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ new_donors: 0, new_amount: 0, existing_donors: 0, existing_amount: 0 });
 
     const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -3028,7 +3041,7 @@ export const getLeadStats = async (req, res) => {
 export const getMonthlyDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -3120,7 +3133,7 @@ export const getDonorHistory = async (req, res) => {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const period = req.query.period || 'monthly';
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const now = new Date();
@@ -3441,7 +3454,7 @@ export const searchDonors = async (req, res) => {
     const { q } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const searchTerm = `%${q.trim()}%`;
@@ -3551,7 +3564,7 @@ export const getFullDonorHistory = async (req, res) => {
     const ngoId = parseInt(req.query.ngo_id) || null;
     const unlockAll = req.query.unlock_all === 'true';
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const { data: donor } = await db

@@ -7,7 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
-import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
+import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
@@ -152,12 +152,20 @@ export default function FROPanel() {
   const [codeSubmitting, setCodeSubmitting] = useState(false)
   const [generatingCode, setGeneratingCode] = useState(false)
   const [codeGenerated, setCodeGenerated] = useState(false)
+  // Station-scoped work-as: modal phase ('stations' → 'code') and the picker.
+  const [waPhase, setWaPhase] = useState('stations')
+  const [waStations, setWaStations] = useState([])
+  const [waStationsLoading, setWaStationsLoading] = useState(false)
+  const [pickedStations, setPickedStations] = useState(() => new Set())
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
-    setShowWorkAs(v => !v)
+    const opening = !showWorkAs
+    setShowWorkAs(!showWorkAs)
+    if (!opening) return
     setWorkAsSearch('')
-    if (froList.length > 0) return
+    // Refetch on every open so newly added FROs show up without a reload;
+    // the previous list stays visible while loading.
     setWorkAsLoading(true)
     try {
       const res = await getFroWorkersForImpersonation()
@@ -166,12 +174,49 @@ export default function FROPanel() {
     finally { setWorkAsLoading(false) }
   }
 
+  const stationKeyOf = (s) => `${s?.ngo_id ?? ''}|${String(s?.station ?? '').trim()}`
+
+  const loadWorkAsStations = async (worker) => {
+    setWaStations([])
+    setWaStationsLoading(true)
+    try {
+      const res = await getFroWorkAsStations(worker.id)
+      const list = res?.stations || []
+      setWaStations(list)
+      // Pre-tick our own still-active claims so Continue keeps them.
+      setPickedStations(new Set(list.filter(s => s.mine).map(stationKeyOf)))
+    } catch (e) {
+      console.error('Error:', e.message)
+      toast(e.message || 'Could not load stations')
+      setPendingTarget(null)
+    } finally { setWaStationsLoading(false) }
+  }
+
   const pickImpersonateTarget = (worker) => {
     setShowWorkAs(false)
     setPendingTarget(worker)
     setCodeInput('')
     setCodeGenerated(false)
+    setWaPhase('stations')
+    setPickedStations(new Set())
+    loadWorkAsStations(worker)
   }
+
+  const togglePickStation = (s) => {
+    setPickedStations(prev => {
+      const next = new Set(prev)
+      const k = stationKeyOf(s)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  }
+
+  const selectAllPickableStations = () =>
+    setPickedStations(new Set(waStations.filter(s => s.available || s.mine).map(stationKeyOf)))
+
+  const pickedPairs = () =>
+    waStations.filter(s => pickedStations.has(stationKeyOf(s))).map(s => ({ ngo_id: s.ngo_id, station: s.station }))
 
   const generateCodeForSwitch = async () => {
     setGeneratingCode(true)
@@ -193,7 +238,7 @@ export default function FROPanel() {
     if (!pendingTarget) return
     setCodeSubmitting(true)
     try {
-      const res = await impersonateFRO(pendingTarget.id, codeInput.trim())
+      const res = await impersonateFRO(pendingTarget.id, codeInput.trim(), undefined, pickedPairs())
       startImpersonation(res.token, res.user)
       setPendingTarget(null)
       setCodeInput('')
@@ -201,13 +246,21 @@ export default function FROPanel() {
       window.location.reload()
     } catch (e) {
       console.error('Error:', e.message)
-      alert(e.message || 'Could not switch FRO')
+      toast(e.message || 'Could not switch FRO')
+      // Someone else grabbed a station between pick and switch — back to the
+      // picker with fresh availability so they can choose free stations.
+      if (/already being worked/.test(e.message || '') && pendingTarget) {
+        setWaPhase('stations')
+        loadWorkAsStations(pendingTarget)
+      }
     } finally {
       setCodeSubmitting(false)
     }
   }
 
-  const doExitImpersonation = () => {
+  const doExitImpersonation = async () => {
+    // Free our claimed stations server-side before restoring the own session.
+    try { await releaseWorkAs() } catch (e) { console.error('Error:', e.message) }
     exitImpersonation()
     window.location.reload()
   }
@@ -493,12 +546,16 @@ export default function FROPanel() {
                   {workAsLoading && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>}
                   {!workAsLoading && (
                     <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                      {filteredFroList.map(w => (
-                        <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
+                      {filteredFroList.map(w => {
+                        const inactive = w.is_active === false || w.employment_status === 'terminated'
+                        return (
+                        <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)', opacity: inactive ? .55 : 1 }}>
                           <span style={{ fontWeight: 600 }}>{w.name}</span>
+                          {inactive && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#b91c1c', background: '#fee2e2', borderRadius: 6, padding: '1px 7px' }}>INACTIVE</span>}
                           {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
                         </div>
-                      ))}
+                        )
+                      })}
                       {filteredFroList.length === 0 && (
                         <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{froList.length === 0 ? 'No other FROs available' : 'No matching FROs'}</div>
                       )}
@@ -540,50 +597,102 @@ export default function FROPanel() {
         {impersonating && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-            <span>OWNER: <b>{userName}</b> · ACTING FRO: <b>{user?.imposter_name || 'you'}</b> · Credit goes to <b>{user?.imposter_name || 'you'}</b></span>
+            <span>OWNER: <b>{userName}</b> · ACTING FRO: <b>{user?.imposter_name || 'you'}</b>{Array.isArray(user?.act_stations) && user.act_stations.length > 0 && <> · Stations: <b>{[...new Set(user.act_stations.map(s => s.station))].join(', ')}</b></>} · Credit goes to <b>{user?.imposter_name || 'you'}</b></span>
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit Acting FRO</button>
           </div>
         )}
         {pendingTarget && (
           <div className="modal-overlay" onClick={() => setPendingTarget(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360, padding: 22, borderRadius: 'var(--radius)' }}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, padding: 22, borderRadius: 'var(--radius)' }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
                 Acting FRO: {pendingTarget.name}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
-                {codeGenerated
-                  ? 'Code generated! Ask your admin for the code and enter it below to switch.'
-                  : 'Generate a code to authorize switching. Your admin will share the code with you.'}
-              </div>
-              {!codeGenerated && (
-                <button
-                  className="btn"
-                  onClick={generateCodeForSwitch}
-                  disabled={generatingCode}
-                  style={{ width: '100%', justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
-                >
-                  {generatingCode ? 'Generating…' : '+ Generate code'}
-                </button>
+              {waPhase === 'stations' ? (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
+                    Select which stations you want to work on. Taken stations stay with their current operator.
+                  </div>
+                  {waStationsLoading && <div style={{ padding: '14px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading stations…</div>}
+                  {!waStationsLoading && waStations.length === 0 && (
+                    <div style={{ padding: '10px 0', fontSize: 12, color: '#b91c1c' }}>No stations assigned to this FRO.</div>
+                  )}
+                  {!waStationsLoading && waStations.length > 0 && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <button onClick={selectAllPickableStations} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', cursor: 'pointer' }}>Select all</button>
+                        <button onClick={() => setPickedStations(new Set())} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-soft)', cursor: 'pointer' }}>Clear</button>
+                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)' }}>{pickedStations.size}/{waStations.length}</span>
+                      </div>
+                      <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {waStations.map(s => {
+                          const k = stationKeyOf(s)
+                          const locked = !s.available && !s.mine
+                          const checked = pickedStations.has(k)
+                          return (
+                            <div key={k} onClick={() => { if (!locked) togglePickStation(s) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 8, border: checked ? '1px solid var(--sage)' : '1px solid var(--line)', background: locked ? 'rgba(148,163,184,.08)' : checked ? 'rgba(22,163,74,.07)' : 'transparent', cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? .75 : 1 }}>
+                              <span style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', background: checked ? 'var(--sage)' : 'transparent', border: checked ? 'none' : '1.5px solid var(--line)' }}>{checked ? '✓' : ''}</span>
+                              <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{s.station}</span>
+                              {s.ngo_name && <span style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{s.ngo_name}</span>}
+                              <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {locked
+                                  ? <span style={{ color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '2px 7px' }}>with {s.taken_by}</span>
+                                  : s.mine && <span style={{ color: 'var(--sage)' }}>yours</span>}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                        <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+                        <button className="btn" onClick={() => setWaPhase('code')} disabled={pickedStations.size === 0}
+                          style={{ flex: 1, justifyContent: 'center', background: pickedStations.size === 0 ? '#d1d5db' : 'var(--sage)', color: pickedStations.size === 0 ? '#9ca3af' : '#fff', cursor: pickedStations.size === 0 ? 'not-allowed' : 'pointer' }}>
+                          Continue
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
+                    Stations: <b style={{ color: 'var(--ink)' }}>{[...new Set(pickedPairs().map(p => p.station))].join(', ') || '—'}</b>{' '}
+                    <span onClick={() => setWaPhase('stations')} style={{ color: 'var(--sage)', cursor: 'pointer', textDecoration: 'underline' }}>(change)</span>
+                    {codeGenerated
+                      ? ' · Code generated! Ask your admin for the code and enter it below to switch.'
+                      : ' · Generate a code to authorize switching. Your admin will share the code with you.'}
+                  </div>
+                  {!codeGenerated && (
+                    <button
+                      className="btn"
+                      onClick={generateCodeForSwitch}
+                      disabled={generatingCode}
+                      style={{ width: '100%', justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
+                    >
+                      {generatingCode ? 'Generating…' : '+ Generate code'}
+                    </button>
+                  )}
+                  <input
+                    value={codeInput}
+                    onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
+                    placeholder="••••"
+                    inputMode="numeric"
+                    style={{ width: '100%', textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', marginTop: 14 }}
+                  />
+                  <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                    <button className="btn" onClick={() => setWaPhase('stations')} style={{ flex: 1, justifyContent: 'center' }}>Back</button>
+                    <button
+                      className="btn"
+                      onClick={doImpersonate}
+                      disabled={codeInput.length !== 4 || codeSubmitting}
+                      style={{ flex: 1, justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
+                    >
+                      {codeSubmitting ? 'Switching…' : 'Switch'}
+                    </button>
+                  </div>
+                </>
               )}
-              <input
-                value={codeInput}
-                onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
-                placeholder="••••"
-                inputMode="numeric"
-                style={{ width: '100%', textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', marginTop: 14 }}
-              />
-              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-                <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
-                <button
-                  className="btn"
-                  onClick={doImpersonate}
-                  disabled={codeInput.length !== 4 || codeSubmitting}
-                  style={{ flex: 1, justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
-                >
-                  {codeSubmitting ? 'Switching…' : 'Switch'}
-                </button>
-              </div>
             </div>
           </div>
         )}

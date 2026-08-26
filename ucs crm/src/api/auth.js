@@ -70,12 +70,27 @@ export async function login(identifier, password) {
   })
 }
 
-export async function impersonateFRO(workerId, code, imposterWorkerId) {
+export async function impersonateFRO(workerId, code, imposterWorkerId, stations) {
   return api('/auth/impersonate', {
     method: 'POST',
-    body: JSON.stringify({ worker_id: workerId, code, imposter_worker_id: imposterWorkerId || undefined }),
+    body: JSON.stringify({
+      worker_id: workerId,
+      code,
+      imposter_worker_id: imposterWorkerId || undefined,
+      stations: Array.isArray(stations) ? stations : undefined,
+    }),
     _prefix: 'ucs',
   })
+}
+
+// Stations of the FRO we want to work as + live availability (who took what).
+export async function getFroWorkAsStations(workerId) {
+  return api(`/auth/fro-workers/${workerId}/stations`, { _prefix: 'ucs' })
+}
+
+// Release our active work-as sessions (Exit work-as).
+export async function releaseWorkAs() {
+  return api('/auth/work-as/release', { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
 }
 
 export async function generateImpersonationCode() {

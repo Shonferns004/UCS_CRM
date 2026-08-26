@@ -6,6 +6,7 @@ import { getWorkerByLoginId, getWorkerById } from '../models/workerModel.js';
 import { getUserByEmail, getUserByName, getUserById } from '../models/userModel.js';
 import { getHRByEmail } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
+import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } from '../models/workAsSessionModel.js';
 
 dotenv.config();
 
@@ -368,37 +369,94 @@ export const impersonateFRO = async (req, res) => {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
+    // Station-scoped work-as: the operator picks which of the target's stations
+    // they will work. Claimed pairs are locked for the session duration so
+    // another operator acting as the same FRO cannot take them too. Omitted
+    // stations field = unrestricted (legacy behaviour).
+    let actStations = null;
+    const rawStations = Array.isArray(req.body?.stations) ? req.body.stations : null;
+    if (rawStations) {
+      const { data: owned, error: ownErr } = await db
+        .from('fro_station_assignments')
+        .select('station, ngo_id')
+        .eq('fro_worker_id', target.id);
+      if (ownErr) throw ownErr;
+      const ownedKeys = new Map((owned || []).map((a) => [`${a.ngo_id ?? ''}|${String(a.station).trim()}`, { ngo_id: a.ngo_id, station: a.station }]));
+      if (ownedKeys.size === 0) {
+        return res.status(400).json({ message: `${target.name} has no stations assigned to work on` });
+      }
+
+      let wantedPairs;
+      if (rawStations.includes('all')) {
+        wantedPairs = [...ownedKeys.values()];
+      } else {
+        wantedPairs = [];
+        for (const r of rawStations) {
+          const key = `${r?.ngo_id ?? ''}|${String(r?.station ?? '').trim()}`;
+          if (!ownedKeys.has(key)) {
+            return res.status(400).json({ message: `Station ${r?.station ?? '?'} is not assigned to ${target.name}` });
+          }
+          wantedPairs.push(ownedKeys.get(key));
+        }
+      }
+
+      // Switching targets frees this operator's previous work-as sessions first.
+      await releaseOperatorSessions(req.user.id);
+      const claim = await claimStations({
+        targetWorkerId: target.id,
+        pairs: wantedPairs,
+        operatorUserId: req.user.id,
+        operatorName: imposterName,
+      });
+      if (claim.conflict?.length > 0) {
+        return res.status(409).json({
+          message: 'Some selected stations are already being worked by others',
+          conflicts: claim.conflict,
+        });
+      }
+      actStations = claim.ok;
+    } else {
+      // Unrestricted switch still supersedes any earlier scoped session.
+      await releaseOperatorSessions(req.user.id);
+    }
+
+    const tokenPayload = {
+      id: target.id,
+      login_id: target.login_id,
+      ngo_id: target.ngo_id,
+      role: 'fro',
+      department: target.department || 'fro',
+      name: target.name,
+      impersonation: true,
+      imposter_id: imposterId,
+      imposter_name: imposterName,
+    };
+    if (actStations && actStations.length > 0) tokenPayload.act_stations = actStations;
+
     const token = jwt.sign(
-      {
-        id: target.id,
-        login_id: target.login_id,
-        ngo_id: target.ngo_id,
-        role: 'fro',
-        department: target.department || 'fro',
-        name: target.name,
-        impersonation: true,
-        imposter_id: imposterId,
-        imposter_name: imposterName,
-      },
+      tokenPayload,
       process.env.JWT_SECRET,
       { expiresIn: TOKEN_EXPIRY }
     );
 
+    const userPayload = {
+      id: target.id,
+      name: target.name,
+      email: target.email,
+      login_id: target.login_id,
+      ngo_id: target.ngo_id,
+      role: 'fro',
+      department: target.department,
+      impersonation: true,
+      imposter_id: imposterId,
+      imposter_name: imposterName,
+    };
+    if (actStations && actStations.length > 0) userPayload.act_stations = actStations;
+
     return res.json({
       token,
       role: 'fro',
-      user: {
-        id: target.id,
-        name: target.name,
-        email: target.email,
-        login_id: target.login_id,
-        ngo_id: target.ngo_id,
-        role: 'fro',
-        department: target.department,
-        impersonation: true,
-        imposter_id: imposterId,
-        imposter_name: imposterName,
-      },
+      user: userPayload,
       message: `Working as ${target.name}`,
     });
   } catch (error) {
@@ -407,25 +465,107 @@ export const impersonateFRO = async (req, res) => {
 };
 
 // FROs the current user is allowed to impersonate (for the "Work as" picker).
+// Every worker whose department normalises to 'fro' is listed — including
+// deactivated ones, which the UI marks Inactive. btrim/lower matching so
+// padded or differently-cased departments never hide a name.
 export const getFroWorkersForImpersonation = async (req, res) => {
   try {
     const operatorRole = req.user.role;
-    const operatorDept = String(req.user.department || '').toLowerCase().trim();
-    const isSuper = operatorRole === 'super_admin' || operatorRole === 'master';
+    const isSuperish = ['super_admin', 'master', 'accounts'].includes(operatorRole);
 
-    let query = db
-      .from('workers')
-      .select('id, name, login_id, ngo_id, department')
-      .ilike('department', 'fro');
-
-    if (!isSuper && !['super_admin','master','accounts'].includes(operatorRole) && req.user.ngo_id) {
-      query = query.eq('ngo_id', req.user.ngo_id);
+    const params = [];
+    let where = `WHERE lower(btrim(coalesce(department, ''))) = 'fro'`;
+    if (!isSuperish && req.user.ngo_id) {
+      params.push(req.user.ngo_id);
+      where += ` AND ngo_id = $${params.length}`;
     }
 
-    const { data, error } = await query.order('name', { ascending: true });
+    const { rows, error } = await db._pool.query(
+      `SELECT id, name, login_id, ngo_id, department, is_active, employment_status
+         FROM workers ${where}
+        ORDER BY name ASC`,
+      params
+    );
     if (error) throw error;
 
-    return res.json({ workers: (data || []).filter((w) => w.id !== req.user.id) });
+    return res.json({ workers: (rows || []).filter((w) => String(w.id) !== String(req.user.id)) });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Stations of the FRO the operator wants to work as, with live availability:
+// which pairs are already claimed by other operators (and by whom). Powers the
+// station picker in the Work As flow.
+export const getFroWorkAsStations = async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const target = await getWorkerById(String(workerId || '').trim());
+    if (!target) return res.status(404).json({ message: 'Worker not found' });
+
+    const targetDept = String(target.department || '').toLowerCase().trim();
+    if (targetDept !== 'fro') {
+      return res.status(400).json({ message: 'Only FRO workers can be worked as' });
+    }
+
+    const operatorRole = req.user.role;
+    const isSuperish = ['super_admin', 'master', 'accounts'].includes(operatorRole);
+    if (!isSuperish && req.user.ngo_id && target.ngo_id && req.user.ngo_id !== target.ngo_id) {
+      return res.status(403).json({ message: 'Can only work as FROs of your own NGO' });
+    }
+
+    const { data: assigns, error: aErr } = await db
+      .from('fro_station_assignments')
+      .select('station, ngo_id')
+      .eq('fro_worker_id', target.id)
+      .order('station', { ascending: true });
+    if (aErr) throw aErr;
+
+    let ngoNames = {};
+    const ngoIds = [...new Set((assigns || []).map((a) => a.ngo_id).filter(Boolean))];
+    if (ngoIds.length > 0) {
+      const { data: ngos } = await db.from('ngos').select('id, name').in('id', ngoIds);
+      for (const n of ngos || []) ngoNames[n.id] = n.name;
+    }
+
+    const sessions = await getActiveSessionsForTarget(target.id);
+    const holderByKey = new Map();
+    for (const s of sessions) {
+      for (const st of s.stations || []) {
+        holderByKey.set(`${st.ngo_id ?? ''}|${String(st.station ?? '').trim()}`, {
+          taken_by: s.operator_name || 'another operator',
+          mine: String(s.operator_user_id) === String(req.user.id),
+        });
+      }
+    }
+
+    const stations = (assigns || []).map((a) => {
+      const key = `${a.ngo_id ?? ''}|${String(a.station).trim()}`;
+      const holder = holderByKey.get(key) || null;
+      return {
+        station: a.station,
+        ngo_id: a.ngo_id,
+        ngo_name: ngoNames[a.ngo_id] || null,
+        available: !holder,
+        taken_by: holder?.taken_by || null,
+        mine: holder?.mine || false,
+      };
+    });
+
+    return res.json({
+      stations,
+      all_taken: stations.length > 0 && stations.every((s) => !s.available),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Release every active work-as session the caller holds (Exit work-as button).
+export const releaseWorkAs = async (req, res) => {
+  try {
+    const released = await releaseOperatorSessions(req.user.id);
+    return res.json({ message: 'Work-as sessions released', released });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
