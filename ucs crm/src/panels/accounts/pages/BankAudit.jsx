@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { Plus, ListFilter, X, Landmark } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
+import SuspenseToast from '../components/SuspenseToast';
 import DonorPicker from '../components/DonorPicker';
 import { ModernDateInput } from '../components/ModernDateInput';
 import { ModernTimeInput } from '../components/ModernTimeInput';
@@ -446,6 +448,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[wr,setWr]=useState([]);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
+  const navigate=useNavigate();
+  const[suspenseToasts,setSuspenseToasts]=useState([]);
 
   useEffect(()=>{if((sa||se)&&wr.length===0){Promise.allSettled([apiGet('/workers?status=all'),apiGet('/auth/fro-workers')]).then(([a,b])=>{
     const bList=(b.status==='fulfilled'&&b.value)?(Array.isArray(b.value)?b.value:(b.value.workers||[])):[];
@@ -472,7 +476,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const rtTimerRef=useRef(null);
   const rtLoad=()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current);rtTimerRef.current=setTimeout(()=>load(sd,srRef.current,dd,true),400)};
   useEffect(()=>()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current)},[]);
-  useRealtime('bank_audit_entries',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
+  useRealtime('bank_audit_entries',{event:'*',onInsert:(row)=>{rtLoad();if(row){const id=row.id||Date.now();setSuspenseToasts(prev=>[...prev.slice(-4),{...row,_toastId:id}]);setTimeout(()=>setSuspenseToasts(prev=>prev.filter(t=>t._toastId!==id)),8000)}},onUpdate:rtLoad,onDelete:rtLoad});
   useRealtime('receipts',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
 
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],mann:['mann','manncar','mann care'],aflf:['aflf','ashray']};
@@ -887,5 +891,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     </div>})()}
 
     <Toast message={to.msg} type={to.type} visible={to.vis} onClose={()=>setTo(p=>({...p,vis:false}))}/>
+    <SuspenseToast entries={suspenseToasts} onDismiss={(id)=>setSuspenseToasts(prev=>prev.filter(t=>t._toastId!==id))} onNavigate={()=>{setSuspenseToasts([]);navigate('/accounts/leads')}}/>
   </div>;
 }
