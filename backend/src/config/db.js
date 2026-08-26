@@ -38,6 +38,10 @@ if (process.env.DATABASE_URL) {
     poolConfig.ssl = { rejectUnauthorized: false };
   }
 }
+// The business operates on IST calendar days. Pinning each session's timezone
+// makes now(), ::date casts and naive timestamp comparisons mean IST
+// everywhere, killing the UTC-vs-IST date-filter bug class at the root.
+poolConfig.options = [poolConfig.options, '-c timezone=Asia/Kolkata'].filter(Boolean).join(' ');
 const pgPool = new pg.Pool(poolConfig);
 pgPool.on('error', (err) => console.error('pg pool idle client error:', err.message));
 
