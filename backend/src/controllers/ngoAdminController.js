@@ -5107,6 +5107,114 @@ export const restoreWrongAssignments = async (req, res) => {
     }
 
     return res.json({ restored: restoredCount, details });
+};
+
+// FRO-level Hourly Performance
+export const getFroHourlyPerformance = async (req, res) => {
+  try {
+    const { ngo_id, from, to } = req.query;
+    const ngoIds = await getUserNgoIds(req.user);
+    const effectiveNgoId = ngo_id || (ngoIds.length === 1 ? ngoIds[0] : null);
+
+    const fromDate = from || new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+    const toDate = to || new Date().toISOString();
+
+    let logQuery = db
+      .from('fro_donor_logs')
+      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_assignments!inner(ngo_id, fro_worker_id), workers!fro_donor_logs_fro_worker_id_fkey(name, login_id)')
+      .gte('created_at', fromDate)
+      .lte('created_at', toDate);
+
+    if (effectiveNgoId) {
+      logQuery = logQuery.eq('fro_assignments.ngo_id', effectiveNgoId);
+    } else if (ngoIds.length > 0) {
+      logQuery = logQuery.in('fro_assignments.ngo_id', ngoIds);
+    }
+
+    const { data: logs, error } = await logQuery;
+    if (error) throw error;
+
+    const connectedStatuses = new Set([
+      'donation_collected', 'promise_to_pay', 'lead_done', 'done',
+      'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated',
+      'pending', 'contacted', 'follow_up', 'scheduled',
+      'email_sent', 'whatsapp_sent', 'csr_inquiry',
+      'wants_80g_details', 'wants_trust_documents'
+    ]);
+    const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+
+    // Build FRO-hourly map
+    const froHourlyMap = {};
+    for (const l of logs || []) {
+      const wid = l.fro_worker_id;
+      const wname = l.workers?.name || 'Unknown';
+      const wlogin = l.workers?.login_id || '';
+      const hour = new Date(l.created_at).getHours();
+      if (hour < 9 || hour > 20) continue;
+      const hourStr = `${String(hour).padStart(2, '0')}:00-${String(hour+1).padStart(2, '0')}:00`;
+
+      const key = `${wid}|${hourStr}`;
+      if (!froHourlyMap[key]) {
+        froHourlyMap[key] = {
+          fro_worker_id: wid,
+          fro_name: wname,
+          fro_login_id: wlogin,
+          hour: hourStr,
+          calls: 0,
+          connected: 0,
+          interested: 0,
+          donations: 0,
+          amount: 0,
+        };
+      }
+      froHourlyMap[key].calls++;
+      if (connectedStatuses.has(l.disposition_detail)) froHourlyMap[key].connected++;
+      if (interestedStatuses.has(l.disposition_detail)) froHourlyMap[key].interested++;
+      if (l.accounts_status === 'verified') {
+        froHourlyMap[key].donations++;
+        froHourlyMap[key].amount += parseFloat(l.amount_collected || 0);
+      }
+    }
+
+    // Ensure all hours exist for all FROs (fill gaps with zeros)
+    const allFros = new Set();
+    const allHours = Array.from({ length: 12 }, (_, i) => 
+      `${String(9+i).padStart(2, '0')}:00-${String(10+i).padStart(2, '0')}:00`
+    );
+    for (const entry of Object.values(froHourlyMap)) {
+      allFros.add(entry.fro_worker_id);
+    }
+    for (const wid of allFros) {
+      for (const h of allHours) {
+        const key = `${wid}|${h}`;
+        if (!froHourlyMap[key]) {
+          const sample = Object.values(froHourlyMap).find(e => e.fro_worker_id === wid) || {};
+          froHourlyMap[key] = {
+            fro_worker_id: wid,
+            fro_name: sample.fro_name || 'Unknown',
+            fro_login_id: sample.fro_login_id || '',
+            hour: h,
+            calls: 0,
+            connected: 0,
+            interested: 0,
+            donations: 0,
+            amount: 0,
+          };
+        }
+      }
+    }
+
+    const result = Object.values(froHourlyMap)
+      .sort((a, b) => {
+        if (a.fro_name !== b.fro_name) return a.fro_name.localeCompare(b.fro_name);
+        return a.hour.localeCompare(b.hour);
+      });
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
   } catch (error) {
     console.error('restoreWrongAssignments error:', error.message);
     return res.status(500).json({ message: error.message });

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx-js-style';
 import { 
   Search, Filter, Download, ChevronDown, 
   MoreVertical, Eye, ArrowLeftRight, Calendar, 
@@ -26,6 +27,8 @@ export function TelecallerTable({
   loading = false,
   sortConfig = { key: null, direction: 'asc' },
   filterValue = '',
+  hourlyData = [],
+  period = 'today',
 }) {
   const [search, setSearch] = useState(filterValue);
   const [sortKey, setSortKey] = useState(sortConfig.key);
@@ -39,6 +42,80 @@ export function TelecallerTable({
       setSortDirection('asc');
     }
     onSort?.({ key, direction: sortKey === key ? (sortDirection === 'asc' ? 'desc' : 'asc') : 'asc' });
+  };
+
+  const handleExport = () => {
+    const wb = XLSX.utils.book_new();
+
+    // Connected statuses - we'll create a breakdown from the data
+    const connectedStatusLabels = {
+      connected: 'Connected',
+      interested: 'Interested',
+      receivedDonors: 'Received',
+      // Add more as needed based on data
+    };
+
+    // Sheet 1: Telecaller Performance Summary
+    const summaryHeaders = [
+      'Telecaller', 'Login ID', 'Calls', 'Connected', 'Non-Connected',
+      'Connected Status Breakdown', 'Interested', 'Received Donors', 'Amount (₹)', 'Target %',
+      'Claims Pending', 'Claims Verified', 'Claims Rejected', 'Live Status'
+    ];
+    const summaryRows = sortedData.map(row => {
+      const nonConnected = Math.max(0, row.calls - row.connected);
+      // Create connected status breakdown from available data
+      const connectedBreakdown = [
+        `Connected: ${row.connected}`,
+        `Interested: ${row.interested}`,
+        `Received: ${row.receivedDonors}`
+      ].join('; ');
+      
+      return [
+        row.fro_name,
+        row.fro_login_id || '',
+        row.calls,
+        row.connected,
+        nonConnected,
+        connectedBreakdown,
+        row.interested,
+        row.receivedDonors,
+        row.receivedAmount,
+        row.targetPct,
+        row.claims_pending || 0,
+        row.claims_verified || 0,
+        row.claims_rejected || 0,
+        row.status || 'offline'
+      ];
+    });
+    const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
+    summarySheet['!cols'] = [
+      { wch: 25 }, { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 14 },
+      { wch: 40 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 10 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
+    ];
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'Telecaller Performance');
+
+    // Sheet 2: Hourly Performance (if data available)
+    if (hourlyData && hourlyData.length > 0) {
+      const hourlyHeaders = ['Hour', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'];
+      const hourlyRows = hourlyData.map(d => [
+        d.hour,
+        d.calls,
+        d.connected,
+        d.interested,
+        d.donations,
+        d.amount
+      ]);
+      const hourlySheet = XLSX.utils.aoa_to_sheet([hourlyHeaders, ...hourlyRows]);
+      hourlySheet['!cols'] = [
+        { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, hourlySheet, 'Hourly Breakdown');
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `telecaller-performance-${period}-${dateStr}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   const sortedData = useMemo(() => {
@@ -114,7 +191,7 @@ export function TelecallerTable({
         </div>
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
           <button 
-            onClick={() => { /* export logic */ }}
+            onClick={handleExport}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 8, background: 'transparent', color: 'var(--ink-soft)', fontSize: 11, fontWeight: 500, cursor: 'pointer' }}
           >
             <Download width="14" height="14" />
