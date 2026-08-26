@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
+import MatchLines from '../components/MatchLines';
 
 function SectionTitle({ children }) {
   return <div className="lead-audit-section-title"><span>{children}</span></div>;
@@ -24,6 +25,7 @@ export default function LeadAudit() {
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
+  const workspaceRef = useRef(null);
 
   // Last issued + next upcoming receipt number per NGO. Read-only; refetched
   // whenever the bank-audit data changes (e.g. after a new receipt is created).
@@ -88,7 +90,7 @@ export default function LeadAudit() {
           ))}
         </div>
       )}
-      <div className="lead-audit-workspace" style={{ marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
+      <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
         <div className="lead-audit-global-filter">
           <span className="lead-audit-filter-label">Workspace filter</span>
           <span className="lead-audit-filter-divider" />
@@ -118,6 +120,11 @@ export default function LeadAudit() {
             <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
           </div>
         </div>
+
+        <MatchLines containerRef={workspaceRef}
+          previewLogId={!detailView && !entryDetailView && selectedLead && selectedEntry ? String(selectedLead.log_id) : ''}
+          previewEntryId={!detailView && !entryDetailView && selectedLead && selectedEntry ? String(selectedEntry.id) : ''}
+        />
 
         {(selectedLead || selectedEntry) && (
           <div className="match-bar">
