@@ -13,7 +13,6 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 const SHORT_NGO_LABELS = { mann: 'Mann Care', aflf: 'Ashray', bsct: 'Being Sevak' };
-const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Cheque', 'NEFT'];
 
 function resolveNgo(projectId) {
   const p = (projectId || '').toLowerCase().trim();
@@ -417,11 +416,11 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                   <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{new Date(l.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Payment Mode</div>
-                  {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'NA'}</div>}
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>MOP (as per audit)</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{l.audit_mop||'NA'}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Audit Source</div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Received Bank</div>
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{l.audit_source||'NA'}</div>
                 </div>
                 <div style={{position:'relative'}} ref={suggestRef}>
