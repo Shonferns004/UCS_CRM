@@ -1953,20 +1953,45 @@ export const getMyDonors = async (req, res) => {
     const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
       'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
     ]);
+    // "Could not reach the donor" outcomes. Once a donor's most recent
+    // disposition EVER is one of these, they never re-enter the work queue —
+    // not on the 1st, not ever — unless real money later lands on the
+    // assignment (money statuses below stay visible as proof of collection).
+    const NOT_CONNECTED_DISPOSITION_DETAILS = new Set([
+      'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off',
+      'out_of_coverage', 'wrong_number', 'invalid_number', 'invalid',
+      'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out',
+    ]);
+    const MONEY_DONE_STATUSES = new Set([
+      'donation_collected', 'done', 'lead_done', 'visit_donate',
+      'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
+    ]);
     const hiddenDispositionsIds = new Set();
+    const notConnectedForeverIds = new Set();
     if (donorIds.length > 0) {
+      // No month bounds: one descending pass resolves BOTH the latest-ever
+      // disposition (permanent not-connected hide) and the latest-in-month
+      // disposition (existing monthly rule) per donor.
       const recentLogs = await chunkedInQuery(donorIds, chunk =>
         db.from('fro_donor_logs').select('donor_id, disposition_detail, created_at')
           .in('donor_id', chunk)
           .eq('action', 'disposition')
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd)
           .order('created_at', { ascending: false })
       );
-      const seen = new Set();
+      const monthStartMs = Date.parse(monthStart);
+      const monthEndMs = Date.parse(monthEnd);
+      const seenEver = new Set();
+      const seenMonth = new Set();
       for (const log of recentLogs) {
-        if (!seen.has(log.donor_id)) {
-          seen.add(log.donor_id);
+        const t = Date.parse(log.created_at);
+        if (!seenEver.has(log.donor_id)) {
+          seenEver.add(log.donor_id);
+          if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
+            notConnectedForeverIds.add(log.donor_id);
+          }
+        }
+        if (!seenMonth.has(log.donor_id) && t >= monthStartMs && t <= monthEndMs) {
+          seenMonth.add(log.donor_id);
           if (!SCHEDULE_CALLBACK_DISPOSITIONS.has(log.disposition_detail)) {
             hiddenDispositionsIds.add(log.donor_id);
           }
@@ -1974,9 +1999,13 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    const baseFiltered = req.query.verified_only === 'true'
-      ? null
-      : result.filter(r => !hiddenDispositionsIds.has(r.donor_id));
+    let baseFiltered;
+    if (req.query.verified_only === 'true') {
+      baseFiltered = null;
+    } else {
+      baseFiltered = result.filter(r => !hiddenDispositionsIds.has(r.donor_id)
+        && !(notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)));
+    }
     let filtered = baseFiltered === null ? result : baseFiltered;
 
     // Late-month safety valve: the hide-until-next-month rule exists to keep
@@ -2020,6 +2049,7 @@ export const getMyDonors = async (req, res) => {
         '| ngo_id:', req.query.ngo_id || 'all',
         '| station:', req.query.station || 'all',
         '| hidden_dispositions:', hiddenDispositionsIds.size,
+        '| not_connected_forever:', notConnectedForeverIds.size,
         '| result_before_hide:', result.length);
     }
 
