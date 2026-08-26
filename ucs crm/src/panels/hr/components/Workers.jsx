@@ -275,7 +275,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             r.department || '',
             r.ngo_name,
             r.name,
-            r.date_of_joining ? r.date_of_joining.split('T')[0] : '',
+            r.date_of_joining ? (() => { const d = r.date_of_joining.split('T')[0].split('-'); return `${d[2]}-${d[1]}-${d[0]}`; })() : '',
             r.salary || 0,           // E: Salary
             r.target || 0,           // F: Target
             r.achieved || 0,         // G: Achieved
@@ -397,7 +397,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           r.bank_name || '',
           r.account_number || '',
           r.station || '',
-          r.doj || '',
+          r.doj ? (() => { const d = r.doj.split('-'); return `${d[2]}-${d[1]}-${d[0]}`; })() : '',
           r.salary || 0,
           r.target || 0,
           r.achieved || 0,
