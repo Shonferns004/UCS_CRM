@@ -434,10 +434,12 @@ export const getPagarExportData = async (month) => {
 
   // 3. Targets for month — manual fro_monthly_targets (latest per worker) wins over auto incentive_targets
   // fro_monthly_targets stores month as first-of-month (YYYY-MM-01), matching our startDate
+  // Exclude target_amount = 0 (phantom rows created by achieved_target/incentive upserts)
   const { data: manualTargets, error: mtErr } = await db
     .from('fro_monthly_targets')
     .select('fro_worker_id, target_amount, created_at')
     .eq('month', startDate)
+    .gt('target_amount', 0)
     .order('created_at', { ascending: false });
   if (mtErr) throw mtErr;
   
@@ -455,6 +457,7 @@ export const getPagarExportData = async (month) => {
     .select('worker_id, target_amount, month')
     .gte('month', startDate)
     .lte('month', endDate)
+    .gt('target_amount', 0)
     .order('month', { ascending: false });
   if (atErr) throw atErr;
   
