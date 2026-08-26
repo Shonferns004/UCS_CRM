@@ -1,6 +1,25 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
+import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X } from 'lucide-react'
+
+// Soft accent palette cycled per NGO so each assignment card is instantly
+// recognizable even when a donor spans several NGOs.
+const NGO_TONES = [
+  { bg: '#E8EDE1', fg: '#44543a', dot: '#5B6B4E' },
+  { bg: '#F6EAD0', fg: '#7a5a17', dot: '#C08A2E' },
+  { bg: '#F4E4DA', fg: '#8a4626', dot: '#B5603A' },
+  { bg: '#E3ECF3', fg: '#33566e', dot: '#48789b' },
+  { bg: '#EDE7F1', fg: '#5d4370', dot: '#825aa0' },
+]
+const ngoTone = (id) => {
+  let h = 0
+  const s = String(id ?? '')
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return NGO_TONES[h % NGO_TONES.length]
+}
+
+const initialsOf = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 
 const currency = (n) => {
   if (n == null || isNaN(n)) return '\u20B90'
@@ -243,6 +262,7 @@ function SetStationModal({ donor, ngoOptions, onClose, onSaved }) {
   const [stationOpts, setStationOpts] = useState([])
   const [picks, setPicks] = useState({})
   const [busyId, setBusyId] = useState(null)
+  const [confirmId, setConfirmId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -292,12 +312,12 @@ function SetStationModal({ donor, ngoOptions, onClose, onSaved }) {
   }
 
   const removeAssignment = async (entry) => {
-    if (!confirm(`Remove ${entry.name}${ngoNameOf(entry.ngo_id) ? ` (${ngoNameOf(entry.ngo_id)})` : ''} from this donor? The agent loses this lead and its history.`)) return
     setBusyId(entry.id); setErr('')
     try {
       await apiDelete(`/accounts/donors/${donor.id}/assignments/${entry.id}`)
       const left = entries.filter(e => e.id !== entry.id)
       setEntries(left)
+      setConfirmId(null)
       if (left.length === 0) onSaved()
     } catch (e) {
       setErr(e.message)
@@ -306,68 +326,152 @@ function SetStationModal({ donor, ngoOptions, onClose, onSaved }) {
     }
   }
 
+  const changedCount = changedEntries().length
+  const agentNameOf = (id) => (agents.find(a => String(a.id) === String(id)) || {}).name || ''
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 520, width: '94%' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-head" style={{ justifyContent: 'space-between' }}>
-          <h3 style={{ fontSize: 15 }}>Manage Assignment — {donor.name || 'Donor'}</h3>
-          <button onClick={onClose} className="btn btn-icon" title="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-        </div>
-        <div className="modal-body" style={{ padding: 20 }}>
-          <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 14px' }}>
-            These assignments have no station. Set one, swap the agent, or remove the assignment entirely.
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {entries.map(e => (
-              <div key={e.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', position: 'relative' }}>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 8 }}>
-                  {ngoNameOf(e.ngo_id) || 'NGO'} · currently: <strong style={{ color: 'var(--ink)' }}>{e.name}</strong>
-                  <button
-                    onClick={() => removeAssignment(e)}
-                    disabled={busyId === e.id}
-                    title="Delete assignment — frees the donor completely"
-                    style={{ position: 'absolute', top: 8, right: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: 6, padding: '3px 7px', fontSize: 11, cursor: busyId === e.id ? 'wait' : 'pointer' }}
-                  >
-                    {busyId === e.id ? '...' : '🗑 Remove'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <select
-                    value={pickOf(e).worker_id}
-                    onChange={ev => setPick(e.id, { worker_id: ev.target.value })}
-                    style={{ flex: 1, minWidth: 0, padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, background: '#fff' }}
-                    title="Agent"
-                  >
-                    {(e.worker_id && !agents.some(a => String(a.id) === String(e.worker_id))
-                      ? [{ id: e.worker_id, name: `${e.name} (current)` }]
-                      : []
-                    ).concat(agents).map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={pickOf(e).station}
-                    onChange={ev => setPick(e.id, { station: ev.target.value })}
-                    style={{ flex: 1, minWidth: 0, padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, background: '#fff' }}
-                    title="Station"
-                  >
-                    <option value="">— pick station —</option>
-                    {optionsFor(e).map(o => <option key={o.ngo_id + '|' + o.station} value={o.station}>{o.station}</option>)}
-                  </select>
+      <div className="modal" style={{ maxWidth: 540, width: '94%', borderRadius: 'var(--radius)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(180deg,#fafbf8, #fff)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--sage-soft, #E8EDE1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#44543a', flexShrink: 0 }}>
+                <UserCog size={19} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: 'var(--ink)' }}>Manage Assignments</h3>
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{donor.name || 'Donor'}</span>
+                  {donor.mobile_number && <span>· {donor.mobile_number}</span>}
+                  {donor.city && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={11} />{donor.city}</span>}
                 </div>
               </div>
-            ))}
+            </div>
+            <button onClick={onClose} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--ink-soft)', padding: 6, borderRadius: 8, display: 'flex' }}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding: '16px 22px', maxHeight: '62vh', overflowY: 'auto' }}>
+          <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 14px' }}>
+            These assignments are missing a station. Set one, swap the agent, or remove the assignment entirely.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {entries.map(e => {
+              const tone = ngoTone(e.ngo_id)
+              const p = pickOf(e)
+              const modified = (p.worker_id && p.worker_id !== e.worker_id) || p.station
+              return (
+                <div
+                  key={e.id}
+                  style={{
+                    border: `1px solid ${modified ? 'var(--sage)' : 'var(--line)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '12px 14px',
+                    position: 'relative',
+                    background: modified ? '#f7f9f5' : '#fff',
+                    boxShadow: modified ? '0 0 0 1px var(--sage)' : 'none',
+                    transition: 'border-color .15s, box-shadow .15s',
+                  }}
+                >
+                  {modified && (
+                    <span title="Unsaved change" style={{ position: 'absolute', top: -5, right: -5, width: 11, height: 11, borderRadius: '50%', background: 'var(--warning, #e67e22)', border: '2px solid #fff' }} />
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: tone.bg, color: tone.fg, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: tone.dot }} />
+                      {ngoNameOf(e.ngo_id) || 'NGO'}
+                    </span>
+                    {confirmId === e.id ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 11, color: 'var(--danger)' }}>Remove agent & history?</span>
+                        <button onClick={() => removeAssignment(e)} disabled={busyId === e.id} style={{ background: 'var(--danger, #d9534f)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600 }}>
+                          {busyId === e.id ? 'Removing…' : 'Yes, remove'}
+                        </button>
+                        <button onClick={() => setConfirmId(null)} style={{ background: '#fff', color: 'var(--ink-soft)', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 10px', fontSize: 11 }}>No</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmId(e.id)}
+                        disabled={busyId === e.id}
+                        title="Delete assignment — frees the donor completely"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 6, padding: '4px 9px', fontSize: 11, opacity: busyId === e.id ? .5 : 1 }}
+                      >
+                        <Trash2 size={12} /> Remove
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: tone.bg, color: tone.fg, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {initialsOf(p.worker_id ? agentNameOf(p.worker_id) : e.name)}
+                    </div>
+                    <div style={{ fontSize: 12 }}>
+                      <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{p.worker_id ? (agentNameOf(p.worker_id) || e.name) : e.name}</span>
+                      {!p.station && <span style={{ color: 'var(--warning, #e67e22)' }}> · no station yet</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <label style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink-soft)' }}>Agent</span>
+                      <select
+                        value={p.worker_id}
+                        onChange={ev => setPick(e.id, { worker_id: ev.target.value })}
+                        style={{ padding: '7px 9px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 13, background: '#fff', color: 'var(--ink)' }}
+                      >
+                        {(e.worker_id && !agents.some(a => String(a.id) === String(e.worker_id))
+                          ? [{ id: e.worker_id, name: `${e.name}` }]
+                          : []
+                        ).concat(agents).map(a => (
+                          <option key={a.id} value={a.id}>{a.name}{String(a.id) === String(e.worker_id) ? ' — current' : ''}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: p.station && !modified ? 'var(--success)' : 'var(--ink-soft)' }}>Station</span>
+                      <select
+                        value={p.station}
+                        onChange={ev => setPick(e.id, { station: ev.target.value })}
+                        style={{ padding: '7px 9px', borderRadius: 8, border: `1px solid ${p.station ? 'var(--success)' : 'var(--line)'}`, fontSize: 13, background: '#fff', color: 'var(--ink)' }}
+                      >
+                        <option value="">— pick station —</option>
+                        {optionsFor(e).map(o => <option key={o.ngo_id + '|' + o.station} value={o.station}>{o.station}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  {modified && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: '#44543a', background: 'var(--sage-soft, #E8EDE1)', borderRadius: 6, padding: '5px 9px' }}>
+                      On save → <strong>{agentNameOf(p.worker_id) || e.name}</strong> picks up this donor at <strong>{p.station}</strong>. Old assignment kept in history.
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             {entries.length === 0 && (
-              <div style={{ fontSize: 13, color: 'var(--ink-soft)', textAlign: 'center', padding: '20px 0' }}>
-                All assignments resolved. Reloading…
+              <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--success)' }}>
+                <CheckCircle2 size={28} style={{ marginBottom: 8 }} />
+                <div style={{ fontSize: 13, fontWeight: 500 }}>All assignments resolved</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Reloading…</div>
               </div>
             )}
           </div>
-          {err && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{err}</div>}
+          {err && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '9px 12px', marginTop: 14 }}>
+              <AlertCircle size={14} /> {err}
+            </div>
+          )}
         </div>
-        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button className="btn btn-sm" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-sm btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+
+        <div style={{ padding: '13px 22px', borderTop: '1px solid var(--line)', background: '#fafbf8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 12, color: changedCount > 0 ? 'var(--warning, #e67e22)' : 'var(--ink-soft)', fontWeight: changedCount > 0 ? 600 : 400 }}>
+            {changedCount > 0 ? `${changedCount} unsaved change${changedCount > 1 ? 's' : ''}` : 'No changes yet'}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="btn btn-sm btn-primary" onClick={save} disabled={saving || changedCount === 0}>
+              {saving ? 'Saving…' : `Save${changedCount > 0 ? ` (${changedCount})` : ''}`}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -553,9 +657,9 @@ export default function Donors() {
                             className="btn btn-sm"
                             onClick={e => { e.stopPropagation(); setStationDonor(d) }}
                             title="Assign the missing station"
-                            style={{ margin: '6px 10px', fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f0fdf4', color: '#166534', border: '1px solid #86efac', width: 'fit-content' }}
+                            style={{ margin: '6px 10px', fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--sage-soft, #E8EDE1)', color: '#44543a', border: '1px solid #cdd9c2', borderRadius: 20, fontWeight: 600, width: 'fit-content' }}
                           >
-                            ✏️ Set station
+                            <UserCog size={12} /> Manage
                           </button>
                         )}
                       </div>
