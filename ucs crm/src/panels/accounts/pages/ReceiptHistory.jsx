@@ -30,7 +30,7 @@ function getWaSettings(project) {
   } catch { return d; }
 }
 
-const EXCEL_HEADER = ["Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Station","Agent Name","MOP","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
+const EXCEL_HEADER = ["Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Agent Name","MOP","Received Bank","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -638,9 +638,9 @@ export default function ReceiptHistory() {
         'Address-2 ': notNa(r.address_2),
         'Pan. No. ': r.pan_number || 'NA',
         'Mail Id ': r.email || 'NA',
-        'Station': r.station || 'NA',
         'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || 'NA'),
         'MOP': r.mode || 'NA',
+        'Received Bank': r.received_bank || 'NA',
         'Payment ID No. ': r.payment_id || 'NA',
         'Amt': r.amount || 0,
         'Receipt No.': r.receipt_no || 'NA',
