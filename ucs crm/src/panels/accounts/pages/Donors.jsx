@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet, apiPost, apiPatch } from '../api/auth'
+import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
 
 const currency = (n) => {
   if (n == null || isNaN(n)) return '\u20B90'
@@ -230,37 +230,59 @@ const hasBlankStationEntry = (d) =>
   Array.isArray(d.assignment_list) &&
   d.assignment_list.some(a => a.id && a.name && !(a.station && String(a.station).trim() !== ''))
 
-// Mini modal to stamp stations on an orphaned donor's agent-assignments.
-// Options come from the real station registry so saved strings always match
-// queue matching exactly.
+// Mini modal to manage an orphaned donor's agent-assignments: set the missing
+// station, swap in a different agent, or delete the assignment outright.
+// Station choices come from the real registry so saved strings always match
+// queue matching exactly; agents are active FROs from /receipts/fro-workers.
 function SetStationModal({ donor, ngoOptions, onClose, onSaved }) {
-  const entries = (Array.isArray(donor.assignment_list) ? donor.assignment_list : [])
-    .filter(a => a.id && a.name && !(a.station && String(a.station).trim() !== ''))
-  const [options, setOptions] = useState([])
+  const [entries, setEntries] = useState(() =>
+    (Array.isArray(donor.assignment_list) ? donor.assignment_list : [])
+      .filter(a => a.id && a.name && !(a.station && String(a.station).trim() !== ''))
+  )
+  const [agents, setAgents] = useState([])
+  const [stationOpts, setStationOpts] = useState([])
   const [picks, setPicks] = useState({})
+  const [busyId, setBusyId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
   useEffect(() => {
     apiGet('/accounts/stations-options')
-      .then(r => setOptions(r.options || []))
+      .then(r => setStationOpts(r.options || []))
       .catch(e => setErr(e.message))
+    apiGet('/accounts/receipts/fro-workers')
+      .then(r => setAgents(Array.isArray(r) ? r : []))
+      .catch(() => {})
   }, [])
 
   const ngoNameOf = (id) => (ngoOptions.find(n => n.id === id) || {}).name || ''
   // Station choices scoped to the assignment's own NGO first; fall back to the
   // full registry when that NGO has no registered stations yet.
   const optionsFor = (entry) => {
-    const own = options.filter(o => o.ngo_id === entry.ngo_id)
-    return own.length > 0 ? own : options
+    const own = stationOpts.filter(o => o.ngo_id === entry.ngo_id)
+    return own.length > 0 ? own : stationOpts
   }
 
+  const pickOf = (e) => picks[e.id] || { worker_id: '', station: '' }
+  const setPick = (id, patch) => setPicks(p => ({ ...p, [id]: { ...(p[id] || { worker_id: '', station: '' }), ...patch } }))
+  const changedEntries = () => entries.filter(e => {
+    const p = pickOf(e)
+    return (p.worker_id && p.worker_id !== e.worker_id) || p.station
+  })
+
   const save = async () => {
-    const assignments = entries.filter(e => picks[e.id]).map(e => ({ id: e.id, station: picks[e.id] }))
-    if (assignments.length === 0) { setErr('Pick a station for at least one row'); return }
+    const targets = changedEntries()
+    if (targets.length === 0) { setErr('Change an agent or pick a station first'); return }
+    for (const t of targets) if (!pickOf(t).station) { setErr('Pick a station for every row you are saving'); return }
     setSaving(true); setErr('')
     try {
-      await apiPatch(`/accounts/donors/${donor.id}/assignment-station`, { assignments })
+      for (const t of targets) {
+        const p = pickOf(t)
+        await apiPatch(`/accounts/donors/${donor.id}/assignments/${t.id}/replace`, {
+          fro_worker_id: p.worker_id || t.worker_id,
+          station: p.station,
+        })
+      }
       onSaved()
     } catch (e) {
       setErr(e.message)
@@ -269,40 +291,83 @@ function SetStationModal({ donor, ngoOptions, onClose, onSaved }) {
     }
   }
 
+  const removeAssignment = async (entry) => {
+    if (!confirm(`Remove ${entry.name}${ngoNameOf(entry.ngo_id) ? ` (${ngoNameOf(entry.ngo_id)})` : ''} from this donor? The agent loses this lead and its history.`)) return
+    setBusyId(entry.id); setErr('')
+    try {
+      await apiDelete(`/accounts/donors/${donor.id}/assignments/${entry.id}`)
+      const left = entries.filter(e => e.id !== entry.id)
+      setEntries(left)
+      if (left.length === 0) onSaved()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 460, width: '92%' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 520, width: '94%' }} onClick={e => e.stopPropagation()}>
         <div className="modal-head" style={{ justifyContent: 'space-between' }}>
-          <h3 style={{ fontSize: 15 }}>Set Station — {donor.name || 'Donor'}</h3>
+          <h3 style={{ fontSize: 15 }}>Manage Assignment — {donor.name || 'Donor'}</h3>
           <button onClick={onClose} className="btn btn-icon" title="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div className="modal-body" style={{ padding: 20 }}>
           <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 14px' }}>
-            These assignments have an agent but no station. Pick the right station — the donor enters that FRO's calling queue immediately.
+            These assignments have no station. Set one, swap the agent, or remove the assignment entirely.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {entries.map(e => (
-              <div key={e.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px' }}>
-                <div style={{ fontSize: 12, marginBottom: 6 }}>
-                  <strong>{e.name}</strong>
-                  {ngoNameOf(e.ngo_id) && <span style={{ color: 'var(--ink-soft)' }}> · {ngoNameOf(e.ngo_id)}</span>}
+              <div key={e.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', position: 'relative' }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 8 }}>
+                  {ngoNameOf(e.ngo_id) || 'NGO'} · currently: <strong style={{ color: 'var(--ink)' }}>{e.name}</strong>
+                  <button
+                    onClick={() => removeAssignment(e)}
+                    disabled={busyId === e.id}
+                    title="Delete assignment — frees the donor completely"
+                    style={{ position: 'absolute', top: 8, right: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: 6, padding: '3px 7px', fontSize: 11, cursor: busyId === e.id ? 'wait' : 'pointer' }}
+                  >
+                    {busyId === e.id ? '...' : '🗑 Remove'}
+                  </button>
                 </div>
-                <select
-                  value={picks[e.id] || ''}
-                  onChange={ev => setPicks(p => ({ ...p, [e.id]: ev.target.value }))}
-                  style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, background: '#fff' }}
-                >
-                  <option value="">— pick station ({ngoNameOf(e.ngo_id) || 'this NGO'}) —</option>
-                  {optionsFor(e).map(o => <option key={o.ngo_id + '|' + o.station} value={o.station}>{o.station}{ngoNameOf(o.ngo_id) ? ` · ${ngoNameOf(o.ngo_id)}` : ''}</option>)}
-                </select>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select
+                    value={pickOf(e).worker_id}
+                    onChange={ev => setPick(e.id, { worker_id: ev.target.value })}
+                    style={{ flex: 1, minWidth: 0, padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, background: '#fff' }}
+                    title="Agent"
+                  >
+                    {(e.worker_id && !agents.some(a => String(a.id) === String(e.worker_id))
+                      ? [{ id: e.worker_id, name: `${e.name} (current)` }]
+                      : []
+                    ).concat(agents).map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={pickOf(e).station}
+                    onChange={ev => setPick(e.id, { station: ev.target.value })}
+                    style={{ flex: 1, minWidth: 0, padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, background: '#fff' }}
+                    title="Station"
+                  >
+                    <option value="">— pick station —</option>
+                    {optionsFor(e).map(o => <option key={o.ngo_id + '|' + o.station} value={o.station}>{o.station}</option>)}
+                  </select>
+                </div>
               </div>
             ))}
+            {entries.length === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--ink-soft)', textAlign: 'center', padding: '20px 0' }}>
+                All assignments resolved. Reloading…
+              </div>
+            )}
           </div>
           {err && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{err}</div>}
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button className="btn btn-sm" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-sm btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save Stations'}</button>
+          <button className="btn btn-sm btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
         </div>
       </div>
     </div>
