@@ -1710,6 +1710,31 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
+    // Last-resort fallback for FROs with NO station assignments at all who also
+    // own nothing directly: serve the NGO's claimable pool (pending, unclaimed
+    // rows) instead of a dead end. Logging a disposition on any of these claims
+    // the row via findOrCreateAssignment, so work flows to them immediately.
+    // Deliberately skipped for station-scoped acting sessions — those must stay
+    // limited to the exact (ngo, station) pairs the operator claimed.
+    if ((!assignments || assignments.length === 0) && effectiveStations.length === 0 && !froActPairs(req)) {
+      let poolQ = db
+        .from('fro_assignments')
+        .select('*, ngos(name)')
+        .is('fro_worker_id', null)
+        .eq('status', 'pending');
+      const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
+      if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
+      if (req.query.new_only === 'true') poolQ = poolQ.eq('batch_type', 'new_data');
+      else if (req.query.old_only === 'true') poolQ = poolQ.eq('batch_type', 'old_data');
+      poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
+      try {
+        const { data: poolRows, error: poolErr } = await poolQ;
+        if (!poolErr && poolRows && poolRows.length > 0) assignments = poolRows;
+      } catch (poolEx) {
+        console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
+      }
+    }
+
     if (!assignments || assignments.length === 0) return res.json([]);
 
     const oneYearAgo = new Date();
