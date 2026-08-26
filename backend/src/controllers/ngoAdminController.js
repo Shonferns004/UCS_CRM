@@ -5107,6 +5107,10 @@ export const restoreWrongAssignments = async (req, res) => {
     }
 
     return res.json({ restored: restoredCount, details });
+  } catch (error) {
+    console.error('restoreWrongAssignments error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 // FRO-level Hourly Performance
@@ -5212,11 +5216,6 @@ export const getFroHourlyPerformance = async (req, res) => {
 
     return res.json(result);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
-  } catch (error) {
-    console.error('restoreWrongAssignments error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };
