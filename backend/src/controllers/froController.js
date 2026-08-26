@@ -1943,20 +1943,10 @@ export const getMyDonors = async (req, res) => {
     // 5. Ringing — always sinks to the very end of the queue
 
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+    const nowISO = now.toISOString();
 
-    // Hide donors whose most recent disposition this month is NOT schedule/
-    // callback.  They reappear automatically on the 1st of next month when
-    // the logs fall outside the query window.  Verified-only mode skips this
-    // filter (matches hiddenLeadDoneIds pattern).
-    const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
-      'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
-    ]);
-    // "Could not reach the donor" outcomes. Once a donor's most recent
-    // disposition EVER is one of these, they never re-enter the work queue —
-    // not on the 1st, not ever — unless real money later lands on the
-    // assignment (money statuses below stay visible as proof of collection).
+    // Permanent hide for terminal not-connected dispositions (wrong_number,
+    // invalid, etc.). These never re-enter the queue unless real money lands.
     const NOT_CONNECTED_DISPOSITION_DETAILS = new Set([
       'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off',
       'out_of_coverage', 'wrong_number', 'invalid_number', 'invalid',
@@ -1966,60 +1956,44 @@ export const getMyDonors = async (req, res) => {
       'donation_collected', 'done', 'lead_done', 'visit_donate',
       'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
     ]);
-    const hiddenDispositionsIds = new Set();
     const notConnectedForeverIds = new Set();
     if (donorIds.length > 0) {
-      // No month bounds: one descending pass resolves BOTH the latest-ever
-      // disposition (permanent not-connected hide) and the latest-in-month
-      // disposition (existing monthly rule) per donor.
       const recentLogs = await chunkedInQuery(donorIds, chunk =>
         db.from('fro_donor_logs').select('donor_id, disposition_detail, created_at')
           .in('donor_id', chunk)
           .eq('action', 'disposition')
           .order('created_at', { ascending: false })
       );
-      const monthStartMs = Date.parse(monthStart);
-      const monthEndMs = Date.parse(monthEnd);
       const seenEver = new Set();
-      const seenMonth = new Set();
       for (const log of recentLogs) {
-        const t = Date.parse(log.created_at);
         if (!seenEver.has(log.donor_id)) {
           seenEver.add(log.donor_id);
           if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
             notConnectedForeverIds.add(log.donor_id);
           }
         }
-        if (!seenMonth.has(log.donor_id) && t >= monthStartMs && t <= monthEndMs) {
-          seenMonth.add(log.donor_id);
-          if (!SCHEDULE_CALLBACK_DISPOSITIONS.has(log.disposition_detail)) {
-            hiddenDispositionsIds.add(log.donor_id);
-          }
-        }
       }
     }
+
+    const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
+      'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
+    ]);
 
     let baseFiltered;
     if (req.query.verified_only === 'true') {
       baseFiltered = null;
     } else {
-      baseFiltered = result.filter(r => !hiddenDispositionsIds.has(r.donor_id)
-        && !(notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)));
+      // Primary filter: hidden_until column set by disposition/donation logging.
+      // Leads are hidden until their scheduled time or until next month.
+      baseFiltered = result.filter(r => {
+        if (r.hidden_until && new Date(r.hidden_until) > now) return false;
+        if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
+        return true;
+      });
     }
     let filtered = baseFiltered === null ? result : baseFiltered;
 
-    // Late-month safety valve: the hide-until-next-month rule exists to keep
-    // FROs re-touching donors, but once every donor left in the pool has been
-    // dispositioned this month it must not collapse into a blank "no data"
-    // screen. When nothing survives the filter, show the hidden donors anyway
-    // — pushed to the back of the queue — and normal behaviour resumes on 1st.
-    const fellBackToHidden = baseFiltered !== null && filtered.length === 0 && result.length > 0;
-    if (fellBackToHidden) filtered = result;
-
-    // Only schedule/callback keep a lead in its normal position.  Every other
-    // disposition is already filtered out above (hiddenDispositionsIds).
     const groupOf = (r) => {
-      if (fellBackToHidden && hiddenDispositionsIds.has(r.donor_id)) return 6;
       return r.is_new ? 0
         : r.status === 'pending' ? 1
         : SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status) ? 2
@@ -2048,7 +2022,6 @@ export const getMyDonors = async (req, res) => {
         '| new_only:', req.query.new_only, '| old_only:', req.query.old_only,
         '| ngo_id:', req.query.ngo_id || 'all',
         '| station:', req.query.station || 'all',
-        '| hidden_dispositions:', hiddenDispositionsIds.size,
         '| not_connected_forever:', notConnectedForeverIds.size,
         '| result_before_hide:', result.length);
     }
@@ -2450,6 +2423,7 @@ export const createDonorLogHandler = async (req, res) => {
       await updateAssignmentStatus(assignment.id, {
         status: 'donation_collected',
         last_contacted_at: now,
+        hidden_until: firstOfNextMonthIST(),
       });
     } else if (action === 'disposition' && disposition_detail) {
       await completeAllScheduledByAssignment(assignment.id);
@@ -2471,6 +2445,7 @@ export const createDonorLogHandler = async (req, res) => {
         statusUpdates.next_follow_up = outcome.replace('next_date:', '').trim();
       }
 
+      statusUpdates.hidden_until = computeHiddenUntil(disposition_detail, scheduled_at);
       await updateAssignmentStatus(assignment.id, statusUpdates);
     } else if (action === 'call' || action === 'visit') {
       await updateAssignmentStatus(assignment.id, {
@@ -2643,6 +2618,23 @@ function dispositionDetailToStatus(detail) {
     call_disconnected: 'call_disconnected',
   };
   return map[detail] || 'contacted';
+}
+
+const SCHEDULE_DISPOSITIONS = new Set([
+  'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
+]);
+
+function firstOfNextMonthIST() {
+  const now = new Date();
+  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  return new Date(Date.UTC(ist.getFullYear(), ist.getMonth() + 1, 1, 0, 0, 0));
+}
+
+function computeHiddenUntil(dispositionDetail, scheduledAt) {
+  if (SCHEDULE_DISPOSITIONS.has(dispositionDetail) && scheduledAt) {
+    return new Date(scheduledAt);
+  }
+  return firstOfNextMonthIST();
 }
 
 export const scheduleContact = async (req, res) => {
