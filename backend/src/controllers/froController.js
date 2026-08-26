@@ -1936,16 +1936,28 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    const filtered = req.query.verified_only === 'true'
-      ? result
+    const baseFiltered = req.query.verified_only === 'true'
+      ? null
       : result.filter(r => !hiddenDispositionsIds.has(r.donor_id));
+    let filtered = baseFiltered === null ? result : baseFiltered;
+
+    // Late-month safety valve: the hide-until-next-month rule exists to keep
+    // FROs re-touching donors, but once every donor left in the pool has been
+    // dispositioned this month it must not collapse into a blank "no data"
+    // screen. When nothing survives the filter, show the hidden donors anyway
+    // — pushed to the back of the queue — and normal behaviour resumes on 1st.
+    const fellBackToHidden = baseFiltered !== null && filtered.length === 0 && result.length > 0;
+    if (fellBackToHidden) filtered = result;
 
     // Only schedule/callback keep a lead in its normal position.  Every other
     // disposition is already filtered out above (hiddenDispositionsIds).
-    const groupOf = (r) => r.is_new ? 0
-      : r.status === 'pending' ? 1
-      : SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status) ? 2
-      : 5;
+    const groupOf = (r) => {
+      if (fellBackToHidden && hiddenDispositionsIds.has(r.donor_id)) return 6;
+      return r.is_new ? 0
+        : r.status === 'pending' ? 1
+        : SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status) ? 2
+        : 5;
+    };
 
     filtered.sort((a, b) => {
       const groupA = groupOf(a);
