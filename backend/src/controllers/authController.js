@@ -296,27 +296,18 @@ export const impersonateFRO = async (req, res) => {
     // "108a3f4e-..." to 108 and fail the uuid comparison in Postgres).
     const target = await getWorkerById(String(worker_id).trim());
     if (!target) return res.status(404).json({ message: 'Worker not found' });
-    if (target.is_active === false || target.employment_status === 'terminated') {
-      return res.status(403).json({ message: 'Account is deactivated' });
-    }
 
     const targetDept = String(target.department || '').toLowerCase().trim();
     if (targetDept !== 'fro') {
       return res.status(400).json({ message: 'Only FRO workers can be impersonated' });
     }
 
+    // Any staff role may work as any FRO (the list shows everyone): each switch
+    // is gated by a fresh single-use admin-generated code below, which is the
+    // real authorization. Deactivated FROs stay selectable for data coverage.
     const operatorRole = req.user.role;
-    const operatorDept = String(req.user.department || '').toLowerCase().trim();
-    const isSuper = operatorRole === 'super_admin' || operatorRole === 'master';
-    const isNgoAdmin = operatorRole === 'admin' || operatorDept === 'ngo admin';
-    const isOperatorFro = operatorRole === 'fro' || operatorDept === 'fro';
-
-    if (!isSuper && !isNgoAdmin && !isOperatorFro) {
+    if (!['fro', 'super_admin', 'master', 'admin', 'accounts', 'hr'].includes(operatorRole)) {
       return res.status(403).json({ message: 'Not allowed to impersonate an FRO' });
-    }
-
-    if (!isSuper && req.user.ngo_id && target.ngo_id && req.user.ngo_id !== target.ngo_id) {
-      return res.status(403).json({ message: 'Can only impersonate FROs of your own NGO' });
     }
 
     // "Who are you?" step: the operator optionally identifies which FRO worker
@@ -338,14 +329,8 @@ export const impersonateFRO = async (req, res) => {
     if (imposter_worker_id && String(imposter_worker_id) !== String(req.user.id)) {
       const imposterWorker = await getWorkerById(String(imposter_worker_id).trim());
       if (!imposterWorker) return res.status(404).json({ message: 'Acting FRO worker not found' });
-      if (imposterWorker.is_active === false || imposterWorker.employment_status === 'terminated') {
-        return res.status(403).json({ message: 'Acting FRO account is deactivated' });
-      }
       const impDept = String(imposterWorker.department || '').toLowerCase().trim();
       if (impDept !== 'fro') return res.status(400).json({ message: 'Acting FRO must be an FRO worker' });
-      if (!isSuper && req.user.ngo_id && imposterWorker.ngo_id && req.user.ngo_id !== imposterWorker.ngo_id) {
-        return res.status(403).json({ message: 'Acting FRO must belong to your NGO' });
-      }
       imposterId = imposterWorker.id;
       imposterName = imposterWorker.name || '';
     } else if (imposter_worker_id && String(imposter_worker_id) === String(req.user.id)) {
@@ -467,24 +452,16 @@ export const impersonateFRO = async (req, res) => {
 // FROs the current user is allowed to impersonate (for the "Work as" picker).
 // Every worker whose department normalises to 'fro' is listed — including
 // deactivated ones, which the UI marks Inactive. btrim/lower matching so
-// padded or differently-cased departments never hide a name.
+// padded or differently-cased departments never hide a name. Every FRO is
+// listed regardless of NGO or active status — each switch is individually
+// authorized by a fresh admin-generated 4-digit code anyway.
 export const getFroWorkersForImpersonation = async (req, res) => {
   try {
-    const operatorRole = req.user.role;
-    const isSuperish = ['super_admin', 'master', 'accounts'].includes(operatorRole);
-
-    const params = [];
-    let where = `WHERE lower(btrim(coalesce(department, ''))) = 'fro'`;
-    if (!isSuperish && req.user.ngo_id) {
-      params.push(req.user.ngo_id);
-      where += ` AND ngo_id = $${params.length}`;
-    }
-
     const { rows, error } = await db._pool.query(
       `SELECT id, name, login_id, ngo_id, department, is_active, employment_status
-         FROM workers ${where}
-        ORDER BY name ASC`,
-      params
+         FROM workers
+        WHERE lower(btrim(coalesce(department, ''))) = 'fro'
+        ORDER BY name ASC`
     );
     if (error) throw error;
 
@@ -506,12 +483,6 @@ export const getFroWorkAsStations = async (req, res) => {
     const targetDept = String(target.department || '').toLowerCase().trim();
     if (targetDept !== 'fro') {
       return res.status(400).json({ message: 'Only FRO workers can be worked as' });
-    }
-
-    const operatorRole = req.user.role;
-    const isSuperish = ['super_admin', 'master', 'accounts'].includes(operatorRole);
-    if (!isSuperish && req.user.ngo_id && target.ngo_id && req.user.ngo_id !== target.ngo_id) {
-      return res.status(403).json({ message: 'Can only work as FROs of your own NGO' });
     }
 
     const { data: assigns, error: aErr } = await db
