@@ -809,8 +809,8 @@ const NGO_PROJECT_ALIASES = {
   aflf: ['aflf', 'ashray'],
 };
 
-async function myProjectSet(workerId) {
-  const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+async function myProjectSet(workerId, restrictPairs = null) {
+  const { allowedNgoIds } = await getMyStationScope(workerId, restrictPairs);
   if (allowedNgoIds.length === 0) return [];
   const { data: ngos } = await db.from('ngos').select('id, name').in('id', allowedNgoIds);
   const names = (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
@@ -940,7 +940,7 @@ export const searchSuspenseDonors = async (req, res) => {
     const { q } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
-    const projectSet = await myProjectSet(workerId);
+    const projectSet = await myProjectSet(workerId, froActPairs(req));
     if (projectSet.length === 0) return res.json([]);
 
     const term = `%${q.trim()}%`;
@@ -1110,7 +1110,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     let donorName = (donor_name || '').trim();
     if (!donorId && !donorName) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
 
-    const projectSet = await myProjectSet(workerId);
+    const projectSet = await myProjectSet(workerId, froActPairs(req));
 
     // Handle entry-XXX IDs (bank audit entries without a linked receipt):
     // auto-create a suspense receipt and link it, then continue the normal
