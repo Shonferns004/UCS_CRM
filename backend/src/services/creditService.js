@@ -65,8 +65,23 @@ export const confirmMatchCredit = async (entryId, actorId) => {
   const now = new Date().toISOString();
   const date = entry.transaction_date || new Date().toISOString().slice(0, 10);
 
+  // Credit names come from whoever ACTUALLY collected: the log's credited
+  // worker (the acting FRO during Work As), not the assignment owner. Falls
+  // back to the assignment owner only when they are the same person or the
+  // credited worker cannot be resolved.
+  let collectorName = null;
+  if (log.fro_worker_id) {
+    if (String(log.fro_worker_id) === String(assignment?.fro_worker_id)) {
+      collectorName = assignment?.workers?.name || null;
+    } else {
+      const { data: cwRow } = await db.from('workers').select('name').eq('id', log.fro_worker_id).maybeSingle();
+      collectorName = cwRow?.name || null;
+    }
+  }
+  if (!collectorName) collectorName = assignment?.workers?.name || null;
+
   const result = await db.transaction(async ({ from }) => {
-    const workerName = assignment?.workers?.name || null;
+    const workerName = collectorName;
     const entryPayer = String(entry.payer_name || '').trim() || null;
     const entryAgent = String(entry.agent_name || '').trim() || null;
     const donorAddress = [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null;

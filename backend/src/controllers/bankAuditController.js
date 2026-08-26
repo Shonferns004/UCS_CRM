@@ -1740,6 +1740,7 @@ export const resolveSuspenseEntry = async (req, res) => {
           if (assignment) {
             await db.from('fro_donor_logs').insert({
               assignment_id: assignment.id,
+              fro_worker_id: assignment.fro_worker_id,
               action: disposition_detail === 'lead_done' ? 'donation' : disposition_category || 'follow_up',
               disposition_category: disposition_category || 'other',
               disposition_detail: disposition_detail || 'resolved_suspense',

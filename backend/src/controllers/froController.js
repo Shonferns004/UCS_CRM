@@ -1140,7 +1140,7 @@ export const claimSuspenseReceipt = async (req, res) => {
             receipt_time: entry.payment_time || null,
             donor_name: donorName || entry.payer_name || null,
             payment_id: entry.payment_id || null,
-            agent_name: req.user.name || null,
+            agent_name: creditWorkerName || null,
           })
           .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
           .single();

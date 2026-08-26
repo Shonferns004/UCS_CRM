@@ -103,13 +103,25 @@ export const scoreEntryLead = (entry, lead) => {
 // and generates it into receipts).
 const linkSuspenseToLead = async (receipt, lead) => {
   const donor = lead.fro_assignments?.donor_profiles || {};
-  const worker = lead.fro_assignments?.workers || {};
+  // Agent stamp comes from whoever actually collected: the lead's credited
+  // worker (the acting FRO during Work As). Assignment owner is only the
+  // fallback when they are the same person.
+  let agentName = null;
+  if (lead.fro_worker_id) {
+    if (String(lead.fro_worker_id) === String(lead.fro_assignments?.fro_worker_id)) {
+      agentName = lead.fro_assignments?.workers?.name || null;
+    } else {
+      const { data: cwRow } = await db.from('workers').select('name').eq('id', lead.fro_worker_id).maybeSingle();
+      agentName = cwRow?.name || null;
+    }
+  }
+  if (!agentName) agentName = lead.fro_assignments?.workers?.name || null;
   const receiptPatch = {
     log_id: lead.id,
     donor_id: donor.id || null,
     donor_name: donor.name || receipt.donor_name || null,
     donor_mobile: donor.mobile_number || null,
-    agent_name: worker?.name || null,
+    agent_name: agentName,
     project_id: receipt.project_id || donor.project_supported || 'bsct',
     pan_number: donor.pan_number || null,
     address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
@@ -287,7 +299,7 @@ export const findAutoMatches = async () => {
   const { data: leads, error: lErr } = await db
     .from('fro_donor_logs')
     .select(`
-      id, amount_collected, upi_transaction_id, transaction_datetime, verified_at, created_at,
+      id, fro_worker_id, amount_collected, upi_transaction_id, transaction_datetime, verified_at, created_at,
       fro_assignments!inner(
         donor_id,
         fro_worker_id,
