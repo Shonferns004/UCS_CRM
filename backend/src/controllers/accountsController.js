@@ -1000,9 +1000,11 @@ export const goBackLead = async (req, res) => {
     // way the receipt number is cancelled so it can be reused.
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
-      const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
+      const { data: entry } = await db.from('bank_audit_entries').select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
-        const { error: eErr } = await db.from('bank_audit_entries').update({
+        // Keep the entry↔lead match so go-back restores the pre-verification
+        // state; only downgrade confirmed → matched so Accounts can re-confirm.
+        const entryPatch = {
           status: 'unverified',
           donor_id: null,
           donor_mobile: null,
@@ -1012,14 +1014,12 @@ export const goBackLead = async (req, res) => {
           donor_address_2: null,
           donor_city: null,
           donor_pin_code: null,
-          matched_lead_log_id: null,
-          match_status: null,
-          match_score: null,
-          matched_at: null,
           receipt_id: null,
           receipt_no: null,
           updated_at: new Date().toISOString(),
-        }).eq('id', entry.id);
+        };
+        if (entry.match_status && entry.match_status !== 'matched') entryPatch.match_status = 'matched';
+        const { error: eErr } = await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
       }
 
@@ -1153,12 +1153,14 @@ export const undoLeadVerification = async (req, res) => {
     // Cancel the receipt: a verification-only receipt is deleted outright; a
     // receipt tied to bank money is released back to the pool. Either way the
     // number is freed so the next verification reuses it. The linked bank audit
-    // entry is sent back to Bank Audit (unverified, unlinked).
+    // entry is sent back to Bank Audit (unverified, receipt-unlinked, match kept).
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
-      const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
+      const { data: entry } = await db.from('bank_audit_entries').select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
-        const { error: eErr } = await db.from('bank_audit_entries').update({
+        // Keep the entry↔lead match so undo restores the pre-verification
+        // state; only downgrade confirmed → matched so Accounts can re-confirm.
+        const entryPatch = {
           status: 'unverified',
           donor_id: null,
           donor_mobile: null,
@@ -1168,14 +1170,12 @@ export const undoLeadVerification = async (req, res) => {
           donor_address_2: null,
           donor_city: null,
           donor_pin_code: null,
-          matched_lead_log_id: null,
-          match_status: null,
-          match_score: null,
-          matched_at: null,
           receipt_id: null,
           receipt_no: null,
           updated_at: new Date().toISOString(),
-        }).eq('id', entry.id);
+        };
+        if (entry.match_status && entry.match_status !== 'matched') entryPatch.match_status = 'matched';
+        const { error: eErr } = await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
       }
 
@@ -1224,18 +1224,20 @@ export const undoReceipt = async (req, res) => {
     const logId = receipt.log_id;
     const projectId = receipt.project_id;
 
-    // 1. Revert linked bank_audit_entry if any.
+    // 1. Revert linked bank_audit_entry if any. The entry↔lead match survives
+    // (downgraded confirmed → matched) so go-back restores the pre-verification
+    // state and Accounts can re-confirm without re-matching.
     const { data: entry } = await db.from('bank_audit_entries')
-      .select('id').eq('receipt_id', receipt.id).maybeSingle();
+      .select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
     if (entry) {
-      await db.from('bank_audit_entries').update({
+      const entryPatch = {
         status: 'unverified', donor_id: null, agent_name: null,
         donor_mobile: null, donor_email: null, donor_pan: null,
         donor_address_1: null, donor_address_2: null, donor_city: null, donor_pin_code: null,
-        matched_lead_log_id: null, match_status: null, match_score: null,
-        matched_by: null, matched_at: null,
         receipt_id: null, receipt_no: null, updated_at: new Date().toISOString(),
-      }).eq('id', entry.id);
+      };
+      if (entry.match_status && entry.match_status !== 'matched') entryPatch.match_status = 'matched';
+      await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
     }
 
     // 2. Revert fro_donor_log if linked.
