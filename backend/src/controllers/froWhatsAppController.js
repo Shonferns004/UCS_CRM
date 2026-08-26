@@ -15,6 +15,7 @@ import {
   updateConversationLabels,
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
+import { froActPairs } from './froController.js';
 import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 
@@ -104,7 +105,7 @@ export async function agentUnreadCount(req, res) {
 
 export async function listConversations(req, res) {
   try {
-    const conversations = await getFroConversations(req.user.id);
+    const conversations = await getFroConversations(req.user.id, froActPairs(req));
     return res.json(conversations);
   } catch (error) {
     return res.status(500).json({ message: error.message });
