@@ -463,27 +463,30 @@ export const setTarget = async (req, res) => {
     const monthsEmployed = (targetMonth.getFullYear() - joinedAt.getFullYear()) * 12
       + (targetMonth.getMonth() - joinedAt.getMonth());
 
+    let finalTarget = target_amount;
+    let isAuto = false;
     if (monthsEmployed < 3) {
-      let autoTarget;
-      if (monthsEmployed <= 0) autoTarget = currentSalary * 1;
-      else if (monthsEmployed === 1) autoTarget = currentSalary * 2.5;
-      else autoTarget = currentSalary * 3;
-
-      return res.status(400).json({
-        message: `Cannot manually set target for months 1-3. Auto-calculated target for this worker is ₹${autoTarget.toLocaleString('en-IN')}. Manual target setting is allowed from month 4 onwards.`,
-        auto_target: autoTarget,
-      });
+      if (monthsEmployed <= 0) finalTarget = currentSalary * 1;
+      else if (monthsEmployed === 1) finalTarget = currentSalary * 2.5;
+      else finalTarget = currentSalary * 3;
+      isAuto = true;
     }
 
     const result = await upsertTarget({
       fro_worker_id,
       ngo_id: ngoId,
       month: month + '-01',
-      target_amount,
+      target_amount: finalTarget,
       set_by: req.user.id,
     });
 
-    return res.json({ message: 'Target set successfully', data: result });
+    return res.json({
+      message: isAuto
+        ? `Auto-calculated target set for month ${monthsEmployed + 1}: ₹${finalTarget.toLocaleString('en-IN')}`
+        : 'Target set successfully',
+      data: result,
+      auto_target: isAuto,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
