@@ -3701,7 +3701,7 @@ export const quickSearchDonors = async (req, res) => {
 
 export const getDonorsList = async (req, res) => {
   try {
-    const { search, page = '1', limit = '50', ngo } = req.query;
+    const { search, page = '1', limit = '50', ngo, missing_station } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100000, Math.max(1, parseInt(limit) || 50));
     const from = (pageNum - 1) * limitNum;
@@ -3714,6 +3714,22 @@ export const getDonorsList = async (req, res) => {
     if (search) {
       const q = search.trim();
       query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+
+    // "Missing station" narrowing: donors with at least one live assignment
+    // that HAS an agent but NO station — the rows this page can repair.
+    if (missing_station === 'true' || missing_station === '1') {
+      const { data: msRows, error: msErr } = await db
+        .from('fro_assignments')
+        .select('donor_id, fro_worker_id, station')
+        .not('status', 'eq', 'reassigned');
+      if (msErr) throw msErr;
+      const missingIds = [...new Set((msRows || [])
+        .filter(a => a.fro_worker_id && !(a.station && String(a.station).trim() !== ''))
+        .map(a => a.donor_id)
+        .filter(Boolean))];
+      if (missingIds.length === 0) return res.json({ data: [], total: 0, page: pageNum, limit: limitNum });
+      query = query.in('id', missingIds);
     }
 
     let ngoRow = null;
@@ -3755,7 +3771,7 @@ export const getDonorsList = async (req, res) => {
     if (donorIds.length > 0) {
       const { data: assignments } = await db
         .from('fro_assignments')
-        .select('donor_id, fro_worker_id, station, ngo_id')
+        .select('id, donor_id, fro_worker_id, station, ngo_id')
         .in('donor_id', donorIds)
         .not('status', 'eq', 'reassigned');
 
@@ -3796,7 +3812,7 @@ export const getDonorsList = async (req, res) => {
         if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
 
         if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
-        donorAssignmentList[a.donor_id].push({ name, station: a.station || '' });
+        donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, name, station: a.station || '' });
       }
 
       for (const d of data || []) {
@@ -4109,6 +4125,81 @@ export const updateDonor = async (req, res) => {
     if (updateErr) throw updateErr;
 
     return res.json({ donor, message: 'Donor updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Station options for repair dropdowns: real stations from the registry
+// (fro_station_assignments) as (station, ngo_id) pairs, optionally narrowed to
+// one NGO. Exact strings matter — queue visibility matches on them.
+export const getStationOptions = async (req, res) => {
+  try {
+    const { ngo_id } = req.query;
+    let q = db.from('fro_station_assignments').select('station, ngo_id').order('station', { ascending: true });
+    if (ngo_id) q = q.eq('ngo_id', ngo_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    const seen = new Set();
+    const options = [];
+    for (const s of data || []) {
+      if (!s.station) continue;
+      const key = `${s.ngo_id ?? ''}|${s.station}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({ station: s.station, ngo_id: s.ngo_id });
+    }
+    return res.json({ options });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Repair endpoint: set station ONLY on assignments that have an agent but no
+// station. Server-side mirrors of the UI rules so crafted requests can't
+// overwrite healthy assignments or invent agents.
+export const updateAssignmentStations = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const updates = Array.isArray(req.body?.assignments) ? req.body.assignments : null;
+    if (!updates || updates.length === 0) {
+      return res.status(400).json({ message: 'No assignments provided' });
+    }
+
+    const ids = updates.map(u => u.id).filter(v => v != null);
+    if (ids.length !== updates.length) {
+      return res.status(400).json({ message: 'Each assignment needs an id' });
+    }
+
+    const { data: rows, error: fErr } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, station, fro_worker_id')
+      .eq('donor_id', donorId)
+      .in('id', ids);
+    if (fErr) throw fErr;
+
+    const planned = [];
+    for (const u of updates) {
+      const row = (rows || []).find(r => String(r.id) === String(u.id));
+      if (!row) return res.status(404).json({ message: `Assignment ${u.id} does not belong to this donor` });
+      if (!row.fro_worker_id) return res.status(400).json({ message: `Assignment ${u.id} has no agent` });
+      if (row.station && String(row.station).trim() !== '') {
+        return res.status(400).json({ message: `Assignment ${u.id} already has a station (${row.station})` });
+      }
+      const st = String(u.station ?? '').trim();
+      if (!st) return res.status(400).json({ message: 'Station is required' });
+      planned.push({ id: row.id, station: st });
+    }
+
+    for (const p of planned) {
+      const { error } = await db
+        .from('fro_assignments')
+        .update({ station: p.station })
+        .eq('id', p.id);
+      if (error) throw error;
+    }
+
+    return res.json({ updated: planned.length, assignments: planned, message: 'Station assigned' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

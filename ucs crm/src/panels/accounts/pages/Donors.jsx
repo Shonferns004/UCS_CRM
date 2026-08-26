@@ -226,6 +226,89 @@ const parseAssignments = (d, ngoFilter = '') => {
   return parsed.filter(a => a.ngo && a.ngo.toLowerCase().includes(ngoFilter.toLowerCase()))
 }
 
+const hasBlankStationEntry = (d) =>
+  Array.isArray(d.assignment_list) &&
+  d.assignment_list.some(a => a.id && a.name && !(a.station && String(a.station).trim() !== ''))
+
+// Mini modal to stamp stations on an orphaned donor's agent-assignments.
+// Options come from the real station registry so saved strings always match
+// queue matching exactly.
+function SetStationModal({ donor, ngoOptions, onClose, onSaved }) {
+  const entries = (Array.isArray(donor.assignment_list) ? donor.assignment_list : [])
+    .filter(a => a.id && a.name && !(a.station && String(a.station).trim() !== ''))
+  const [options, setOptions] = useState([])
+  const [picks, setPicks] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    apiGet('/accounts/stations-options')
+      .then(r => setOptions(r.options || []))
+      .catch(e => setErr(e.message))
+  }, [])
+
+  const ngoNameOf = (id) => (ngoOptions.find(n => n.id === id) || {}).name || ''
+  // Station choices scoped to the assignment's own NGO first; fall back to the
+  // full registry when that NGO has no registered stations yet.
+  const optionsFor = (entry) => {
+    const own = options.filter(o => o.ngo_id === entry.ngo_id)
+    return own.length > 0 ? own : options
+  }
+
+  const save = async () => {
+    const assignments = entries.filter(e => picks[e.id]).map(e => ({ id: e.id, station: picks[e.id] }))
+    if (assignments.length === 0) { setErr('Pick a station for at least one row'); return }
+    setSaving(true); setErr('')
+    try {
+      await apiPatch(`/accounts/donors/${donor.id}/assignment-station`, { assignments })
+      onSaved()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460, width: '92%' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head" style={{ justifyContent: 'space-between' }}>
+          <h3 style={{ fontSize: 15 }}>Set Station — {donor.name || 'Donor'}</h3>
+          <button onClick={onClose} className="btn btn-icon" title="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+        <div className="modal-body" style={{ padding: 20 }}>
+          <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '0 0 14px' }}>
+            These assignments have an agent but no station. Pick the right station — the donor enters that FRO's calling queue immediately.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {entries.map(e => (
+              <div key={e.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12, marginBottom: 6 }}>
+                  <strong>{e.name}</strong>
+                  {ngoNameOf(e.ngo_id) && <span style={{ color: 'var(--ink-soft)' }}> · {ngoNameOf(e.ngo_id)}</span>}
+                </div>
+                <select
+                  value={picks[e.id] || ''}
+                  onChange={ev => setPicks(p => ({ ...p, [e.id]: ev.target.value }))}
+                  style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, background: '#fff' }}
+                >
+                  <option value="">— pick station ({ngoNameOf(e.ngo_id) || 'this NGO'}) —</option>
+                  {optionsFor(e).map(o => <option key={o.ngo_id + '|' + o.station} value={o.station}>{o.station}{ngoNameOf(o.ngo_id) ? ` · ${ngoNameOf(o.ngo_id)}` : ''}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          {err && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{err}</div>}
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn-sm" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-sm btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save Stations'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Donors() {
   const [donors, setDonors] = useState([])
   const [total, setTotal] = useState(0)
@@ -237,18 +320,21 @@ export default function Donors() {
   const [ngoFilter, setNgoFilter] = useState('')
   const [ngoOptions, setNgoOptions] = useState([])
   const [restoring, setRestoring] = useState(false)
+  const [missingOnly, setMissingOnly] = useState(false)
+  const [stationDonor, setStationDonor] = useState(null)
   const limit = 100
 
   useEffect(() => {
     apiGet('/accounts/ngos').then(res => setNgoOptions(Array.isArray(res) ? res : [])).catch(() => {})
   }, [])
 
-  const load = useCallback(async (q, pg, ngo) => {
+  const load = useCallback(async (q, pg, ngo, ms) => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (q) params.set('search', q)
       if (ngo) params.set('ngo', ngo)
+      if (ms) params.set('missing_station', 'true')
       params.set('limit', String(limit))
       params.set('page', String(pg))
       const res = await apiGet('/accounts/donors?' + params.toString())
@@ -258,7 +344,7 @@ export default function Donors() {
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(search, page, ngoFilter) }, [load, search, page, ngoFilter])
+  useEffect(() => { load(search, page, ngoFilter, missingOnly) }, [load, search, page, ngoFilter, missingOnly])
 
   const stats = useMemo(() => {
     let amount = 0, count = 0
@@ -310,7 +396,7 @@ export default function Donors() {
     try {
       const res = await apiPost('/accounts/donors/restore-wrong-assignments')
       alert(`Restored ${res?.restored || 0} wrong assignments`)
-      load(search, page, ngoFilter)
+      load(search, page, ngoFilter, missingOnly)
     } catch (e) {
       alert('Failed: ' + e.message)
     } finally {
@@ -333,6 +419,14 @@ export default function Donors() {
             {ngoOptions.map(n => (
               <button key={n.id} className={`btn btn-sm${ngoFilter === n.name ? ' btn-primary' : ''}`} onClick={() => handleNgoChange(n.name)}>{n.name}</button>
             ))}
+            <button
+              className={`btn btn-sm${missingOnly ? ' btn-primary' : ''}`}
+              onClick={() => { setMissingOnly(v => !v); setPage(1) }}
+              title="Donors whose agent is assigned but station is blank"
+              style={missingOnly ? {} : { background: '#fff7ed', color: '#9a3412', border: '1px solid #fdba74' }}
+            >
+              Missing station
+            </button>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginLeft: 'auto' }}>
             <input
@@ -389,6 +483,16 @@ export default function Donors() {
                         {assignments.length > 0 ? assignments.map((a, i) => (
                           <span key={i} style={{ padding: '9px 10px', borderBottom: i < assignments.length - 1 ? '1px solid var(--line)' : 'none' }}>{a.station || '—'}</span>
                         )) : <span style={{ padding: '9px 10px' }}>—</span>}
+                        {hasBlankStationEntry(d) && (
+                          <button
+                            className="btn btn-sm"
+                            onClick={e => { e.stopPropagation(); setStationDonor(d) }}
+                            title="Assign the missing station"
+                            style={{ margin: '6px 10px', fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f0fdf4', color: '#166534', border: '1px solid #86efac', width: 'fit-content' }}
+                          >
+                            ✏️ Set station
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -417,7 +521,16 @@ export default function Donors() {
         </div>
       )}
 
-      {selectedId && <DonorDetail donorId={selectedId} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter)} />}
+      {selectedId && <DonorDetail donorId={selectedId} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter, missingOnly)} />}
+
+      {stationDonor && (
+        <SetStationModal
+          donor={stationDonor}
+          ngoOptions={ngoOptions}
+          onClose={() => setStationDonor(null)}
+          onSaved={() => { setStationDonor(null); load(search, page, ngoFilter, missingOnly) }}
+        />
+      )}
 
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
