@@ -619,15 +619,16 @@ export default function Donors() {
               <tr>
                 <th>Donor</th>
                 <th>Mobile</th>
+                <th>Data Category</th>
                 <th>Assigned To</th>
                 <th>Station</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={4} />)
+                Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={5} />)
               ) : donors.length === 0 ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
+                <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
               ) : donors.map(d => {
                 const initial = (d.name || d.bank_donor_name || d.agent_donor_name || '?')[0].toUpperCase()
                 const assignments = parseAssignments(d, ngoFilter)
@@ -640,6 +641,7 @@ export default function Donors() {
                       </div>
                     </td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--ink-soft)' }}>{d.mobile_number || '-'}</td>
+                    <td><span className="pill pill-blue">{d.data_category || d.category || '—'}</span></td>
                     <td style={{ fontSize: 12, color: 'var(--ink-soft)', padding: 0 }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         {assignments.length > 0 ? assignments.map((a, i) => (
