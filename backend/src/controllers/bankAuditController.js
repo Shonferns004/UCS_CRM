@@ -497,8 +497,14 @@ export const editEntry = async (req, res) => {
       ? await db.from('receipts').select('id, log_id').eq('id', existing.receipt_id).maybeSingle()
       : { data: null };
 
-    // Idempotent: allow re-saving the same log that is already on this receipt.
-    const link = await resolveLogLink({ log_id, actorId: req.user.id, currentLogId: currentReceipt?.log_id || null });
+    // Only re-resolve the log link when the user is changing to a different lead.
+    // Re-saving the same log_id would flip accounts_status back to 'verified',
+    // hiding the lead from the Dashboard's pending view prematurely.
+    const currentLogId = currentReceipt?.log_id || null;
+    const logIdChanged = log_id && String(log_id) !== String(currentLogId);
+    const link = logIdChanged
+      ? await resolveLogLink({ log_id, actorId: req.user.id, currentLogId })
+      : null;
 
     // The picked lead belongs to a different receipt (a suspense claim) — never
     // point this entry's receipt at a second lead / duplicate the link.
