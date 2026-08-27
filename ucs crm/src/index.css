@@ -1735,6 +1735,12 @@
   .panel-fro .bento-col-12 { grid-column:span 6; } .panel-fro .bento-col-8 { grid-column:span 6; } .panel-fro .bento-col-7 { grid-column:span 6; } .panel-fro .bento-col-6 { grid-column:span 6; } .panel-fro .bento-col-5 { grid-column:span 6; } .panel-fro .bento-col-4 { grid-column:span 3; } .panel-fro .bento-col-3 { grid-column:span 3; } .panel-fro .bento-col-2 { grid-column:span 2; }
   .panel-fro .donor-modal { max-width:100%; margin:0 10px; max-height:90vh; }
   .panel-fro .info-grid, .panel-fro .lead-card-details, .panel-fro .donor-card-details { grid-template-columns:1fr; }
+  .panel-fro .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .panel-fro .table-wrap table { min-width:500px; }
+  .panel-fro .fro-stat-grid-3 { grid-template-columns:1fr !important; }
+  .panel-fro .fro-stat-grid-2 { grid-template-columns:1fr !important; }
+  .panel-fro .fro-flex-row { flex-wrap:wrap; }
+  .panel-fro .fro-flex-row > * { min-width:0; }
 }
 @media (max-width:480px) {
   .panel-fro .content-body { padding:10px; }
@@ -1743,6 +1749,8 @@
   .panel-fro .bento-col-12, .panel-fro .bento-col-8, .panel-fro .bento-col-7, .panel-fro .bento-col-6, .panel-fro .bento-col-5, .panel-fro .bento-col-4, .panel-fro .bento-col-3, .panel-fro .bento-col-2 { grid-column:span 1; }
   .panel-fro .topbar h2 { font-size:15px; }
   .panel-fro .donor-modal-stats { grid-template-columns:repeat(2,1fr); }
+  .panel-fro .fro-stat-grid-3 { grid-template-columns:1fr !important; }
+  .panel-fro .fro-stat-grid-2 { grid-template-columns:1fr !important; }
 }
 
 /* ── RECRUITER PANEL (.panel-recruiter) ── */
