@@ -915,6 +915,19 @@ export default function MyDonors() {
     const donorId = r?.id || r?.donor_id;
     const curDonor = donors[index];
     const actualIdx = donors.findIndex(d => d.id === donorId);
+    const makeExternal = (extra = {}) => {
+      if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
+      setExternalDonor({
+        id: donorId,
+        ngo_id: r?.ngo_id ?? extra.ngo_id,
+        donor_name: r?.donor_name || r?.name || null,
+        donor_mobile: r?.donor_mobile || r?.mobile_number || null,
+        status: r?.status || 'pending',
+        is_new: r?.batch_type === 'new_data',
+        hidden: true,
+        ...extra,
+      });
+    };
     if (actualIdx >= 0) {
       setReturnToDonor(curDonor ? { id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index } : null);
       setIndex(actualIdx);
@@ -925,19 +938,13 @@ export default function MyDonors() {
       const targetStation = validStation ? r.station : 'all';
       const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
       if (r.has_donated_current_month) {
-        setExternalDonor({
-          ...r,
-          id: donorId,
-          status: r.status || 'donation_collected',
-          has_donated_current_month: true,
-          has_verified_donation_current_month: !!r.has_verified_donation_current_month,
-        });
+        makeExternal({ has_donated_current_month: true, has_verified_donation_current_month: !!r.has_verified_donation_current_month, status: r.status || 'donation_collected' });
         setMessage({ type: 'success', text: 'This donor already donated this month.' });
       } else if (!needsReload) {
-        if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
         const found = await jumpToDonor(donorId, r.ngo_id);
         if (!found) {
-          setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+          makeExternal({ ngo_id: r?.ngo_id ?? targetNgo, station: r?.station || targetStation, batch_type: r?.batch_type || (targetTab === 'old' ? 'old_data' : 'new_data'), status: r?.status || 'pending' });
+          setMessage({ type: 'info', text: 'This donor was already disposed — opened it here for your reference.' });
         }
       } else {
         if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
@@ -948,7 +955,8 @@ export default function MyDonors() {
         if (targetTab !== dataTab) switchTab(targetTab);
       }
     } else {
-      setMessage({ type: 'error', text: 'Donor not in current list. Try navigating to the correct view.' });
+      makeExternal();
+      setMessage({ type: 'info', text: 'Donor opened for reference.' });
     }
     setSearchQuery('');
     setSearchResults([]);

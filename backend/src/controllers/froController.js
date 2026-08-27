@@ -1600,61 +1600,9 @@ export const getMyDonors = async (req, res) => {
       }
 
       if (req.query.new_only === 'true') {
-        if (req.query.station) {
-          query = query.eq('batch_type', 'new_data');
-        } else {
-          const batchIds = [];
-          for (const sc of effectiveScope) {
-            try {
-              let batchQ = db
-                .from('fro_assignments')
-                .select('batch_id')
-                .eq('station', sc.station)
-                .eq('batch_type', 'new_data')
-                .not('status', 'eq', 'reassigned')
-                .order('assigned_at', { ascending: false })
-                .limit(1);
-              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-              const { data: lb } = await batchQ.maybeSingle();
-              if (lb?.batch_id) batchIds.push(lb.batch_id);
-            } catch (e) {
-              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-            }
-          }
-          if (batchIds.length > 0) {
-            query = query.in('batch_id', [...new Set(batchIds)]);
-          } else {
-            query = query.eq('batch_type', 'new_data');
-          }
-        }
+        query = query.eq('batch_type', 'new_data');
       } else if (req.query.old_only === 'true') {
-        if (req.query.station) {
-          query = query.eq('batch_type', 'old_data');
-        } else {
-          const batchIds = [];
-          for (const sc of effectiveScope) {
-            try {
-              let batchQ = db
-                .from('fro_assignments')
-                .select('batch_id')
-                .eq('station', sc.station)
-                .eq('batch_type', 'old_data')
-                .not('status', 'eq', 'reassigned')
-                .order('assigned_at', { ascending: false })
-                .limit(1);
-              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-              const { data: lb } = await batchQ.maybeSingle();
-              if (lb?.batch_id) batchIds.push(lb.batch_id);
-            } catch (e) {
-              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-            }
-          }
-          if (batchIds.length > 0) {
-            query = query.in('batch_id', [...new Set(batchIds)]);
-          } else {
-            query = query.eq('batch_type', 'old_data');
-          }
-        }
+        query = query.eq('batch_type', 'old_data');
       }
 
       let { data, error: qErr } = await query;
@@ -2643,6 +2591,16 @@ function firstOfNextMonthIST() {
 function computeHiddenUntil(dispositionDetail, scheduledAt) {
   if (SCHEDULE_DISPOSITIONS.has(dispositionDetail) && scheduledAt) {
     return new Date(scheduledAt);
+  }
+  // Money-promise / follow-up dispositions: re-appear from tomorrow (next IST day)
+  const FOLLOW_UP_NEXT_DAY = new Set([
+    'promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate',
+    'already_donated', 'call_disconnected', 'email_sent', 'whatsapp_sent',
+  ]);
+  if (FOLLOW_UP_NEXT_DAY.has(dispositionDetail)) {
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    ist.setDate(ist.getDate() + 1);
+    return new Date(Date.UTC(ist.getFullYear(), ist.getMonth(), ist.getDate(), 0, 0, 0));
   }
   return firstOfNextMonthIST();
 }
