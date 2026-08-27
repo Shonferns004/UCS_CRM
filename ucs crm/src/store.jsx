@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react'
-import { login as apiLogin, setSession, clearSession, getToken, getUser } from './api/auth'
+import { login as apiLogin, setSession, clearSession, getToken, getUser, releaseWorkAs } from './api/auth'
 
 const ALLOWED_ROLES = {
   super_admin: 'super_admin',
@@ -40,6 +40,10 @@ export function UcsProvider({ children }) {
   }, [])
 
   const logout = useCallback(() => {
+    try {
+      const u = getUser('ucs');
+      if (u?.id) releaseWorkAs().catch(() => {});
+    } catch {}
     localStorage.clear()
     clearSession('ucs')
     setToken(null)
