@@ -413,8 +413,8 @@ class _RequestsPageState extends State<RequestsPage> {
 
   Widget _leaveCard(dynamic raw, TextTheme tt) {
     final scheme = Theme.of(context).colorScheme;
+    final colors = Theme.of(context).extension<AppColors>()!;
     final leave = raw as Map<String, dynamic>;
-    final id = leave['id'].toString();
     final type = leave['type']?.toString() ?? '';
     final status = leave['status']?.toString() ?? 'pending';
     final typeLabel = {
@@ -436,75 +436,252 @@ class _RequestsPageState extends State<RequestsPage> {
       dateInfo = '';
     }
 
-    final statusInfo = {
-      'pending': {'label': 'Pending', 'color': const Color(0xFFCA8A04), 'bg': const Color(0xFFFEF9C3)},
-      'approved': {'label': 'Approved', 'color': const Color(0xFF16A34A), 'bg': const Color(0xFFDCFCE7)},
-      'rejected': {'label': 'Rejected', 'color': const Color(0xFFEF4444), 'bg': const Color(0xFFFEE2E2)},
-    }[status] ?? {'label': status, 'color': Colors.grey, 'bg': Colors.grey.shade100};
+    final statusColor = {
+      'pending': const Color(0xFFCA8A04),
+      'approved': const Color(0xFF16A34A),
+      'rejected': const Color(0xFFEF4444),
+    }[status] ?? Colors.grey;
+    final statusLabel = {
+      'pending': 'Pending',
+      'approved': 'Approved',
+      'rejected': 'Rejected',
+    }[status] ?? status;
 
-    return _card(
-      scheme: scheme,
-      child: Column(
+    return GestureDetector(
+      onTap: () => _showLeaveDetail(leave),
+      child: _card(
+        scheme: scheme,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(typeLabel, style: tt.labelSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
+                ),
+                const Spacer(),
+                Icon(LucideIcons.user, size: 14, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 4),
+                Text(_workerName(leave), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (dateInfo.isNotEmpty)
+                  Expanded(child: Text(dateInfo, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600))),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showLeaveDetail(Map<String, dynamic> leave) {
+    final scheme = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final type = leave['type']?.toString() ?? '';
+    final status = leave['status']?.toString() ?? 'pending';
+    final typeLabel = {
+      'full_day': 'Full Day',
+      'half_day': 'Half Day',
+      'vacational': 'Vacational',
+      'emergency': 'Emergency',
+    }[type] ?? type;
+
+    String dateInfo;
+    if (leave['leave_date'] != null) {
+      dateInfo = leave['leave_date'].toString();
+      if (type == 'half_day' && leave['half_start_time'] != null) {
+        dateInfo += ' · ${leave['half_start_time']} - ${leave['half_end_time']}';
+      }
+    } else if (leave['start_date'] != null && leave['end_date'] != null) {
+      dateInfo = '${leave['start_date']} → ${leave['end_date']}';
+    } else {
+      dateInfo = '';
+    }
+
+    final statusColor = {
+      'pending': const Color(0xFFCA8A04),
+      'approved': const Color(0xFF16A34A),
+      'rejected': const Color(0xFFEF4444),
+    }[status] ?? Colors.grey;
+    final statusLabel = {
+      'pending': 'Pending',
+      'approved': 'Approved',
+      'rejected': 'Rejected',
+    }[status] ?? status;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (ctx, scrollCtrl) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: ListView(
+            controller: scrollCtrl,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              Row(
+                children: [
+                  Text('Leave Details', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(statusLabel, style: tt.labelMedium?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              _detailRow('Worker', _workerName(leave), tt),
+              _detailRow('Leave Type', typeLabel, tt),
+              _detailRow('Days', '${leave['days'] ?? 1}', tt),
+              if (dateInfo.isNotEmpty) _detailRow('Date', dateInfo, tt),
+              _detailRow('Applied', _formatTime(leave['applied_at']?.toString()), tt),
+
+              const SizedBox(height: 12),
+              Text('Reason', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(leave['reason']?.toString().isNotEmpty == true ? leave['reason'].toString() : 'No reason provided',
+                  style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+              ),
+
+              if (leave['photo_url']?.toString().isNotEmpty == true) ...[
+                const SizedBox(height: 12),
+                Text('Attached Photo', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    leave['photo_url'].toString(),
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      height: 100,
+                      color: scheme.surfaceContainerHighest,
+                      child: Center(child: Icon(LucideIcons.imageOff, color: scheme.outline)),
+                    ),
+                  ),
+                ),
+              ],
+
+              if (leave['admin_remark']?.toString().isNotEmpty == true && status != 'pending') ...[
+                const SizedBox(height: 12),
+                Text('Admin Remark', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(leave['admin_remark'].toString(), style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                ),
+              ],
+
+              if (status == 'pending') ...[
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _decideLeave(leave, 'rejected');
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFba1a1a),
+                          side: const BorderSide(color: Color(0xFFba1a1a)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(LucideIcons.x, size: 18),
+                        label: const Text('Reject'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _decideLeave(leave, 'approved');
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF1D7A4F),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(LucideIcons.check, size: 18),
+                        label: const Text('Approve'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value, TextTheme tt) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(typeLabel, style: tt.labelSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: (statusInfo['color'] as Color).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(statusInfo['label'] as String, style: tt.labelSmall?.copyWith(color: statusInfo['color'] as Color, fontWeight: FontWeight.w700)),
-              ),
-            ],
+          SizedBox(
+            width: 100,
+            child: Text(label, style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(LucideIcons.user, size: 14, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Text(_workerName(leave), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          if (dateInfo.isNotEmpty)
-            Text(dateInfo, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(leave['reason']?.toString() ?? '', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant), maxLines: 3, overflow: TextOverflow.ellipsis),
-          if (_formatTime(leave['applied_at']?.toString()).isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text('Applied ${_formatTime(leave['applied_at']?.toString())}', style: tt.bodySmall?.copyWith(color: scheme.outline)),
-          ],
-          if (status == 'pending') ...[
-            const SizedBox(height: 12),
-            _actionButtons(
-              id: id,
-              onApprove: () => _decideLeave(leave, 'approved'),
-              onReject: () => _decideLeave(leave, 'rejected'),
-            ),
-          ],
-          if (leave['admin_remark']?.toString().isNotEmpty == true && status != 'pending') ...[
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(leave['admin_remark'].toString(), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-            ),
-          ],
+          Expanded(child: Text(value, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w500))),
         ],
       ),
     );
