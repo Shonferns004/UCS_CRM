@@ -17,6 +17,7 @@ class RequestsPage extends StatefulWidget {
 
 class _RequestsPageState extends State<RequestsPage> {
   String _segment = 'leave';
+  String _leaveTab = 'active';
 
   List<dynamic> _leaves = [];
   List<dynamic> _loans = [];
@@ -46,7 +47,7 @@ class _RequestsPageState extends State<RequestsPage> {
   Future<void> _refresh() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final results = await Future.wait([ApiService.getPendingLeaves(), ApiService.getPendingLoans()]);
+      final results = await Future.wait([ApiService.getAllLeaves(), ApiService.getPendingLoans()]);
       if (mounted) {
         setState(() {
           _leaves = results[0];
@@ -66,7 +67,7 @@ class _RequestsPageState extends State<RequestsPage> {
 
   Future<void> _fetchLeaves() async {
     try {
-      final leaves = await ApiService.getPendingLeaves();
+      final leaves = await ApiService.getAllLeaves();
       if (mounted) setState(() => _leaves = leaves);
     } catch (_) {}
   }
@@ -160,7 +161,7 @@ class _RequestsPageState extends State<RequestsPage> {
     setState(() => _processingId = id);
     try {
       await ApiService.decideLeave(id, status, remark: remark);
-      setState(() => _leaves.removeWhere((l) => l['id'].toString() == id));
+      _fetchLeaves();
       _showSnack(status == 'approved' ? 'Leave approved' : 'Leave rejected');
     } catch (e) {
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
@@ -242,6 +243,27 @@ class _RequestsPageState extends State<RequestsPage> {
               ),
             ),
             const SizedBox(height: 8),
+            if (_segment == 'leave') ...[
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+                child: Row(
+                  children: [
+                    _LeaveTabButton(
+                      label: 'Active',
+                      isActive: _leaveTab == 'active',
+                      onTap: () => setState(() => _leaveTab = 'active'),
+                    ),
+                    const SizedBox(width: 8),
+                    _LeaveTabButton(
+                      label: 'History',
+                      isActive: _leaveTab == 'history',
+                      onTap: () => setState(() => _leaveTab = 'history'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             Expanded(
               child: _loading
                   ? const ListSkeleton()
@@ -274,14 +296,18 @@ class _RequestsPageState extends State<RequestsPage> {
   }
 
   Widget _buildLeaveList(TextTheme tt) {
-    if (_leaves.isEmpty) {
-      return _empty(tt, LucideIcons.calendarDays, 'No pending leave requests');
+    final activeLeaves = _leaves.where((l) => l['status']?.toString() == 'pending').toList();
+    final historyLeaves = _leaves.where((l) => l['status']?.toString() != 'pending').toList();
+    final displayLeaves = _leaveTab == 'active' ? activeLeaves : historyLeaves;
+
+    if (displayLeaves.isEmpty) {
+      return _empty(tt, LucideIcons.calendarDays, _leaveTab == 'active' ? 'No pending leave requests' : 'No leave history');
     }
     return ListView.builder(
       controller: widget.scrollController,
       padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
-      itemCount: _leaves.length,
-      itemBuilder: (context, i) => _leaveCard(_leaves[i], tt),
+      itemCount: displayLeaves.length,
+      itemBuilder: (context, i) => _leaveCard(displayLeaves[i], tt),
     );
   }
 
@@ -390,6 +416,7 @@ class _RequestsPageState extends State<RequestsPage> {
     final leave = raw as Map<String, dynamic>;
     final id = leave['id'].toString();
     final type = leave['type']?.toString() ?? '';
+    final status = leave['status']?.toString() ?? 'pending';
     final typeLabel = {
       'full_day': 'Full Day',
       'half_day': 'Half Day',
@@ -409,6 +436,12 @@ class _RequestsPageState extends State<RequestsPage> {
       dateInfo = '';
     }
 
+    final statusInfo = {
+      'pending': {'label': 'Pending', 'color': const Color(0xFFCA8A04), 'bg': const Color(0xFFFEF9C3)},
+      'approved': {'label': 'Approved', 'color': const Color(0xFF16A34A), 'bg': const Color(0xFFDCFCE7)},
+      'rejected': {'label': 'Rejected', 'color': const Color(0xFFEF4444), 'bg': const Color(0xFFFEE2E2)},
+    }[status] ?? {'label': status, 'color': Colors.grey, 'bg': Colors.grey.shade100};
+
     return _card(
       scheme: scheme,
       child: Column(
@@ -425,12 +458,25 @@ class _RequestsPageState extends State<RequestsPage> {
                 child: Text(typeLabel, style: tt.labelSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
               ),
               const Spacer(),
-              Icon(LucideIcons.user, size: 16, color: scheme.onSurfaceVariant),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (statusInfo['color'] as Color).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(statusInfo['label'] as String, style: tt.labelSmall?.copyWith(color: statusInfo['color'] as Color, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(LucideIcons.user, size: 14, color: scheme.onSurfaceVariant),
               const SizedBox(width: 4),
               Text(_workerName(leave), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           if (dateInfo.isNotEmpty)
             Text(dateInfo, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
@@ -439,12 +485,26 @@ class _RequestsPageState extends State<RequestsPage> {
             const SizedBox(height: 4),
             Text('Applied ${_formatTime(leave['applied_at']?.toString())}', style: tt.bodySmall?.copyWith(color: scheme.outline)),
           ],
-          const SizedBox(height: 12),
-          _actionButtons(
-            id: id,
-            onApprove: () => _decideLeave(leave, 'approved'),
-            onReject: () => _decideLeave(leave, 'rejected'),
-          ),
+          if (status == 'pending') ...[
+            const SizedBox(height: 12),
+            _actionButtons(
+              id: id,
+              onApprove: () => _decideLeave(leave, 'approved'),
+              onReject: () => _decideLeave(leave, 'rejected'),
+            ),
+          ],
+          if (leave['admin_remark']?.toString().isNotEmpty == true && status != 'pending') ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(leave['admin_remark'].toString(), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+          ],
         ],
       ),
     );
@@ -537,6 +597,43 @@ class _SegmentButton extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LeaveTabButton extends StatelessWidget {
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _LeaveTabButton({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? scheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: isActive ? null : Border.all(color: scheme.outlineVariant),
+        ),
+        child: Text(
+          label,
+          style: tt.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: isActive ? scheme.onPrimary : scheme.onSurfaceVariant,
           ),
         ),
       ),
