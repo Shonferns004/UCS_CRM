@@ -1,4 +1,4 @@
-export default function Template4({ personal, ngoHeading, ngoAddress }) {
+export default function Template4({ personal, ngoHeading, ngoAddress, ngoTagline }) {
   return (
     <div className="print-page">
       <style>{`
@@ -14,7 +14,7 @@ export default function Template4({ personal, ngoHeading, ngoAddress }) {
       <div className="t4">
         <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
         <div className="red"></div>
-        <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div className="sub">{ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G'}</div>
 
         <div className="sec">8. Trust Assets &amp; Resources</div>
         <p>All assets, equipment, documents, electronic devices, identification cards, communication tools, and other property belonging to the Trust are provided solely for the Trust's work. Volunteers shall exercise due care while using such resources and shall not use them for personal or unauthorized activities. Any loss, theft, damage, or misuse resulting from negligence or misconduct may be reviewed by the Trust. Upon completion or conclusion of the volunteer association, all Trust property must be returned immediately in good condition.</p>

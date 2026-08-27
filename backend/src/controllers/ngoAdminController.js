@@ -3762,7 +3762,7 @@ export const uploadOldData = async (req, res) => {
     const bodyDataCategory = req.body.data_category || null;
 
     const normalizedRows = rows.map(row => ({
-      mobile: String(row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || '').trim(),
+      mobile: String(row.moblie || row.Moblie || row.MOBLIE || row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || row['Moblie No'] || row['MOBLIE No'] || '').trim(),
       name: String(row.name || row.Name || row['Donor Name'] || row.donor_name || row.donorname || '').trim(),
       amount: parseFloat(row.amount || row.Amount || row.donation_amount || row.DonationAmount || 0) || 0,
       city: String(row.city || row.City || row.city_name || row.CityName || '').trim(),

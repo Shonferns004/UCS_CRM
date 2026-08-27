@@ -1,6 +1,7 @@
 const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
+const BSCT_TAGLINE = 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G';
 
-export default function Template1({ personal, education, family, organizations, photo_url, ngoHeading, ngoAddress }) {
+export default function Template1({ personal, education, family, organizations, photo_url, ngoHeading, ngoAddress, ngoTagline }) {
   return (
     <div className="print-page">
       <style>{`
@@ -26,7 +27,7 @@ export default function Template1({ personal, education, family, organizations, 
         <div className="header">
           <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
           <div className="top-line"></div>
-          <div className="subtitle">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+          <div className="subtitle">{ngoTagline || BSCT_TAGLINE}</div>
         </div>
         <div className="form-title">VOLUNTEER JOINING FORM</div>
         <table>

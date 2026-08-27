@@ -1,4 +1,4 @@
-export default function Template5({ personal, ngoHeading, ngoAddress }) {
+export default function Template5({ personal, ngoHeading, ngoAddress, ngoTagline }) {
   const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
@@ -29,7 +29,7 @@ export default function Template5({ personal, ngoHeading, ngoAddress }) {
       <div className="t5">
         <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
         <div className="redline"></div>
-        <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div className="sub">{ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G'}</div>
 
         <p>You shall abide by the Trust's guidelines and volunteer policies as presented in the Volunteer Guidelines, and by all general or administrative rules, regulations, and directives of the Trust made from time to time, so long as they are not inconsistent with this agreement. For any work-related matter, issue, or communication, the volunteer must contact the concerned coordinator directly. <strong>Attire Guidelines:</strong> Monday to Friday [Formals]; Saturday [Smart Casuals].</p>
 

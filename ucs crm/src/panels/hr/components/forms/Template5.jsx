@@ -1,4 +1,4 @@
-export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress }) {
+export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress, ngoTagline }) {
   const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
@@ -27,7 +27,7 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
         <div className="inner">
           <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
           <div className="red"></div>
-          <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+          <div className="sub">{ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G'}</div>
           <div className="blue" style={{marginTop: 20}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
           <p>This agreement is made between {heading} and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
