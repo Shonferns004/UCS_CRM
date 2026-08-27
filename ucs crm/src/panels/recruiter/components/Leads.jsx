@@ -546,9 +546,8 @@ export default function Leads() {
           <div className="card-pad" style={{paddingTop:0,paddingBottom:0}}>
             <div className="filter-bar">
               <div className="search-group">
-                <input value={searchInput} onChange={e=>setSearchInput(e.target.value)} onKeyDown={handleSearchKeyDown}
+                <input value={searchInput} onChange={e=>{setSearchInput(e.target.value);setLeadFilters(p=>({...p,search:e.target.value}))}}
                   placeholder="Search by name or phone…" />
-                <button className="btn btn-sm" onClick={handleSearch}><Search width={14}/></button>
               </div>
               <Dropdown className="filter-select" value={leadFilters.status} onChange={e=>setLeadFilters(p=>({...p,status:e.target.value}))}
                 options={[{value:'',label:'All statuses'}, ...statusFilterOptions]} />
