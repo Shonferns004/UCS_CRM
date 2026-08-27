@@ -33,20 +33,33 @@ const isCollectionLog = (log) =>
   log.disposition_detail === 'done' ||
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
+const RETRYABLE_NOT_CONNECTED = new Set([
+  'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
+]);
 const HIDDEN_STATUSES = new Set([
   'lead_done', 'donation_collected', 'done',
   'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
-  'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
-  'unreachable', 'wrong_number', 'invalid_number', 'rejected',
-  'temporary_network_issue', 'voicemail', 'incoming_out',
+  'wrong_number', 'invalid_number', 'rejected',
+  'temporary_network_issue', 'incoming_out',
   'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
   'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
   'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
 ]);
+function isNewDonor(d) {
+  return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
+}
 function filterAndSortDonors(list) {
   return list
     .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)
     .sort((a, b) => {
+      const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
+      const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
+      // tier: 0 = new workable, 1 = old workable, 2 = retryable tail
+      const aNew = isNewDonor(a);
+      const bNew = isNewDonor(b);
+      const tierA = aRetry ? 2 : (aNew ? 0 : 1);
+      const tierB = bRetry ? 2 : (bNew ? 0 : 1);
+      if (tierA !== tierB) return tierA - tierB;
       const ta = a.assigned_at ? new Date(a.assigned_at).getTime() : 0;
       const tb = b.assigned_at ? new Date(b.assigned_at).getTime() : 0;
       return ta - tb;
