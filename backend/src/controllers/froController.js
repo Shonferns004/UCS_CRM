@@ -1976,17 +1976,16 @@ export const getMyDonors = async (req, res) => {
     }
 
     const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
-      'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
+      'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
     ]);
 
     let baseFiltered;
     if (req.query.verified_only === 'true') {
       baseFiltered = null;
     } else {
-      // Primary filter: hidden_until column set by disposition/donation logging.
-      // Leads are hidden until their scheduled time or until next month.
       baseFiltered = result.filter(r => {
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
+        if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
         if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
         return true;
       });
