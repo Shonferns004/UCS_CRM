@@ -37,7 +37,7 @@ export const apply = async (req, res) => {
       return res.status(400).json({ message: 'Type and reason are required' });
     }
 
-    if (!['full_day', 'half_day', 'vacational', 'emergency'].includes(type)) {
+    if (!['full_day', 'half_day', 'vacational', 'emergency', 'holiday'].includes(type)) {
       return res.status(400).json({ message: 'Invalid leave type' });
     }
 
@@ -66,10 +66,7 @@ export const apply = async (req, res) => {
       if (diff < 2) {
         return res.status(400).json({ message: 'Full day leave must be applied at least 2 days prior' });
       }
-      if (currentHour < 12) {
-        return res.status(400).json({ message: 'Full day leave can only be applied after 12 PM' });
-      }
-      days = 2;
+      days = 1;
       record.leave_date = leave_date;
     } else if (type === 'half_day') {
       if (!leave_date || !half_start_time || !half_end_time) {
@@ -116,6 +113,25 @@ export const apply = async (req, res) => {
       }
       days = 0;
       record.leave_date = leave_date;
+    } else if (type === 'holiday') {
+      if (!start_date || !end_date) {
+        return res.status(400).json({ message: 'Start date and end date are required for holiday leave' });
+      }
+      const sd = new Date(start_date + 'T00:00:00+05:30');
+      const ed = new Date(end_date + 'T00:00:00+05:30');
+      if (isNaN(sd.getTime()) || isNaN(ed.getTime())) {
+        return res.status(400).json({ message: 'Invalid dates' });
+      }
+      if (ed < sd) {
+        return res.status(400).json({ message: 'End date must be on or after start date' });
+      }
+      const diff = daysBetween(new Date(today + 'T00:00:00+05:30'), sd);
+      if (diff < 5) {
+        return res.status(400).json({ message: 'Holiday leave must be applied at least 5 days prior' });
+      }
+      days = daysBetween(sd, ed) + 1;
+      record.start_date = start_date;
+      record.end_date = end_date;
     }
 
     if (proof_data) record.proof_data = proof_data;
