@@ -1097,8 +1097,8 @@ export default function MyDonors() {
 
   return (<>
     <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div className="detail-split" style={{ flex: 1, minHeight: 0 }}>
-        {/* LEFT PANEL â€” merged profile + details */}
+      <div className="detail-split">
+        {/* LEFT PANEL — merged profile + details */}
         <div className="detail-left" style={{ padding: 12 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Profile header */}
@@ -1305,9 +1305,8 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* MIDDLE PANEL â€” Status (55%) */}
-        <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
-          <div className="fro-mid-tabs">
+        {/* MIDDLE PANEL â€” Tabs / Filters */}
+        <div className="fro-mid-tabs">
           {/* NGO Tabs â€” only shown when FRO is assigned to multiple NGOs */}
           {(() => {
             const ngoMap = {};
@@ -1599,7 +1598,6 @@ export default function MyDonors() {
             </div>
             </>
             )}
-          </div>
           </div>
         </div>
 
