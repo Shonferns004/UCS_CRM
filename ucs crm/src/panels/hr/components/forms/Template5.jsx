@@ -1,4 +1,5 @@
-export default function Template6({ personal, declarationDate, place }) {
+export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress }) {
+  const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
       <style>{`
@@ -24,12 +25,12 @@ export default function Template6({ personal, declarationDate, place }) {
       `}</style>
       <div className="t6">
         <div className="inner">
-          <h1>Being Sevak Charitable Trust</h1>
+          <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
           <div className="red"></div>
           <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
           <div className="blue" style={{marginTop: 20}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
-          <p>This agreement is made between Being Sevak Charitable Trust and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
+          <p>This agreement is made between {heading} and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
 
           <p><span className="b">A.</span> Confidential Information and Proprietary Data are the Trust's exclusive property. The Volunteer shall keep them confidential, take reasonable steps to protect them, and not disclose or use them for personal benefit or the benefit of others during or after association with the Trust.</p>
 
@@ -62,14 +63,13 @@ export default function Template6({ personal, declarationDate, place }) {
 
             <div className="sig">
               <div className="l"></div>
-              <div>For Being Sevak Charitable Trust (Authorized Signatory)</div>
+              <div>For {heading} (Authorized Signatory)</div>
             </div>
           </div>
         </div>
 
         <div className="footer">
-          Reg. Add.: Office No. 402, 4th Floor, &apos;A&apos; Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
-          Contact Sevak: 8879035035 / 8879034034 &nbsp;|&nbsp; E-Mail: being.sevak@gmail.com &nbsp;|&nbsp; Website: www.beingsevak.org
+          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact Sevak: 8879035035 / 8879034034 | E-Mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

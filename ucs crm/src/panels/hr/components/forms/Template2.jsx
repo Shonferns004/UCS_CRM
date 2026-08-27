@@ -1,4 +1,5 @@
-export default function Template2() {
+export default function Template2({ ngoHeading, ngoAddress }) {
+  const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
       <style>{`
@@ -13,14 +14,14 @@ export default function Template2() {
         .t2 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:9pt;line-height:1.3}
       `}</style>
       <div className="t2">
-        <h1>Being Sevak Charitable Trust</h1>
+        <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
         <div className="red"></div>
         <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
 
         <div className="title">VOLUNTEER GUIDELINES</div>
 
         <div className="sec">1. Volunteer Association</div>
-        <p>Welcome to Being Sevak Charitable Trust. We are grateful for your decision to volunteer with us. Every volunteer plays a vital role in serving society with honesty, compassion, integrity, and dedication. This handbook outlines the policies, responsibilities, expectations, and code of conduct applicable to all volunteers associated with the Trust. Volunteers are onboarded based on the requirements of the Trust and their individual skills, qualifications, and suitability for specific projects or activities. Every volunteer shall work under the guidance of the respective Team Leader, Head of Department (HOD), Project Coordinator, or any authorized representative of the Trust. The Trust reserves the right to assign, transfer, or modify the volunteer's project, work location, or responsibilities whenever required in the interest of the Trust's operations.</p>
+        <p>Welcome to {heading}. We are grateful for your decision to volunteer with us. Every volunteer plays a vital role in serving society with honesty, compassion, integrity, and dedication. This handbook outlines the policies, responsibilities, expectations, and code of conduct applicable to all volunteers associated with the Trust. Volunteers are onboarded based on the requirements of the Trust and their individual skills, qualifications, and suitability for specific projects or activities. Every volunteer shall work under the guidance of the respective Team Leader, Head of Department (HOD), Project Coordinator, or any authorized representative of the Trust. The Trust reserves the right to assign, transfer, or modify the volunteer's project, work location, or responsibilities whenever required in the interest of the Trust's operations.</p>
 
         <div className="sec">2. Orientation Period</div>
         <p>Every newly onboarded volunteer shall undergo an orientation and familiarization period during which the Trust will assess the volunteer's attendance, punctuality, discipline, communication skills, teamwork, work ethic, behaviour, and overall involvement. This orientation period is intended to familiarize volunteers with the Trust's mission, values, policies, and operational procedures. The Trust reserves the right to discontinue the volunteer's association at any time during or after the orientation period if the volunteer's conduct, involvement, or suitability is found to be unsatisfactory or inconsistent with the values and expectations of the Trust.</p>
@@ -41,8 +42,7 @@ export default function Template2() {
         <p>The use of personal mobile phones during volunteer hours shall be limited to emergencies or designated break periods. Volunteers are encouraged to remain focused on their assigned duties while on the Trust premises. Family members and personal contacts should communicate with volunteers during working hours only in cases of genuine emergency to avoid unnecessary interruptions to the Trust's activities.</p>
 
         <div className="footer">
-          Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
-          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>
