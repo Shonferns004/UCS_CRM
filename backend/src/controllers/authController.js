@@ -344,7 +344,7 @@ export const impersonateFRO = async (req, res) => {
       return res.status(400).json({ message: 'A 4-digit code is required to impersonate an FRO' });
     }
 
-    const codeRow = await findValidImpersonationCode(codeStr, req.user.ngo_id || null);
+    const codeRow = await findValidImpersonationCode(codeStr);
     if (!codeRow) {
       return res.status(400).json({ message: 'Invalid or expired code' });
     }
