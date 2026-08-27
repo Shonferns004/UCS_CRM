@@ -1978,6 +1978,9 @@ export const getMyDonors = async (req, res) => {
     const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
       'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
     ]);
+    const TERMINAL_DISPOSITIONS = new Set([
+      'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
+    ]);
 
     let baseFiltered;
     if (req.query.verified_only === 'true') {
@@ -1986,6 +1989,7 @@ export const getMyDonors = async (req, res) => {
       baseFiltered = result.filter(r => {
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
         if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
+        if (TERMINAL_DISPOSITIONS.has(r.status)) return false;
         if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
         return true;
       });
