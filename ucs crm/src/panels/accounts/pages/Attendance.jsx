@@ -11,10 +11,12 @@ export default function Attendance() {
   const load = async () => {
     setLoading(true);
     try {
-      const [workersData, attendanceData] = await Promise.all([
+      const results = await Promise.allSettled([
         apiGet('/workers?status=all'),
         apiGet('/attendance/today-all'),
       ]);
+      const workersData = results[0].status === 'fulfilled' ? results[0].value : [];
+      const attendanceData = results[1].status === 'fulfilled' ? results[1].value : [];
       setWorkers(workersData || []);
       setTodayRecords(attendanceData || []);
     } catch (e) {
