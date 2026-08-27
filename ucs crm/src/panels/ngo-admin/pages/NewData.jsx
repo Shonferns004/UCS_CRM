@@ -303,6 +303,8 @@ export default function NewData() {
   const [cleanupConfirmed, setCleanupConfirmed] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [resetConfirmed, setResetConfirmed] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [categoryOptions, setCategoryOptions] = useState([])
 
   useEffect(() => {
     apiGet('/ngo-admin/ngos').then(list => {
@@ -320,6 +322,7 @@ export default function NewData() {
     setLoading(true)
     const params = [];
     if (selectedNgoId !== 'all') params.push(`ngo_id=${selectedNgoId}`);
+    if (categoryFilter) params.push(`category=${encodeURIComponent(categoryFilter)}`);
     params.push(`page=${page}`, `per_page=${perPage}`);
     const query = params.length > 0 ? `?${params.join('&')}` : '';
     Promise.all([
@@ -328,12 +331,14 @@ export default function NewData() {
     ]).then(([d, s]) => {
       setDonors(Array.isArray(d) ? d : d?.unassigned || [])
       setTotal(d?.total || 0)
+      if (Array.isArray(d?.category_options)) setCategoryOptions(d.category_options)
       setStations(Array.isArray(s) ? s : [])
     }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false))
   }
 
   useEffect(() => { setPage(1) }, [selectedNgoId])
-  useEffect(load, [selectedNgoId, page, perPage])
+  useEffect(() => { setPage(1) }, [categoryFilter])
+  useEffect(load, [selectedNgoId, page, perPage, categoryFilter])
 
   useEffect(() => { if (tab === 'new') { setPage(1); load() } }, [tab])
 
@@ -446,6 +451,14 @@ export default function NewData() {
             <div className="card-head">
               <h3>New Data</h3>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-soft)' }}>
+                  Category:
+                  <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
+                    style={{ fontSize: 12, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--line)', background: '#fff' }}>
+                    <option value="">All Categories</option>
+                    {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
                 <span className="count">{total > 0 ? `Showing ${startRow}-${endRow} of ${total} donors` : `${total} donors`}</span>
                 {fdStations.length > 0 && (
                   <button className="btn btn-primary btn-sm" onClick={handleDistributeAll} disabled={distributing || total === 0}>
@@ -497,7 +510,7 @@ export default function NewData() {
                             </span>
                           ) : '\u2014'}
                         </td>
-                        <td><span className="pill">{d.category || '\u2014'}</span></td>
+                        <td><span className="pill">{d.data_category || d.category || '\u2014'}</span></td>
                         <td>{'\u20B9'}{Number(d.amount || 0).toLocaleString()}</td>
                         <td className="muted">{d.created_at ? new Date(d.created_at).toLocaleDateString() : '\u2014'}</td>
                       </tr>

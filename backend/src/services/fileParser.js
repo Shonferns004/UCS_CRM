@@ -27,7 +27,12 @@ const COLUMN_MAP = {
   agentname: 'agent_name',
   mobileno: 'mobile_number',
   mobile: 'mobile_number',
+  mob: 'mobile_number',
   mobilenumber: 'mobile_number',
+  'mobileno': 'mobile_number',
+  'mobile no': 'mobile_number',
+  'mobile no.': 'mobile_number',
+  'mobile number': 'mobile_number',
   phone: 'mobile_number',
   'mobileno2tel': 'mobile_2',
   'mobile2': 'mobile_2',
@@ -64,6 +69,7 @@ const COLUMN_MAP = {
   paymentid: 'payment_id_no',
   donorsbankname: 'donors_bank_name',
   amount: 'amount',
+  amt: 'amount',
   dummyamount: 'amount',
   'dummy amount': 'amount',
   receiptno: 'receipt_no',
@@ -213,9 +219,9 @@ export function extractFullRowData(normalized) {
 
 export function extractQuickRowData(normalized) {
   const name = normalized.name || normalized['fullname'] || normalized['full name'] || normalized.donorname || normalized['donor name'] || '';
-  const mobile = normalized.mobilenumber || normalized['mobilenumber'] || normalized.mobile || normalized.phone || normalized['mobile number'] || normalized['phone number'] || normalized.mobileno || normalized['mobile no'] || normalized['mobile no.'] || '';
+  const mobile = normalized.mobilenumber || normalized['mobilenumber'] || normalized.mobile || normalized.mob || normalized.phone || normalized['mobile number'] || normalized['phone number'] || normalized.mobileno || normalized['mobile no'] || normalized['mobile no.'] || '';
   const category = normalized.category || normalized['datacategory'] || normalized['data category'] || normalized.ngocode || normalized['ngo code'] || normalized.ngoshortname || normalized['ngo short name'] || normalized.data || '';
-  const rawAmount = (normalized.amount || normalized['dummyamount'] || normalized['dummy amount'] || '0').toString().replace(/,/g, '');
+  const rawAmount = (normalized.amount || normalized.amt || normalized['dummyamount'] || normalized['dummy amount'] || '0').toString().replace(/,/g, '');
   const amount = parseFloat(rawAmount) || 0;
 
   if (!name || !mobile) return null;
