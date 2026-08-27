@@ -198,7 +198,7 @@ export default function Leaves() {
                     fontSize: '14px', fontWeight: 700, color: '#111827', textTransform: 'capitalize',
                     fontFamily: "'Inter', sans-serif"
                   }}>
-                    {selectedLeave.type?.replace('_', ' ') || 'Half Day'}
+                    {selectedLeave.type?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Half Day'}
                   </div>
                 </div>
                 <div>
