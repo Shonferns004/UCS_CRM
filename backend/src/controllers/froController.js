@@ -1599,20 +1599,12 @@ export const getMyDonors = async (req, res) => {
         query = query.eq('status', statusFilter);
       }
 
-      if (req.query.new_only === 'true') {
-        query = query.eq('batch_type', 'new_data');
-      } else if (req.query.old_only === 'true') {
-        query = query.eq('batch_type', 'old_data');
-      }
-
       let { data, error: qErr } = await query;
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
           query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
           query = withStationNgoPairs(query, effectiveScope);
-          if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
-          else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
             console.error('getMyDonors retry query also failed for worker', workerId, ':', retryErr.message);
@@ -1624,6 +1616,13 @@ export const getMyDonors = async (req, res) => {
         }
       }
       assignments = data || [];
+      // Robust new/old filter: handle legacy rows where batch_type is NULL.
+      // New = batch_type new_data OR (null + is_new != false); Old = batch_type old_data OR (null + is_new == false)
+      if (req.query.new_only === 'true') {
+        assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+      } else if (req.query.old_only === 'true') {
+        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+      }
     }
 
     // Fallback: the worker's own assignments. This covers workers who have data
@@ -1650,9 +1649,13 @@ export const getMyDonors = async (req, res) => {
       } else if (statusFilter) {
         byWorkerQ = byWorkerQ.eq('status', statusFilter);
       }
-      if (req.query.new_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'new_data');
-      else if (req.query.old_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'old_data');
-      const { data: byWorker } = await byWorkerQ;
+      const { data: byWorkerRaw } = await byWorkerQ;
+      let byWorker = byWorkerRaw || [];
+      if (req.query.new_only === 'true') {
+        byWorker = byWorker.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+      } else if (req.query.old_only === 'true') {
+        byWorker = byWorker.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+      }
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
       }
@@ -1684,12 +1687,18 @@ export const getMyDonors = async (req, res) => {
           const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
           if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
         }
-        if (req.query.new_only === 'true') poolQ = poolQ.eq('batch_type', 'new_data');
-        else if (req.query.old_only === 'true') poolQ = poolQ.eq('batch_type', 'old_data');
         poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
         try {
-          const { data: poolRows, error: poolErr } = await poolQ;
-          if (!poolErr && poolRows && poolRows.length > 0) assignments = poolRows;
+          const { data: poolRowsRaw, error: poolErr } = await poolQ;
+          let poolRows = poolRowsRaw || [];
+          if (!poolErr && poolRows.length > 0) {
+            if (req.query.new_only === 'true') {
+              poolRows = poolRows.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+            } else if (req.query.old_only === 'true') {
+              poolRows = poolRows.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+            }
+            if (poolRows.length > 0) assignments = poolRows;
+          }
         } catch (poolEx) {
           console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
         }

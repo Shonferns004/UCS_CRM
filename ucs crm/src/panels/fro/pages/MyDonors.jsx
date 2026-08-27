@@ -188,6 +188,7 @@ export default function MyDonors() {
   const pendingSelectRef = useRef(null);
   const manualTabSwitchRef = useRef(false);
   const autoFallbackToOldRef = useRef(false);
+  const autoFallbackAttemptedRef = useRef(false);
   const [stations, setStations] = useState([]);
   const VIEW_STATE_KEY = 'mydonors_view_state';
   const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
@@ -211,15 +212,34 @@ export default function MyDonors() {
         if (cancelled) return;
         const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
         const sortedDonors = filterAndSortDonors(loaded);
-        // Auto-fallback: if the New tab has no data on initial load, show Old data instead.
-        // Skip when user manually switched tabs to prevent bounce loop.
-        if (tab === 'new' && sortedDonors.length === 0 && !manualTabSwitchRef.current) {
-          autoFallbackToOldRef.current = true;
-          setDataTab('old');
-          setSelected(null);
-          return;
+        // Auto-fallback: if current tab is empty, try the other tab (new<->old) once.
+        // Prevents bounce loop when both tabs are empty.
+        if (sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
+          if (tab === 'new') {
+            autoFallbackToOldRef.current = true;
+            autoFallbackAttemptedRef.current = true;
+            setDataTab('old');
+            setSelected(null);
+            return;
+          }
+          if (tab === 'old') {
+            autoFallbackAttemptedRef.current = true;
+            setDataTab('new');
+            setSelected(null);
+            return;
+          }
         }
-        autoFallbackToOldRef.current = false;
+        // Reset fallback flags when data found or manual switch
+        if (sortedDonors.length > 0) {
+          autoFallbackToOldRef.current = false;
+          autoFallbackAttemptedRef.current = false;
+        } else if (autoFallbackToOldRef.current && tab === 'old') {
+          // Both tabs empty after new->old fallback; keep flag to show combined empty message
+        } else if (tab === 'old' && autoFallbackAttemptedRef.current) {
+          // Both empty after old->new fallback; flag already true, stay on current
+        } else {
+          autoFallbackToOldRef.current = false;
+        }
         setDonors(sortedDonors);
         setTotal(rTotal);
         setMessage(null);
@@ -274,7 +294,11 @@ export default function MyDonors() {
       } catch (err) {
         if (!cancelled) setMessage({ type: 'error', text: err.message });
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          // allow next auto-fallback after one manual switch cycle completes
+          setTimeout(() => { manualTabSwitchRef.current = false; }, 100);
+        }
       }
     };
 
@@ -404,6 +428,8 @@ export default function MyDonors() {
 
   const switchTab = (tab) => {
     manualTabSwitchRef.current = true;
+    autoFallbackAttemptedRef.current = false;
+    autoFallbackToOldRef.current = false;
     if (donor) {
       saveProgress(dataTab, donor.id, index);
       localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
@@ -1059,7 +1085,7 @@ export default function MyDonors() {
             <div className="fro-empty-icon">
               <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'var(--sage)', opacity: .5 }}>{dataTab === 'new' ? 'fiber_new' : 'history'}</span>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : 'old'} data assigned</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : 'old'} data allotted</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5 }}>
               {stations.length === 0
                 ? 'You are not assigned to any station yet. Ask your NGO admin to assign you to a station.'
@@ -1067,7 +1093,7 @@ export default function MyDonors() {
                   ? 'New data will appear here once distributed to your station.'
                   : 'Old data will appear here once uploaded to your station.')}
             </div>
-            {autoFallbackToOldRef.current && dataTab === 'old' ? (
+            {(autoFallbackToOldRef.current || autoFallbackAttemptedRef.current) && donors.length === 0 ? (
               <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
                 No new or old data is currently available at your station. Contact your admin if you expect data here.
               </div>
