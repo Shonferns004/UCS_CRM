@@ -1829,6 +1829,7 @@ export const getMyDonors = async (req, res) => {
         next_follow_up: a.next_follow_up || null,
         assigned_at: a.assigned_at || null,
         is_new: a.is_new !== false,
+        batch_type: a.batch_type || null,
         next_scheduled_at: s?.scheduled_at || null,
         is_overdue: s ? new Date(s.scheduled_at) < new Date() : false,
         schedule_id: s?.id || null,
@@ -1902,12 +1903,15 @@ export const getMyDonors = async (req, res) => {
     const now = new Date();
     const nowISO = now.toISOString();
 
-    // Permanent hide for terminal not-connected dispositions (wrong_number,
-    // invalid, etc.). These never re-enter the queue unless real money lands.
+    // Retryable not-connected: shown at tail of FIFO for rework, not permanently hidden.
+    const RETRYABLE_NOT_CONNECTED_DETAILS = new Set([
+      'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
+    ]);
+    // Permanent hide for terminal not-connected dispositions (wrong_number, invalid, etc.).
+    // Retryable ones above are excluded here — they go to tail instead.
     const NOT_CONNECTED_DISPOSITION_DETAILS = new Set([
-      'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off',
-      'out_of_coverage', 'wrong_number', 'invalid_number', 'invalid',
-      'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out',
+      'wrong_number', 'invalid_number', 'invalid',
+      'rejected', 'temporary_network_issue', 'incoming_out',
     ]);
     const MONEY_DONE_STATUSES = new Set([
       'donation_collected', 'done', 'lead_done', 'visit_donate',
@@ -1959,11 +1963,13 @@ export const getMyDonors = async (req, res) => {
     }
     let filtered = baseFiltered === null ? result : baseFiltered;
 
+    const isNewAssignment = (r) => r.batch_type === 'new_data' || (r.batch_type == null && r.is_new !== false);
     const groupOf = (r) => {
-      return r.is_new ? 0
-        : r.status === 'pending' ? 1
-        : SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status) ? 2
-        : 5;
+      const isRetryable = RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
+      const isNew = isNewAssignment(r);
+      if (isRetryable) return isNew ? 2 : 3;
+      if (isNew) return 0;
+      return 1;
     };
 
     filtered.sort((a, b) => {
