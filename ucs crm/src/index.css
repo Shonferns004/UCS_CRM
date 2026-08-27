@@ -1731,6 +1731,9 @@
   .panel-fro .content-body:has(.whatsapp-chat-page) { padding:0; }
   .panel-fro .detail-split { flex-direction:column; }
   .panel-fro .detail-left, .panel-fro .detail-mid, .panel-fro .detail-right { width:100%; }
+  .panel-fro .detail-mid { order:-1; }
+  .panel-fro .fro-mid-tabs { order:1; }
+  .panel-fro .fro-mid-connection { order:0; }
   .panel-fro .bento-grid { grid-template-columns:repeat(6,1fr); }
   .panel-fro .bento-col-12 { grid-column:span 6; } .panel-fro .bento-col-8 { grid-column:span 6; } .panel-fro .bento-col-7 { grid-column:span 6; } .panel-fro .bento-col-6 { grid-column:span 6; } .panel-fro .bento-col-5 { grid-column:span 6; } .panel-fro .bento-col-4 { grid-column:span 3; } .panel-fro .bento-col-3 { grid-column:span 3; } .panel-fro .bento-col-2 { grid-column:span 2; }
   .panel-fro .donor-modal { max-width:100%; margin:0 10px; max-height:90vh; }
