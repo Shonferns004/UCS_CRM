@@ -496,6 +496,7 @@ class _RequestsPageState extends State<RequestsPage> {
     final tt = Theme.of(context).textTheme;
     final type = leave['type']?.toString() ?? '';
     final status = leave['status']?.toString() ?? 'pending';
+    final days = leave['days'] ?? 1;
     final typeLabel = {
       'full_day': 'Full Day',
       'half_day': 'Half Day',
@@ -503,20 +504,8 @@ class _RequestsPageState extends State<RequestsPage> {
       'emergency': 'Emergency',
     }[type] ?? type;
 
-    String dateInfo;
-    if (leave['leave_date'] != null) {
-      dateInfo = leave['leave_date'].toString();
-      if (type == 'half_day' && leave['half_start_time'] != null) {
-        dateInfo += ' · ${leave['half_start_time']} - ${leave['half_end_time']}';
-      }
-    } else if (leave['start_date'] != null && leave['end_date'] != null) {
-      dateInfo = '${leave['start_date']} → ${leave['end_date']}';
-    } else {
-      dateInfo = '';
-    }
-
     final statusColor = {
-      'pending': const Color(0xFFCA8A04),
+      'pending': const Color(0xFFF59E0B),
       'approved': const Color(0xFF16A34A),
       'rejected': const Color(0xFFEF4444),
     }[status] ?? Colors.grey;
@@ -526,141 +515,248 @@ class _RequestsPageState extends State<RequestsPage> {
       'rejected': 'Rejected',
     }[status] ?? status;
 
+    final startDate = leave['leave_date']?.toString() ?? leave['start_date']?.toString();
+    final endDate = leave['end_date']?.toString();
+    final halfStart = leave['half_start_time']?.toString();
+    final halfEnd = leave['half_end_time']?.toString();
+
+    String fmtShort(String? d) {
+      if (d == null || d.isEmpty) return '';
+      final dt = DateTime.tryParse(d);
+      if (dt == null) return d;
+      return DateFormat('dd MMM').format(dt);
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
+        initialChildSize: 0.75,
         minChildSize: 0.4,
         maxChildSize: 0.95,
         expand: false,
         builder: (ctx, scrollCtrl) => Container(
           decoration: BoxDecoration(
-            color: Theme.of(ctx).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            color: scheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: ListView(
             controller: scrollCtrl,
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            padding: const EdgeInsets.fromLTRB(0, 0, 0, 32),
             children: [
               Center(
                 child: Container(
-                  width: 40, height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
+                  width: 36, height: 4,
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
                   decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
                 ),
               ),
-              Row(
-                children: [
-                  Text('Leave Details', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Leave Request', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 2),
+                          Text(_workerName(leave), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                        ],
+                      ),
                     ),
-                    child: Text(statusLabel, style: tt.labelMedium?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
-                  ),
-                ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(statusLabel, style: tt.labelMedium?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
               ),
+
               const SizedBox(height: 16),
 
-              _detailRow('Worker', _workerName(leave), tt),
-              _detailRow('Leave Type', typeLabel, tt),
-              _detailRow('Days', '${leave['days'] ?? 1}', tt),
-              if (dateInfo.isNotEmpty) _detailRow('Date', dateInfo, tt),
-              _detailRow('Applied', _formatTime(leave['applied_at']?.toString()), tt),
-
-              const SizedBox(height: 12),
-              Text('Reason', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
-              const SizedBox(height: 4),
               Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(8),
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: Text(leave['reason']?.toString().isNotEmpty == true ? leave['reason'].toString() : 'No reason provided',
-                  style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        _infoChip(LucideIcons.tag, typeLabel, scheme.primary, tt),
+                        const SizedBox(width: 8),
+                        _infoChip(LucideIcons.calendarDays, '$days day${days == 1 ? '' : 's'}', scheme.onSurface, tt),
+                        if (type == 'half_day' && halfStart != null) ...[
+                          const SizedBox(width: 8),
+                          _infoChip(LucideIcons.clock, '$halfStart - $halfEnd', scheme.onSurface, tt),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              if (type == 'vacational' && startDate != null && endDate != null) ...[
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _dateBlock('Start', fmtShort(startDate), const Color(0xFF1D7A4F), tt),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerHighest,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(LucideIcons.arrowRight, size: 16, color: scheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _dateBlock('End', fmtShort(endDate), const Color(0xFFEF4444), tt),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (startDate != null) ...[
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _dateBlock('Date', fmtShort(startDate), scheme.primary, tt),
+                ),
+              ],
+
+              const SizedBox(height: 16),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Reason', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant, fontSize: 11)),
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        leave['reason']?.toString().isNotEmpty == true ? leave['reason'].toString() : 'No reason provided',
+                        style: tt.bodyMedium?.copyWith(color: scheme.onSurface, height: 1.4),
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
               if (leave['photo_url']?.toString().isNotEmpty == true) ...[
-                const SizedBox(height: 12),
-                Text('Attached Photo', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    leave['photo_url'].toString(),
-                    width: double.infinity,
-                    height: 180,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      height: 100,
-                      color: scheme.surfaceContainerHighest,
-                      child: Center(child: Icon(LucideIcons.imageOff, color: scheme.outline)),
-                    ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Attachment', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant, fontSize: 11)),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          leave['photo_url'].toString(),
+                          width: double.infinity,
+                          height: 200,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 100,
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(child: Icon(LucideIcons.imageOff, color: scheme.outline)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
 
               if (leave['admin_remark']?.toString().isNotEmpty == true && status != 'pending') ...[
-                const SizedBox(height: 12),
-                Text('Admin Remark', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
-                const SizedBox(height: 4),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(8),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Admin Remark', style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant, fontSize: 11)),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(leave['admin_remark'].toString(), style: tt.bodyMedium?.copyWith(color: scheme.onSurface, height: 1.4)),
+                      ),
+                    ],
                   ),
-                  child: Text(leave['admin_remark'].toString(), style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
                 ),
               ],
 
               if (status == 'pending') ...[
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _decideLeave(leave, 'rejected');
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFba1a1a),
-                          side: const BorderSide(color: Color(0xFFba1a1a)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _decideLeave(leave, 'rejected');
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFba1a1a),
+                            side: const BorderSide(color: Color(0xFFba1a1a), width: 1.5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          icon: const Icon(LucideIcons.x, size: 18),
+                          label: const Text('Reject', style: TextStyle(fontWeight: FontWeight.w600)),
                         ),
-                        icon: const Icon(LucideIcons.x, size: 18),
-                        label: const Text('Reject'),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _decideLeave(leave, 'approved');
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF1D7A4F),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _decideLeave(leave, 'approved');
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF1D7A4F),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          icon: const Icon(LucideIcons.check, size: 18),
+                          label: const Text('Approve', style: TextStyle(fontWeight: FontWeight.w600)),
                         ),
-                        icon: const Icon(LucideIcons.check, size: 18),
-                        label: const Text('Approve'),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ],
@@ -670,18 +766,38 @@ class _RequestsPageState extends State<RequestsPage> {
     );
   }
 
-  Widget _detailRow(String label, String value, TextTheme tt) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+  Widget _infoChip(IconData icon, String label, Color color, TextTheme tt) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: 100,
-            child: Text(label, style: tt.labelSmall?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant)),
-          ),
-          Expanded(child: Text(value, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w500))),
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(label, style: tt.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateBlock(String label, String date, Color accent, TextTheme tt) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: tt.labelSmall?.copyWith(color: accent, fontWeight: FontWeight.w600, fontSize: 10)),
+          const SizedBox(height: 4),
+          Text(date, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: accent)),
         ],
       ),
     );
