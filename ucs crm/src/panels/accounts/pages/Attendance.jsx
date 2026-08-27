@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 
 export default function Attendance() {
-  const [records, setRecords] = useState([]);
+  const [workers, setWorkers] = useState([]);
+  const [todayRecords, setTodayRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [previewImg, setPreviewImg] = useState(null);
@@ -10,8 +11,12 @@ export default function Attendance() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiGet('/attendance/today-all');
-      setRecords(data || []);
+      const [workersData, attendanceData] = await Promise.all([
+        apiGet('/workers?status=all'),
+        apiGet('/attendance/today-all'),
+      ]);
+      setWorkers(workersData || []);
+      setTodayRecords(attendanceData || []);
     } catch (e) {
       console.error(e);
     }
@@ -23,7 +28,7 @@ export default function Attendance() {
   const handleVerify = async (id) => {
     try {
       await apiPut(`/attendance/${id}/verify-selfie`, { status: 'verified' });
-      setRecords(prev => prev.map(r => r.id === id ? { ...r, selfie_status: 'verified' } : r));
+      setTodayRecords(prev => prev.map(r => r.id === id ? { ...r, selfie_status: 'verified' } : r));
     } catch (e) {
       alert(e.message || 'Failed to verify');
     }
@@ -33,7 +38,7 @@ export default function Attendance() {
     if (!confirm('Reject selfie? This will delete the entire attendance record.')) return;
     try {
       await apiPut(`/attendance/${id}/verify-selfie`, { status: 'rejected' });
-      setRecords(prev => prev.filter(r => r.id !== id));
+      setTodayRecords(prev => prev.filter(r => r.id !== id));
     } catch (e) {
       alert(e.message || 'Failed to reject');
     }
@@ -45,12 +50,28 @@ export default function Attendance() {
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  const filtered = records.filter(r => {
+  const merged = workers.map(w => {
+    const record = todayRecords.find(r => r.worker_id === w.id);
+    return {
+      ...w,
+      record: record || null,
+      hasPunch: !!record,
+    };
+  }).sort((a, b) => {
+    const nameA = (a.name || '').toLowerCase();
+    const nameB = (b.name || '').toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+
+  const filtered = merged.filter(r => {
     if (!search) return true;
-    const name = r.workers?.name || '';
-    const dept = r.workers?.department || '';
+    const name = r.name || '';
+    const dept = r.department || '';
     return name.toLowerCase().includes(search.toLowerCase()) || dept.toLowerCase().includes(search.toLowerCase());
   });
+
+  const punchedIn = filtered.filter(r => r.hasPunch).length;
+  const noPunch = filtered.filter(r => !r.hasPunch).length;
 
   return (
     <div style={{ padding: 20 }}>
@@ -63,7 +84,7 @@ export default function Attendance() {
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: '#6b7280' }}>
-            {filtered.length} workers
+            {punchedIn} punched in · {noPunch} no punch · {filtered.length} total
           </span>
           <input
             type="text"
@@ -84,7 +105,7 @@ export default function Attendance() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>Loading...</div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>No attendance records for today</div>
+        <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>No workers found</div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
@@ -99,50 +120,61 @@ export default function Attendance() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
-                const isPending = r.selfie_status === 'pending';
-                const hasSelfieIn = !!r.punch_in_selfie_url;
-                const hasSelfieOut = !!r.punch_out_selfie_url;
+              {filtered.map((w) => {
+                const r = w.record;
+                const isPending = r?.selfie_status === 'pending';
+                const hasSelfieIn = !!r?.punch_in_selfie_url;
+                const hasSelfieOut = !!r?.punch_out_selfie_url;
                 return (
-                  <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <tr key={w.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 500 }}>{r.workers?.name || 'Unknown'}</div>
+                      <div style={{ fontWeight: 500 }}>{w.name || 'Unknown'}</div>
                     </td>
                     <td style={{ padding: '10px 12px', color: '#6b7280' }}>
-                      {r.workers?.department || '—'}
+                      {w.department || '—'}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {hasSelfieIn ? (
-                          <img
-                            src={r.punch_in_selfie_url}
-                            alt="selfie"
-                            style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
-                            onClick={() => setPreviewImg(r.punch_in_selfie_url)}
-                          />
-                        ) : r.punch_in_time ? (
-                          <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
-                        ) : null}
-                        <span>{fmt(r.punch_in_time)}</span>
-                      </div>
+                      {r ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {hasSelfieIn ? (
+                            <img
+                              src={r.punch_in_selfie_url}
+                              alt="selfie"
+                              style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
+                              onClick={() => setPreviewImg(r.punch_in_selfie_url)}
+                            />
+                          ) : r.punch_in_time ? (
+                            <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
+                          ) : null}
+                          <span>{fmt(r.punch_in_time)}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#d1d5db', fontSize: 13 }}>No punch</span>
+                      )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {hasSelfieOut ? (
-                          <img
-                            src={r.punch_out_selfie_url}
-                            alt="selfie"
-                            style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
-                            onClick={() => setPreviewImg(r.punch_out_selfie_url)}
-                          />
-                        ) : r.punch_out_time ? (
-                          <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
-                        ) : null}
-                        <span>{fmt(r.punch_out_time)}</span>
-                      </div>
+                      {r?.punch_out_time ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {hasSelfieOut ? (
+                            <img
+                              src={r.punch_out_selfie_url}
+                              alt="selfie"
+                              style={{ width: 32, height: 32, borderRadius: 16, objectFit: 'cover', cursor: 'pointer', border: isPending ? '2px solid #f59e0b' : '2px solid #10b981' }}
+                              onClick={() => setPreviewImg(r.punch_out_selfie_url)}
+                            />
+                          ) : (
+                            <span style={{ color: '#10b981', fontSize: 13 }}>📱 QR</span>
+                          )}
+                          <span>{fmt(r.punch_out_time)}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
+                      )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      {r.selfie_status === 'pending' ? (
+                      {!r ? (
+                        <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontSize: 12, fontWeight: 500 }}>Absent</span>
+                      ) : r.selfie_status === 'pending' ? (
                         <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 500 }}>⏳ Pending</span>
                       ) : r.selfie_status === 'verified' ? (
                         <span style={{ padding: '2px 8px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontSize: 12, fontWeight: 500 }}>✓ Verified</span>
