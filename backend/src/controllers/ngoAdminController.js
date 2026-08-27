@@ -1875,12 +1875,23 @@ export const getNewData = async (req, res) => {
     }
 
     // Distinct data categories for the filter dropdown (across new_data + donor_profiles, NGO-scoped)
+    // Uses dedicated DISTINCT queries so the dropdown is complete regardless of the 25k row-fetch limit.
     const categorySet = new Set();
-    for (const e of importedRows || []) {
-      if (e.data_category && String(e.data_category).trim()) categorySet.add(String(e.data_category).trim());
+    const { data: newDataCats } = await db
+      .from('new_data')
+      .select('data_category')
+      .in('ngo', ngoNames)
+      .not('data_category', 'is', null);
+    for (const c of newDataCats || []) {
+      if (c.data_category && String(c.data_category).trim()) categorySet.add(String(c.data_category).trim());
     }
-    for (const p of ngoProfiles || []) {
-      if (p.data_category && String(p.data_category).trim()) categorySet.add(String(p.data_category).trim());
+    const { data: profileCats } = await db
+      .from('donor_profiles')
+      .select('data_category')
+      .in('ngo', ngoNames)
+      .not('data_category', 'is', null);
+    for (const c of profileCats || []) {
+      if (c.data_category && String(c.data_category).trim()) categorySet.add(String(c.data_category).trim());
     }
     const categoryOptions = [...categorySet].sort();
 
