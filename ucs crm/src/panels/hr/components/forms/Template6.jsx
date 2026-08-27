@@ -1,4 +1,5 @@
-export default function Template6({ personal, declarationDate, place }) {
+export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress }) {
+  const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
       <style>{`
@@ -112,7 +113,7 @@ export default function Template6({ personal, declarationDate, place }) {
 
       <div className="t6">
         <div className="header">
-          <h1>Being Sevak Charitable Trust</h1>
+          <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
           <div className="top-line"></div>
           <div className="subtitle">
             Public Charitable Trust (Reg.) E-31948 No. | Income Tax Exempted Under 80G
@@ -124,7 +125,7 @@ export default function Template6({ personal, declarationDate, place }) {
         </div>
 
         <p>
-          I, {personal?.fullName || '________________________'}, voluntarily authorize Being Sevak Charitable Trust ("the Trust") 
+          I, {personal?.fullName || '________________________'}, voluntarily authorize {heading} ("the Trust") 
           to capture and use my photographs, videos, audio recordings, name, image, voice, and 
           testimonials for lawful purposes related to the Trust's charitable activities, including 
           awareness campaigns, fundraising, reports, publications, training, social media, website, 
@@ -202,8 +203,7 @@ export default function Template6({ personal, declarationDate, place }) {
         </div>
 
         <div className="footer">
-          Reg. Add.: Office No. 402, 4th Floor, "A" Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai – 400092<br />
-          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, \"A\" Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai – 400092\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

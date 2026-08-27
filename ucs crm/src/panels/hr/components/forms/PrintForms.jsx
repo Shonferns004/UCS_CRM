@@ -69,12 +69,12 @@ export default function PrintForms({ data, onClose }) {
         </div>
       </div>
       <div ref={ref}>
-        <Template1 personal={data.personal} education={data.education} family={data.family || []} organizations={data.organizations || []} photo_url={data.photo_url || ''} />
-        <Template2 />
-        <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
-        <Template4 personal={data.personal} />
-        <Template5 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
-        <Template6 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
+        <Template1 personal={data.personal} education={data.education} family={data.family || []} organizations={data.organizations || []} photo_url={data.photo_url || ''} ngoHeading={data.ngoHeading} ngoAddress={data.ngoAddress} />
+        <Template2 ngoHeading={data.ngoHeading} ngoAddress={data.ngoAddress} />
+        <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} ngoHeading={data.ngoHeading} ngoAddress={data.ngoAddress} />
+        <Template4 personal={data.personal} ngoHeading={data.ngoHeading} ngoAddress={data.ngoAddress} />
+        <Template5 personal={data.personal} declarationDate={data.declarationDate} place={data.place} ngoHeading={data.ngoHeading} ngoAddress={data.ngoAddress} />
+        <Template6 personal={data.personal} declarationDate={data.declarationDate} place={data.place} ngoHeading={data.ngoHeading} ngoAddress={data.ngoAddress} />
       </div>
     </div>
   )
