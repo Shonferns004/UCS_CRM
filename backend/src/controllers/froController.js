@@ -2876,6 +2876,75 @@ export const getFroCallbacks = async (req, res) => {
   }
 };
 
+// Open money-promise leads for the worker: money intent was expressed but not yet
+// collected, so the FRO can keep following up. Only uncollected/available
+// assignments are returned (disposed/terminal/collected rows are excluded by
+// their status not being in the set). Sorted by next follow-up / due date (oldest
+// first) so the most-overdue promise surfaces first.
+export const getFroPromises = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    if (stationNames.length === 0) return res.json([]);
+
+    const { data: assignments, error } = await withStationNgoPairs(
+      db
+        .from('fro_assignments')
+        .select('*')
+        .in('station', stationNames)
+        .in('status', ['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent']),
+      myScope
+    );
+
+    if (error) throw error;
+
+    const assignmentIds = (assignments || []).map(a => a.id);
+    const [donorsRes, schedulesRes] = await Promise.all([
+      db.from('donor_profiles').select('id, name, mobile_number')
+        .in('id', [...new Set(assignments.map(a => a.donor_id).filter(Boolean))]),
+      assignmentIds.length > 0
+        ? db.from('fro_scheduled_contacts').select('assignment_id, scheduled_at').in('assignment_id', assignmentIds).eq('is_completed', false)
+        : { data: [] },
+    ]);
+
+    const donorMap = {};
+    for (const d of donorsRes.data || []) donorMap[d.id] = d;
+    const scheduleMap = {};
+    for (const s of schedulesRes.data || []) {
+      if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
+    }
+
+    const seen = new Set();
+    const result = [];
+    for (const a of assignments || []) {
+      const d = donorMap[a.donor_id];
+      if (!d) continue;
+      const key = `${a.donor_id}-${a.ngo_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        id: a.donor_id,
+        ngo_id: a.ngo_id,
+        donor_name: d.name || 'Unknown',
+        donor_mobile: d.mobile_number || '',
+        scheduled_at: scheduleMap[a.id] || null,
+        due_date: a.next_follow_up || scheduleMap[a.id] || null,
+        status: a.status,
+        next_follow_up: a.next_follow_up,
+        assignment_id: a.id,
+      });
+    }
+    result.sort((x, y) => {
+      const tx = x.due_date ? new Date(x.due_date).getTime() : Infinity;
+      const ty = y.due_date ? new Date(y.due_date).getTime() : Infinity;
+      return tx - ty;
+    });
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getMyHistory = async (req, res) => {
   try {
     const workerId = req.user.id;

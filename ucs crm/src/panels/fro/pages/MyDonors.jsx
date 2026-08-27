@@ -11,7 +11,7 @@ import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { API_BASE } from '../../../lib/apiBase';
 import { useIsMobile } from '../../../hooks/useIsMobile';
-import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
+import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -43,12 +43,14 @@ const HIDDEN_STATUSES = new Set([
   'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
   'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
 ]);
-const RINGING_RANK = Number.MAX_SAFE_INTEGER;
-const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : RINGING_RANK);
 function filterAndSortDonors(list) {
   return list
     .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)
-    .sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
+    .sort((a, b) => {
+      const ta = a.assigned_at ? new Date(a.assigned_at).getTime() : 0;
+      const tb = b.assigned_at ? new Date(b.assigned_at).getTime() : 0;
+      return ta - tb;
+    });
 }
 
 function normalizeDonorResponse(r) {
@@ -57,11 +59,11 @@ function normalizeDonorResponse(r) {
 }
 
 function findNextDonorIndex(donors, currentId) {
-  for (let i = 0; i < donors.length; i++) {
-    if (SCHEDULE_TYPES.has(donors[i].status) && donors[i].id !== currentId) return i;
-  }
-  for (let i = 0; i < donors.length; i++) {
-    if (donors[i].status === 'pending' && donors[i].id !== currentId) return i;
+  const idx = donors.findIndex(d => d.id === currentId);
+  if (idx >= 0) {
+    for (let i = idx + 1; i < donors.length; i++) {
+      if (donors[i].id !== currentId) return i;
+    }
   }
   for (let i = 0; i < donors.length; i++) {
     if (donors[i].id !== currentId) return i;

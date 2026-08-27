@@ -30,7 +30,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Up / Callback', Icon: CalendarClock },
+  { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Ups', Icon: CalendarClock },
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', Icon: HeartCrack },

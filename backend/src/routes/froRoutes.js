@@ -18,6 +18,7 @@ import {
   getMyStations,
   getFroScheduled,
   getFroCallbacks,
+  getFroPromises,
   getMyHistory,
   requestData,
   getMyDataRequests,
@@ -89,6 +90,7 @@ router.post('/donors/:id/schedule', scheduleContact);
 router.post('/upload-payment-screenshot', uploadPaymentScreenshot);
 router.get('/scheduled', getFroScheduled);
 router.get('/callbacks', getFroCallbacks);
+router.get('/promises', getFroPromises);
 router.put('/status', updateLiveStatus);
 router.get('/progress', getMyProgress);
 router.put('/progress', saveMyProgress);
