@@ -41,28 +41,27 @@ export const markImpersonationCodeUsed = async (id, usedBy) => {
 };
 
 export const listImpersonationCodes = async (ngoId, limit = 50) => {
-  const now = new Date().toISOString();
-  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 30 * 60 * 1000);
 
-  // Show active codes (not used & not expired) OR any code created in the last
-  // 30 minutes.  When ngoId is supplied, scope both branches to that NGO.
-  // PostgREST .or() syntax: top-level comma = OR, and() = AND.
-  let filter;
-  if (ngoId != null) {
-    const ngo = `or(ngo_id.eq.${ngoId},ngo_id.is.null)`;
-    filter = `and(is_used.eq.false,expires_at.gt.${now},${ngo}),and(created_at.gt.${cutoff},${ngo})`;
-  } else {
-    filter = `and(is_used.eq.false,expires_at.gt.${now}),created_at.gt.${cutoff}`;
-  }
-
-  const { data, error } = await db
+  let query = db
     .from('impersonation_codes')
     .select('*')
-    .or(filter)
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .limit(limit * 3);
+
+  if (ngoId != null) {
+    query = query.or(`ngo_id.eq.${ngoId},ngo_id.is.null`);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+
+  return (data || []).filter(code => {
+    const isActive = !code.is_used && new Date(code.expires_at) > now;
+    const isRecent = new Date(code.created_at) > cutoff;
+    return isActive || isRecent;
+  }).slice(0, limit);
 };
 
 export const listAllImpersonationCodes = async () => {
