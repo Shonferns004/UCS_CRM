@@ -451,8 +451,25 @@ export const uploadChunk = async (req, res) => {
 
     const ngoNames = selectedNgos.length > 0 ? selectedNgos.map(n => n.name) : ['Default'];
 
+    // Cross-batch dedup: skip mobiles already present in previous imports
+    const existingMobiles = await getExistingMobiles(validRows.map(r => r.mobile_number));
+    const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
+    const crossBatchDups = validRows.length - trulyNew.length;
+    if (trulyNew.length === 0) {
+      return res.json({
+        inserted: 0,
+        unique_donors: 0,
+        invalid_mobile_count: invalidMobileCount,
+        cross_batch_duplicates: crossBatchDups,
+        batch_id: importBatchId,
+        chunk_index,
+        total_chunks,
+        done: chunk_index === total_chunks - 1,
+      });
+    }
+
     const dbRows = [];
-    for (const r of validRows) {
+    for (const r of trulyNew) {
       for (const ngo of ngoNames) {
         dbRows.push({
           data_source_id,
@@ -493,12 +510,13 @@ export const uploadChunk = async (req, res) => {
     for (const row of deduped) {
       ngoCounts[row.ngo] = (ngoCounts[row.ngo] || 0) + 1;
     }
-    const uniqueDonors = new Set(validRows.map(r => r.mobile_number)).size;
+    const uniqueDonors = new Set(trulyNew.map(r => r.mobile_number)).size;
 
     return res.json({
       inserted,
       unique_donors: uniqueDonors,
       invalid_mobile_count: invalidMobileCount,
+      cross_batch_duplicates: crossBatchDups,
       batch_id: importBatchId,
       chunk_index,
       total_chunks,

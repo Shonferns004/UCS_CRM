@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../api/auth'
 import { api } from '../../../api/auth'
 import { toast } from '../../../components/Toast'
-import * as XLSX from 'xlsx'
 
 const PAGE_SIZES = [100, 500, 1000]
 
@@ -172,8 +171,9 @@ function OldDataTab() {
     setError('')
 
     const reader = new FileReader()
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
+        const XLSX = await import('xlsx')
         const wb = XLSX.read(evt.target.result, { type: 'array' })
         const ws = wb.Sheets[wb.SheetNames[0]]
         const json = XLSX.utils.sheet_to_json(ws, { defval: '' })

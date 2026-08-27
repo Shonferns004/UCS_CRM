@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import * as XLSX from 'xlsx-js-style';
 import { Download } from 'lucide-react';
 import { apiGet, apiPut, getFroHourlyPerformance } from '../api/auth';
 import { SkeletonDashboard } from '../../../components/Skeleton';
@@ -932,6 +931,7 @@ export default function Dashboard() {
 
   const handleTelecallerExport = async () => {
     if (!tlData?.performance) return;
+    const XLSX = await import('xlsx-js-style');
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Telecaller Performance Summary
