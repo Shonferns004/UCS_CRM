@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
-import { api } from '../../../api/auth';
+import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -357,6 +357,20 @@ export default function MyDonors() {
     getMyStations().then(s => {
       const arr = Array.isArray(s) ? s : [];
       setStations(arr);
+      // Acting FRO: default to claimed station (e.g. DH-1) not saved FD-1/all
+      if (isImpersonating()) {
+        try {
+          const u = getUser('ucs');
+          const act = Array.isArray(u?.act_stations) ? u.act_stations : [];
+          if (act.length > 0) {
+            const allowed = new Set(act.map(p => String(p.station ?? '').trim()));
+            const cur = String(selectedStation ?? '').trim();
+            if (!allowed.has(cur)) {
+              setSelectedStation(String(act[0].station ?? '').trim() || (arr[0]?.station || 'all'));
+            }
+          }
+        } catch {}
+      }
       if (!savedView?.selectedNgo) {
         const ngoMap = {};
         arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });

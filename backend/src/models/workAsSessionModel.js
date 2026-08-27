@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 
-const TTL_HOURS = 12;
+const TTL_HOURS = 2;
 const pairKey = (p) => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`;
 
 // A session is active while it has not been released and has not expired.

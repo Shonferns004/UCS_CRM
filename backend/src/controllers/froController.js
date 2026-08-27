@@ -423,8 +423,9 @@ export const getDashboard = async (req, res) => {
     const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
     const monthStr = now.toISOString().slice(0, 7) + '-01';
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
 
-    const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
+    const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
 
     const joinedAt = new Date(worker.created_at);
     const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
@@ -447,10 +448,10 @@ export const getDashboard = async (req, res) => {
     const todayStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
     const todayEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
 
-    const verifiedMonth = await getVerifiedCollection(workerId, monthStart, monthEnd);
-    const unverifiedMonth = await getUnverifiedCollection(workerId, monthStart, monthEnd);
-    const verifiedToday = await getVerifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
-    const unverifiedToday = await getUnverifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
+    const verifiedMonth = await getVerifiedCollection(creditWorkerId, monthStart, monthEnd);
+    const unverifiedMonth = await getUnverifiedCollection(creditWorkerId, monthStart, monthEnd);
+    const verifiedToday = await getVerifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString());
+    const unverifiedToday = await getUnverifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString());
 
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
@@ -695,7 +696,8 @@ export const getMyCollections = async (req, res) => {
     const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
 
-    const workerName = (worker.name || '').trim();
+    const creditWorkerName = req.user.impersonation && req.user.imposter_name ? String(req.user.imposter_name).trim() : (worker.name || '').trim();
+    const workerName = creditWorkerName;
     const monthStartDay = monthStart.slice(0, 10);
     const monthEndDay = monthEnd.slice(0, 10);
 
@@ -2686,8 +2688,9 @@ export const getMyTarget = async (req, res) => {
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
     const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
-    const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
-    const collectedByNgo = await getCollectedByNgo(workerId, monthStart, monthEnd, allowedNgoIds);
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
+    const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
+    const collectedByNgo = await getCollectedByNgo(creditWorkerId, monthStart, monthEnd, allowedNgoIds);
 
     // Resolve NGO names for the breakdown
     const collectedNgoIds = Object.keys(collectedByNgo).filter(id => id !== 'others');
@@ -2716,9 +2719,9 @@ export const getMyTarget = async (req, res) => {
       totalCollectionAKI: 0,
     };
     try {
-      const achievements = await getAchievements(workerId, monthStart, monthEnd);
+      const achievements = await getAchievements(creditWorkerId, monthStart, monthEnd);
       const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-      const dailyCollection = await getDailyCollectionByWorker(workerId, monthStart, monthEnd);
+      const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd);
       const akiPerDay = Object.entries(dailyCollection || {})
         .map(([date, collection]) => ({
           date,
@@ -2764,17 +2767,24 @@ export const getMyTarget = async (req, res) => {
 export const getMyStations = async (req, res) => {
   try {
     const workerId = req.user.id;
+    const actPairs = froActPairs(req);
     const { data: stations, error } = await db
       .from('fro_station_assignments')
       .select('station, ngo_id, ngos(name)')
       .eq('fro_worker_id', workerId)
       .order('station', { ascending: true });
     if (error) throw error;
-    return res.json((stations || []).map(s => ({
+    let mapped = (stations || []).map(s => ({
       station: s.station,
       ngo_id: s.ngo_id,
       ngo_name: s.ngos?.name || null,
-    })));
+    }));
+    // Acting session: narrow dropdown to claimed stations only (e.g. DH-1 not FD-1)
+    if (actPairs && actPairs.length > 0) {
+      const allowed = new Set(actPairs.map(p => `${p.ngo_id ?? ''}|${String(p.station ?? '').trim()}`));
+      mapped = mapped.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station ?? '').trim()}`));
+    }
+    return res.json(mapped);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
