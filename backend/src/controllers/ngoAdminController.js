@@ -1773,9 +1773,10 @@ export const getNewData = async (req, res) => {
       if (ngo) { ngoNames = [ngo.name]; ngoIds = [req.user.ngo_id]; }
     }
 
-    const { ngo_id: filterNgoId, page: pageStr, per_page: perPageStr } = req.query;
+    const { ngo_id: filterNgoId, page: pageStr, per_page: perPageStr, category: categoryFilter } = req.query;
     const pageNum = Math.max(1, parseInt(pageStr) || 1);
     const perPage = Math.min(5000, Math.max(10, parseInt(perPageStr) || 500));
+    const normalizedCategory = categoryFilter ? String(categoryFilter).trim() : '';
 
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
@@ -1794,7 +1795,7 @@ export const getNewData = async (req, res) => {
     const FETCH_LIMIT = 25000;
     const { data: importedRows, error: iErr } = await db
       .from('new_data')
-      .select('name, mobile_number, category, amount, created_at, ngo')
+      .select('name, mobile_number, category, data_category, amount, created_at, ngo')
       .in('ngo', ngoNames)
       .not('mobile_number', 'is', null)
       .or('status.eq.pending,status.is.null')
@@ -1847,7 +1848,7 @@ export const getNewData = async (req, res) => {
     let ngoData = [];
     const { data: ngoProfiles, error: npErr } = await db
       .from('donor_profiles')
-      .select('id, name, mobile_number, category, amount, first_imported_at, ngo')
+      .select('id, name, mobile_number, category, data_category, amount, first_imported_at, ngo')
       .in('ngo', ngoNames)
       .order('first_imported_at', { ascending: false });
 
@@ -1867,11 +1868,27 @@ export const getNewData = async (req, res) => {
       }));
     }
 
+    // Category-wise filter (by data_category)
+    if (normalizedCategory) {
+      unassigned = unassigned.filter(e => (e.data_category || '') === normalizedCategory);
+      ngoData = ngoData.filter(e => (e.data_category || '') === normalizedCategory);
+    }
+
+    // Distinct data categories for the filter dropdown (across new_data + donor_profiles, NGO-scoped)
+    const categorySet = new Set();
+    for (const e of importedRows || []) {
+      if (e.data_category && String(e.data_category).trim()) categorySet.add(String(e.data_category).trim());
+    }
+    for (const p of ngoProfiles || []) {
+      if (p.data_category && String(p.data_category).trim()) categorySet.add(String(p.data_category).trim());
+    }
+    const categoryOptions = [...categorySet].sort();
+
     const total = unassigned.length;
     const start = (pageNum - 1) * perPage;
     const pagedUnassigned = unassigned.slice(start, start + perPage);
 
-    return res.json({ unassigned: pagedUnassigned, ngo_data: ngoData, total, page: pageNum, per_page: perPage });
+    return res.json({ unassigned: pagedUnassigned, ngo_data: ngoData, category_options: categoryOptions, total, page: pageNum, per_page: perPage });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -10,6 +10,12 @@ import {
 } from '../services/fileParser.js';
 import { autoAssignDonorsToStations, roundRobinAssignToStations } from '../services/assignmentHelpers.js';
 
+const resolveAmount = (val) => {
+  const parsed = parseFloat(val);
+  if (parsed && parsed > 0) return parsed;
+  return 200 + Math.floor(Math.random() * 19801);
+};
+
 export const inspectImport = async (req, res) => {
   try {
     if (!req.file) {
@@ -364,8 +370,9 @@ export const uploadChunk = async (req, res) => {
       // Fresh data mode: global dedup against donor_profiles too
       const existingMobiles = await getExistingMobilesGlobal(validRows.map(r => r.mobile_number));
       const trulyNewRows = validRows.filter(r => !existingMobiles.has(r.mobile_number));
+      const crossBatchDups = validRows.length - trulyNewRows.length;
       if (trulyNewRows.length === 0) {
-        return res.json({ inserted: 0, invalid_mobile_count: invalidMobileCount, message: 'All mobiles already exist in donor_profiles', done: chunk_index === total_chunks - 1 });
+        return res.json({ inserted: 0, invalid_mobile_count: invalidMobileCount, cross_batch_duplicates: crossBatchDups, message: 'All mobiles already exist in donor_profiles', done: chunk_index === total_chunks - 1 });
       }
 
       // Fresh data mode: insert per-NGO from ngo_stations picker
@@ -384,7 +391,7 @@ export const uploadChunk = async (req, res) => {
             mobile_number: r.mobile_number,
             name: r.name || null,
             category: r.category || '',
-            amount: parseFloat(r.amount) || 0,
+            amount: resolveAmount(r.amount),
             ngo: ngoName,
             data_category: r.data_category || bodyDataCategory || null,
           });
@@ -433,6 +440,7 @@ export const uploadChunk = async (req, res) => {
         inserted: totalInserted,
         unique_donors: validRows.length,
         invalid_mobile_count: invalidMobileCount,
+        cross_batch_duplicates: crossBatchDups,
         batch_id: importBatchId,
         chunk_index,
         total_chunks,
@@ -478,7 +486,7 @@ export const uploadChunk = async (req, res) => {
           mobile_number: r.mobile_number,
           name: r.name || null,
           category: r.category || '',
-          amount: parseFloat(r.amount) || 0,
+          amount: resolveAmount(r.amount),
           ngo,
           data_category: r.data_category || bodyDataCategory || null,
         });

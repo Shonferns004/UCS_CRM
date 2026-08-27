@@ -96,9 +96,9 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
                 norm[key] = v;
               }
               const name = norm.name || norm.fullname || norm['fullname'] || norm.donorname || norm['donorname'] || '';
-              const mobile = norm.mobilenumber || norm['mobilenumber'] || norm.mobile || norm.phone || norm.mobileno || norm['mobileno'] || '';
+              const mobile = norm.mobilenumber || norm['mobilenumber'] || norm.mobile || norm.mob || norm.phone || norm.mobileno || norm['mobileno'] || '';
               const category = norm.category || norm.datacategory || norm['datacategory'] || norm.data || '';
-              const rawAmt = (norm.amount || norm.dummyamount || '0').toString().replace(/,/g, '');
+              const rawAmt = (norm.amount || norm.amt || norm.dummyamount || '0').toString().replace(/,/g, '');
               const amount = parseFloat(rawAmt) || 0;
               if (name && mobile) {
                 allRows.push({ name: String(name).trim(), mobile_number: String(mobile).trim(), category: String(category).trim(), amount });
@@ -334,9 +334,9 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
                 norm[key] = v;
               }
               const name = norm.name || norm.fullname || norm.donorname || '';
-              const mobile = norm.mobilenumber || norm.mobile || norm.phone || norm.mobileno || '';
+              const mobile = norm.mobilenumber || norm.mobile || norm.mob || norm.phone || norm.mobileno || '';
               const category = norm.category || norm.datacategory || norm.data || '';
-              const rawAmt = (norm.amount || norm.dummyamount || '0').toString().replace(/,/g, '');
+              const rawAmt = (norm.amount || norm.amt || norm.dummyamount || '0').toString().replace(/,/g, '');
               const amount = parseFloat(rawAmt) || 0;
               if (name && mobile) {
                 allRows.push({ name: String(name).trim(), mobile_number: String(mobile).trim(), category: String(category).trim(), amount });
@@ -354,6 +354,8 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
           setProgress({ current: 0, total: chunks.length, label: `Parsing complete. Uploading ${deduped.length} donors in ${chunks.length} chunks...` });
 
           let totalInserted = 0;
+          let totalInvalid = 0;
+          let totalCrossDups = 0;
           let batchId = null;
           const ngoResults = {};
 
@@ -372,6 +374,8 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
             if (batchId) body.batch_id = batchId;
             const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
             totalInserted += res.inserted;
+            totalInvalid += res.invalid_mobile_count || 0;
+            totalCrossDups += res.cross_batch_duplicates || 0;
             if (res.batch_id) batchId = res.batch_id;
             if (res.ngo_results) {
               for (const [n, r] of Object.entries(res.ngo_results)) {
@@ -395,6 +399,8 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
             total_in_file: allRows.length,
             imported: totalInserted,
             assigned_donors: totalAssigned,
+            invalid_mobile_count: totalInvalid,
+            cross_batch_duplicates: totalCrossDups,
             ngo_results: ngoResults,
             fresh_data: true,
           });
@@ -468,6 +474,8 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
           <h3 className="sa-card-title" style={{color:'#10b981'}}>Import Complete</h3>
           <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))'}}>
             <div className="sa-stat-card"><div className="sa-stat-label">Total in File</div><div className="sa-stat-value">{result.total_in_file}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#ef4444'}}><div className="sa-stat-label">Invalid Numbers</div><div className="sa-stat-value" style={{color:'#ef4444'}}>{result.invalid_mobile_count ?? 0}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#eab308'}}><div className="sa-stat-label">Cross-Batch Dups Removed</div><div className="sa-stat-value" style={{color:'#eab308'}}>{result.cross_batch_duplicates ?? 0}</div></div>
             <div className="sa-stat-card" style={{borderLeftColor:'#10b981'}}><div className="sa-stat-label">Imported</div><div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div></div>
             <div className="sa-stat-card" style={{borderLeftColor:'#7c3aed'}}><div className="sa-stat-label">Assigned to FROs</div><div className="sa-stat-value" style={{color:'#7c3aed'}}>{result.assigned_donors || 0}</div></div>
           </div>
