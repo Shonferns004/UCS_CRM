@@ -96,7 +96,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
                 norm[key] = v;
               }
               const name = norm.name || norm.fullname || norm['fullname'] || norm.donorname || norm['donorname'] || '';
-              const mobile = norm.mobilenumber || norm['mobilenumber'] || norm.mobile || norm.mob || norm.phone || norm.mobileno || norm['mobileno'] || '';
+              const mobile = norm.mobilenumber || norm['mobilenumber'] || norm.mobile || norm.mob || norm.moblie || norm.phone || norm.mobileno || norm['mobileno'] || '';
               const category = norm.category || norm.datacategory || norm['datacategory'] || norm.data || '';
               const rawAmt = (norm.amount || norm.amt || norm.dummyamount || '0').toString().replace(/,/g, '');
               const amount = parseFloat(rawAmt) || 0;
@@ -334,7 +334,7 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
                 norm[key] = v;
               }
               const name = norm.name || norm.fullname || norm.donorname || '';
-              const mobile = norm.mobilenumber || norm.mobile || norm.mob || norm.phone || norm.mobileno || '';
+              const mobile = norm.mobilenumber || norm.mobile || norm.mob || norm.moblie || norm.phone || norm.mobileno || '';
               const category = norm.category || norm.datacategory || norm.data || '';
               const rawAmt = (norm.amount || norm.amt || norm.dummyamount || '0').toString().replace(/,/g, '');
               const amount = parseFloat(rawAmt) || 0;

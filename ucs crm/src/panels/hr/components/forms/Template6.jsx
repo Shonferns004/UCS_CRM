@@ -1,4 +1,4 @@
-export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress }) {
+export default function Template6({ personal, declarationDate, place, ngoHeading, ngoAddress, ngoTagline }) {
   const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
@@ -116,7 +116,7 @@ export default function Template6({ personal, declarationDate, place, ngoHeading
           <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
           <div className="top-line"></div>
           <div className="subtitle">
-            Public Charitable Trust (Reg.) E-31948 No. | Income Tax Exempted Under 80G
+            {ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No. | Income Tax Exempted Under 80G'}
           </div>
         </div>
 

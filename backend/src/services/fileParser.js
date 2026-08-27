@@ -28,6 +28,7 @@ const COLUMN_MAP = {
   mobileno: 'mobile_number',
   mobile: 'mobile_number',
   mob: 'mobile_number',
+  moblie: 'mobile_number',
   mobilenumber: 'mobile_number',
   'mobileno': 'mobile_number',
   'mobile no': 'mobile_number',
@@ -219,7 +220,7 @@ export function extractFullRowData(normalized) {
 
 export function extractQuickRowData(normalized) {
   const name = normalized.name || normalized['fullname'] || normalized['full name'] || normalized.donorname || normalized['donor name'] || '';
-  const mobile = normalized.mobilenumber || normalized['mobilenumber'] || normalized.mobile || normalized.mob || normalized.phone || normalized['mobile number'] || normalized['phone number'] || normalized.mobileno || normalized['mobile no'] || normalized['mobile no.'] || '';
+  const mobile = normalized.mobilenumber || normalized['mobilenumber'] || normalized.mobile || normalized.mob || normalized.moblie || normalized.phone || normalized['mobile number'] || normalized['phone number'] || normalized.mobileno || normalized['mobile no'] || normalized['mobile no.'] || '';
   const category = normalized.category || normalized['datacategory'] || normalized['data category'] || normalized.ngocode || normalized['ngo code'] || normalized.ngoshortname || normalized['ngo short name'] || normalized.data || '';
   const rawAmount = (normalized.amount || normalized.amt || normalized['dummyamount'] || normalized['dummy amount'] || '0').toString().replace(/,/g, '');
   const amount = parseFloat(rawAmount) || 0;

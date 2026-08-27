@@ -49,7 +49,7 @@ const statusStyle = (w) => {
   return { bg: 'rgba(55,65,81,0.9)' };
 };
 
-function MiniFormPreview({ worker, ngoHeading, ngoAddress }) {
+function MiniFormPreview({ worker, ngoHeading, ngoAddress, ngoTagline }) {
   const w = worker;
   const name = w.name || '';
   const dept = w.department || '';
@@ -79,7 +79,7 @@ function MiniFormPreview({ worker, ngoHeading, ngoAddress }) {
       <div style={{ textAlign: 'center', marginBottom: 2 }}>
         <div style={{ fontSize: 26, fontFamily: 'Georgia, serif', fontWeight: 700, margin: 0 }}>{ngoHeading || 'Being Sevak Charitable Trust'}</div>
         <div style={{ borderTop: '3px solid #7d1e1e', margin: '3px 0' }} />
-        <div style={{ fontSize: 8 }}>Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div style={{ fontSize: 8 }}>{ngoTagline || NGO_TAGLINE_MAP.BSCT}</div>
       </div>
       <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, textDecoration: 'underline', marginBottom: 8 }}>VOLUNTEER JOINING FORM</div>
 
@@ -279,6 +279,12 @@ const NGO_ADDRESS_MAP = {
   AFLF: 'Unit - 218, 2nd Floor, Auris Galleria, New Link Road, Auris Serenity, Malad (West), Mumbai - 400064.',
 };
 
+const NGO_TAGLINE_MAP = {
+  BSCT: 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G',
+  AFLF: 'Public Charitable Trust (Reg.) E-37237 No, Income Tax Exempted Under 80G',
+  MANN: 'Company Section 8 Corporat Identity No (CIN) : U88900MH2026NPL471199',
+};
+
 function getNgoHeading(ngos, ngoId) {
   if (!ngoId || !ngos.length) return 'Being Sevak Charitable Trust';
   const ngo = ngos.find(n => n.id === ngoId);
@@ -293,6 +299,14 @@ function getNgoAddress(ngos, ngoId) {
   if (!ngo) return NGO_ADDRESS_MAP.BSCT;
   const code = (ngo.code || '').toUpperCase().trim();
   return NGO_ADDRESS_MAP[code] || NGO_ADDRESS_MAP.BSCT;
+}
+
+function getNgoTagline(ngos, ngoId) {
+  if (!ngoId || !ngos.length) return NGO_TAGLINE_MAP.BSCT;
+  const ngo = ngos.find(n => n.id === ngoId);
+  if (!ngo) return NGO_TAGLINE_MAP.BSCT;
+  const code = (ngo.code || '').toUpperCase().trim();
+  return NGO_TAGLINE_MAP[code] || NGO_TAGLINE_MAP.BSCT;
 }
 
 export default function HRForms() {
@@ -575,7 +589,7 @@ export default function HRForms() {
                           Application Form
                         </span>
                         <div className="hrf-doc-paper">
-                          <MiniFormPreview worker={w} ngoHeading={getNgoHeading(ngos, w.ngo_id)} ngoAddress={getNgoAddress(ngos, w.ngo_id)} />
+                          <MiniFormPreview worker={w} ngoHeading={getNgoHeading(ngos, w.ngo_id)} ngoAddress={getNgoAddress(ngos, w.ngo_id)} ngoTagline={getNgoTagline(ngos, w.ngo_id)} />
                         </div>
                         <span className="hrf-status-pill" style={statusStyle(w)}>{statusOf(w)}</span>
                       </div>
@@ -870,6 +884,7 @@ export default function HRForms() {
             signature_url: previewData.signature_url || '',
             ngoHeading: getNgoHeading(ngos, previewData.ngo_id),
             ngoAddress: getNgoAddress(ngos, previewData.ngo_id),
+            ngoTagline: getNgoTagline(ngos, previewData.ngo_id),
           }}
           onClose={() => setShowPrint(false)}
         />
