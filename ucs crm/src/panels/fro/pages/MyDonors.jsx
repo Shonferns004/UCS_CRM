@@ -39,6 +39,7 @@ const HIDDEN_STATUSES = new Set([
   'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
   'unreachable', 'wrong_number', 'invalid_number', 'rejected',
   'temporary_network_issue', 'voicemail', 'incoming_out',
+  'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
 ]);
 const RINGING_RANK = Number.MAX_SAFE_INTEGER;
 const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : RINGING_RANK);
