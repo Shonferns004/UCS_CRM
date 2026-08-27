@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
@@ -9,22 +9,23 @@ import { masterSearch } from './api/auth'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import DonorDetailModal from '../../components/DonorDetailModal'
-import Dashboard from './pages/Dashboard'
-import Donors from './pages/Donors'
-import DonorDetail from './pages/DonorDetail'
-import StationManagement from './pages/StationManagement'
-import NewData from './pages/NewData'
-import Alerts from './pages/Alerts'
-import RejectedLeads from './pages/RejectedLeads'
-import NgoAttendance from './pages/Attendance'
-import FroLiveStatus from './pages/FroLiveStatus'
-import Suspense from './pages/Suspense'
-import DonorCRM from './pages/DonorCRM'
-import SearchResults from './pages/SearchResults'
-import CallAnalytics from './pages/CallAnalytics'
-import OldData from './pages/OldData'
-import DataOverview from './pages/DataOverview'
-import Codes from './pages/Codes'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Donors = lazy(() => import('./pages/Donors'))
+const DonorDetail = lazy(() => import('./pages/DonorDetail'))
+const StationManagement = lazy(() => import('./pages/StationManagement'))
+const NewData = lazy(() => import('./pages/NewData'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const RejectedLeads = lazy(() => import('./pages/RejectedLeads'))
+const NgoAttendance = lazy(() => import('./pages/Attendance'))
+const FroLiveStatus = lazy(() => import('./pages/FroLiveStatus'))
+const SuspensePage = lazy(() => import('./pages/Suspense'))
+const DonorCRM = lazy(() => import('./pages/DonorCRM'))
+const SearchResults = lazy(() => import('./pages/SearchResults'))
+const CallAnalytics = lazy(() => import('./pages/CallAnalytics'))
+const OldData = lazy(() => import('./pages/OldData'))
+const DataOverview = lazy(() => import('./pages/DataOverview'))
+const Codes = lazy(() => import('./pages/Codes'))
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -397,6 +398,7 @@ export default function NgoAdminPanel() {
           />
         </header>
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+          <Suspense fallback={<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh'}}><span style={{fontSize:13,color:'var(--ink-soft)'}}>Loading...</span></div>}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
@@ -409,7 +411,7 @@ export default function NgoAdminPanel() {
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="fro-status" element={<FroLiveStatus />} />
-            <Route path="suspense" element={<Suspense />} />
+            <Route path="suspense" element={<SuspensePage />} />
             <Route path="search" element={<SearchResults />} />
             <Route path="call-analytics" element={<CallAnalytics />} />
             <Route path="old-data" element={<OldData />} />
@@ -417,6 +419,7 @@ export default function NgoAdminPanel() {
             <Route path="codes" element={<Codes />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
+          </Suspense>
         </div>
       </div>
       {/* Search Result Detail Modal */}

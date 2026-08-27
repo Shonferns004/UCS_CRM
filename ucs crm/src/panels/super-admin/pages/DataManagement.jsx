@@ -126,6 +126,8 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
 
           let totalInserted = 0;
           let totalUniqueDonors = 0;
+          let totalInvalid = 0;
+          let totalCrossDups = 0;
           let batchId = null;
           const ngoCounts = {};
 
@@ -137,6 +139,8 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
             const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
             totalInserted += res.inserted;
             totalUniqueDonors += res.unique_donors || 0;
+            totalInvalid += res.invalid_mobile_count || 0;
+            totalCrossDups += res.cross_batch_duplicates || 0;
             if (res.batch_id) batchId = res.batch_id;
             if (res.ngo_counts) {
               for (const [n, c] of Object.entries(res.ngo_counts)) {
@@ -151,7 +155,8 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
             batch_id: batchId,
             total_in_file: allRows.length,
             duplicates_removed: allRows.length - deduped.length,
-            cross_batch_duplicates: 0,
+            cross_batch_duplicates: totalCrossDups,
+            invalid_mobile_count: totalInvalid,
             imported: totalUniqueDonors,
             ngo_counts: ngoCounts,
             ngos_used: selectedNgoIds?.length || 3,
@@ -234,6 +239,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
           <h3 className="sa-card-title" style={{color:'#10b981'}}>Import Complete</h3>
           <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))'}}>
             <div className="sa-stat-card"><div className="sa-stat-label">Total in File</div><div className="sa-stat-value">{result.total_in_file}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#ef4444'}}><div className="sa-stat-label">Invalid Numbers</div><div className="sa-stat-value" style={{color:'#ef4444'}}>{result.invalid_mobile_count ?? 0}</div></div>
             {endpoint !== '/data-import/upload-old' && (
               <div className="sa-stat-card" style={{borderLeftColor:'#f59e0b'}}><div className="sa-stat-label">Within-File Dups Removed</div><div className="sa-stat-value" style={{color:'#f59e0b'}}>{result.duplicates_removed}</div></div>
             )}
@@ -242,7 +248,6 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
             {endpoint === '/data-import/upload-old' && (
               <div className="sa-stat-card" style={{borderLeftColor:'#8b5cf6'}}><div className="sa-stat-label">Profiles Created</div><div className="sa-stat-value" style={{color:'#8b5cf6'}}>{result.profiles_created || 0}</div></div>
             )}
-            <div className="sa-stat-card" style={{borderLeftColor:'#7c3aed'}}><div className="sa-stat-label">Assigned to FROs</div><div className="sa-stat-value" style={{color:'#7c3aed'}}>{result.assigned_donors || 0}</div></div>
             {endpoint !== '/data-import/upload-old' && (
               <div className="sa-stat-card" style={{borderLeftColor:'#3b82f6'}}><div className="sa-stat-label">NGOs Replicated To</div><div className="sa-stat-value" style={{color:'#3b82f6'}}>{result.ngos_used}</div></div>
             )}
