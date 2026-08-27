@@ -7,9 +7,9 @@ import {
   getAttendanceHistory,
   deleteAttendance,
   getMonthlyAttendance,
+  getTodayAttendanceAll,
 } from '../models/attendanceModel.js';
 import { getQRByCode } from '../models/qrModel.js';
-import { getDailyCodeByCode } from '../models/dailyCodeModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave, getApprovedLeaves } from '../models/leaveModel.js';
 import { getAllAttendance } from '../models/attendanceModel.js';
@@ -101,22 +101,12 @@ async function isHalfDayByEarlyPunchOut(punchOutTime, workerId) {
 
 export const punchIn = async (req, res) => {
   try {
-    const { code, daily_code, latitude, longitude } = req.body;
-    if ((!code && !daily_code) || latitude === undefined || longitude === undefined) {
-      return res.status(400).json({ message: 'QR code (or daily code), latitude, and longitude are required' });
+    const { code, latitude, longitude } = req.body;
+    if (!code || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ message: 'QR code, latitude, and longitude are required' });
     }
 
-    let qr;
-    if (daily_code) {
-      const today = new Date().toISOString().slice(0, 10);
-      const dailyRecord = await getDailyCodeByCode(daily_code, today);
-      if (!dailyRecord) {
-        return res.status(404).json({ message: 'Invalid daily code' });
-      }
-      qr = dailyRecord.qr_codes;
-    } else {
-      qr = await getQRByCode(code);
-    }
+    const qr = await getQRByCode(code);
     if (!qr) {
       return res.status(404).json({ message: 'Invalid QR code' });
     }
@@ -438,6 +428,44 @@ export const deleteAttendanceRecord = async (req, res) => {
     }
     const result = await deleteAttendance(id);
     return res.json({ message: 'Attendance deleted', attendance: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const verifySelfie = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status || !['verified', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'status must be verified or rejected' });
+    }
+
+    const existing = await getAttendanceById(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Attendance record not found' });
+    }
+    if (!existing.selfie_status || existing.selfie_status !== 'pending') {
+      return res.status(400).json({ message: 'No pending selfie to verify' });
+    }
+
+    if (status === 'verified') {
+      const updated = await updateAttendance(id, { selfie_status: 'verified' });
+      return res.json({ message: 'Selfie verified', attendance: updated });
+    }
+
+    await deleteAttendance(id);
+    return res.json({ message: 'Selfie rejected — attendance record deleted', attendance: existing });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const todayAll = async (req, res) => {
+  try {
+    const records = await getTodayAttendanceAll();
+    return res.json(records);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

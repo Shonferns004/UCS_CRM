@@ -706,17 +706,6 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
-    app.post('/api/cron/generate-daily-codes', async (req, res) => {
-      try {
-        const { generateDailyCodes } = await import('./services/dailyCodeService.js');
-        const result = await generateDailyCodes();
-        res.json(result);
-      } catch (error) {
-        console.error('Daily codes cron error:', error.message);
-        res.status(500).json({ success: false, message: error.message });
-      }
-    });
-
     app.post('/api/cron/razorpay-sync', requireCronAuth, async (req, res) => {
       try {
         const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
