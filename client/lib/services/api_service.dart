@@ -458,6 +458,18 @@ class ApiService {
     return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
   }
 
+  // ---- Admin: all leave requests ----
+  static Future<List<dynamic>> getAllLeaves() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/leaves'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch leaves') : 'Failed to fetch leaves');
+    if (body is List) return body;
+    return body['leaves'] ?? [];
+  }
+
   // ---- Admin: pending leave requests ----
   static Future<List<dynamic>> getPendingLeaves() async {
     final res = await _get(
