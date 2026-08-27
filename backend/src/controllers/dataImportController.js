@@ -28,6 +28,7 @@ export const uploadImport = async (req, res) => {
       return res.status(400).json({ message: 'File is required' });
     }
     const { date, data_source_id, sheets, ngo_ids } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (!date || !data_source_id) {
       return res.status(400).json({ message: 'Date and data source are required' });
     }
@@ -102,6 +103,7 @@ export const uploadImport = async (req, res) => {
             category: r.category || '',
             amount: r.amount || 0,
             ngo: ngoName,
+            data_category: r.data_category || bodyDataCategory || null,
           };
           if (fullSheet) {
             Object.assign(row, {
@@ -116,7 +118,6 @@ export const uploadImport = async (req, res) => {
               pan_number: r.pan_number || null,
               email: r.email || null,
               birth_date: r.birth_date || null,
-              data_category: r.data_category || null,
               team: r.team || null,
               agent_name: r.fro_name || r.agent_name || null,
               mop: r.mop || null,
@@ -337,6 +338,7 @@ export const uploadImport = async (req, res) => {
 export const uploadChunk = async (req, res) => {
   try {
     const { rows, ngo_ids, data_source_id, import_date, chunk_index, total_chunks, fresh_data, ngo_stations } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (!rows || rows.length === 0 || !data_source_id || !import_date) {
       return res.status(400).json({ message: 'rows, data_source_id, and import_date are required' });
     }
@@ -384,6 +386,7 @@ export const uploadChunk = async (req, res) => {
             category: r.category || '',
             amount: parseFloat(r.amount) || 0,
             ngo: ngoName,
+            data_category: r.data_category || bodyDataCategory || null,
           });
         }
 
@@ -460,6 +463,7 @@ export const uploadChunk = async (req, res) => {
           category: r.category || '',
           amount: parseFloat(r.amount) || 0,
           ngo,
+          data_category: r.data_category || bodyDataCategory || null,
         });
       }
     }
@@ -512,6 +516,7 @@ export const uploadOldDataImport = async (req, res) => {
       return res.status(400).json({ message: 'File is required' });
     }
     const { date, data_source_id, sheets } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (!date || !data_source_id) {
       return res.status(400).json({ message: 'Date and data source are required' });
     }
@@ -570,6 +575,7 @@ export const uploadOldDataImport = async (req, res) => {
           category: r.category || '',
           amount: r.amount || 0,
           ngo,
+          data_category: r.data_category || bodyDataCategory || null,
         };
         if (fullSheet) {
           Object.assign(row, {
@@ -584,7 +590,6 @@ export const uploadOldDataImport = async (req, res) => {
             pan_number: r.pan_number || null,
             email: r.email || null,
             birth_date: r.birth_date || null,
-            data_category: r.data_category || null,
             team: r.team || null,
             agent_name: r.fro_name || r.agent_name || null,
             mop: r.mop || null,

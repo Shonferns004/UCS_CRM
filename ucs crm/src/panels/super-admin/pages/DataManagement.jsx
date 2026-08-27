@@ -23,6 +23,7 @@ function ProgressModal({ current, total, label }) {
 function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample, showTestSheet, ngos, selectedNgoIds, onNgoChange }) {
   const [date, setDate] = useState(todayStr)
   const [dataSourceId, setDataSourceId] = useState('')
+  const [dataCategory, setDataCategory] = useState('')
   const [file, setFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
@@ -63,6 +64,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
       try {
         const fd = new FormData()
         fd.append('file', file); fd.append('date', date); fd.append('data_source_id', dataSourceId)
+        if (dataCategory) fd.append('data_category', dataCategory)
         const selected = Object.entries(selectedSheets).filter(([, v]) => v).map(([k]) => k)
         if (selected.length > 0 && selected.length < sheets.length) selected.forEach(s => fd.append('sheets', s))
         const res = await api(endpoint, { method: 'POST', body: fd })
@@ -130,7 +132,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
           for (let i = 0; i < chunks.length; i++) {
             setProgress({ current: i + 1, total: chunks.length, label: `Uploading chunk ${i + 1}/${chunks.length} (${(i + 1) * CHUNK_SIZE} / ${deduped.length} donors)` });
 
-            const body = { rows: chunks[i], ngo_ids: selectedNgoIds, data_source_id: dataSourceId, import_date: date, chunk_index: i, total_chunks: chunks.length };
+            const body = { rows: chunks[i], ngo_ids: selectedNgoIds, data_source_id: dataSourceId, import_date: date, chunk_index: i, total_chunks: chunks.length, data_category: dataCategory || undefined };
             if (batchId) body.batch_id = batchId;
             const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
             totalInserted += res.inserted;
@@ -185,6 +187,9 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
               <option value="">— Select —</option>
               {dataSources.map(ds => <option key={ds.id} value={ds.id}>{ds.name}</option>)}
             </select>
+          </label>
+          <label className="field">Data Category
+            <input type="text" value={dataCategory} onChange={e => setDataCategory(e.target.value)} placeholder="e.g. Naresh Data, IB FD Stations" />
           </label>
           <label className="field">Excel / CSV File <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileChange} /></label>
           {inspecting && <p className="sa-muted" style={{fontSize:12}}>Inspecting file...</p>}
@@ -278,6 +283,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
 function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, freshNgoStations, setFreshNgoStations }) {
   const [date, setDate] = useState(todayStr)
   const [dataSourceId, setDataSourceId] = useState('')
+  const [dataCategory, setDataCategory] = useState('')
   const [file, setFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
@@ -356,6 +362,7 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
               total_chunks: chunks.length,
               fresh_data: true,
               ngo_stations: freshNgoStations,
+              data_category: dataCategory || undefined,
             };
             if (batchId) body.batch_id = batchId;
             const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
@@ -410,6 +417,9 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
             </select>
           </label>
           <label className="field">Excel / CSV File <input type="file" accept=".xlsx,.xls,.csv" onChange={e => { setFile(e.target.files[0]); setResult(null) }} /></label>
+          <label className="field">Data Category
+            <input type="text" value={dataCategory} onChange={e => setDataCategory(e.target.value)} placeholder="e.g. Naresh Data, IB FD Stations" />
+          </label>
 
           <div style={{marginTop:8}}>
             <div style={{fontSize:13, fontWeight:600, marginBottom:8, color:'var(--ink)'}}>Select Stations per NGO</div>
