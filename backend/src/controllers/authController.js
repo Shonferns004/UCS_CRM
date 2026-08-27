@@ -541,7 +541,8 @@ export const getFroWorkAsStations = async (req, res) => {
 // Release every active work-as session the caller holds (Exit work-as button).
 export const releaseWorkAs = async (req, res) => {
   try {
-    const released = await releaseOperatorSessions(req.user.id);
+    const operatorId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : req.user.id;
+    const released = await releaseOperatorSessions(operatorId);
     return res.json({ message: 'Work-as sessions released', released });
   } catch (error) {
     return res.status(500).json({ message: error.message });
