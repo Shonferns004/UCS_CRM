@@ -4491,7 +4491,7 @@ export const updateReceipt = async (req, res) => {
 
     // Fields that can be edited on the receipt row
     const RECEIPT_EDITABLE = [
-      'donor_name', 'donor_mobile', 'address', 'address_2', 'pan_number',
+      'donor_name', 'donor_mobile', 'amount', 'address', 'address_2', 'pan_number',
       'email', 'mobile_2', 'station', 'account_of', 'mode', 'agent_name',
       'project_id', 'caller_name', 'bank_name', 'payment_id', 'receipt_date', 'receipt_time',
     ];
@@ -4501,6 +4501,18 @@ export const updateReceipt = async (req, res) => {
         receiptPatch[field] = (updates[field] === '' || updates[field] === null) ? null : updates[field];
       }
     }
+
+    if ('amount' in receiptPatch) {
+      const parsed = parseFloat(receiptPatch.amount);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        return res.status(400).json({ message: 'Invalid amount' });
+      }
+      receiptPatch.amount = Math.round(parsed * 100) / 100;
+    }
+
+    const oldAmount = Number(receipt.amount || 0);
+    const newAmount = 'amount' in receiptPatch ? Number(receiptPatch.amount || 0) : oldAmount;
+    const amountDelta = newAmount - oldAmount;
 
     // Normalize agent_name on edit too
     if (receiptPatch.agent_name && receiptPatch.agent_name !== 'Suspense') {
@@ -4624,6 +4636,46 @@ export const updateReceipt = async (req, res) => {
       }
     }
 
+    // ── Amount change ripple: keep FRO log credit + donor totals in sync ──
+    if (Math.abs(amountDelta) > 0.0001) {
+      if (receipt.log_id) {
+        try {
+          await db.from('fro_donor_logs').update({ amount_collected: newAmount }).eq('id', receipt.log_id);
+        } catch (err) {
+          console.error('Failed to sync fro_donor_log amount on receipt edit:', err.message);
+        }
+      }
+      let amountTargetDonorId = receipt.donor_id || null;
+      if (receipt.log_id) {
+        try {
+          const { data: log } = await db
+            .from('fro_donor_logs')
+            .select('fro_assignments!inner(donor_id)')
+            .eq('id', receipt.log_id)
+            .maybeSingle();
+          const assignment = Array.isArray(log?.fro_assignments) ? log.fro_assignments[0] : log?.fro_assignments;
+          if (assignment?.donor_id) amountTargetDonorId = assignment.donor_id;
+        } catch (err) {
+          console.error('Failed to resolve donor for amount edit:', err.message);
+        }
+      }
+      if (amountTargetDonorId) {
+        try {
+          const { data: donor } = await db
+            .from('donor_profiles')
+            .select('total_amount')
+            .eq('id', amountTargetDonorId)
+            .single();
+          await db.from('donor_profiles').update({
+            total_amount: Math.round(((donor?.total_amount || 0) + amountDelta) * 100) / 100,
+            updated_at: new Date().toISOString(),
+          }).eq('id', amountTargetDonorId);
+        } catch (err) {
+          console.error('Failed to adjust donor totals on amount edit:', err.message);
+        }
+      }
+    }
+
     // Update the receipt
     const { data: updated, error: updErr } = await db
       .from('receipts')
@@ -4653,6 +4705,7 @@ export const updateReceipt = async (req, res) => {
         if ('bank_name' in receiptPatch) entryPatch.bank_name = receiptPatch.bank_name;
         if ('mode' in receiptPatch) entryPatch.mode = receiptPatch.mode;
         if ('payment_id' in receiptPatch) entryPatch.payment_id = receiptPatch.payment_id;
+        if ('amount' in receiptPatch) entryPatch.amount = receiptPatch.amount;
         if ('receipt_date' in receiptPatch) entryPatch.transaction_date = receiptPatch.receipt_date;
         if ('receipt_time' in receiptPatch) entryPatch.payment_time = receiptPatch.receipt_time;
         if (updates.received_bank) {
