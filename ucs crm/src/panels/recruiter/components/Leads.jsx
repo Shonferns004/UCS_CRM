@@ -31,6 +31,7 @@ const DEFAULT_CONNECTED = [
   { value: 'call_back', label: 'Call Back' },
   { value: 'schedule', label: 'Schedule' },
   { value: 'not_interested', label: 'Not Interested' },
+  { value: 're_scheduled', label: 'Re-Scheduled' },
 ];
 
 const DEFAULT_NOT_CONNECTED = [
@@ -43,9 +44,9 @@ const DEFAULT_NOT_CONNECTED = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested' };
+const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested', re_scheduled: 're_scheduled' };
 
-const REVERSE_CONNECTED_MAP = { followed_up: 'follow_up', call_back: 'call_back', scheduled: 'schedule', not_interested: 'not_interested' };
+const REVERSE_CONNECTED_MAP = { followed_up: 'follow_up', call_back: 'call_back', scheduled: 'schedule', not_interested: 'not_interested', re_scheduled: 're_scheduled' };
 
 const toLocalDT = (ts) => {
   if (!ts) return '';
@@ -63,7 +64,11 @@ function useList(key, defaults) {
       const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          const defaultValues = defaults.map(d => d.value);
+          const missing = defaults.filter(d => !parsed.some(p => p.value === d.value));
+          return missing.length > 0 ? [...parsed, ...missing] : parsed;
+        }
       }
     } catch (e) {}
     return defaults;
@@ -319,6 +324,7 @@ export default function Leads() {
     onboarding: 'Onboarding',
     on_hold: 'On Hold',
     withdrawn: 'Withdrawn',
+    re_scheduled: 'Re-Scheduled',
     ...connectedOpts.reduce((acc, o) => { acc[CONNECTED_STATUS_MAP[o.value] || o.value] = o.label; return acc; }, {}),
     ...notConnectedOpts.reduce((acc, o) => { acc[o.value] = o.label; return acc; }, {}),
   };
@@ -624,7 +630,7 @@ export default function Leads() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Interview date</th><th>Scheduled by</th><th>Scheduled at</th><th>Source</th>
+                  <th>Name</th><th>Phone</th><th>Interview date</th><th>Scheduled by</th><th>Scheduled at</th><th>Source</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -636,6 +642,11 @@ export default function Leads() {
                     <td>{l.scheduled_by_name || l.created_by_name || '—'}</td>
                     <td style={{color:'var(--ink-soft)'}}>{formatDT(l.scheduled_at)}</td>
                     <td>{cleanField(l.source)}</td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <button className="btn btn-icon" onClick={() => startEdit(l)} title="Reschedule">
+                        <Pencil width={13} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
