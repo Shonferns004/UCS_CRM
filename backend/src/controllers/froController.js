@@ -1956,6 +1956,9 @@ export const getMyDonors = async (req, res) => {
       'donation_collected', 'done', 'lead_done', 'visit_donate',
       'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
     ]);
+    const TERMINAL_DISPOSITIONS = new Set([
+      'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
+    ]);
     const notConnectedForeverIds = new Set();
     const terminalForeverIds = new Set();
     if (donorIds.length > 0) {
@@ -1981,9 +1984,6 @@ export const getMyDonors = async (req, res) => {
 
     const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
       'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
-    ]);
-    const TERMINAL_DISPOSITIONS = new Set([
-      'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
     ]);
 
     let baseFiltered;
