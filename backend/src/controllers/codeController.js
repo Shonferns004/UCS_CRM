@@ -18,7 +18,7 @@ export const generateCode = async (req, res) => {
     let code = null;
     for (let attempt = 0; attempt < 10; attempt++) {
       const candidate = String(Math.floor(1000 + Math.random() * 9000));
-      const existing = await listImpersonationCodes(ngoId, 99999);
+      const existing = await listImpersonationCodes(99999);
       const dup = existing.some(
         (c) => c.code === candidate && !c.is_used && new Date(c.expires_at).getTime() > Date.now()
       );
@@ -56,7 +56,7 @@ export const generateCode = async (req, res) => {
 
 export const listCodes = async (req, res) => {
   try {
-    const codes = await listImpersonationCodes(req.user.ngo_id || null, 50);
+    const codes = await listImpersonationCodes(50);
     return res.json({ codes });
   } catch (error) {
     return res.status(500).json({ message: error.message });
