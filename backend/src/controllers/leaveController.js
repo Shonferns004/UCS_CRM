@@ -6,7 +6,6 @@ import {
   updateLeaveStatus,
   getLeaveById,
 } from '../models/leaveModel.js';
-import { getAllWorkers } from '../models/workerModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -149,13 +148,7 @@ export const myLeaves = async (req, res) => {
 
 export const listAll = async (req, res) => {
   try {
-    let leaves = await getAllLeaves();
-    const ngoId = ['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id);
-    if (ngoId) {
-      const workers = await getAllWorkers(ngoId);
-      const workerIds = new Set(workers.map((w) => w.id));
-      leaves = leaves.filter((l) => workerIds.has(l.worker_id));
-    }
+    const leaves = await getAllLeaves();
     return res.json(leaves);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -164,13 +157,7 @@ export const listAll = async (req, res) => {
 
 export const listPending = async (req, res) => {
   try {
-    let leaves = await getPendingLeaves();
-    const ngoId = ['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id);
-    if (ngoId) {
-      const workers = await getAllWorkers(ngoId);
-      const workerIds = new Set(workers.map((w) => w.id));
-      leaves = leaves.filter((l) => workerIds.has(l.worker_id));
-    }
+    const leaves = await getPendingLeaves();
     return res.json(leaves);
   } catch (error) {
     return res.status(500).json({ message: error.message });

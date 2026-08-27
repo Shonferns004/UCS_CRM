@@ -7,7 +7,10 @@ const CODE_TTL_MINUTES = 5;
 export const generateCode = async (req, res) => {
   try {
     let ngoId = req.user.ngo_id || null;
-    if (!ngoId && req.user.id) {
+    if (req.user.impersonation && req.user.imposter_id) {
+      const imposter = await getWorkerById(String(req.user.imposter_id));
+      if (imposter?.ngo_id) ngoId = imposter.ngo_id;
+    } else if (!ngoId && req.user.id) {
       const worker = await getWorkerById(String(req.user.id));
       if (worker?.ngo_id) ngoId = worker.ngo_id;
     }
