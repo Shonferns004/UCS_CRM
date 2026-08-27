@@ -1103,6 +1103,8 @@
 .panel-event-head .sidebar-brand h1, .panel-accounts .sidebar-brand h1, .panel-ngo-admin .sidebar-brand h1, .panel-fro .sidebar-brand h1 { font-size:16px; font-weight:600; }
 .panel-event-head .sidebar-brand span, .panel-accounts .sidebar-brand span, .panel-ngo-admin .sidebar-brand span, .panel-fro .sidebar-brand span { font-size:11px; color:var(--ink-soft); }
 .panel-event-head .sidebar-nav, .panel-accounts .sidebar-nav, .panel-ngo-admin .sidebar-nav, .panel-fro .sidebar-nav { display:flex; flex-direction:column; gap:2px; padding:0 8px; }
+.panel-fro .sidebar-close { display:none; margin-left:auto; background:none; border:none; cursor:pointer; color:var(--ink-soft); padding:4px; border-radius:6px; transition:background .15s; }
+.panel-fro .sidebar-close:hover { background:rgba(0,0,0,.06); }
 .panel-event-head .snav-item, .panel-accounts .snav-item, .panel-ngo-admin .snav-item, .panel-fro .snav-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border:none; background:transparent; border-radius:var(--radius-sm); font-size:13px; font-weight:500; font-family:inherit; color:var(--ink-soft); cursor:pointer; transition:all .12s; text-align:left; width:100%; text-decoration:none; }
 .panel-event-head .snav-item:hover, .panel-accounts .snav-item:hover, .panel-ngo-admin .snav-item:hover, .panel-fro .snav-item:hover { background:var(--bg); color:var(--ink); }
 .panel-event-head .snav-item.active, .panel-accounts .snav-item.active, .panel-ngo-admin .snav-item.active, .panel-fro .snav-item.active { background:#5B6B4E12; color:var(--sage); font-weight:600; }
@@ -1729,6 +1731,7 @@
   .panel-fro .sidebar.open { transform:translateX(0); }
   .panel-fro .sidebar-brand { padding:18px 20px; border-bottom:1px solid var(--line); margin-bottom:0; }
   .panel-fro .sidebar-brand h1 { font-size:17px; }
+  .panel-fro .sidebar-close { display:flex; align-items:center; justify-content:center; }
   .panel-fro .sidebar-nav { padding:8px 10px; gap:2px; }
   .panel-fro .snav-item { padding:10px 14px; font-size:13px; border-radius:8px; }
   .panel-fro .sidebar.open { transform:translateX(0); }
