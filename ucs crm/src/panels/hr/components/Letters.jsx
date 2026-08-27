@@ -52,8 +52,8 @@ const HR_MESSAGES = [
 
 const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
-  AFLF: { name: 'AFLF', logo: '/logo/aflf-logo.png', alt: 'AFLF', footer: 'AFLF', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.', logoSize: 140 },
-  MANN: { name: 'MANN', logo: '/logo/mann-logo.png', alt: 'MANN', footer: 'MANN', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.', logoSize: 140 },
+  AFLF: { name: 'ASHRAY FOR LIFE FOUNDATION', logo: '/logo/aflf-logo.png', alt: 'Ashray for Life Foundation', footer: 'Ashray for Life Foundation', address: 'Unit - 218, 2nd Floor, Auris Galleria, S.V Road, Andheri (West), Mumbai 400058.', logoSize: 140 },
+  MANN: { name: 'MANN CARE FOUNDATION', logo: '/logo/mann-logo.png', alt: 'Mann Care Foundation', footer: 'Mann Care Foundation', address: '1708 ONE WORLD, SV ROAD NEAR NL HIGH SCHOOL MALAD WEST MUMBAI 400064.', logoSize: 140 },
   UCS: { name: 'ULTIMATE CONSULTANCY SERVICES', displayName: 'Ultimate Consultancy Services', logo: '/logo/ucs-logo.png', alt: 'Ultimate Consultancy Services', footer: 'Ultimate Consultancy Services', address: 'Sanjar Enclave, Office no 506, S.V Road, Kandivali West, Mumbai - 400067' },
 };
 
