@@ -1914,7 +1914,7 @@ export const distributeNewData = async (req, res) => {
       for (;;) {
         const { data, error } = await db
           .from('new_data')
-          .select('name, mobile_number, category, amount')
+          .select('name, mobile_number, category, amount, data_category')
           .eq('ngo', ngoName)
           .not('mobile_number', 'is', null)
           .order('created_at', { ascending: false })
@@ -1966,6 +1966,7 @@ export const distributeNewData = async (req, res) => {
               total_amount: parseFloat(row.amount) || 0,
               donation_count: 1,
               ngo: ngoName,
+              data_category: row.data_category || null,
             });
           }
         }
@@ -3741,12 +3742,15 @@ export const uploadOldData = async (req, res) => {
       return res.status(400).json({ message: 'No NGOs assigned to your account' });
     }
 
+    const bodyDataCategory = req.body.data_category || null;
+
     const normalizedRows = rows.map(row => ({
       mobile: String(row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || '').trim(),
       name: String(row.name || row.Name || row['Donor Name'] || row.donor_name || row.donorname || '').trim(),
       amount: parseFloat(row.amount || row.Amount || row.donation_amount || row.DonationAmount || 0) || 0,
       city: String(row.city || row.City || row.city_name || row.CityName || '').trim(),
       station: String(row.station || row.Station || row.station_name || row.StationName || '').trim().toUpperCase(),
+      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || bodyDataCategory || '').trim() || null,
     })).filter(r => r.mobile && r.station);
 
     const validStations = new Set(STATION_NAMES);
@@ -3777,13 +3781,14 @@ export const uploadOldData = async (req, res) => {
         const updateFields = {};
         if (row.name) updateFields.name = row.name;
         if (row.city) updateFields.city = row.city;
+        if (row.data_category) updateFields.data_category = row.data_category;
         if (Object.keys(updateFields).length > 0) {
           await db.from('donor_profiles').update(updateFields).eq('id', donorId);
         }
       } else {
         const { data: newProfile } = await db
           .from('donor_profiles')
-          .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null }])
+          .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null, data_category: row.data_category || null }])
           .select('id')
           .single();
         if (newProfile) {
@@ -3909,6 +3914,7 @@ export const uploadOldDataForStation = async (req, res) => {
 
     // Filter by selected NGO if provided
     const { ngo_id } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (ngo_id) {
       ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(ngo_id));
     }
@@ -3923,7 +3929,7 @@ export const uploadOldDataForStation = async (req, res) => {
       amount: parseFloat(row['Max of Amt'] || row['Max Amt'] || row.amount || row.Amount || row['Max of amt'] || 0) || 0,
       city: String(row.City || row.city || '').trim(),
       mobile_2: String(row['Max of Mobile no.2'] || row['Mobile 2'] || row['Mobile No 2'] || row.mobile_2 || '').trim(),
-      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || '').trim(),
+      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || '').trim() || bodyDataCategory || null,
       agent_name: String(row['Agent Name'] || row['Agent name'] || row['agent name'] || row.agent_name || row.fro_name || '').trim(),
       raw_data: row,
     })).filter(r => r.mobile);

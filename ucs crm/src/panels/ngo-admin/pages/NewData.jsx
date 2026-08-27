@@ -162,6 +162,7 @@ function OldDataTab() {
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
+  const [dataCategory, setDataCategory] = useState('')
 
   const handleFileChange = (e) => {
     const f = e.target.files[0]
@@ -192,6 +193,7 @@ function OldDataTab() {
     try {
       const fd = new FormData()
       fd.append('file', file)
+      if (dataCategory) fd.append('data_category', dataCategory)
       const res = await api('/ngo-admin/old-data/upload', { method: 'POST', body: fd, _prefix: 'ucs' })
       setResult(res)
     } catch (err) {
@@ -219,6 +221,10 @@ function OldDataTab() {
           <label className="field">
             File
             <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} />
+          </label>
+          <label className="field">
+            Data Category
+            <input type="text" value={dataCategory} onChange={e => setDataCategory(e.target.value)} placeholder="e.g. Naresh Data, IB FD Stations" />
           </label>
         </div>
       </div>
