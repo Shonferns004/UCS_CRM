@@ -1957,6 +1957,7 @@ export const getMyDonors = async (req, res) => {
       'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
     ]);
     const notConnectedForeverIds = new Set();
+    const terminalForeverIds = new Set();
     if (donorIds.length > 0) {
       const recentLogs = await chunkedInQuery(donorIds, chunk =>
         db.from('fro_donor_logs').select('donor_id, disposition_detail, created_at')
@@ -1970,6 +1971,9 @@ export const getMyDonors = async (req, res) => {
           seenEver.add(log.donor_id);
           if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
             notConnectedForeverIds.add(log.donor_id);
+          }
+          if (TERMINAL_DISPOSITIONS.has(log.disposition_detail)) {
+            terminalForeverIds.add(log.donor_id);
           }
         }
       }
@@ -1989,7 +1993,7 @@ export const getMyDonors = async (req, res) => {
       baseFiltered = result.filter(r => {
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
         if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
-        if (TERMINAL_DISPOSITIONS.has(r.status)) return false;
+        if (terminalForeverIds.has(r.donor_id)) return false;
         if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
         return true;
       });
@@ -2618,6 +2622,7 @@ function dispositionDetailToStatus(detail) {
     receipt_request: 'receipt_request',
     dnd: 'dnd',
     wrong_person: 'wrong_person',
+    not_possible: 'not_possible',
     call_disconnected: 'call_disconnected',
   };
   return map[detail] || 'contacted';
