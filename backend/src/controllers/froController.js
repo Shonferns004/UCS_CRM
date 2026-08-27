@@ -1958,6 +1958,8 @@ export const getMyDonors = async (req, res) => {
     ]);
     const TERMINAL_DISPOSITIONS = new Set([
       'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
+      'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
+      'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
     ]);
     const notConnectedForeverIds = new Set();
     const terminalForeverIds = new Set();
