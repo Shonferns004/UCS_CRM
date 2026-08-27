@@ -1307,6 +1307,7 @@ export default function MyDonors() {
 
         {/* MIDDLE PANEL â€” Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          <div className="fro-mid-tabs">
           {/* NGO Tabs â€” only shown when FRO is assigned to multiple NGOs */}
           {(() => {
             const ngoMap = {};
@@ -1417,6 +1418,8 @@ export default function MyDonors() {
             </div>
           )}
 
+          </div>
+          <div className="fro-mid-connection">
           {/* Connection Status card */}
           <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
             {donor.has_donated_current_month ? (
@@ -1596,6 +1599,7 @@ export default function MyDonors() {
             </div>
             </>
             )}
+          </div>
           </div>
         </div>
 
