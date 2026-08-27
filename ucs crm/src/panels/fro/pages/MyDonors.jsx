@@ -10,6 +10,7 @@ import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { API_BASE } from '../../../lib/apiBase';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
 
 function callFmt(seconds) {
@@ -128,6 +129,7 @@ function useTomorrowStr() {
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function MyDonors() {
+  const isMobile = useIsMobile()
   const [donors, setDonors] = useState([]);
   const [total, setTotal] = useState(0);
   const [dataTab, setDataTab] = useState('new');
@@ -1720,7 +1722,7 @@ export default function MyDonors() {
     {/* Donation Modal */}
     {showDonationModal && (
       <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }} onClick={() => setShowDonationModal(false)}>
-        <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
             <span style={{ fontSize: 13, fontWeight: 700 }}>Donations â€” {donor.donor_name}</span>
             <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => setShowDonationModal(false)}>close</span>

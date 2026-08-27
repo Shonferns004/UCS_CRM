@@ -7,6 +7,7 @@ import RecentNotices from '../../../components/RecentNotices'
 import { cacheGet, cacheSet } from '../../../utils/cache'
 import { useCall } from '../CallContext'
 import { api } from '../api/auth'
+import { useIsMobile } from '../../../hooks/useIsMobile'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
 
@@ -109,6 +110,7 @@ const CACHE_KEY = 'fro_dashboard'
 export default function Dashboard() {
   const cached = cacheGet(CACHE_KEY)
   const { todayStats } = useCall()
+  const isMobile = useIsMobile()
   const [dashData, setDashData] = useState(cached?.dash || null)
   const [targetData, setTargetData] = useState(cached?.target || null)
   const [loading, setLoading] = useState(!cached)
@@ -681,7 +683,7 @@ export default function Dashboard() {
       {showReactivatedModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
           onClick={() => setShowReactivatedModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
+          <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
@@ -721,8 +723,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-        <div className="card" style={{ marginBottom: 0, flex: 1 }}>
+      <div className="fro-flex-row" style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: isMobile ? 'wrap' : undefined }}>
+        <div className="card" style={{ marginBottom: 0, flex: 1, minWidth: isMobile ? '100%' : undefined }}>
           <div className="card-head"><h3>Lead Stats — {monthStr}</h3></div>
           <div className="card-pad">
             {leadStats ? (
@@ -787,8 +789,8 @@ export default function Dashboard() {
       </div>
 
       {barData.length > 0 && (
-      <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-          <div className="card" style={{ marginBottom: 0, flex: 7 }}>
+      <div className="fro-flex-row" style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: isMobile ? 'wrap' : undefined }}>
+          <div className="card" style={{ marginBottom: 0, flex: isMobile ? 1 : 7, minWidth: isMobile ? '100%' : undefined }}>
             <div className="card-head"><h3>Target vs Collection</h3></div>
             <div className="card-pad" style={{ width:'100%', height:220 }}>
               <ResponsiveContainer>
@@ -837,7 +839,7 @@ export default function Dashboard() {
       {showCollections && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
           onClick={() => { setShowCollections(false); setCollectionSearch('') }}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
+          <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div>
@@ -924,7 +926,7 @@ export default function Dashboard() {
 
       {showMonthlyModal && monthlyDonors.length > 0 && (
         <div style={{ position:'fixed', inset:0, zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => { localStorage.setItem('monthly_donors_dismissed', monthStr); setShowMonthlyModal(false); }}>
-          <div style={{ background:'#fff', borderRadius:12, width:480, maxHeight:'70vh', display:'flex', flexDirection:'column', boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background:'#fff', borderRadius:12, width: isMobile ? 'calc(100vw - 32px)' : 480, maxHeight:'70vh', display:'flex', flexDirection:'column', boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <div>
                 <div style={{ fontSize:14, fontWeight:700 }}>Monthly Recurring Donors</div>
@@ -1010,7 +1012,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
         <RecentNotices limit={5} containerStyle={{ marginTop: 0 }} />
         <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

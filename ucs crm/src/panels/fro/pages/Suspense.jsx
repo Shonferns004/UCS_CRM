@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Inbox, Search, ChevronRight, Phone } from 'lucide-react';
 import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile, searchSuspenseDonors } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { SkeletonTable } from '../../../components/Skeleton';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
@@ -29,6 +30,7 @@ const NGO_SHORT = { bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF' };
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function FroSuspense() {
+  const isMobile = useIsMobile()
   const [month, setMonth] = useState('');
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +229,7 @@ export default function FroSuspense() {
             placeholder="Search name or mobile…"
             style={{
               padding: '7px 12px 7px 30px', border: '1px solid var(--line)', borderRadius: 999, background: 'var(--card-bg)',
-              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 210, color: 'var(--ink)',
+              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: isMobile ? '100%' : 210, color: 'var(--ink)',
             }}
           />
         </div>
@@ -309,7 +311,7 @@ export default function FroSuspense() {
 
       {showClaimModal && claimReceipt && (
         <div onClick={() => { if (!claiming && !claimSuccess) setShowClaimModal(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 16, width: 480, maxWidth: '100%', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.2)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#fff', borderRadius: 16, width: isMobile ? 'calc(100vw - 32px)' : 480, maxWidth: '100%', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.2)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg, #f8fafc 0%, #fff 100%)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
