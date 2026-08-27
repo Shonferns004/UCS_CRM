@@ -33,9 +33,13 @@ const isCollectionLog = (log) =>
   log.disposition_detail === 'done' ||
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
-const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
-// Every disposition except schedule/callback sinks to the end of the calling
-// queue (mirrors the backend group sort in froController.getMyDonors).
+const HIDDEN_STATUSES = new Set([
+  'lead_done', 'donation_collected', 'done',
+  'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
+  'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
+  'unreachable', 'wrong_number', 'invalid_number', 'rejected',
+  'temporary_network_issue', 'voicemail', 'incoming_out',
+]);
 const RINGING_RANK = Number.MAX_SAFE_INTEGER;
 const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : RINGING_RANK);
 function filterAndSortDonors(list) {
