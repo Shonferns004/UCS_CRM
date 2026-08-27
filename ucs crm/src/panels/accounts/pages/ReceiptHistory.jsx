@@ -498,6 +498,7 @@ export default function ReceiptHistory() {
     setEditingReceipt(r);
     setEditForm({
       donor_name: r.donor_name || '',
+      amount: r.amount || '',
       donor_mobile: r.donor_mobile || '',
       mobile_2: r.mobile_2 || '',
       address: r.address || '',
@@ -1068,6 +1069,7 @@ export default function ReceiptHistory() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
                   { label: 'Donor Name', key: 'donor_name', colSpan: 2 },
+                  { label: 'Amount', key: 'amount', colSpan: 2, type: 'number' },
                   { label: 'Mobile', key: 'donor_mobile' },
                   { label: 'Mobile 2', key: 'mobile_2' },
                   { label: 'Address', key: 'address', colSpan: 2, type: 'textarea' },
@@ -1142,6 +1144,15 @@ export default function ReceiptHistory() {
                       <input
                         type="text"
                         placeholder="HH:MM"
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    ) : type === 'number' ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
                         value={editForm[key] || ''}
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
                         style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
