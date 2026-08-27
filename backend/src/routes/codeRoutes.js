@@ -6,8 +6,8 @@ const router = Router();
 
 // FROs generate codes from their panel; admins/super admins generate too.
 router.post('/generate', authenticateRole('fro', 'admin', 'super_admin'), generateCode);
-// Only NGO admins / super admins view the code log.
-router.get('/', authenticateRole('admin', 'super_admin'), listCodes);
+// All authenticated users (Flutter workers need to see codes).
+router.get('/', authenticateRole('fro', 'admin', 'super_admin'), listCodes);
 // Debug: admin/super_admin/master - list ALL codes across all NGOs
 router.get('/all', authenticateRole('admin', 'super_admin', 'master'), listAllCodesDebug);
 
