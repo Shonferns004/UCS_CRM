@@ -1974,11 +1974,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                   <div className="salary-metrics" style={{ marginBottom:8 }}>
                     <div className="salary-metric">
-                      <div className="salary-metric-num">₹{(incSummary?.totalAKI || 0).toLocaleString('en-IN')}</div>
+                      <div className="salary-metric-num">{formatSalary(incSummary?.totalAKI || 0)}</div>
                       <div className="salary-metric-lbl">Total AKI</div>
                     </div>
                     <div className="salary-metric">
-                      <div className="salary-metric-num">₹{(incSummary?.monthlyIncentive || 0).toLocaleString('en-IN')}</div>
+                      <div className="salary-metric-num">{formatSalary(incSummary?.monthlyIncentive || 0)}</div>
                       <div className="salary-metric-lbl">Monthly (10%)</div>
                     </div>
                     <div className="salary-metric">
@@ -2193,7 +2193,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
             <div className="card-pad">
               <h3 style={{ margin:'0 0 4px' }}>NGO Salary Allocation</h3>
               <p style={{ fontSize:12, color:'var(--ink-soft)', margin:'0 0 12px' }}>
-                Set the ₹ amount each NGO pays towards this employee's salary. Total must equal active salary (₹{parseFloat(activeSalary?.salary || 0).toLocaleString('en-IN')}).
+                Set the ₹ amount each NGO pays towards this employee's salary. Total must equal active salary ({formatSalary(activeSalary?.salary || 0)}).
               </p>
               <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
                 {salarySplitForm.map((p, i) => (
@@ -2211,7 +2211,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               </div>
               <div style={{ fontSize:12, marginBottom:12, color:'var(--ink-soft)' }}>
                 Total: ₹{salarySplitForm.reduce((s, x) => s + (parseFloat(x.portion) || 0), 0).toLocaleString('en-IN')}
-                {' '}· Active salary: ₹{parseFloat(activeSalary?.salary || 0).toLocaleString('en-IN')}
+                {' '}· Active salary: {formatSalary(activeSalary?.salary || 0)}
               </div>
               <div style={{ display:'flex', gap:8 }}>
                 <button className="btn btn-primary btn-sm" disabled={salarySaving}
