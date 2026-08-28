@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState } from 'react'
-import { getToken } from '../api/auth'
-import { API_BASE } from '../lib/apiBase'
+import React, { createContext, useContext } from 'react'
+import useAccessCode from '../panels/accounts/components/AccessGate'
+import { useAccessCodeStore } from './accessCodeStore'
 
 const SalaryPrivacyContext = createContext({
   isSalaryUnlocked: false,
@@ -91,7 +91,7 @@ export function SalaryPrivacyProvider({ children }) {
   }
 
   const lockSalary = () => {
-    setIsSalaryUnlocked(false)
+    useAccessCodeStore.getState().reset()
   }
 
   const formatSalary = (amount, prefix = '₹') => {
@@ -101,10 +101,10 @@ export function SalaryPrivacyProvider({ children }) {
     if (isSalaryUnlocked) {
       return `${prefix}${parseFloat(amount).toLocaleString('en-IN')}`
     }
-    return `${prefix} ••••••`
+    return `${prefix} XXX`
   }
 
-  const maskSalary = (amount, prefix = '₹', placeholder = 'XXXX') => {
+  const maskSalary = (amount, prefix = '₹', placeholder = 'XXX') => {
     if (amount === null || amount === undefined || isNaN(Number(amount))) {
       return placeholder
     }
@@ -128,7 +128,7 @@ export function SalaryPrivacyProvider({ children }) {
       value={{
         isSalaryUnlocked,
         promptUnlock,
-        unlockSalary,
+        unlockSalary: async () => ({}),
         lockSalary,
         formatSalary,
         maskSalary,

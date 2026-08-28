@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link2, ListFilter, Loader2, X } from 'lucide-react';
+import { Link2, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
@@ -25,7 +25,6 @@ export default function LeadAudit() {
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
-  const [showWsFilter, setShowWsFilter] = useState(false);
   const workspaceRef = useRef(null);
 
   // Last issued + next upcoming receipt number per NGO. Read-only; refetched
@@ -123,16 +122,8 @@ export default function LeadAudit() {
             <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
           </div>
           <div style={{ height: 1, background: '#eef1f6' }} />
-          <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button
-              onClick={() => setShowWsFilter(v => !v)}
-              title={showWsFilter ? 'Hide workspace filter' : 'Show workspace filter'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', fontSize: 12.5, fontWeight: 700, padding: '7px 12px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}>
-              <ListFilter size={14} strokeWidth={2.5} color="#374151" />
-              Workspace filter
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: showWsFilter ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}><polyline points="6 9 12 15 18 9" /></svg>
-            </button>
-            {showWsFilter && filterBar}
+          <div style={{ padding: '12px 18px' }}>
+            {filterBar}
           </div>
         </div>
       </div>

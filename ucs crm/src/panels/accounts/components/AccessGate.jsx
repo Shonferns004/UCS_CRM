@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { apiGet, apiPost } from '../api/auth';
+import { useAccessCodeStore } from '../../../context/accessCodeStore';
 
 // Shared 4-digit access-code gate used by the Receipts download buttons and the
 // locked Reports page. open() shows a modal and resolves true only when a valid
@@ -18,6 +19,7 @@ export default function useAccessCode() {
     setCode('');
     setError('');
     setBusy(false);
+    if (result === true) useAccessCodeStore.getState().setUnlocked();
     if (resolverRef.current) { resolverRef.current(result); resolverRef.current = null; }
   }, []);
 
