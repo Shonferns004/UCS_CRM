@@ -280,14 +280,14 @@ function FroSearchPicker({ value, fros = [], onChange }){
 }
 
 // ─── Audit Stat Cards ──────────────────────────────────────
-export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null,locked=false}){
+export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null,locked=false,bare=false}){
   const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
   const mask=(v)=>locked?'XXXX':v;
   const ngoTabs=[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']];
 
   if(loading){
     return (
-      <div style={{display:'flex',alignItems:'center',gap:12,padding:'22px 24px',borderRadius:16,border:'1px solid #e7ecf3',background:'linear-gradient(135deg,#fff,#f8fafc)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,padding:bare?0:'22px 24px',borderRadius:16,border:bare?'none':'1px solid #e7ecf3',background:bare?'transparent':'linear-gradient(135deg,#fff,#f8fafc)'}}>
         <span className="sk" style={{width:46,height:46,borderRadius:12,flexShrink:0}}/>
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           <span className="sk" style={{width:110,height:13,borderRadius:7}}/>
@@ -297,8 +297,12 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
     );
   }
 
+  const outer = bare
+    ? {display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}
+    : {display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16,padding:'20px 22px',borderRadius:16,background:'linear-gradient(135deg,#ffffff 0%,#f6f8fb 100%)',border:'1px solid #e7ecf3',boxShadow:'0 6px 24px rgba(30,41,59,.06)'};
+
   return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16,padding:'20px 22px',borderRadius:16,background:'linear-gradient(135deg,#ffffff 0%,#f6f8fb 100%)',border:'1px solid #e7ecf3',boxShadow:'0 6px 24px rgba(30,41,59,.06)'}}>
+    <div style={outer}>
       <div style={{display:'flex',alignItems:'center',gap:16}}>
         <div style={{width:50,height:50,borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',background:'#111827',color:'#fff',boxShadow:'0 6px 16px rgba(17,24,39,.25)',flexShrink:0}}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg>

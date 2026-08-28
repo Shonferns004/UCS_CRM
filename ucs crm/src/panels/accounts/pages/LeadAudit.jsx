@@ -66,50 +66,61 @@ export default function LeadAudit() {
 
   const isPanelOpen = !!(detailView || entryDetailView);
 
+  const filterBar = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#8a93a3' }}>Filter</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>NGO</span>
+      <select value={globalNgo} onChange={e => setGlobalNgo(e.target.value)} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontWeight: 600, background: '#fff' }}>
+        <option value="">All NGOs</option>
+        <option value="bsct">Being Sevak</option>
+        <option value="mann">Mann Care</option>
+        <option value="aflf">Ashray</option>
+      </select>
+      <span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>Date</span>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} aria-label="Filter by date" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontWeight: 600 }} />
+        {dateFilter && <button onClick={() => setDateFilter('')} title="Clear date" aria-label="Clear date" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', display: 'inline-flex', alignItems: 'center', padding: 0, flexShrink: 0 }}><X size={14} strokeWidth={2.5} /></button>}
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>Amount</span>
+      <input type="number" min="0" step="any" placeholder="All amounts" value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontWeight: 600, width: 96 }} />
+      <span style={{ fontSize: 10.5, color: '#9ca3af' }}>Filters both Lead &amp; Audit</span>
+    </div>
+  );
+
   return (
     <>
-      <div className="lead-audit-summary">
-        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} />
-      </div>
-      {receiptNums && receiptNums.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
-          {receiptNums.map(n => (
-            <div key={n.project_id} className="card" style={{ flex: 1, borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, fontWeight: 600 }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#9ca3af', fontSize: 9, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Last</div>
-                  <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{n.last_no || '\u2014'}</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ color: '#9ca3af', fontSize: 9, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
-                  <div style={{ color: 'var(--sage)', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch' }}>
+        <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: 18 }}>
+            <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
+          </div>
+          <div style={{ height: 1, background: '#eef1f6' }} />
+          <div style={{ padding: '12px 18px' }}>
+            {filterBar}
+          </div>
+        </div>
+        {receiptNums && receiptNums.length > 0 && (
+          <div style={{ width: 250, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+            {receiptNums.map(n => (
+              <div key={n.project_id} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ color: '#9ca3af', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Last</div>
+                    <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ color: '#9ca3af', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
+                    <div style={{ color: 'var(--sage)', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
-        <div className="lead-audit-global-filter">
-          <span className="lead-audit-filter-label">Workspace filter</span>
-          <span className="lead-audit-filter-divider" />
-          <span className="lead-audit-filter-key">NGO</span>
-          <select value={globalNgo} onChange={e => setGlobalNgo(e.target.value)} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}>
-            <option value="">All NGOs</option>
-            <option value="bsct">Being Sevak</option>
-            <option value="mann">Mann Care</option>
-            <option value="aflf">Ashray</option>
-          </select>
-          <span className="lead-audit-filter-key">Date</span>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} aria-label="Filter by date" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }} />
-            {dateFilter && <button onClick={() => setDateFilter('')} title="Clear date" aria-label="Clear date" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', display: 'inline-flex', alignItems: 'center', padding: 0, flexShrink: 0 }}><X size={14} strokeWidth={2.5} /></button>}
+            ))}
           </div>
-          <span className="lead-audit-filter-key">Amount</span>
-          <input type="number" min="0" step="any" placeholder="All amounts" value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600, width: 96 }} />
-          <span className="lead-audit-filter-help">Filters both Lead Verification and Bank Audit</span>
-        </div>
+        )}
+      </div>
+
+      <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
         <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
           <div style={{ alignSelf: 'flex-start' }}>
             <SectionTitle>Lead Verification</SectionTitle>
