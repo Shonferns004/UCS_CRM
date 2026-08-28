@@ -715,6 +715,9 @@ export default function Dashboard() {
   const [hourlyExportFrom, setHourlyExportFrom] = useState(() => new Date().toISOString().slice(0,10));
   const [hourlyExportTo, setHourlyExportTo] = useState(() => new Date().toISOString().slice(0,10));
   const [froHourlyData, setFroHourlyData] = useState([]);
+  const [hourlyDate, setHourlyDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [hourlyList, setHourlyList] = useState([]);
+  const [hourlyLoading, setHourlyLoading] = useState(false);
 
   // Auto-update hourly export date range when period changes
   useEffect(() => {
@@ -737,11 +740,43 @@ export default function Dashboard() {
   // Fetch FRO-level hourly performance when date range or NGO changes
   useEffect(() => {
     let cancelled = false;
-    getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo })
+    getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
       .then(data => { if (!cancelled) setFroHourlyData(data || []); })
       .catch(() => { if (!cancelled) setFroHourlyData([]); });
     return () => { cancelled = true; };
   }, [hourlyExportFrom, hourlyExportTo, selectedNgoId]);
+
+  // Fetch aggregate hourly stats for the selected date
+  useEffect(() => {
+    let cancelled = false;
+    setHourlyLoading(true);
+    getFroHourlyPerformance({ from: hourlyDate, to: hourlyDate, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
+      .then(data => {
+        if (!cancelled) {
+          const hourSlots = Array.from({ length: 12 }, (_, i) => 
+            `${String(9+i).padStart(2, '0')}:00-${String(10+i).padStart(2, '0')}:00`
+          );
+          const aggregated = {};
+          for (const h of hourSlots) {
+            aggregated[h] = { hour: h, calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 };
+          }
+          for (const row of data || []) {
+            if (aggregated[row.hour]) {
+              aggregated[row.hour].calls += (row.calls || 0);
+              aggregated[row.hour].connected += (row.connected || 0);
+              aggregated[row.hour].interested += (row.interested || 0);
+              aggregated[row.hour].donations += (row.donations || 0);
+              aggregated[row.hour].amount += (row.amount || 0);
+            }
+          }
+          setHourlyList(Object.values(aggregated));
+        }
+      })
+      .catch(() => { if (!cancelled) setHourlyList([]); })
+      .finally(() => { if (!cancelled) setHourlyLoading(false); });
+    return () => { cancelled = true; };
+  }, [hourlyDate, selectedNgoId]);
+
   const todayStr = new Date().toISOString().slice(0,10);
   const monthStart = new Date().toISOString().slice(0,7) + '-01';
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0,10);
@@ -895,6 +930,7 @@ export default function Dashboard() {
   const month_collection = Number(cm.total) || 0;
   const today_collection = Number(ct.total) || 0;
   const daily_target = Number(c.daily_target) || 0;
+  const monthly_target = Number(c.monthly_target) || (daily_target > 0 ? daily_target * 26 : 0);
   const verified_month_amount = Number(cm.verified?.amount) || 0;
   const verified_month_count = Number(cm.verified?.count) || 0;
   const unverified_month_amount = Number(cm.unverified?.amount) || 0;
@@ -929,15 +965,47 @@ export default function Dashboard() {
     color: g.color,
   })).filter(d => d.value > 0);
 
+  const handleHourlyExport = async () => {
+    const XLSX = await import('xlsx-js-style');
+    const wb = XLSX.utils.book_new();
+    let data = [];
+    try {
+      data = await getFroHourlyPerformance({ from: hourlyDate, to: hourlyDate, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) });
+    } catch (e) {
+      data = [];
+    }
+    const headers = [
+      'Telecaller', 'Login ID', 'Date', 'Hour Slot', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
+    ];
+    const rows = (data || []).map(h => [
+      h.fro_name,
+      h.fro_login_id || '',
+      hourlyDate,
+      h.hour,
+      h.calls || 0,
+      h.connected || 0,
+      h.interested || 0,
+      h.donations || 0,
+      h.amount || 0
+    ]);
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    sheet['!cols'] = [
+      { wch: 25 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
+    ];
+    XLSX.utils.book_append_sheet(wb, sheet, 'Hourly Performance');
+    XLSX.writeFile(wb, `hourly-performance-${hourlyDate}.xlsx`);
+  };
+
   const handleTelecallerExport = async () => {
     if (!tlData?.performance) return;
     const XLSX = await import('xlsx-js-style');
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Telecaller Performance Summary
+    const periodLabel = perfPeriod === 'today' ? 'Today' : perfPeriod === 'week' ? 'This Week' : 'This Month';
     const headers = [
-      'Telecaller', 'Login ID', 'Calls', 'Connected', 'Non-Connected',
-      'Connected Status Breakdown', 'Interested', 'Received Donors', 'Amount (₹)', 'Target %',
+      'Telecaller', 'Login ID', 'Period', 'Calls', 'Connected', 'Non-Connected',
+      `Status Breakdown (${periodLabel})`, 'Interested', 'Received Donors', 'Amount (₹)', 'Target %',
       'Claims Pending', 'Claims Verified', 'Claims Rejected', 'Live Status'
     ];
     const filteredPerformance = tlData.performance.filter(p => 
@@ -950,8 +1018,13 @@ export default function Dashboard() {
       const periodReceived = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
       const periodNonConnected = Math.max(0, periodCalls - periodConnected);
       
-      // Connected status breakdown - use individual status counts from connectedStatuses
-      const connectedBreakdown = Object.entries(p.connectedStatuses || {})
+      // Select breakdown for the active period!
+      const activeStatuses = 
+        perfPeriod === 'today' ? (p.connectedStatuses_today || {}) :
+        perfPeriod === 'week' ? (p.connectedStatuses_week || {}) :
+        (p.connectedStatuses_month || p.connectedStatuses || {});
+        
+      const connectedBreakdown = Object.entries(activeStatuses)
         .map(([status, count]) => `${status}: ${count}`)
         .filter(s => !s.endsWith(': 0'))
         .join('; ');
@@ -959,6 +1032,7 @@ export default function Dashboard() {
       return [
         p.fro_name,
         p.fro_login_id || '',
+        periodLabel,
         periodCalls,
         periodConnected,
         periodNonConnected,
@@ -975,8 +1049,8 @@ export default function Dashboard() {
     });
     const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     sheet['!cols'] = [
-      { wch: 25 }, { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 14 },
-      { wch: 40 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 10 },
+      { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 14 },
+      { wch: 45 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 10 },
       { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
     ];
     XLSX.utils.book_append_sheet(wb, sheet, 'Telecaller Performance');
@@ -984,9 +1058,8 @@ export default function Dashboard() {
     // Sheet 2: Hourly Breakdown by FRO
     let hourlyDataToUse = froHourlyData;
     if (!hourlyDataToUse || hourlyDataToUse.length === 0) {
-      // Fallback: fetch if empty
       try {
-        const data = await getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo });
+        const data = await getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) });
         hourlyDataToUse = data || [];
       } catch (e) {
         hourlyDataToUse = [];
@@ -994,7 +1067,7 @@ export default function Dashboard() {
     }
     if (hourlyDataToUse && hourlyDataToUse.length > 0) {
       const hourlyHeaders = [
-        'Telecaller', 'Login ID', 'Hour', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
+        'Telecaller', 'Login ID', 'Hour Slot', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
       ];
       const hourlyRows = hourlyDataToUse.map(h => [
         h.fro_name,
@@ -1008,7 +1081,7 @@ export default function Dashboard() {
       ]);
       const hourlySheet = XLSX.utils.aoa_to_sheet([hourlyHeaders, ...hourlyRows]);
       hourlySheet['!cols'] = [
-        { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }
+        { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
       ];
       XLSX.utils.book_append_sheet(wb, hourlySheet, 'Hourly Breakdown');
     }
@@ -1029,101 +1102,13 @@ export default function Dashboard() {
           ))}
         </select>
       </div>
+
+      {/* Top 4 Summary Cards */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: 14, marginBottom: 20,
+        gap: 14, marginBottom: 16,
       }}>
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Donor Assignment</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{total_donors}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <div style={{ width: 64, height: 64, flexShrink: 0 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={[
-                    { name: 'Assigned', value: assigned_donors, color: 'var(--sage)' },
-                    { name: 'Unassigned', value: unassigned, color: '#e5e7eb' },
-                  ]} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" startAngle={90} endAngle={-270}>
-                    <Cell fill="var(--sage)" />
-                    <Cell fill="#e5e7eb" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-                <span style={{ color: 'var(--sage)', fontWeight: 600 }}>Assigned</span>
-                <span style={{ fontWeight: 600 }}>{assigned_donors}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span style={{ color: '#9ca3af', fontWeight: 500 }}>Unassigned</span>
-                <span style={{ fontWeight: 500, color: '#9ca3af' }}>{unassigned}</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{assignPct}% assigned</div>
-            </div>
-          </div>
-          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a' }}>{data_used}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Used</div>
-              </div>
-              <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>{data_unused}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Unused</div>
-              </div>
-            </div>
-            {(data_used + data_unused) > 0 && (
-              <div style={{ height: 4, borderRadius: 2, background: '#fee2e2', marginTop: 8, overflow: 'hidden' }}>
-                <div style={{ width: `${(data_used / (data_used + data_unused)) * 100}%`, height: '100%', borderRadius: 2, background: '#16a34a' }} />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>FRO Workers</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10, textAlign:'center' }}>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{total_fro_workers}</div>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sage)' }}>{active_fros}</div>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>{assigned_fro_count}</div>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Assigned</div>
-            </div>
-          </div>
-          {selectedNgoId === 'all' && Object.keys(stations_per_ngo).length > 0 && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6, textTransform:'uppercase' }}>Stations per NGO</div>
-              {Object.entries(stations_per_ngo).map(([name, count]) => {
-                const maxCount = Math.max(...Object.values(stations_per_ngo), 1);
-                const pct = (count / maxCount) * 100;
-                return (
-                  <div key={name} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-                    <span style={{ fontSize:12, fontWeight:600, minWidth:50, color:'var(--ink)' }}>{name}</span>
-                    <div style={{ flex:1, height:6, borderRadius:3, background:'#e5e7eb', overflow:'hidden' }}>
-                      <div style={{ width:`${pct}%`, height:'100%', borderRadius:3, background:'var(--sage)' }} />
-                    </div>
-                    <span style={{ fontSize:12, fontWeight:600, minWidth:24, textAlign:'right', color:'var(--ink)' }}>{count}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setSelectedPeriod('month')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
@@ -1177,38 +1162,40 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{verified_month_amount.toLocaleString('en-IN')}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <span>Month: {verified_month_count} leads</span>
+            <span>Today: ₹{verified_today_amount.toLocaleString('en-IN')} ({verified_today_count})</span>
+          </div>
+          {direct_donation_month > 0 && (
+            <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 4 }}>
+              + ₹{direct_donation_month.toLocaleString('en-IN')} in direct donations (total ₹{month_collection.toLocaleString('en-IN')})
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: '#16a34a', marginTop: direct_donation_month > 0 ? 2 : 4 }}>Verified by Accounts panel</div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #f59e0b33' }} onClick={() => setSelectedStatus('unverified')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Unverified</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>₹{unverified_month_amount.toLocaleString('en-IN')}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <span>Month: {unverified_month_count} leads</span>
+            <span>Today: ₹{unverified_today_amount.toLocaleString('en-IN')} ({unverified_today_count})</span>
+          </div>
+          <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>Awaiting Accounts verification</div>
+        </div>
       </div>
 
-      {daily_target > 0 && (
-        <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontWeight: 600, flex: 1 }}>Daily Collection Target
-              <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>Set by Super Admin</span>
-            </span>
-            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Target: <strong style={{ color: 'var(--ink)' }}>₹{daily_target.toLocaleString('en-IN')}</strong></span>
-            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Collected: <strong style={{ color: '#16a34a' }}>₹{today_collection.toLocaleString('en-IN')}</strong></span>
-            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Remaining: <strong style={{ color: today_collection >= daily_target ? '#16a34a' : '#ef4444' }}>₹{Math.max(0, daily_target - today_collection).toLocaleString('en-IN')}</strong></span>
-          </div>
-          <div style={{ height: 8, borderRadius: 4, background: '#fef2f2', overflow: 'hidden' }}>
-            <div style={{
-              width: `${Math.min(100, (today_collection / daily_target) * 100)}%`,
-              height: '100%',
-              borderRadius: 4,
-              background: today_collection >= daily_target ? '#16a34a' : today_collection >= daily_target * 0.5 ? '#f59e0b' : '#ef4444',
-              transition: 'width .5s ease',
-            }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
-            <span>{Math.round((today_collection / daily_target) * 100)}% achieved</span>
-            <span>{today_collection >= daily_target ? 'Target completed!' : `${Math.round(((daily_target - today_collection) / daily_target) * 100)}% remaining`}</span>
-          </div>
-        </div>
-      )}
-
-      {/* ===== NEW SECTIONS FROM TL DASHBOARD ===== */}
-
-      {/* Section 1: Idle Alert Banner */}
+      {/* Idle Alert Banner */}
       {tlData?.idle_alerts?.length > 0 && (
         <div style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14 }}>⚠️</span>
@@ -1221,9 +1208,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Section 2: Telecaller Live Status Bar */}
+      {/* Telecaller Live Status KPI Bar */}
       {tlData?.kpis && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
           {[
             { label: 'Telecallers', value: tlData.kpis.total_fros || 0, color: '#1e40af', bg: '#eff6ff' },
             { label: 'Calling', value: tlData.kpis.calling || 0, color: '#16a34a', bg: '#f0fdf4' },
@@ -1236,119 +1223,175 @@ export default function Dashboard() {
             { label: 'Follow-ups Due', value: tlData.kpis.followups_due || 0, color: '#ea580c', bg: '#fff7ed' },
             { label: 'Target %', value: (tlData.kpis.target_pct || 0) + '%', color: tlData.kpis.target_pct >= 75 ? '#16a34a' : '#dc2626', bg: tlData.kpis.target_pct >= 75 ? '#f0fdf4' : '#fef2f2' },
           ].map((s, i) => (
-            <div key={i} className="card" style={{ marginBottom: 0, padding: '12px 14px', textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{s.label}</div>
+            <div key={i} className="card" style={{ marginBottom: 0, padding: '10px 12px', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 9, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{s.label}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Section 3: Donation Funnel */}
-      {tlData?.funnel?.length > 0 && (
-        <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            Donation Funnel — Where Donors Drop Off
+      {/* REQUIREMENT 1: Daily Collection Target + Monthly Collection Target (Directly Below) */}
+      {daily_target > 0 && (
+        <div className="card" style={{ marginBottom: 12, padding: '14px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontWeight: 600, flex: 1 }}>Daily Collection Target
+              <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>Set by Super Admin</span>
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Target: <strong style={{ color: 'var(--ink)' }}>₹{daily_target.toLocaleString('en-IN')}</strong></span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Collected: <strong style={{ color: '#16a34a' }}>₹{today_collection.toLocaleString('en-IN')}</strong></span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Remaining: <strong style={{ color: today_collection >= daily_target ? '#16a34a' : '#ef4444' }}>₹{Math.max(0, daily_target - today_collection).toLocaleString('en-IN')}</strong></span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, overflowX: 'auto', padding: '4px 0' }}>
-            {tlData.funnel.map((stage, i) => {
-              const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#ec4899', '#16a34a'];
-              const color = colors[i] || '#94a3b8';
-              const isLast = i === tlData.funnel.length - 1;
-              const maxCount = Math.max(...tlData.funnel.map(s => s.count), 1);
-              return (
-                <div key={stage.stage} style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                  <div style={{ minWidth: 90, textAlign: 'center', padding: '8px 10px', borderRadius: 8, background: color + '12', border: `1px solid ${color}30` }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>{stage.stage}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color }}>{(stage.count || 0).toLocaleString('en-IN')}</div>
-                    <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 2 }}>{stage.pct}% of assigned</div>
-                    <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', marginTop: 6, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: color, width: `${(stage.count / maxCount) * 100}%`, transition: 'width .6s ease' }} />
-                    </div>
-                  </div>
-                  {!isLast && (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
-                  )}
-                </div>
-              );
-            })}
+          <div style={{ height: 8, borderRadius: 4, background: '#fef2f2', overflow: 'hidden' }}>
+            <div style={{
+              width: `${Math.min(100, (today_collection / daily_target) * 100)}%`,
+              height: '100%',
+              borderRadius: 4,
+              background: today_collection >= daily_target ? '#16a34a' : today_collection >= daily_target * 0.5 ? '#f59e0b' : '#ef4444',
+              transition: 'width .5s ease',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+            <span>{Math.round((today_collection / daily_target) * 100)}% achieved</span>
+            <span>{today_collection >= daily_target ? 'Daily target completed!' : `${Math.round(((daily_target - today_collection) / daily_target) * 100)}% remaining`}</span>
           </div>
         </div>
       )}
 
-      {/* Section 4+5: Hourly Performance + Top by Collection side by side */}
-      <div style={{ display: 'grid', gridTemplateColumns: (tlData?.top_performers?.amount?.length > 0 && tlData?.hourly?.length > 0) ? '2fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
-        {/* Hourly Performance */}
-        {tlData?.hourly?.length > 0 && (
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="card-head">
-                <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  Hourly Performance
-                </h3>
-              </div>
-              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-                    <tr>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Time</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Calls</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Connected</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Interested</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Donations</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tlData.hourly.map(h => {
-                      const hasData = (h.calls || 0) > 0 || (h.connected || 0) > 0 || (h.donations || 0) > 0;
-                      return (
-                        <tr key={h.hour} style={{ background: !hasData ? '#f9fafb' : 'transparent' }}>
-                          <td style={{ padding: '5px 10px', fontWeight: 600 }}>{h.hour}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 600 }}>{h.calls || 0}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#16a34a' }}>{h.connected || 0}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#ec4899' }}>{h.interested || 0}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#8b5cf6' }}>{h.donations || 0}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 600, color: (h.amount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
-                            ₹{Number(h.amount || 0).toLocaleString('en-IN')}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-        )}
+      {monthly_target > 0 && (
+        <div className="card" style={{ marginBottom: 16, padding: '14px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+            <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontWeight: 600, flex: 1 }}>Monthly Collection Target
+              <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>Current Month</span>
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Target: <strong style={{ color: 'var(--ink)' }}>₹{monthly_target.toLocaleString('en-IN')}</strong></span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Collected: <strong style={{ color: '#16a34a' }}>₹{month_collection.toLocaleString('en-IN')}</strong></span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Remaining: <strong style={{ color: month_collection >= monthly_target ? '#16a34a' : '#ef4444' }}>₹{Math.max(0, monthly_target - month_collection).toLocaleString('en-IN')}</strong></span>
+          </div>
+          <div style={{ height: 8, borderRadius: 4, background: '#fef2f2', overflow: 'hidden' }}>
+            <div style={{
+              width: `${Math.min(100, (month_collection / monthly_target) * 100)}%`,
+              height: '100%',
+              borderRadius: 4,
+              background: month_collection >= monthly_target ? '#16a34a' : month_collection >= monthly_target * 0.5 ? '#f59e0b' : '#ef4444',
+              transition: 'width .5s ease',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+            <span>{Math.round((month_collection / monthly_target) * 100)}% achieved</span>
+            <span>{month_collection >= monthly_target ? 'Monthly target completed!' : `${Math.round(((monthly_target - month_collection) / monthly_target) * 100)}% remaining`}</span>
+          </div>
+        </div>
+      )}
 
-        {/* Top by Collection */}
-        {tlData?.top_performers?.amount?.length > 0 && (
-          <div className="card" style={{ marginBottom: 0 }}>
-            <div className="card-head">
-              <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ color: '#f59e0b' }}>🏆</span> Top by Collection
-              </h3>
+      {/* REQUIREMENT 4: Donor Assignment (Left) & Donor Funnel (Right) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16 }}>
+        {/* Left: Donor Assignment */}
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Donor Assignment</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{total_donors}</span>
             </div>
-            <div className="card-pad" style={{ padding: 0 }}>
-              {tlData.top_performers.amount.map((p, i) => (
-                <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.top_performers.amount.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', minWidth: 16 }}>#{i + 1}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>₹{Number(p.collection_amount || 0).toLocaleString('en-IN')}</span>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              <div style={{ width: 64, height: 64, flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={[
+                      { name: 'Assigned', value: assigned_donors, color: 'var(--sage)' },
+                      { name: 'Unassigned', value: unassigned, color: '#e5e7eb' },
+                    ]} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" startAngle={90} endAngle={-270}>
+                      <Cell fill="var(--sage)" />
+                      <Cell fill="#e5e7eb" />
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+                  <span style={{ color: 'var(--sage)', fontWeight: 600 }}>Assigned</span>
+                  <span style={{ fontWeight: 600 }}>{assigned_donors}</span>
                 </div>
-              ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: '#9ca3af', fontWeight: 500 }}>Unassigned</span>
+                  <span style={{ fontWeight: 500, color: '#9ca3af' }}>{unassigned}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{assignPct}% assigned</div>
+              </div>
             </div>
           </div>
-        )}
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a' }}>{data_used}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Used</div>
+              </div>
+              <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>{data_unused}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Unused</div>
+              </div>
+            </div>
+            {(data_used + data_unused) > 0 && (
+              <div style={{ height: 4, borderRadius: 2, background: '#fee2e2', marginTop: 8, overflow: 'hidden' }}>
+                <div style={{ width: `${(data_used / (data_used + data_unused)) * 100}%`, height: '100%', borderRadius: 2, background: '#16a34a' }} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Donation Funnel */}
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              Donation Funnel — Stage Drop-off
+            </div>
+            {tlData?.funnel?.length > 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, overflowX: 'auto', padding: '4px 0' }}>
+                {tlData.funnel.map((stage, i) => {
+                  const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#ec4899', '#16a34a'];
+                  const color = colors[i] || '#94a3b8';
+                  const isLast = i === tlData.funnel.length - 1;
+                  const maxCount = Math.max(...tlData.funnel.map(s => s.count), 1);
+                  return (
+                    <div key={stage.stage} style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, flex: 1, minWidth: 68 }}>
+                      <div style={{ width: '100%', textAlign: 'center', padding: '8px 4px', borderRadius: 8, background: color + '12', border: `1px solid ${color}30` }}>
+                        <div style={{ fontSize: 9, fontWeight: 600, color, textTransform: 'uppercase', letterSpacing: '0.02em', marginBottom: 2 }}>{stage.stage}</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color }}>{(stage.count || 0).toLocaleString('en-IN')}</div>
+                        <div style={{ fontSize: 8, color: 'var(--ink-soft)', marginTop: 1 }}>{stage.pct}%</div>
+                        <div style={{ height: 3, borderRadius: 2, background: '#e5e7eb', marginTop: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: 2, background: color, width: `${(stage.count / maxCount) * 100}%`, transition: 'width .6s ease' }} />
+                        </div>
+                      </div>
+                      {!isLast && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', padding: 16, textAlign: 'center' }}>No funnel data available</div>
+            )}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 8, borderTop: '1px solid var(--line)', paddingTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+            <span>Conversion tracking</span>
+            <span>Total Assigned: {total_donors}</span>
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
+      {/* REQUIREMENT 3: Workforce / Attendance (Left) & FRO Workers (Right) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16 }}>
+        {/* Left: Workforce & Attendance */}
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Workforce</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Workforce & Attendance</span>
               <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{total_workers}</span>
             </div>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
@@ -1385,118 +1428,156 @@ export default function Dashboard() {
                 <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{attendance_pct}% attendance</div>
               </div>
             </div>
-            <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e' }}>{workers_present}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Present</div>
-                </div>
-                <div style={{ flex: 1, background: '#fffbeb', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#f59e0b' }}>{workers_late}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Late</div>
-                </div>
-                <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>{workers_absent}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Absent</div>
-                </div>
-                <div style={{ flex: 1, background: '#f3f4f6', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#6b7280' }}>{workers_no_mark}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>No Show</div>
-                </div>
-              </div>
-              {total_workers > 0 && (
-                <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', marginTop: 8, overflow: 'hidden', display: 'flex' }}>
-                  <div style={{ width: `${(workers_present / total_workers) * 100}%`, height: '100%', background: '#22c55e' }} />
-                  <div style={{ width: `${(workers_late / total_workers) * 100}%`, height: '100%', background: '#f59e0b' }} />
-                </div>
-              )}
-            </div>
           </div>
-
-          <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{verified_month_amount.toLocaleString('en-IN')}</span>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#22c55e' }}>{workers_present}</div>
+                <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>Present</div>
+              </div>
+              <div style={{ flex: 1, background: '#fffbeb', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>{workers_late}</div>
+                <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>Late</div>
+              </div>
+              <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{workers_absent}</div>
+                <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>Absent</div>
+              </div>
+              <div style={{ flex: 1, background: '#f3f4f6', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#6b7280' }}>{workers_no_mark}</div>
+                <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>No Show</div>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
-              <span>Month: {verified_month_count} leads</span>
-              <span>Today: ₹{verified_today_amount.toLocaleString('en-IN')} ({verified_today_count})</span>
-            </div>
-            {direct_donation_month > 0 && (
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 4 }}>
-                + ₹{direct_donation_month.toLocaleString('en-IN')} in direct donations (total ₹{month_collection.toLocaleString('en-IN')})
+            {total_workers > 0 && (
+              <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', marginTop: 8, overflow: 'hidden', display: 'flex' }}>
+                <div style={{ width: `${(workers_present / total_workers) * 100}%`, height: '100%', background: '#22c55e' }} />
+                <div style={{ width: `${(workers_late / total_workers) * 100}%`, height: '100%', background: '#f59e0b' }} />
               </div>
             )}
-            <div style={{ fontSize: 10, color: '#16a34a', marginTop: direct_donation_month > 0 ? 2 : 4 }}>Verified by Accounts panel</div>
-          </div>
-
-          <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #f59e0b33' }} onClick={() => setSelectedStatus('unverified')}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Unverified</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>₹{unverified_month_amount.toLocaleString('en-IN')}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
-              <span>Month: {unverified_month_count} leads</span>
-              <span>Today: ₹{unverified_today_amount.toLocaleString('en-IN')} ({unverified_today_count})</span>
-            </div>
-            <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>Awaiting Accounts verification</div>
           </div>
         </div>
 
-        {/* Low Performance (right column) */}
-        {weakPerformers.length > 0 && (
-          <div className="card" style={{ marginBottom: 0 }}>
-            <div className="card-head">
-              <h3>⚠ Low Performance</h3>
-              <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                <button onClick={() => setWeakPeriod('today')} disabled={weakLoading}
-                  style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'today' ? 'var(--sage)' : '#fff', color: weakPeriod === 'today' ? '#fff' : 'var(--ink)' }}>
-                  Today
-                </button>
-                <button onClick={() => setWeakPeriod('month')} disabled={weakLoading}
-                  style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'month' ? 'var(--sage)' : '#fff', color: weakPeriod === 'month' ? '#fff' : 'var(--ink)' }}>
-                  Month
-                </button>
-                {weakLoading && <span style={{ fontSize:11, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
-                  Loading…
-                </span>}
+        {/* Right: FRO Workers & Stations */}
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>FRO Workers</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10, textAlign:'center' }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{total_fro_workers}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sage)' }}>{active_fros}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>{assigned_fro_count}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Assigned</div>
               </div>
             </div>
-            <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
-              <table style={{ fontSize: 11 }}>
+          </div>
+          {selectedNgoId === 'all' && Object.keys(stations_per_ngo).length > 0 && (
+            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6, textTransform:'uppercase' }}>Stations per NGO</div>
+              {Object.entries(stations_per_ngo).map(([name, count]) => {
+                const maxCount = Math.max(...Object.values(stations_per_ngo), 1);
+                const pct = (count / maxCount) * 100;
+                return (
+                  <div key={name} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                    <span style={{ fontSize:11, fontWeight:600, minWidth:46, color:'var(--ink)' }}>{name}</span>
+                    <div style={{ flex:1, height:6, borderRadius:3, background:'#e5e7eb', overflow:'hidden' }}>
+                      <div style={{ width:`${pct}%`, height:'100%', borderRadius:3, background:'var(--sage)' }} />
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:600, minWidth:24, textAlign:'right', color:'var(--ink)' }}>{count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* REQUIREMENT 2: Top Collection (Left) & Low Collection (Right) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16 }}>
+        {/* Left: Top Collection */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <div className="card-head">
+            <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: '#f59e0b' }}>🏆</span> Top by Collection
+            </h3>
+          </div>
+          <div className="card-pad" style={{ padding: 0 }}>
+            {tlData?.top_performers?.amount?.length > 0 ? (
+              tlData.top_performers.amount.map((p, i) => (
+                <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.top_performers.amount.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', minWidth: 16 }}>#{i + 1}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>₹{Number(p.collection_amount || 0).toLocaleString('en-IN')}</span>
+                </div>
+              ))
+            ) : (
+              <div style={{ padding: 16, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>No collections recorded yet</div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Low Collection / Weak Performers */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <div className="card-head">
+            <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: '#dc2626' }}>⚠️</span> Low Performance
+            </h3>
+            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+              <button onClick={() => setWeakPeriod('today')} disabled={weakLoading}
+                style={{ padding:'2px 8px', borderRadius:10, border:'1px solid var(--line)', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'today' ? 'var(--sage)' : '#fff', color: weakPeriod === 'today' ? '#fff' : 'var(--ink)' }}>
+                Today
+              </button>
+              <button onClick={() => setWeakPeriod('month')} disabled={weakLoading}
+                style={{ padding:'2px 8px', borderRadius:10, border:'1px solid var(--line)', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'month' ? 'var(--sage)' : '#fff', color: weakPeriod === 'month' ? '#fff' : 'var(--ink)' }}>
+                Month
+              </button>
+              {weakLoading && <span style={{ fontSize:10, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
+                Loading…
+              </span>}
+            </div>
+          </div>
+          <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
+            {weakPerformers.length > 0 ? (
+              <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={{width:24, fontSize:10}}>#</th>
-                    <th style={{fontSize:10}}>FRO</th>
-                    <th style={{textAlign:'right', fontSize:10}}>Collection</th>
-                    <th style={{textAlign:'center', fontSize:10}}>Att.</th>
-                    <th style={{textAlign:'center', fontSize:10}}>Score</th>
+                    <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
+                    <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
+                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Collection</th>
+                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Att.</th>
+                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {weakPerformers.slice(0, showAllLowPerformers ? weakPerformers.length : 8).map((p, i) => (
-                    <tr key={p.fro_id}>
-                      <td style={{color:'var(--ink-soft)', fontSize:10}}>{i + 1}</td>
-                      <td style={{fontWeight:600, fontSize:11}}>{p.fro_name}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'center'}}>
+                  {weakPerformers.slice(0, showAllLowPerformers ? weakPerformers.length : 6).map((p, i) => (
+                    <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{color:'var(--ink-soft)', fontSize:10, padding:'5px 8px'}}>{i + 1}</td>
+                      <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
+                      <td style={{textAlign:'center', padding:'5px 8px'}}>
                         {p.attendance_pct != null
                           ? <span style={{color: p.attendance_pct < 50 ? '#dc2626' : p.attendance_pct < 75 ? '#f59e0b' : '#16a34a', fontWeight:600, fontSize:11}}>{p.attendance_pct}%</span>
                           : '—'}
                       </td>
-                      <td style={{textAlign:'center', fontWeight:700, color:p.score < 0.2 ? '#dc2626' : '#f59e0b', fontSize:11}}>{p.score.toFixed(2)}</td>
+                      <td style={{textAlign:'center', fontWeight:700, color:p.score < 0.2 ? '#dc2626' : '#f59e0b', fontSize:11, padding:'5px 8px'}}>{p.score.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
-                {weakPerformers.length > 8 && !showAllLowPerformers && (
+                {weakPerformers.length > 6 && !showAllLowPerformers && (
                   <tfoot>
                     <tr>
                       <td colSpan={5} style={{padding:0}}>
                         <button onClick={() => setShowAllLowPerformers(true)}
-                          style={{width:'100%', padding:'8px 12px', border:'none', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
+                          style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
                           View All {weakPerformers.length} FROs →
                         </button>
                       </td>
@@ -1504,9 +1585,99 @@ export default function Dashboard() {
                   </tfoot>
                 )}
               </table>
-            </div>
+            ) : (
+              <div style={{ padding: 16, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>No low performing FROs flagged</div>
+            )}
           </div>
-        )}
+        </div>
+      </div>
+
+      {/* REQUIREMENT 5: Dedicated Hourly Collection Performance (Full Width) */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Hourly Collection Performance
+          </h3>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setHourlyDate(new Date().toISOString().slice(0, 10))}
+              style={{
+                padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                border: `1px solid ${hourlyDate === new Date().toISOString().slice(0, 10) ? 'var(--sage)' : 'var(--line)'}`,
+                background: hourlyDate === new Date().toISOString().slice(0, 10) ? 'var(--sage)' : '#fff',
+                color: hourlyDate === new Date().toISOString().slice(0, 10) ? '#fff' : 'var(--ink)',
+                cursor: 'pointer'
+              }}
+            >
+              Today
+            </button>
+            <button
+              onClick={() => {
+                const y = new Date();
+                y.setDate(y.getDate() - 1);
+                setHourlyDate(y.toISOString().slice(0, 10));
+              }}
+              style={{
+                padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                border: `1px solid ${hourlyDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? 'var(--sage)' : 'var(--line)'}`,
+                background: hourlyDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? 'var(--sage)' : '#fff',
+                color: hourlyDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? '#fff' : 'var(--ink)',
+                cursor: 'pointer'
+              }}
+            >
+              Yesterday
+            </button>
+            <input
+              type="date"
+              value={hourlyDate}
+              onChange={e => setHourlyDate(e.target.value)}
+              style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)', color: 'var(--ink)' }}
+            />
+            <button
+              onClick={handleHourlyExport}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', cursor: 'pointer' }}
+            >
+              <Download width="12" height="12" />
+              Export Hourly (XLSX)
+            </button>
+          </div>
+        </div>
+        <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
+          {hourlyLoading ? (
+            <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading hourly data...</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr>
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Time Slot</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Calls</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Connected</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Interested</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Donations</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(hourlyList.length > 0 ? hourlyList : (tlData?.hourly || [])).map(h => {
+                  const hasData = (h.calls || 0) > 0 || (h.connected || 0) > 0 || (h.donations || 0) > 0;
+                  return (
+                    <tr key={h.hour} style={{ background: !hasData ? '#f9fafb' : 'transparent', borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ padding: '6px 10px', fontWeight: 600 }}>{h.hour}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{h.calls || 0}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: '#16a34a' }}>{h.connected || 0}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: '#ec4899' }}>{h.interested || 0}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: '#8b5cf6' }}>{h.donations || 0}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: (h.amount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
+                        ₹{Number(h.amount || 0).toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
@@ -1520,26 +1691,19 @@ export default function Dashboard() {
               Telecaller Performance
               <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}> — {froSearch ? tlData.performance.filter(p => p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())).length : tlData.performance.length} FROs</span>
             </h3>
-<div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '2px 6px', background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--line)' }}>
-                <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Hourly:</span>
-                <input type="date" value={hourlyExportFrom} onChange={e => setHourlyExportFrom(e.target.value)} readOnly style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', width: 130, background: '#f5f5f5' }} />
+                <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600 }}>Hourly Range:</span>
+                <input type="date" value={hourlyExportFrom} onChange={e => setHourlyExportFrom(e.target.value)} style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', width: 120, background: '#fff', color: 'var(--ink)' }} />
                 <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>–</span>
-                <input type="date" value={hourlyExportTo} onChange={e => setHourlyExportTo(e.target.value)} readOnly style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', width: 130, background: '#f5f5f5' }} />
+                <input type="date" value={hourlyExportTo} onChange={e => setHourlyExportTo(e.target.value)} style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', width: 120, background: '#fff', color: 'var(--ink)' }} />
               </div>
-              <button 
-                onClick={handleTelecallerExport}
-                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: 'none', background: 'var(--sage)', color: '#fff', cursor: 'pointer' }}
-              >
-                <Download width="12" height="12" />
-                Export
-              </button>
               <input
                 type="text"
                 placeholder="Search FRO name..."
                 value={froSearch}
                 onChange={e => setFroSearch(e.target.value)}
-                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', width: 160, background: 'var(--bg)', color: 'var(--ink)' }}
+                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', width: 150, background: 'var(--bg)', color: 'var(--ink)' }}
               />
               {[{ key: 'today', label: 'Today' }, { key: 'week', label: 'This Week' }, { key: 'month', label: 'This Month' }].map(opt => (
                 <button key={opt.key} onClick={() => setPerfPeriod(opt.key)} style={{
@@ -1550,6 +1714,14 @@ export default function Dashboard() {
                   cursor: 'pointer',
                 }}>{opt.label}</button>
               ))}
+              <button 
+                onClick={handleTelecallerExport}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: 'none', background: 'var(--sage)', color: '#fff', cursor: 'pointer' }}
+                title="Export Day-wise summary and FRO hourly sheets"
+              >
+                <Download width="12" height="12" />
+                Export Full Report (XLSX)
+              </button>
             </div>
           </div>
           <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 440, overflowY: 'auto' }}>
@@ -1563,6 +1735,7 @@ export default function Dashboard() {
                   <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Calls{perfPeriod === 'today' ? ' (Today)' : perfPeriod === 'week' ? ' (Week)' : ' (Month)'}</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Connected</th>
                   <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Non-Connected</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Status Breakdown ({perfPeriod === 'today' ? 'Today' : perfPeriod === 'week' ? 'Week' : 'Month'})</th>
                   <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Interested</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Received{perfPeriod === 'today' ? ' (Today)' : perfPeriod === 'week' ? ' (Week)' : ' (Month)'}</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Target %</th>
@@ -1580,6 +1753,13 @@ export default function Dashboard() {
                   const periodInterested = perfPeriod === 'today' ? (p.interested_today || 0) : perfPeriod === 'week' ? (p.interested_week || 0) : (p.interested || 0);
                   const periodReceived = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
                   const periodNonConnected = Math.max(0, periodCalls - periodConnected);
+                  
+                  const activeStatuses = 
+                    perfPeriod === 'today' ? (p.connectedStatuses_today || {}) :
+                    perfPeriod === 'week' ? (p.connectedStatuses_week || {}) :
+                    (p.connectedStatuses_month || p.connectedStatuses || {});
+                  const statusEntries = Object.entries(activeStatuses).filter(([, c]) => c > 0);
+
                   return (
                     <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
@@ -1612,6 +1792,24 @@ export default function Dashboard() {
                         onClick={(e) => { e.stopPropagation(); if (periodConnected > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'connected' }); }}>{periodConnected}</td>
                       <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'right', color: '#dc2626', fontWeight: 600, cursor: 'pointer', textDecoration: periodNonConnected > 0 ? 'underline' : 'none' }}
                         onClick={(e) => { e.stopPropagation(); if (periodNonConnected > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected' }); }}>{periodNonConnected}</td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', fontSize: 11 }}>
+                        {statusEntries.length === 0 ? (
+                          <span style={{ color: 'var(--ink-soft)' }}>—</span>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, maxWidth: 220 }}>
+                            {statusEntries.slice(0, 2).map(([status, count]) => (
+                              <span key={status} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', fontWeight: 600 }}>
+                                {status}: {count}
+                              </span>
+                            ))}
+                            {statusEntries.length > 2 && (
+                              <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 4, background: '#f3f4f6', color: 'var(--ink-soft)' }} title={statusEntries.slice(2).map(([s, c]) => `${s}: ${c}`).join(', ')}>
+                                +{statusEntries.length - 2} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'right', color: '#ec4899' }}>{periodInterested}</td>
                       <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (periodReceived || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
                         ₹{Number(periodReceived || 0).toLocaleString('en-IN')}
