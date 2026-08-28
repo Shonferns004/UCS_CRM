@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
@@ -30,30 +30,75 @@ const StatCardSkeleton = () => (
   </div>
 );
 
-const RunnerCharacter = () => (
-  <div className="no-print" style={{ position: 'relative', width: 120, height: 86, flexShrink: 0, alignSelf: 'flex-end' }}>
-    <div style={{ position: 'absolute', right: 10, bottom: 12, width: 80, height: 62, animation: 'rpRun .5s ease-in-out infinite' }}>
-      <svg width="80" height="62" viewBox="0 0 80 62" fill="none">
-        <path d="M8 42 C6 28 20 10 42 10 C58 10 68 20 70 30 C76 30 78 36 72 38 L60 40 C56 52 42 56 32 50 L20 54 Z" fill="#7ce495" stroke="#2f8f5b" strokeWidth="1.6"/>
-        <circle cx="62" cy="20" r="3.2" fill="#1f6f3f"/>
-        <path d="M58 34 C64 33 68 34 70 36" stroke="#1f6f3f" strokeWidth="1.6" fill="none"/>
-        <path d="M32 30 C26 26 24 22 26 19" stroke="#1f6f3f" strokeWidth="3" strokeLinecap="round" fill="none"/>
-        <g style={{ transformOrigin: '38px 42px', animation: 'rpLeg .5s ease-in-out infinite' }}>
-          <rect x="36" y="42" width="6" height="14" rx="3" fill="#2f8f5b"/>
-        </g>
-        <g style={{ transformOrigin: '48px 42px', animation: 'rpLeg .5s ease-in-out infinite reverse' }}>
-          <rect x="46" y="42" width="6" height="14" rx="3" fill="#2f8f5b"/>
-        </g>
-        <path d="M12 40 L3 30 L7 25" stroke="#2f8f5b" strokeWidth="4" strokeLinecap="round" fill="none" style={{ transformOrigin: '12px 40px', animation: 'rpLeg .6s ease-in-out infinite' }}/>
-      </svg>
-    </div>
-    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 4, overflow: 'hidden', opacity: .8 }}>
-      <div style={{ width: 240, height: 4, display: 'flex', gap: 14, animation: 'rpGround .5s linear infinite' }}>
-        {[...Array(7)].map((_, i) => <div key={i} style={{ width: 16, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />)}
+const RunnerCharacter = () => {
+  const [fast, setFast] = useState(false);
+  const [hop, setHop] = useState(null); // 'jump' | 'leap'
+  const hopTimer = useRef(null);
+  const moveAccum = useRef(0);
+
+  const triggerHop = (kind, resetAccum = false) => {
+    if (resetAccum) moveAccum.current = 0;
+    clearTimeout(hopTimer.current);
+    setHop(kind);
+    hopTimer.current = setTimeout(() => setHop(null), kind === 'leap' ? 700 : 620);
+  };
+
+  const runDur = fast ? '.38s' : '1.1s';
+  const hopAnim = hop === 'leap' ? 'rpLeap .7s ease-out'
+    : hop === 'jump' ? 'rpJump .62s ease-out'
+    : ''; // '' means use run animation instead below
+
+  return (
+    <div className="no-print"
+      onPointerEnter={() => { triggerHop('jump'); setFast(true); }}
+      onPointerLeave={() => { setFast(false); setHop(null); }}
+      onPointerMove={e => {
+        moveAccum.current += Math.abs(e.movementX) + Math.abs(e.movementY);
+        if (moveAccum.current > 26) { triggerHop('jump'); moveAccum.current = 0; }
+      }}
+      onPointerDown={() => triggerHop('leap', true)}
+      onDoubleClick={() => triggerHop('leap', true)}
+      title="Jump! Move or click the runner"
+      style={{ position: 'relative', width: 220, height: 132, flexShrink: 0, alignSelf: 'flex-end', cursor: 'pointer', userSelect: 'none' }}
+    >
+      {/* cactus obstacle */}
+      <div style={{ position: 'absolute', right: 6, bottom: 16, width: 26, height: 46, animation: 'rpCactus 2s ease-in-out infinite' }}>
+        <svg width="26" height="46" viewBox="0 0 26 46" fill="none">
+          <rect x="11" y="6" width="5" height="36" rx="2.5" fill="#2f8f5b" stroke="#1f6f3f" strokeWidth="1.2"/>
+          <rect x="3" y="12" width="13" height="5" rx="2.5" fill="#2f8f5b" stroke="#1f6f3f" strokeWidth="1.2"/>
+          <rect x="15" y="22" width="10" height="5" rx="2.5" fill="#2f8f5b" stroke="#1f6f3f" strokeWidth="1.2"/>
+        </svg>
+      </div>
+
+      {/* dino */}
+      <div style={{ position: 'absolute', right: 74, bottom: 18, width: 120, height: 86, animation: hopAnim || (fast ? 'rpRun .38s ease-in-out infinite' : 'rpRun 1.1s ease-in-out infinite') }}>
+        <svg width="120" height="86" viewBox="0 0 120 86" fill="none" style={{ width: '100%', height: '100%' }}>
+          <path d="M12 60 C9 40 30 15 63 15 C87 15 102 29 105 43 C114 43 117 52 108 55 L90 58 C84 76 63 80 48 72 L30 78 Z" fill="#7ce495" stroke="#2f8f5b" strokeWidth="2"/>
+          <circle cx="93" cy="29" r="4.6" fill="#1f6f3f"/>
+          <circle cx="94.4" cy="27.6" r="1.5" fill="#fff"/>
+          <path d="M87 49 C96 47 102 48 105 51" stroke="#1f6f3f" strokeWidth="2" fill="none" strokeLinecap="round"/>
+          <path d="M48 44 C38 38 35 31 38 26" stroke="#1f6f3f" strokeWidth="4.5" strokeLinecap="round" fill="none"/>
+          <g style={{ transformOrigin: '57px 60px', animation: 'rpLeg .62s ease-in-out infinite' }}>
+            <rect x="54" y="60" width="9" height="20" rx="4.5" fill="#2f8f5b"/>
+            <path d="M54 80 L48 82 M63 80 L69 82" stroke="#2f8f5b" strokeWidth="4" strokeLinecap="round"/>
+          </g>
+          <g style={{ transformOrigin: '72px 60px', animation: 'rpLeg .62s ease-in-out infinite reverse' }}>
+            <rect x="69" y="60" width="9" height="20" rx="4.5" fill="#2f8f5b"/>
+            <path d="M69 80 L63 82 M78 80 L84 82" stroke="#2f8f5b" strokeWidth="4" strokeLinecap="round"/>
+          </g>
+          <path d="M18 58 L4 44 L10 36" stroke="#2f8f5b" strokeWidth="6" strokeLinecap="round" fill="none" style={{ transformOrigin: '18px 58px', animation: 'rpLeg .7s ease-in-out infinite' }}/>
+        </svg>
+      </div>
+
+      {/* ground */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 5, overflow: 'hidden', opacity: .85 }}>
+        <div style={{ width: 520, height: 5, display: 'flex', gap: 22, animation: `rpGround ${runDur} linear infinite` }}>
+          {[...Array(16)].map((_, i) => <div key={i} style={{ width: 20, height: 5, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />)}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const inputStyle = { fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontWeight: 600, background: '#fff', color: 'var(--ink)' };
 
@@ -78,6 +123,9 @@ const animStyle = `
   @keyframes rpRun { 0%,100% { transform: translateY(0); } 25% { transform: translateY(-6px); } 50% { transform: translateY(0); } 75% { transform: translateY(-3px); } }
   @keyframes rpLeg { 0%,100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
   @keyframes rpGround { to { transform: translateX(-28px); } }
+  @keyframes rpJump { 0% { transform: translateY(0) scale(1); } 30% { transform: translateY(-58px) scale(1.05); } 60% { transform: translateY(-14px) scale(.98); } 100% { transform: translateY(0) scale(1); } }
+  @keyframes rpLeap { 0% { transform: translateY(0) scale(1); } 35% { transform: translateY(-90px) scale(1.08); } 100% { transform: translateY(0) scale(1); } }
+  @keyframes rpCactus { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
   @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
 `;
 
