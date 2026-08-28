@@ -800,6 +800,22 @@ export const getDashboard = async (req, res) => {
       .maybeSingle();
     if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
+    let monthly_target = 0;
+    const currentMonthStr = now.toISOString().slice(0, 7) + '-01';
+    if (origNgoIds.length > 0) {
+      const { data: mTargets } = await db
+        .from('fro_monthly_targets')
+        .select('target_amount')
+        .in('ngo_id', origNgoIds)
+        .eq('month', currentMonthStr);
+      if (mTargets && mTargets.length > 0) {
+        monthly_target = mTargets.reduce((sum, t) => sum + (parseFloat(t.target_amount) || 0), 0);
+      }
+    }
+    if (!monthly_target && daily_target > 0) {
+      monthly_target = daily_target * 26;
+    }
+
     const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersLate - workersAbsent);
 
     return res.json({
@@ -829,6 +845,7 @@ export const getDashboard = async (req, res) => {
             unverified: { amount: unverifiedTodayAmount, count: unverifiedTodayCount },
           },
           daily_target,
+          monthly_target,
         },
         reactivations: {
           today: reactivatedToday,
@@ -1909,7 +1926,8 @@ export const getNewData = async (req, res) => {
 
 export const distributeNewData = async (req, res) => {
   try {
-    const { stations: selectedStations, ngo_id: filterNgoId } = req.body;
+    const { stations: selectedStations, ngo_id: filterNgoId, category } = req.body;
+    const normalizedCategory = category ? String(category).trim() : '';
     let access = await getUserNgoAccess(req.user.id);
     let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
@@ -1924,7 +1942,7 @@ export const distributeNewData = async (req, res) => {
       return res.json({ message: 'No NGO assigned to your account', count: 0 });
     }
     console.log('--- distributeNewData start ---');
-    console.log('ngoEntries:', JSON.stringify(ngoEntries));
+    console.log('ngoEntries:', JSON.stringify(ngoEntries), normalizedCategory ? `category: ${normalizedCategory}` : 'all categories');
 
     let totalAssigned = 0;
     let totalConverted = 0;
@@ -1940,21 +1958,27 @@ export const distributeNewData = async (req, res) => {
       let importedRows = [];
       let offset = 0;
       for (;;) {
-        const { data, error } = await db
+        let query = db
           .from('new_data')
           .select('name, mobile_number, category, amount, data_category')
           .eq('ngo', ngoName)
           .not('mobile_number', 'is', null)
+          .or('status.eq.pending,status.is.null')
           .order('created_at', { ascending: false })
-          .order('id', { ascending: false })
-          .range(offset, offset + PAGE - 1);
+          .order('id', { ascending: false });
+
+        if (normalizedCategory) {
+          query = query.eq('data_category', normalizedCategory);
+        }
+
+        const { data, error } = await query.range(offset, offset + PAGE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
         importedRows = importedRows.concat(data);
         if (data.length < PAGE) break;
         offset += PAGE;
       }
-      console.log(`[${ngoName}] importedRows count:`, importedRows.length);
+      console.log(`[${ngoName}] importedRows count:`, importedRows.length, normalizedCategory ? `(category: ${normalizedCategory})` : '');
 
       let newProfileIds = [];
       let allMobiles = [];
@@ -1994,7 +2018,7 @@ export const distributeNewData = async (req, res) => {
               total_amount: parseFloat(row.amount) || 0,
               donation_count: 1,
               ngo: ngoName,
-              data_category: row.data_category || null,
+              data_category: row.data_category || normalizedCategory || null,
             });
           }
         }
@@ -2165,7 +2189,7 @@ export const distributeNewData = async (req, res) => {
       const perStation = Object.entries(stationCounts)
         .map(([st, cnt]) => `${cnt} → ${st}`)
         .join(', ');
-      messages.push(`Distributed ${Object.keys(donorStationMap).length} donors: ${perStation} (${ngoName})`);
+      messages.push(`Distributed ${Object.keys(donorStationMap).length} donors${normalizedCategory ? ` [Category: ${normalizedCategory}]` : ''}: ${perStation} (${ngoName})`);
       console.log(`[${ngoName}] DONE — ${Object.keys(donorStationMap).length} donors distributed`);
       } catch (err) {
         console.error(`[${ngoName}] distribution error:`, err.message);
@@ -2199,7 +2223,8 @@ export const cleanupNewData = async (req, res) => {
       const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
     }
-    const { ngo_id: filterNgoId } = req.body;
+    const { ngo_id: filterNgoId, category } = req.body;
+    const normalizedCategory = category ? String(category).trim() : '';
     if (filterNgoId) {
       ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
     }
@@ -2215,11 +2240,15 @@ export const cleanupNewData = async (req, res) => {
       let ngoDeleted = 0;
 
       // Delete where status IS NULL
-      const r1 = await db
+      let q1 = db
         .from('new_data')
         .delete({ count: 'exact' })
         .eq('ngo', ngoName)
         .is('status', null);
+      if (normalizedCategory) {
+        q1 = q1.eq('data_category', normalizedCategory);
+      }
+      const r1 = await q1;
       if (r1.error) {
         messages.push(`Error (null) for ${ngoName}: ${r1.error.message}`);
       } else {
@@ -2227,11 +2256,15 @@ export const cleanupNewData = async (req, res) => {
       }
 
       // Delete where status = 'pending'
-      const r2 = await db
+      let q2 = db
         .from('new_data')
         .delete({ count: 'exact' })
         .eq('ngo', ngoName)
         .eq('status', 'pending');
+      if (normalizedCategory) {
+        q2 = q2.eq('data_category', normalizedCategory);
+      }
+      const r2 = await q2;
       if (r2.error) {
         messages.push(`Error (pending) for ${ngoName}: ${r2.error.message}`);
       } else {
@@ -2240,7 +2273,7 @@ export const cleanupNewData = async (req, res) => {
 
       if (ngoDeleted > 0 || (!r1.error && !r2.error)) {
         totalDeleted += ngoDeleted;
-        messages.push(`${ngoDeleted} undistributed records deleted (${ngoName})`);
+        messages.push(`${ngoDeleted} undistributed records deleted (${ngoName})${normalizedCategory ? ` [Category: ${normalizedCategory}]` : ''}`);
       }
     }
 
@@ -4377,19 +4410,33 @@ export const getTLDashboard = async (req, res) => {
     
     const callCounts = {};
     for (const log of callCountLogs || []) {
-      if (!callCounts[log.fro_worker_id]) callCounts[log.fro_worker_id] = { month: 0, today: 0, week: 0, monthConnected: 0, todayConnected: 0, weekConnected: 0, monthInterested: 0, todayInterested: 0, weekInterested: 0, connectedStatuses: {} };
+      if (!callCounts[log.fro_worker_id]) {
+        callCounts[log.fro_worker_id] = {
+          month: 0, today: 0, week: 0,
+          monthConnected: 0, todayConnected: 0, weekConnected: 0,
+          monthInterested: 0, todayInterested: 0, weekInterested: 0,
+          connectedStatuses_month: {},
+          connectedStatuses_today: {},
+          connectedStatuses_week: {},
+        };
+      }
       callCounts[log.fro_worker_id].month++;
       const isToday = new Date(log.created_at) >= todayStart && new Date(log.created_at) <= todayEnd;
       const isWeek = new Date(log.created_at) >= weekStart && new Date(log.created_at) <= todayEnd;
       if (isToday) callCounts[log.fro_worker_id].today++;
       if (isWeek) callCounts[log.fro_worker_id].week++;
       if (connectedStatuses.has(log.disposition_detail)) {
-        callCounts[log.fro_worker_id].monthConnected++;
-        if (isToday) callCounts[log.fro_worker_id].todayConnected++;
-        if (isWeek) callCounts[log.fro_worker_id].weekConnected++;
-        // Track individual connected statuses
         const ds = log.disposition_detail;
-        callCounts[log.fro_worker_id].connectedStatuses[ds] = (callCounts[log.fro_worker_id].connectedStatuses[ds] || 0) + 1;
+        callCounts[log.fro_worker_id].monthConnected++;
+        callCounts[log.fro_worker_id].connectedStatuses_month[ds] = (callCounts[log.fro_worker_id].connectedStatuses_month[ds] || 0) + 1;
+        if (isToday) {
+          callCounts[log.fro_worker_id].todayConnected++;
+          callCounts[log.fro_worker_id].connectedStatuses_today[ds] = (callCounts[log.fro_worker_id].connectedStatuses_today[ds] || 0) + 1;
+        }
+        if (isWeek) {
+          callCounts[log.fro_worker_id].weekConnected++;
+          callCounts[log.fro_worker_id].connectedStatuses_week[ds] = (callCounts[log.fro_worker_id].connectedStatuses_week[ds] || 0) + 1;
+        }
       }
       if (interestedStatuses.has(log.disposition_detail)) {
         callCounts[log.fro_worker_id].monthInterested++;
@@ -4439,9 +4486,12 @@ export const getTLDashboard = async (req, res) => {
         connected_today: callCounts[w.id]?.todayConnected || 0,
         connected_week: callCounts[w.id]?.weekConnected || 0,
         interested: callCounts[w.id]?.monthInterested || 0,
-        interested_today: callCounts[w.id]?.todayConnected || 0,
+        interested_today: callCounts[w.id]?.todayInterested || 0,
         interested_week: callCounts[w.id]?.weekInterested || 0,
-        connectedStatuses: callCounts[w.id]?.connectedStatuses || {},
+        connectedStatuses: callCounts[w.id]?.connectedStatuses_month || {},
+        connectedStatuses_today: callCounts[w.id]?.connectedStatuses_today || {},
+        connectedStatuses_week: callCounts[w.id]?.connectedStatuses_week || {},
+        connectedStatuses_month: callCounts[w.id]?.connectedStatuses_month || {},
         stations: froStationMap[w.id] || [],
         receivedDonors: leads,
         receivedAmount: coll,
@@ -5161,12 +5211,23 @@ export const getFroHourlyPerformance = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     const effectiveNgoId = ngo_id || (ngoIds.length === 1 ? ngoIds[0] : null);
 
-    const fromDate = from || new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
-    const toDate = to || new Date().toISOString();
+    let fromDate, toDate;
+    if (from) {
+      fromDate = from.includes('T') ? from : `${from}T00:00:00.000Z`;
+    } else {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      fromDate = d.toISOString();
+    }
+    if (to) {
+      toDate = to.includes('T') ? to : `${to}T23:59:59.999Z`;
+    } else {
+      toDate = new Date().toISOString();
+    }
 
     let logQuery = db
       .from('fro_donor_logs')
-      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_assignments!inner(ngo_id, fro_worker_id), workers!fro_donor_logs_fro_worker_id_fkey(name, login_id)')
+      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id)')
       .gte('created_at', fromDate)
       .lte('created_at', toDate);
 
@@ -5192,6 +5253,7 @@ export const getFroHourlyPerformance = async (req, res) => {
     const froHourlyMap = {};
     for (const l of logs || []) {
       const wid = l.fro_worker_id;
+      if (!wid) continue;
       const wname = l.workers?.name || 'Unknown';
       const wlogin = l.workers?.login_id || '';
       const hour = new Date(l.created_at).getHours();
@@ -5221,23 +5283,24 @@ export const getFroHourlyPerformance = async (req, res) => {
       }
     }
 
-    // Ensure all hours exist for all FROs (fill gaps with zeros)
-    const allFros = new Set();
+    // Ensure all active FROs are represented across working hours
+    const targetNgos = effectiveNgoId ? [effectiveNgoId] : ngoIds;
+    const allWorkers = (await Promise.all(targetNgos.map(nId => getFroWorkersByNgo(nId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+
     const allHours = Array.from({ length: 12 }, (_, i) => 
       `${String(9+i).padStart(2, '0')}:00-${String(10+i).padStart(2, '0')}:00`
     );
-    for (const entry of Object.values(froHourlyMap)) {
-      allFros.add(entry.fro_worker_id);
-    }
-    for (const wid of allFros) {
+
+    for (const w of froWorkers) {
       for (const h of allHours) {
-        const key = `${wid}|${h}`;
+        const key = `${w.id}|${h}`;
         if (!froHourlyMap[key]) {
-          const sample = Object.values(froHourlyMap).find(e => e.fro_worker_id === wid) || {};
           froHourlyMap[key] = {
-            fro_worker_id: wid,
-            fro_name: sample.fro_name || 'Unknown',
-            fro_login_id: sample.fro_login_id || '',
+            fro_worker_id: w.id,
+            fro_name: w.name || w.login_id || 'Unknown',
+            fro_login_id: w.login_id || '',
             hour: h,
             calls: 0,
             connected: 0,
