@@ -4,7 +4,6 @@ import { apiGet, apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
 import MatchLines from '../components/MatchLines';
-import useAccessCode from '../components/AccessGate';
 
 function SectionTitle({ children }) {
   return <div className="lead-audit-section-title"><span>{children}</span></div>;
@@ -27,10 +26,6 @@ export default function LeadAudit() {
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
   const workspaceRef = useRef(null);
-  const access = useAccessCode();
-  const [unlocked, setUnlocked] = useState(false);
-  const handleUnlock = async () => { if (await access.open()) setUnlocked(true); };
-  const handleLock = () => setUnlocked(false);
 
   // Last issued + next upcoming receipt number per NGO. Read-only; refetched
   // whenever the bank-audit data changes (e.g. after a new receipt is created).
@@ -73,21 +68,8 @@ export default function LeadAudit() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        {unlocked ? (
-          <button onClick={handleLock} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 600, background: '#ffffff', color: '#4b5563', border: '1px solid #d1d9e4' }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-            Lock amounts
-          </button>
-        ) : (
-          <button onClick={handleUnlock} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 600, background: '#fffbeb', color: '#92400e', border: '1px solid #fcd34d' }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>
-            Unlock amounts
-          </button>
-        )}
-      </div>
       <div className="lead-audit-summary">
-        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} locked={!unlocked} />
+        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} />
       </div>
       {receiptNums && receiptNums.length > 0 && (
         <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
@@ -157,8 +139,6 @@ export default function LeadAudit() {
           </div>
         )}
       </div>
-
-      {access.modal}
     </>
   );
 }

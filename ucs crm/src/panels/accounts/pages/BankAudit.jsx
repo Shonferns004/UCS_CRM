@@ -23,7 +23,6 @@ const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u
 // also tagged kind:'suspense' by the backend, but they are real entries (numeric
 // id) and must keep using the entry endpoints for edit/delete.
 const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id === 'string' && String(r.id).indexOf('suspense-') === 0);
-const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:TODAY_IST,remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
@@ -92,7 +91,6 @@ function monthBounds(ym){
 }
 
 function Sk({h=14,w='100%'}){return <div style={{height:h,width:typeof w==='number'?w:w,borderRadius:6,background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}}/>}
-function SkStat(){return <div className="stat-card"><div className="sk" style={{width:40,height:40,borderRadius:10,flexShrink:0}}/><div className="stat-info"><Sk h={20} w={100}/><div style={{height:4}}/><Sk h={12} w={60}/></div></div>}
 
 function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18px',fontSize:13,fontWeight:a?700:500,border:'none',background:a?'#fff':'transparent',cursor:'pointer',color:a?'var(--sage)':'#6b7280',borderBottom:a?'2px solid var(--sage)':'2px solid transparent',marginBottom:-2,display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',transition:'all .15s'}}>{ic}{ch}</button>}
 
@@ -285,33 +283,42 @@ function FroSearchPicker({ value, fros = [], onChange }){
 export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null,locked=false}){
   const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
   const mask=(v)=>locked?'XXXX':v;
-  return <div className="stats-grid">
-    {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
-      {c&&<div className="stat-card">
-        <div className="stat-icon" style={{background:'#11182718',color:'#111827'}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg>
+  const ngoTabs=[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']];
+
+  if(loading){
+    return (
+      <div style={{display:'flex',alignItems:'center',gap:12,padding:'22px 24px',borderRadius:16,border:'1px solid #e7ecf3',background:'linear-gradient(135deg,#fff,#f8fafc)'}}>
+        <span className="sk" style={{width:46,height:46,borderRadius:12,flexShrink:0}}/>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          <span className="sk" style={{width:110,height:13,borderRadius:7}}/>
+          <span className="sk" style={{width:150,height:24,borderRadius:8}}/>
         </div>
-        <div className="stat-info">
-          <div className="stat-num" style={{color:'#111827'}}>{mask(c.count)}</div>
-          <div style={{fontSize:11,color:'#6b7280'}}>{mask(curr(c.amount))}</div>
-          {setSuspenseNgo&&<div className="stat-actions">
-            {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']].map(([v,l])=>
-              <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#111827':'#e5e7eb',color:suspenseNgo===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
-            )}
-          </div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16,padding:'20px 22px',borderRadius:16,background:'linear-gradient(135deg,#ffffff 0%,#f6f8fb 100%)',border:'1px solid #e7ecf3',boxShadow:'0 6px 24px rgba(30,41,59,.06)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:16}}>
+        <div style={{width:50,height:50,borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',background:'#111827',color:'#fff',boxShadow:'0 6px 16px rgba(17,24,39,.25)',flexShrink:0}}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg>
         </div>
-      </div>}
-      {sources.filter(s=>s.is_active!==false).map((s,i)=><div className="stat-card" key={s.id}>
-        <div className="stat-icon" style={{background:C[i%C.length]+'18',color:C[i%C.length]}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        <div>
+          <div style={{fontSize:11.5,fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',color:'#8a93a3'}}>Suspense</div>
+          <div style={{fontSize:28,fontWeight:800,letterSpacing:'-.02em',lineHeight:1.15,color:'#111827',fontVariantNumeric:'tabular-nums'}}>{mask(curr(c&&c.amount))}</div>
+          <div style={{fontSize:12.5,color:'#6b7280',marginTop:2}}>{mask(c&&c.count)} leads · {mask(c&&c.entries)} entries</div>
         </div>
-        <div className="stat-info">
-          <div className="stat-num" style={{color:C[i%C.length]}}>{mask(curr(summary[s.name]||0))}</div>
-          <div className="stat-lbl">{s.name}</div>
+      </div>
+
+      {setSuspenseNgo&&(
+        <div style={{display:'inline-flex',gap:4,padding:4,background:'#eef1f6',borderRadius:12}}>
+          {ngoTabs.map(([v,l])=>
+            <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:12.5,fontWeight:700,padding:'7px 15px',borderRadius:9,border:'none',cursor:'pointer',background:suspenseNgo===v?'#111827':'transparent',color:suspenseNgo===v?'#fff':'#475569',transition:'background .12s, color .12s'}}>{l}</button>
+          )}
         </div>
-      </div>)}
-    </>}
-  </div>;
+      )}
+    </div>
+  );
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
