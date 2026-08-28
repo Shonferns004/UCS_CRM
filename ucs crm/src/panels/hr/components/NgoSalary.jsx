@@ -527,10 +527,10 @@ export default function NgoSalary() {
           <span style={{ fontSize: 16 }}>{isSalaryUnlocked ? '🔓' : '🔒'}</span>
           <div>
             <span style={{ fontWeight: 700, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
-              {isSalaryUnlocked ? 'Salary Amounts Unlocked' : 'Confidential Salaries Hidden (XXXX)'}
+              {isSalaryUnlocked ? 'Salary Amounts Unlocked' : 'Confidential Salaries Hidden (XXX)'}
             </span>
             <div style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
-              {isSalaryUnlocked ? 'All salary allocations and payment figures are currently visible.' : 'Salary details are confidential. Unlock to view or export.'}
+              {isSalaryUnlocked ? 'All salary allocations and payment figures are currently visible.' : 'Salary details are confidential. Enter your access code to view or export.'}
             </div>
           </div>
         </div>
