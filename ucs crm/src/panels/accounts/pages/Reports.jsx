@@ -363,7 +363,7 @@ export default function Reports() {
         <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
       ) : (
         <div className="rp-card" style={{ marginBottom: 20 }}>
-          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: '#2563eb', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 118, paddingBottom: 70 }}>
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: '#2563eb', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 100, paddingBottom: 64 }}>
             <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a4 4 0 0 0 0-8H6"/></svg>
             </div>
