@@ -165,6 +165,27 @@ export default function Reports() {
     if (!report) return;
     const srcBreakdown = report.sourceBreakdown || [];
     const rows = [];
+    if (view === 'overall') {
+      const [y, m] = reportMonth.split('-').map(Number);
+      const dim = daysInMonth(y, m);
+      const wdim = workingDaysInMonth(y, m);
+      const sundays = dim - wdim;
+      const today = new Date();
+      const isCurrent = today.getFullYear() === y && today.getMonth() + 1 === m;
+      const todayDay = isCurrent ? today.getDate() : dim;
+      let workingElapsed = 0;
+      for (let d = 1; d <= todayDay; d++) if (new Date(y, m - 1, d).getDay() !== 0) workingElapsed++;
+      const pendingDays = Math.max(0, wdim - workingElapsed);
+      const target = overallTarget || 0;
+      const pending = Math.max(0, target - (report.totalCollected || 0));
+      const avgPerDay = pendingDays > 0 ? Math.ceil(pending / pendingDays) : pending;
+      rows.push(['Overall Summary - ' + reportMonth]);
+      rows.push(['Target', target]);
+      rows.push(['Total Pending', pending]);
+      rows.push(['Average Per Day', avgPerDay]);
+      rows.push([`${dim} Days - ${sundays} Sun - ${workingElapsed} Days = ${pendingDays} Days Pending`]);
+      rows.push([]);
+    }
     if (srcBreakdown.length) {
       rows.push(srcBreakdown.map(s => s.name).concat('Total'));
       rows.push(srcBreakdown.map(s => s.amount).concat(srcBreakdown.reduce((t, s) => t + s.amount, 0)));
@@ -172,11 +193,11 @@ export default function Reports() {
     }
     rows.push(['Total Submitted', 'Total Collected', 'Suspense']);
     rows.push([report.totalSubmitted, report.totalCollected, report.suspenseAmount]);
-    if (view === 'team' && report.teamWise) {
+    if ((view === 'overall' || view === 'team') && report.teamWise) {
       rows.push([]); rows.push(['Team-wise']); rows.push(['Station','Collected']);
       report.teamWise.forEach(r => rows.push([r.station, r.collected]));
     }
-    if (view === 'ngo' && report.ngoWise) {
+    if ((view === 'overall' || view === 'ngo') && report.ngoWise) {
       rows.push([]); rows.push(['NGO-wise']); rows.push(['NGO','Collected']);
       report.ngoWise.forEach(r => rows.push([r.ngo_name, r.collected]));
     }
@@ -281,12 +302,15 @@ export default function Reports() {
       <div className="card" style={{ marginBottom: 16, border: '1px solid var(--line)' }}>
         <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Approximate Target — {reportMonth}</h3>
-          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>UI only — saved locally</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => { const v = prompt('Enter Overall Target for ' + reportMonth, String(overallTarget || '')); if (v !== null) saveOverall(v); }} style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--sage)', background: 'var(--sage)', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Add Overall Target</button>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>UI only — saved locally</span>
+          </div>
         </div>
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600 }}>Overall target (₹)
-              <input type="number" value={overallTarget || ''} onChange={e => saveOverall(e.target.value)} placeholder="e.g. 900000" style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13 }} />
+              <input type="number" value={overallTarget || ''} onChange={e => saveOverall(e.target.value)} placeholder="Enter amount" style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13 }} />
             </label>
             {NGOS.map(n => (
               <label key={n.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600 }}>{n.code} target (₹)
@@ -360,6 +384,61 @@ export default function Reports() {
               </table>
             </div>
           </div>
+
+          {view === 'overall' && (
+            <div className="card" style={{ marginBottom: 16, padding: 16, border: '2px solid var(--sage)', background: 'linear-gradient(135deg, #F3EFE7 0%, #FBFAF6 100%)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>Overall Summary — {reportMonth}</h3>
+                <button onClick={exportExcel} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: '1px solid var(--sage)', background: 'var(--sage)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download Excel
+                </button>
+              </div>
+              {(() => {
+                const [y, m] = reportMonth.split('-').map(Number);
+                const dim = daysInMonth(y, m);
+                const wdim = workingDaysInMonth(y, m);
+                let sundays = dim - wdim;
+                const today = new Date();
+                const isCurrentMonth = today.getFullYear() === y && today.getMonth() + 1 === m;
+                const todayDay = isCurrentMonth ? today.getDate() : dim;
+                let workingElapsed = 0;
+                for (let d = 1; d <= todayDay; d++) { if (new Date(y, m - 1, d).getDay() !== 0) workingElapsed++; }
+                const pendingDays = Math.max(0, wdim - workingElapsed);
+                const target = overallTarget || 0;
+                const collected = report.totalCollected || 0;
+                const pending = Math.max(0, target - collected);
+                const avgPerDay = pendingDays > 0 ? Math.ceil(pending / pendingDays) : pending;
+                return (
+                  <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 10 }}>
+                      <div style={{ background: '#fff', borderRadius: 8, padding: 12, border: '1px solid var(--line)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', fontWeight: 600 }}>Target</div>
+                        <div style={{ fontSize: 16, fontWeight: 800 }}>{currency(target)}</div>
+                      </div>
+                      <div style={{ background: '#fff', borderRadius: 8, padding: 12, border: '1px solid var(--line)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', fontWeight: 600 }}>Total Pending</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: '#dc2626' }}>{currency(pending)}</div>
+                        <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Collected {currency(collected)}</div>
+                      </div>
+                      <div style={{ background: 'var(--sage)', borderRadius: 8, padding: 12, border: '1px solid var(--sage)', textAlign: 'center', color: '#fff' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: .5, opacity: .9, fontWeight: 600 }}>Average Per Day</div>
+                        <div style={{ fontSize: 16, fontWeight: 800 }}>{currency(avgPerDay)}</div>
+                        <div style={{ fontSize: 10, opacity: .9 }}>Pending / {pendingDays || 1} days</div>
+                      </div>
+                    </div>
+                    <div style={{ background: '#fff', borderRadius: 8, padding: '10px 14px', border: '1px dashed var(--line)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+                      {dim} Days - {sundays} Sun - {workingElapsed} Days = {pendingDays} Days Pending
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8, fontSize: 10, color: 'var(--ink-soft)', flexWrap: 'wrap' }}>
+                      <span>Target</span><span>•</span><span>Total Pending</span><span>•</span><span>Average Per Day</span>
+                      <span style={{ marginLeft: 'auto', fontWeight: 600 }}>Excel includes this summary</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Charts per view */}
           {(view === 'overall' || view === 'month') && report.monthTrend && (
@@ -462,7 +541,7 @@ export default function Reports() {
                   <tbody>
                     {filteredTeam.map(r => {
                       const t = teamTargets[r.station] || 0;
-                      const avg = t ? Math.ceil(t / 30) : 0;
+                      const avg = t ? Math.ceil(t / daysInMonth(...reportMonth.split("-").map(Number))) : 0;
                       return <tr key={r.station}><td>{r.station}</td><td>{r.ngo_id}</td><td style={{ fontWeight: 600 }}>{currency(r.collected)}</td><td>{t ? currency(t) : '—'}</td><td>{t ? currency(avg) : '—'}</td></tr>;
                     })}
                   </tbody>
@@ -479,7 +558,7 @@ export default function Reports() {
                   <tbody>
                     {filteredNgo.map(r => {
                       const t = ngoTargets[r.ngo_id] || 0;
-                      const avg = t ? Math.ceil(t / 30) : 0;
+                      const avg = t ? Math.ceil(t / daysInMonth(...reportMonth.split("-").map(Number))) : 0;
                       return <tr key={r.ngo_id}><td>{r.ngo_name} ({r.code})</td><td style={{ fontWeight: 600 }}>{currency(r.collected)}</td><td>{currency(r.submitted)}</td><td>{t ? currency(t) : '—'}</td><td>{t ? currency(avg) : '—'}</td></tr>;
                     })}
                   </tbody>
