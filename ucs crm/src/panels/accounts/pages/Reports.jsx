@@ -44,7 +44,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const [view, setView] = useState('day'); // day | month | team | ngo
+  const [view, setView] = useState('overall'); // overall | day | month | team | ngo
   const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [reportMonth, setReportMonth] = useState(() => {
     const d = new Date();
@@ -238,6 +238,7 @@ export default function Reports() {
 
       <div className="no-print" style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '2px solid var(--line)', overflowX: 'auto' }}>
         {[
+          { id: 'overall', label: 'Overall' },
           { id: 'day', label: 'Day-wise' },
           { id: 'month', label: 'Month-wise' },
           { id: 'team', label: 'Team-wise' },
@@ -252,7 +253,7 @@ export default function Reports() {
 
       <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
-          {view === 'day' ? 'Day-wise Report' : view === 'month' ? 'Month-wise Report' : view === 'team' ? 'Team-wise Report' : 'NGO-wise Report'}
+          {view === 'overall' ? 'Overall Report' : view === 'day' ? 'Day-wise Report' : view === 'month' ? 'Month-wise Report' : view === 'team' ? 'Team-wise Report' : 'NGO-wise Report'}
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {view === 'day'
@@ -361,7 +362,7 @@ export default function Reports() {
           </div>
 
           {/* Charts per view */}
-          {view === 'month' && report.monthTrend && (
+          {(view === 'overall' || view === 'month') && report.monthTrend && (
             <div className="card" style={{ marginBottom: 16, padding: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Month-wise Trend (12 months)</div>
               <div style={{ height: 220 }}>
@@ -379,7 +380,7 @@ export default function Reports() {
               </div>
             </div>
           )}
-          {view === 'day' && report.dayWise && (
+          {(view === 'overall' || view === 'day') && report.dayWise && (
             <div className="card" style={{ marginBottom: 16, padding: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Day-wise Collection — {reportMonth}</div>
               <div style={{ height: 220 }}>
@@ -395,7 +396,7 @@ export default function Reports() {
               </div>
             </div>
           )}
-          {view === 'team' && (
+          {(view === 'overall' || view === 'team') && (
             <div className="card" style={{ marginBottom: 16, padding: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Team-wise Collection</div>
               <div style={{ height: 260 }}>
@@ -411,7 +412,7 @@ export default function Reports() {
               </div>
             </div>
           )}
-          {view === 'ngo' && (
+          {(view === 'overall' || view === 'ngo') && (
             <div className="card" style={{ marginBottom: 16, padding: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>NGO-wise Collection</div>
               <div style={{ height: 260, display: 'flex', justifyContent: 'center' }}>
@@ -452,7 +453,7 @@ export default function Reports() {
             <div style={{ textAlign: 'center', padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No bank audit entries found</div>
           )}
 
-          {view === 'team' && filteredTeam.length > 0 && (
+          {(view === 'overall' || view === 'team') && filteredTeam.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Team Details</h3></div>
               <div className="table-wrap">
@@ -469,7 +470,7 @@ export default function Reports() {
               </div>
             </div>
           )}
-          {view === 'ngo' && filteredNgo.length > 0 && (
+          {(view === 'overall' || view === 'ngo') && filteredNgo.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>NGO Details</h3></div>
               <div className="table-wrap">
