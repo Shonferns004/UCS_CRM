@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUcs } from '../store';
+import ChangePasswordModal from './ChangePasswordModal';
 
 export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector, navItems, views }) {
   const [view, setView] = useState(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const navigate = useNavigate();
+  const { user } = useUcs();
 
   if (!open) return null;
+
+  const canChangePassword = user && user.role !== 'super_admin' && user.id != null && user.id !== -1 && user.id !== 0;
 
   const activeView = views && view ? views.find(v => v.key === view) : null;
   const isSubView = view === 'themes' || !!activeView;
@@ -91,6 +97,15 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
                   <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
                 </div>
               ))}
+              {canChangePassword && (
+                <div onClick={() => setShowChangePassword(true)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 7a4 4 0 0 0-8 0v2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a4 4 0 0 0-1.5-3.1" /><line x1="12" y1="14" x2="12" y2="17" /></svg>
+                  <span>Change Password</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
+                </div>
+              )}
               {selector}
             </>
           )}
@@ -103,6 +118,8 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
           to { transform: translateX(0); }
         }
       `}</style>
+
+      <ChangePasswordModal open={showChangePassword} onClose={() => setShowChangePassword(false)} />
     </>
   );
 }
