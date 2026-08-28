@@ -31,8 +31,8 @@ const StatCardSkeleton = () => (
 );
 
 const TenorCrab = () => (
-  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 4, height: 76, pointerEvents: 'none' }}>
-    <div style={{ position: 'absolute', top: 0, left: 0, width: 168, height: 76, animation: 'rpSweep 26s ease-in-out infinite' }}>
+  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 46, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, width: 104, height: 46, animation: 'rpSweep 26s ease-in-out infinite' }}>
       <video
         src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
         poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
@@ -72,8 +72,8 @@ const animStyle = `
   @keyframes rpSweep {
     0%   { left: 0; }
     12%  { left: 0; }
-    45%  { left: calc(100% - 168px); }
-    55%  { left: calc(100% - 168px); }
+    45%  { left: calc(100% - 104px); }
+    55%  { left: calc(100% - 104px); }
     88%  { left: 0; }
     100% { left: 0; }
   }
@@ -363,7 +363,7 @@ export default function Reports() {
         <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
       ) : (
         <div className="rp-card" style={{ marginBottom: 20 }}>
-          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: '#2563eb', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 100, paddingBottom: 64 }}>
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: '#2563eb', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 80, paddingBottom: 48 }}>
             <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a4 4 0 0 0 0-8H6"/></svg>
             </div>
