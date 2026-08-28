@@ -54,8 +54,9 @@ export default function Reports() {
   const [stationFilter, setStationFilter] = useState('all');
   const [teamDetailNgoFilter, setTeamDetailNgoFilter] = useState('all');
   const [allStations, setAllStations] = useState(STATIONS_FALLBACK);
-  const [stationWorkers, setStationWorkers] = useState({}); // station -> worker name
-  const [realTargets, setRealTargets] = useState({}); // station -> target amount
+  const [stationWorkers, setStationWorkers] = useState({}); // station|ngo -> worker name, also station fallback
+  const [stationWorkerIds, setStationWorkerIds] = useState({}); // station|ngo -> worker id
+  const [realTargets, setRealTargets] = useState({}); // station|ngo -> target amount (derived via worker)
   const printRef = useRef(null);
 
   // Approximate targets — UI only, localStorage mock (both overall + per NGO/team)
@@ -98,6 +99,7 @@ export default function Reports() {
       try {
         let stations = null;
         let workerMap = {};
+        let workerIdMap = {};
         // Fetch per NGO to get per (station, ngo) worker correctly (46 per NGO)
         for (const ngo of NGOS) {
           try {
@@ -106,11 +108,16 @@ export default function Reports() {
             for (const s of arr) {
               if (s.station) {
                 const key = `${s.station}|${ngo.id}`;
-                if (s.fro_worker_name) workerMap[key] = s.fro_worker_name;
-                else if (s.worker_name) workerMap[key] = s.worker_name;
-                else if (s.workers?.name) workerMap[key] = s.workers.name;
-                // also keep station-only fallback for overall view
-                if (!workerMap[s.station] && workerMap[key]) workerMap[s.station] = workerMap[key];
+                const wid = s.fro_worker_id || s.worker_id || s.workers?.id || null;
+                const wname = s.fro_worker_name || s.worker_name || s.workers?.name || null;
+                if (wname) {
+                  workerMap[key] = wname;
+                  if (!workerMap[s.station]) workerMap[s.station] = wname;
+                }
+                if (wid) {
+                  workerIdMap[key] = wid;
+                  if (!workerIdMap[s.station]) workerIdMap[s.station] = wid;
+                }
               }
             }
             if (!stations) {
@@ -134,20 +141,30 @@ export default function Reports() {
         }
         if (stations && stations.length > 5) setAllStations(stations);
         if (Object.keys(workerMap).length > 0) setStationWorkers(workerMap);
-        // Fetch real targets per station per NGO
+        if (Object.keys(workerIdMap).length > 0) setStationWorkerIds(workerIdMap);
+        // Fetch real targets — getTargets returns per-worker targets, map via station->workerId
         try {
           const t = await apiGet('/ngo-admin/targets?month=' + reportMonth).catch(() => null);
           const arr = Array.isArray(t) ? t : t?.targets || t?.data || [];
           if (Array.isArray(arr) && arr.length > 0) {
-            const map = {};
+            const byWorker = {};
             for (const r of arr) {
-              const st = r.station || r.station_name || r.fro_station;
-              const ngo = r.ngo_id || r.ngo;
-              const key = st && ngo ? `${st}|${ngo}` : st;
-              if (key && r.target_amount) map[key] = Number(r.target_amount);
-              if (st && r.target_amount && !map[st]) map[st] = Number(r.target_amount);
+              const wid = r.id || r.fro_worker_id || r.worker_id;
+              const amt = r.target ?? r.target_amount ?? r.manual_target;
+              if (wid && amt != null) byWorker[String(wid)] = Number(amt);
             }
-            if (Object.keys(map).length > 0) setRealTargets(map);
+            if (Object.keys(byWorker).length > 0) {
+              const stationTargetMap = {};
+              const widMap = Object.keys(workerIdMap).length > 0 ? workerIdMap : workerMap;
+              // Need workerId mapping — if we only have workerMap via previous fetch, use widMap
+              for (const [k, wid] of Object.entries(workerIdMap)) {
+                const amt = byWorker[String(wid)];
+                if (amt != null) stationTargetMap[k] = amt;
+              }
+              // Also store byWorker fallback for direct lookup in teamWise
+              for (const [wid, amt] of Object.entries(byWorker)) stationTargetMap[`__wid_${wid}`] = amt;
+              if (Object.keys(stationTargetMap).length > 0) setRealTargets(stationTargetMap);
+            }
           }
         } catch {}
       } catch {}
@@ -189,7 +206,9 @@ export default function Reports() {
         for (const st of stationsForMock) {
           const share = 1 / (stationsForMock.length * NGOS.length);
           const key = `${st}|${ngo.id}`;
-          const tgt = realTargets[key] || realTargets[st] || teamTargets[key] || teamTargets[st] || 0;
+          const wid = stationWorkerIds[key] || stationWorkerIds[st] || null;
+          const widTgt = wid ? realTargets[`__wid_${wid}`] : 0;
+          const tgt = realTargets[key] || realTargets[st] || widTgt || teamTargets[key] || teamTargets[st] || 0;
           const worker = stationWorkers[key] || stationWorkers[st] || 'Unassigned';
           data.teamWise.push({ station: st, ngo_id: ngo.id, collected: Math.round(total * share * (0.8 + Math.random() * 0.4)), team: st, worker_name: worker, target: tgt, avgPerDay: tgt ? Math.ceil(tgt / daysInMonth(...reportMonth.split('-').map(Number))) : 0 });
         }
@@ -212,7 +231,7 @@ export default function Reports() {
       setReport(data);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); }
-  }, [view, reportDate, reportMonth, allStations]);
+  }, [view, reportDate, reportMonth, allStations, stationWorkers, stationWorkerIds, realTargets, teamTargets]);
 
   useEffect(() => { load(); }, [load]);
 
