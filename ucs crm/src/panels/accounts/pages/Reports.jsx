@@ -23,6 +23,7 @@ export default function Reports() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [reportDay, setReportDay] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,20 +41,27 @@ export default function Reports() {
     return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   }, []);
 
-  const load = useCallback(async (m) => {
+  const dayLabel = useCallback((d) => {
+    if (!d) return '';
+    const [y, mm, dd] = d.split('-').map(Number);
+    return new Date(y, mm - 1, dd).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  }, []);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiGet('/accounts/report-data?month=' + (m || month));
+      const q = reportDay ? `date=${reportDay}` : `month=${month}`;
+      const res = await apiGet('/accounts/report-data?' + q);
       setData(res);
     } catch (e) {
       setError(e.message || 'Failed to load report');
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [reportDay, month]);
 
-  useEffect(() => { load(month); }, [month]);
+  useEffect(() => { load(); }, [reportDay, month]);
 
   // Open target form pre-filled from saved targets (or blank for even split)
   const openTargetForm = () => {
@@ -117,7 +125,7 @@ export default function Reports() {
       await apiPut('/accounts/report-targets', { month, overall, byNgo });
       setSavedToast(true);
       setShowTargetForm(false);
-      await load(month);
+      await load();
       setTimeout(() => setSavedToast(false), 2500);
     } catch (e) {
       setError(e.message || 'Failed to save target');
@@ -160,7 +168,7 @@ export default function Reports() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `accounts-report-${month}.csv`;
+    a.download = `accounts-report-${reportDay || month}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
@@ -174,8 +182,29 @@ export default function Reports() {
       {/* Toolbar */}
       <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 13 }} />
-          <button className="btn btn-sm" onClick={() => load(month)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Day</span>
+            <input
+              type="date"
+              value={reportDay || ''}
+              onChange={e => {
+                const v = e.target.value || null;
+                setReportDay(v);
+                if (v) { const mm = v.slice(0, 7); setMonth(mm); }
+              }}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', fontWeight: 600 }}
+            />
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Month</span>
+            <input
+              type="month"
+              value={month}
+              onChange={e => { setMonth(e.target.value); setReportDay(null); }}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', fontWeight: 600 }}
+            />
+          </div>
+          <button className="btn btn-sm" onClick={() => load()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
           </button>
@@ -231,7 +260,7 @@ export default function Reports() {
       {/* Summary stat cards */}
       <div className="stats-grid" style={{ marginBottom: 16 }}>
         <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
-          <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Collection Report — {monthLabel(month)}</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Collection Report — {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{loading ? 'Loading...' : `${currency(grandTotal)} collected`}</div>
         </div>
         {rows.map(r => (
