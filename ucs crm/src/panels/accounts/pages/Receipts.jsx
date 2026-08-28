@@ -19,19 +19,6 @@ const NGO_MAP = {
   aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'ashray_receipt', metaLang: 'en' },
 }
 
-const HIDDEN_REASON_LABELS = {
-  no_number: 'No Number',
-  no_donor: 'No Donor',
-  already_sent: 'Already Sent',
-  lead_not_verified: 'Lead Not Verified',
-}
-const HIDDEN_REASON_STYLES = {
-  no_number: { background: '#fee2e2', color: '#b91c1c' },
-  no_donor: { background: '#fee2e2', color: '#b91c1c' },
-  already_sent: { background: '#fef3c7', color: '#b45309' },
-  lead_not_verified: { background: '#e5e7eb', color: '#374151' },
-}
-
 function getNgoSettings(project) {
   const saved = localStorage.getItem('receipt_template_settings')
   const defaults = NGO_MAP[project] || NGO_MAP.bsct
@@ -218,74 +205,10 @@ function ExcelUpload({ onDataLoaded }) {
   )
 }
 
-const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-function DayPicker({ value, onChange }) {
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Day</span>
-      <input
-        type="date"
-        value={value || ''}
-        onChange={e => onChange(e.target.value || null)}
-        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
-      />
-    </div>
-  );
-}
-
-function MonthPicker({ value, onChange }) {
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Month</span>
-      <input
-        type="month"
-        value={value || ''}
-        onChange={e => onChange(e.target.value || null)}
-        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
-      />
-    </div>
-  );
-}
-
-function DateRangePicker({ from, to, onFromChange, onToChange }) {
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>From</span>
-      <input
-        type="date"
-        value={from || ''}
-        onChange={e => onFromChange(e.target.value || null)}
-        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
-      />
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>To</span>
-      <input
-        type="date"
-        value={to || ''}
-        onChange={e => onToChange(e.target.value || null)}
-        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
-      />
-    </div>
-  );
-}
-
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
-  const [statsByProject, setStatsByProject] = useState([])
-  const [monthStatsByProject, setMonthStatsByProject] = useState([])
-  const [todayStats, setTodayStats] = useState([])
-  const [statsLoading, setStatsLoading] = useState(true)
-  const [filterDate, setFilterDate] = useState(() => {
-    const now = new Date();
-    const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
-    return ist.toISOString().slice(0, 10);
-  })
-  const [filterMonth, setFilterMonth] = useState(null)
-  const [filterFrom, setFilterFrom] = useState(null)
-  const [filterTo, setFilterTo] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -398,78 +321,7 @@ export default function Receipts() {
 
   useEffect(() => { loadPending() }, [loadPending])
 
-  const [hiddenRows, setHiddenRows] = useState([])
-  const [hiddenOpen, setHiddenOpen] = useState(false)
-  const [hiddenBusy, setHiddenBusy] = useState(null)
-
-  const loadHidden = useCallback(async () => {
-    try { setHiddenRows(await apiGet('/accounts/receipts/excluded')) } catch (e) { console.error('Excluded fetch error:', e.message) }
-  }, [])
-  useEffect(() => { loadHidden() }, [loadHidden])
-
-  const handleFixHidden = async (r) => {
-    if (hiddenBusy) return
-    const what = []
-    if (!r.receipt_no) what.push(`assign a receipt number (${NGO_MAP[r.project_id]?.label || r.project_id || 'project'} series)`)
-    if (!r.donor_id && r.donor_mobile) what.push(`link or create the donor from ${r.donor_mobile}`)
-    if (!window.confirm(`Fix this receipt?\n\n- ${what.join('\n- ')}\n\nIt will then appear in the WhatsApp send list above.`)) return
-    setHiddenBusy(r.id)
-    try {
-      await apiPost(`/accounts/receipts/${r.id}/fix-and-queue`, {})
-      setHiddenRows(cur => cur.filter(x => x.id !== r.id))
-      loadPending(true); loadHidden()
-    } catch (e) { alert('Fix failed: ' + e.message) }
-    finally { setHiddenBusy(null) }
-  }
-
-  const handleRequeueHidden = async (r) => {
-    if (hiddenBusy) return
-    if (!window.confirm('Clear the "sent" flag so this receipt re-enters the WhatsApp send list?\n\nOnly do this if the donor did NOT actually receive it on WhatsApp.')) return
-    setHiddenBusy(r.id)
-    try {
-      await apiPost(`/accounts/receipts/${r.id}/fix-and-queue`, { clear_sent: true })
-      setHiddenRows(cur => cur.filter(x => x.id !== r.id))
-      loadPending(true)
-    } catch (e) { alert('Re-queue failed: ' + e.message) }
-    finally { setHiddenBusy(null) }
-  }
-
-  const handleDeleteHidden = async (r) => {
-    if (hiddenBusy) return
-    const msg = r.receipt_no
-      ? `Void receipt ${r.receipt_no}?\nIt stays in records (voided) but leaves every queue and list.`
-      : 'Permanently delete this unnumbered orphan receipt row?\nThis cannot be undone.'
-    if (!window.confirm(msg)) return
-    setHiddenBusy(r.id)
-    try {
-      await apiDelete(`/accounts/receipts/${r.id}`)
-      setHiddenRows(cur => cur.filter(x => x.id !== r.id))
-      loadPending(true)
-    } catch (e) { alert('Delete failed: ' + e.message) }
-    finally { setHiddenBusy(null) }
-  }
-
   useEffect(() => { return () => clearTimeout(rtTimerRef.current) }, [])
-
-  useEffect(() => {
-    let url = '/accounts/receipts?limit=1'
-    if (filterFrom && filterTo) {
-      url += `&from_date=${filterFrom}&to_date=${filterTo}`
-    } else if (filterDate) {
-      url += `&from_date=${filterDate}&to_date=${filterDate}`
-    } else if (filterMonth) {
-      const [y, m] = filterMonth.split('-').map(Number)
-      const mStr = String(m).padStart(2, '0')
-      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
-      url += `&from_date=${y}-${mStr}-01&to_date=${y}-${mStr}-${lastDay}`
-    }
-    setStatsLoading(true)
-    apiGet(url).then(res => {
-      setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
-      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : ((filterDate || filterMonth || filterFrom || filterTo) ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
-      setTodayStats(Array.isArray(res?.todayStats) ? res.todayStats : [])
-    }).catch(e => console.error('Stats fetch error:', e.message)).finally(() => setStatsLoading(false))
-  }, [filterDate, filterMonth, filterFrom, filterTo])
 
   const refreshHistory = () => {
     window.dispatchEvent(new CustomEvent('ucs:receipts-refresh'))
@@ -897,16 +749,6 @@ export default function Receipts() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
-        <DayPicker value={filterDate} onChange={v => { setFilterDate(v); if (v) { setFilterMonth(null); setFilterFrom(null); setFilterTo(null) } }} />
-        <MonthPicker value={filterMonth} onChange={v => { setFilterMonth(v); if (v) { setFilterDate(null); setFilterFrom(null); setFilterTo(null) } }} />
-        <DateRangePicker
-          from={filterFrom} to={filterTo}
-          onFromChange={v => { setFilterFrom(v); if (v) { setFilterDate(null); setFilterMonth(null) } }}
-          onToChange={v => { setFilterTo(v); if (v) { setFilterDate(null); setFilterMonth(null) } }}
-        />
-      </div>
-
       <div className="card" style={{ marginBottom: 16 }}>
         <div
           onClick={() => setUploadOpen(o => !o)}
@@ -1174,84 +1016,6 @@ export default function Receipts() {
                   <button className="btn btn-sm" disabled={receiptPage >= Math.ceil(filteredDonors.length / PAGE_SIZE)} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
                 </div>
               )}
-            </div>
-          </div>
-
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-pad">
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: hiddenOpen ? 10 : 0 }}>
-                <div>
-                  <h3 style={{ margin:0, fontSize:14, fontWeight:600 }}>
-                    Hidden from WhatsApp queue
-                    {hiddenRows.length > 0 && <span style={{ fontSize:12, fontWeight:700, color:'#b45309' }}> ({hiddenRows.length})</span>}
-                  </h3>
-                  <p style={{ margin:'3px 0 0', fontSize:11, color:'var(--ink-soft)' }}>Recent receipts failing queue checks — fix them, re-queue them, or delete duplicates. Last 14 days.</p>
-                </div>
-                {hiddenRows.length > 0 && (
-                  <button className="btn btn-sm" onClick={() => setHiddenOpen(o => !o)}>{hiddenOpen ? 'Hide' : 'Show'}</button>
-                )}
-              </div>
-              {hiddenOpen && (hiddenRows.length === 0 ? (
-                <p style={{ textAlign:'center', color:'var(--ink-soft)', fontSize:12, padding:16, margin:0 }}>Nothing hidden — all recent receipts pass the queue checks.</p>
-              ) : (
-                <div className="table-wrap" style={{ maxHeight:360, overflowY:'auto' }}>
-                  <table style={{ width:'100%', fontSize:13 }}>
-                    <thead><tr><th>Donor</th><th>Mobile</th><th>Amount</th><th>No.</th><th>Date</th><th>Issues</th><th>Action</th></tr></thead>
-                    <tbody>
-                      {hiddenRows.map(r => {
-                        const needsFix = (r.reasons || []).some(x => x === 'no_number' || x === 'no_donor')
-                        const sentOnly = (r.reasons || []).includes('already_sent') && !needsFix
-                        return (
-                          <tr key={r.id}>
-                            <td style={{ fontWeight:500 }}>{r.donor_name || '\u2014'}</td>
-                            <td style={{ fontFamily:'monospace', fontSize:12 }}>{r.donor_mobile || '\u2014'}</td>
-                            <td style={{ color:'#059669', fontWeight:600 }}>{formatIndianCurrency(r.amount)}</td>
-                            <td style={{ fontFamily:'monospace', fontSize:12 }}>{r.receipt_no || '\u2014'}</td>
-                            <td style={{ fontSize:12 }}>{formatReceiptDate(r.created_at)}</td>
-                            <td>
-                              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                                {(r.reasons || []).map(rs => (
-                                  <span key={rs} style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:999, whiteSpace:'nowrap', ...(HIDDEN_REASON_STYLES[rs] || {}) }}>
-                                    {HIDDEN_REASON_LABELS[rs] || rs}
-                                  </span>
-                                ))}
-                                {r.likely_duplicate && (
-                                  <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:999, whiteSpace:'nowrap', background:'#ede9fe', color:'#6d28d9' }}>Likely duplicate</span>
-                                )}
-                              </div>
-                            </td>
-                            <td>
-                              <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                                {needsFix && (
-                                  <button className="btn btn-sm" disabled={hiddenBusy === r.id}
-                                    style={{ fontSize:11, padding:'4px 10px', background:'#059669', color:'#fff', border:'none' }}
-                                    onClick={() => handleFixHidden(r)}>
-                                    {hiddenBusy === r.id ? '...' : 'Fix & Queue'}
-                                  </button>
-                                )}
-                                {sentOnly && (
-                                  <button className="btn btn-sm" disabled={hiddenBusy === r.id}
-                                    style={{ fontSize:11, padding:'4px 10px', background:'#fff', color:'#b45309', border:'1px solid #fcd34d' }}
-                                    onClick={() => handleRequeueHidden(r)}>
-                                    Re-queue
-                                  </button>
-                                )}
-                                {!r.log_id && (
-                                  <button className="btn btn-sm" disabled={hiddenBusy === r.id}
-                                    style={{ fontSize:11, padding:'4px 10px', background:'#fff', color:'#b91c1c', border:'1px solid #fca5a5' }}
-                                    onClick={() => handleDeleteHidden(r)}>
-                                    Delete
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
             </div>
           </div>
 
