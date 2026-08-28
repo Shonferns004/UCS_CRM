@@ -285,22 +285,29 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
   const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
   const mask=(v)=>locked?'XXXX':v;
   const ngoTabs=[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']];
-
-  if(loading){
-    return (
-      <div style={{display:'flex',alignItems:'center',gap:12,padding:bare?0:'22px 24px',borderRadius:16,border:bare?'none':'1px solid #e7ecf3',background:bare?'transparent':'linear-gradient(135deg,#fff,#f8fafc)'}}>
-        <span className="sk" style={{width:46,height:46,borderRadius:12,flexShrink:0}}/>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <span className="sk" style={{width:110,height:13,borderRadius:7}}/>
-          <span className="sk" style={{width:150,height:24,borderRadius:8}}/>
-        </div>
-      </div>
-    );
-  }
-
   const outer = bare
     ? {display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}
     : {display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16,padding:'20px 22px',borderRadius:16,background:'linear-gradient(135deg,#ffffff 0%,#f6f8fb 100%)',border:'1px solid #e7ecf3',boxShadow:'0 6px 24px rgba(30,41,59,.06)'};
+
+  if(loading){
+    return (
+      <div style={outer}>
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          <span className="sk" style={{width:50,height:50,borderRadius:14,flexShrink:0}}/>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <span className="sk" style={{width:70,height:11,borderRadius:6}}/>
+            <span className="sk" style={{width:150,height:28,borderRadius:8}}/>
+            <span className="sk" style={{width:180,height:12,borderRadius:6}}/>
+          </div>
+        </div>
+        {setSuspenseNgo&&(
+          <div style={{display:'inline-flex',gap:4,padding:4,background:'#eef1f6',borderRadius:12}}>
+            {ngoTabs.map((t,i)=><span key={i} className="sk" style={{width:52,height:30,borderRadius:9}}/>)}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={outer}>
