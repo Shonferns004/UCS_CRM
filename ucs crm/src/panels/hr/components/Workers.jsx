@@ -108,7 +108,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
 
 export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
-  const { formatSalary } = useSalaryPrivacy();
+  const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
   const [empIdMap, setEmpIdMap] = useState({});
@@ -867,6 +867,30 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
               placeholder="Search by name, email, or team…"
               style={{ marginTop:0, maxWidth:200 }} />
           </div>
+        </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+          marginBottom: 12, padding: '8px 14px', borderRadius: 8,
+          background: isSalaryUnlocked ? '#f0fdf4' : '#fffbeb',
+          border: `1px solid ${isSalaryUnlocked ? '#bbf7d0' : '#fef08a'}`
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <span style={{ fontWeight: 600, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
+              {isSalaryUnlocked ? 'Salary visible' : 'Salaries hidden (XXX)'}
+            </span>
+            <span style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
+              {isSalaryUnlocked ? 'Entering the access code anywhere unlocks salary for this session.' : 'Enter your access code to view salary figures.'}
+            </span>
+          </div>
+          {isSalaryUnlocked ? (
+            <button className="btn btn-sm btn-outline" onClick={lockSalary} style={{ fontSize: 11, padding: '4px 12px', background: '#fff' }}>
+              🔒 Hide Salary
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-primary" onClick={() => promptUnlock()} style={{ fontSize: 11, padding: '5px 14px', background: 'var(--sage)', color: '#fff', border: 'none', fontWeight: 600 }}>
+              🔓 Unlock Salary
+            </button>
+          )}
         </div>
         <table>
           <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
