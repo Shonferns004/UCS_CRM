@@ -86,6 +86,8 @@ export default function Reports() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [reportDay, setReportDay] = useState(null);
+  const [reportFrom, setReportFrom] = useState(null);
+  const [reportTo, setReportTo] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -111,11 +113,22 @@ export default function Reports() {
     return new Date(y, mm - 1, dd).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
   }, []);
 
+  const rangeLabel = useCallback((f, t) => {
+    if (!f || !t) return '';
+    const fmt = (d) => {
+      const [y, mm, dd] = d.split('-').map(Number);
+      return new Date(y, mm - 1, dd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
+    return `${fmt(f)} – ${fmt(t)}`;
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const q = reportDay ? `date=${reportDay}` : `month=${month}`;
+      let q = `month=${month}`;
+      if (reportFrom && reportTo) q = `from=${reportFrom}&to=${reportTo}`;
+      else if (reportDay) q = `date=${reportDay}`;
       const res = await apiGet('/accounts/report-data?' + q);
       setData(res);
     } catch (e) {
@@ -123,9 +136,9 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [reportDay, month]);
+  }, [reportDay, month, reportFrom, reportTo]);
 
-  useEffect(() => { load(); }, [reportDay, month]);
+  useEffect(() => { load(); }, [reportDay, month, reportFrom, reportTo]);
 
   // Open target form pre-filled from saved targets (or blank for even split)
   const openTargetForm = () => {
@@ -251,7 +264,7 @@ export default function Reports() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `accounts-report-${reportDay || month}.csv`;
+    a.download = `accounts-report-${(reportFrom && reportTo) ? reportFrom + '-' + reportTo : (reportDay || month)}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
@@ -267,18 +280,30 @@ export default function Reports() {
       <div className="no-print rp-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>Collection Report</h1>
-          <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 2 }}>{reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 2 }}>
+            {reportFrom && reportTo ? rangeLabel(reportFrom, reportTo) : (reportDay ? dayLabel(reportDay) : monthLabel(month))}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>From</span>
+            <input type="date" value={reportFrom || ''} style={inputStyle}
+              onChange={e => { const v = e.target.value || null; setReportFrom(v); if (v) { setReportDay(null); } }} />
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>To</span>
+            <input type="date" value={reportTo || ''} style={inputStyle}
+              onChange={e => { const v = e.target.value || null; setReportTo(v); if (v) { setReportDay(null); } }} />
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Day</span>
             <input type="date" value={reportDay || ''} style={inputStyle}
-              onChange={e => { const v = e.target.value || null; setReportDay(v); if (v) setMonth(v.slice(0, 7)); }} />
+              onChange={e => { const v = e.target.value || null; setReportDay(v); if (v) { setMonth(v.slice(0, 7)); setReportFrom(null); setReportTo(null); } }} />
           </div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Month</span>
             <input type="month" value={month} style={inputStyle}
-              onChange={e => { setMonth(e.target.value); setReportDay(null); }} />
+              onChange={e => { setMonth(e.target.value); setReportDay(null); setReportFrom(null); setReportTo(null); }} />
           </div>
           <button className="btn" onClick={() => load()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -369,7 +394,7 @@ export default function Reports() {
             </div>
             <div className="stat-info" style={{ color: '#fff', position: 'relative' }}>
               <div className="stat-num" style={{ color: '#fff' }}>{currency(grandTotal)} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
-              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
+              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportFrom && reportTo ? rangeLabel(reportFrom, reportTo) : (reportDay ? dayLabel(reportDay) : monthLabel(month))}</div>
             </div>
             <TenorCrab />
           </div>
@@ -409,7 +434,7 @@ export default function Reports() {
           <div className="card rp-card" style={{ marginBottom: 16, overflow: 'hidden' }}>
             <div className="card-head">
               <h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>vs monthly target · {reportDay ? 'daily view' : 'monthly'}</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>vs monthly target · {reportFrom && reportTo ? 'range' : (reportDay ? 'daily view' : 'monthly')}</span>
             </div>
             <div className="table-wrap">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

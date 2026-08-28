@@ -4835,12 +4835,19 @@ export const getReportData = async (req, res) => {
   try {
     const requestedDate = (req.query.date || '').trim(); // YYYY-MM-DD (Day mode)
     let dayMode = false;
+    let rangeMode = false;
     let day = '';
+    const requestedFrom = (req.query.from || '').trim(); // YYYY-MM-DD
+    const requestedTo = (req.query.to || '').trim();
     let requestedMonth = (req.query.month || '').trim();
     if (requestedDate) {
       dayMode = true;
       day = requestedDate.slice(0, 10);
       requestedMonth = day.slice(0, 7);
+    }
+    if (!dayMode && requestedFrom && requestedTo) {
+      rangeMode = true;
+      requestedMonth = String(requestedFrom).slice(0, 7);
     }
     if (!requestedMonth || !/^\d{4}-\d{2}$/.test(requestedMonth)) requestedMonth = new Date().toISOString().slice(0, 7);
     let [y, m] = requestedMonth.split('-').map(Number);
@@ -4850,6 +4857,21 @@ export const getReportData = async (req, res) => {
     }
     const month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
     const today = new Date();
+
+    let dateFrom;
+    let dateTo;
+    if (rangeMode) {
+      dateFrom = String(requestedFrom).slice(0, 10);
+      dateTo = String(requestedTo).slice(0, 10);
+      if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+    } else if (dayMode) {
+      dateFrom = day;
+      dateTo = day;
+    } else {
+      const lastDay = new Date(y, m, 0).getDate();
+      dateFrom = `${month}-01`;
+      dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    }
 
     const targetsRaw = await getSetting(TARGETS_SETTING_KEY);
     let savedTargets = null;
@@ -4898,9 +4920,6 @@ export const getReportData = async (req, res) => {
     }
 
     const lastDay = new Date(y, m, 0).getDate();
-    let dateFrom = `${month}-01`;
-    let dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
-    if (dayMode) { dateFrom = day; dateTo = day; }
 
     // NGO collection totals AND the per-payment-source split both come from the
     // RECEIPTS table (matching the Receipts page exactly). The payment source is
@@ -4968,6 +4987,25 @@ export const getReportData = async (req, res) => {
         const isWorkDay = (!isSunday || countedSunday) && !hset.has(day);
         workingDaysSoFar = isWorkDay ? 1 : 0;
         daysElapsed = 1;
+      } else if (rangeMode) {
+        // Custom From–To period: working days and elapsed days are counted across
+        // the whole range (capped at today for partial/future ranges).
+        const hset = new Set((holidayByNgo[n] || []).map((d) => String(d).slice(0, 10)));
+        const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        const end = new Date(dateTo + 'T00:00:00Z');
+        const cap = todayISO < dateTo ? new Date(todayISO + 'T00:00:00Z') : end;
+        let elapsed = 0;
+        let wd = 0;
+        for (let x = new Date(dateFrom + 'T00:00:00Z'); x <= cap; x.setUTCDate(x.getUTCDate() + 1)) {
+          elapsed++;
+          const iso = x.toISOString().slice(0, 10);
+          const dow = x.getUTCDay();
+          if (dow === 0) continue;
+          if (hset.has(iso)) continue;
+          wd++;
+        }
+        daysElapsed = elapsed;
+        workingDaysSoFar = wd;
       } else {
         const { count } = computeReportWorkingDays({ month, today, ngoId: n, holidayDates: holidayByNgo[n] });
         workingDaysSoFar = count;
@@ -4995,8 +5033,10 @@ export const getReportData = async (req, res) => {
 
     return res.json({
       month,
-      mode: dayMode ? 'day' : 'month',
+      mode: dayMode ? 'day' : (rangeMode ? 'range' : 'month'),
       day: dayMode ? day : null,
+      from: rangeMode ? dateFrom : null,
+      to: rangeMode ? dateTo : null,
       ngos: ngoList,
       sourceOrder,
       byNgo,
