@@ -54,6 +54,8 @@ export default function Reports() {
   const [stationFilter, setStationFilter] = useState('all');
   const [teamDetailNgoFilter, setTeamDetailNgoFilter] = useState('all');
   const [allStations, setAllStations] = useState(STATIONS_FALLBACK);
+  const [stationWorkers, setStationWorkers] = useState({}); // station -> worker name
+  const [realTargets, setRealTargets] = useState({}); // station -> target amount
   const printRef = useRef(null);
 
   // Approximate targets — UI only, localStorage mock (both overall + per NGO/team)
@@ -94,29 +96,53 @@ export default function Reports() {
   useEffect(() => {
     (async () => {
       try {
-        // Try multiple endpoints to get all stations per NGO
         let stations = null;
+        let workerMap = {};
         for (const ep of ['/ngo-admin/stations', '/admin/stations', '/super-admin/stations', '/fro/stations']) {
           try {
             const r = await apiGet(ep);
             const arr = Array.isArray(r) ? r : r?.stations || r?.data || [];
             if (Array.isArray(arr) && arr.length > 0) {
               const names = arr.map(s => s.station || s.name || s).filter(Boolean);
-              if (names.length > 5) { stations = [...new Set(names)].sort(); break; }
+              if (names.length > 5) {
+                stations = [...new Set(names)].sort();
+                // Build station -> worker map if available
+                for (const s of arr) {
+                  if (s.station && s.fro_worker_name) workerMap[s.station] = s.fro_worker_name;
+                  if (s.station && s.worker_name) workerMap[s.station] = s.worker_name;
+                  if (s.station && s.workers?.name) workerMap[s.station] = s.workers.name;
+                }
+                break;
+              }
             }
           } catch {}
         }
-        // Fallback: derive from teamWise mock if API fails — use distinct stations from assignments via reports data
-        if (!stations || stations.length < 5) {
-          try {
-            const r = await apiGet('/accounts/day-end-report?month=' + reportMonth);
-            if (r?.teamWise) stations = [...new Set(r.teamWise.map(t => t.station))].sort();
-          } catch {}
-        }
         if (stations && stations.length > 5) setAllStations(stations);
+        if (Object.keys(workerMap).length > 0) setStationWorkers(workerMap);
+        // Fetch real targets for this month
+        try {
+          const t = await apiGet('/ngo-admin/targets?month=' + reportMonth).catch(() => null);
+          const arr = Array.isArray(t) ? t : t?.targets || t?.data || [];
+          if (Array.isArray(arr) && arr.length > 0) {
+            const map = {};
+            for (const r of arr) {
+              const st = r.station || r.station_name;
+              if (st && r.target_amount) map[st] = Number(r.target_amount);
+              if (r.fro_station && r.target_amount) map[r.fro_station] = Number(r.target_amount);
+            }
+            if (Object.keys(map).length > 0) setRealTargets(map);
+          }
+        } catch {}
+        // Fallback targets via incentive API
+        try {
+          if (Object.keys(workerMap).length === 0) {
+            const r = await apiGet('/incentive/targets?month=' + reportMonth).catch(() => null);
+            if (r && typeof r === 'object') setRealTargets(prev => ({ ...prev, ...r }));
+          }
+        } catch {}
       } catch {}
     })();
-  }, []);
+  }, [reportMonth]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,11 +173,16 @@ export default function Reports() {
         return { ngo_id: n.id, ngo_name: n.name, code: n.code, collected: Math.round(total * share), submitted: Math.round((data.totalSubmitted || 0) * share) };
       });
       data.ngoWise = ngoSplit;
-      // Team wise: split by stations
-      data.teamWise = stationsForMock.map((st, idx) => {
-        const share = 1 / stationsForMock.length;
-        return { station: st, ngo_id: NGOS[idx % 3].id, collected: Math.round(total * share * (0.8 + Math.random() * 0.4)), team: st };
-      });
+      // Team wise: all stations per NGO with worker and target
+      data.teamWise = [];
+      for (const ngo of NGOS) {
+        for (const st of stationsForMock) {
+          const share = 1 / (stationsForMock.length * NGOS.length);
+          const tgt = realTargets[st] || teamTargets[st] || 0;
+          const worker = stationWorkers[st] || 'Unassigned';
+          data.teamWise.push({ station: st, ngo_id: ngo.id, collected: Math.round(total * share * (0.8 + Math.random() * 0.4)), team: st, worker_name: worker, target: tgt, avgPerDay: tgt ? Math.ceil(tgt / daysInMonth(...reportMonth.split('-').map(Number))) : 0 });
+        }
+      }
       // Month trend mock (12 months)
       const [y, m] = reportMonth.split('-').map(Number);
       data.monthTrend = Array.from({ length: 12 }, (_, i) => {
@@ -276,6 +307,15 @@ export default function Reports() {
     if (!report?.teamWise) return [];
     return report.teamWise.filter(r => (ngoFilter === 'all' || r.ngo_id === ngoFilter) && (stationFilter === 'all' || r.station === stationFilter));
   }, [report, ngoFilter, stationFilter]);
+  const chartTeamData = useMemo(() => {
+    if (ngoFilter !== 'all') return filteredTeam;
+    const map = {};
+    for (const r of filteredTeam) {
+      if (!map[r.station]) map[r.station] = { station: r.station, collected: 0 };
+      map[r.station].collected += r.collected;
+    }
+    return Object.values(map);
+  }, [filteredTeam, ngoFilter]);
   const filteredNgo = useMemo(() => {
     if (!report?.ngoWise) return [];
     return report.ngoWise.filter(r => ngoFilter === 'all' || r.ngo_id === ngoFilter);
@@ -511,9 +551,9 @@ export default function Reports() {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Team-wise Collection</div>
               <div style={{ height: 260 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={filteredTeam}>
+                  <BarChart data={chartTeamData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="station" fontSize={11} />
+                    <XAxis dataKey="station" fontSize={11} interval={0} angle={-20} textAnchor="end" height={50} />
                     <YAxis fontSize={11} />
                     <Tooltip />
                     <Bar dataKey="collected" fill="#5B6B4E" name="Collected" />
@@ -574,12 +614,13 @@ export default function Reports() {
               </div>
               <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
                 <table>
-                  <thead><tr><th>Team / Station</th><th>NGO</th><th>Collected</th><th>Target</th><th>Avg / day</th></tr></thead>
+                  <thead><tr><th>Team / Station</th><th>NGO</th><th>Sitting On</th><th>Collected</th><th>Target</th><th>Avg / day</th></tr></thead>
                   <tbody>
                     {(teamDetailNgoFilter === 'all' ? filteredTeam : filteredTeam.filter(r => r.ngo_id === teamDetailNgoFilter)).map(r => {
-                      const t = teamTargets[r.station] || 0;
-                      const avg = t ? Math.ceil(t / daysInMonth(...reportMonth.split("-").map(Number))) : 0;
-                      return <tr key={r.station}><td>{r.station}</td><td>{r.ngo_id}</td><td style={{ fontWeight: 600 }}>{currency(r.collected)}</td><td>{t ? currency(t) : '—'}</td><td>{t ? currency(avg) : '—'}</td></tr>;
+                      const t = r.target || teamTargets[r.station] || realTargets[r.station] || 0;
+                      const avg = r.avgPerDay || (t ? Math.ceil(t / daysInMonth(...reportMonth.split("-").map(Number))) : 0);
+                      const who = r.worker_name || stationWorkers[r.station] || 'Unassigned';
+                      return <tr key={`${r.station}-${r.ngo_id}`}><td>{r.station}</td><td>{r.ngo_id}</td><td style={{ fontWeight: 600, color: who === 'Unassigned' ? 'var(--ink-soft)' : 'var(--ink)' }}>{who}</td><td style={{ fontWeight: 600 }}>{currency(r.collected)}</td><td>{t ? currency(t) : '—'}</td><td>{t ? currency(avg) : '—'}</td></tr>;
                     })}
                   </tbody>
                 </table>
