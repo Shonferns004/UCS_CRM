@@ -30,6 +30,31 @@ const StatCardSkeleton = () => (
   </div>
 );
 
+const RunnerCharacter = () => (
+  <div className="no-print" style={{ position: 'relative', width: 120, height: 86, flexShrink: 0, alignSelf: 'flex-end' }}>
+    <div style={{ position: 'absolute', right: 10, bottom: 12, width: 80, height: 62, animation: 'rpRun .5s ease-in-out infinite' }}>
+      <svg width="80" height="62" viewBox="0 0 80 62" fill="none">
+        <path d="M8 42 C6 28 20 10 42 10 C58 10 68 20 70 30 C76 30 78 36 72 38 L60 40 C56 52 42 56 32 50 L20 54 Z" fill="#7ce495" stroke="#2f8f5b" strokeWidth="1.6"/>
+        <circle cx="62" cy="20" r="3.2" fill="#1f6f3f"/>
+        <path d="M58 34 C64 33 68 34 70 36" stroke="#1f6f3f" strokeWidth="1.6" fill="none"/>
+        <path d="M32 30 C26 26 24 22 26 19" stroke="#1f6f3f" strokeWidth="3" strokeLinecap="round" fill="none"/>
+        <g style={{ transformOrigin: '38px 42px', animation: 'rpLeg .5s ease-in-out infinite' }}>
+          <rect x="36" y="42" width="6" height="14" rx="3" fill="#2f8f5b"/>
+        </g>
+        <g style={{ transformOrigin: '48px 42px', animation: 'rpLeg .5s ease-in-out infinite reverse' }}>
+          <rect x="46" y="42" width="6" height="14" rx="3" fill="#2f8f5b"/>
+        </g>
+        <path d="M12 40 L3 30 L7 25" stroke="#2f8f5b" strokeWidth="4" strokeLinecap="round" fill="none" style={{ transformOrigin: '12px 40px', animation: 'rpLeg .6s ease-in-out infinite' }}/>
+      </svg>
+    </div>
+    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 4, overflow: 'hidden', opacity: .8 }}>
+      <div style={{ width: 240, height: 4, display: 'flex', gap: 14, animation: 'rpGround .5s linear infinite' }}>
+        {[...Array(7)].map((_, i) => <div key={i} style={{ width: 16, height: 4, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />)}
+      </div>
+    </div>
+  </div>
+);
+
 const inputStyle = { fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontWeight: 600, background: '#fff', color: 'var(--ink)' };
 
 const printStyle = `
@@ -50,6 +75,9 @@ const animStyle = `
   @keyframes rpFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .rp-card { animation: rpFadeUp .35s ease both; }
   .rp-tabs { animation: rpFadeUp .3s ease both; }
+  @keyframes rpRun { 0%,100% { transform: translateY(0); } 25% { transform: translateY(-6px); } 50% { transform: translateY(0); } 75% { transform: translateY(-3px); } }
+  @keyframes rpLeg { 0%,100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
+  @keyframes rpGround { to { transform: translateX(-28px); } }
   @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
 `;
 
@@ -332,24 +360,23 @@ export default function Reports() {
       )}
 
       {/* Summary stat cards */}
-      <div className="stats-grid rp-card" style={{ marginBottom: 20 }}>
-        {loading ? (
-          <StatCardSkeleton />
-        ) : (
-          <div className="stat-card" style={{ gridColumn: '1 / -1', background: 'linear-gradient(135deg,#1f6f3f,#2e8b57)', border: 'none' }}>
-            <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}>
+      {loading ? (
+        <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
+      ) : (
+        <div className="rp-card" style={{ marginBottom: 20 }}>
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1f6f3f,#2e8b57)', border: 'none', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', right: 8, bottom: 4 }}><RunnerCharacter /></div>
+            <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
-            <div className="stat-info" style={{ color: '#fff' }}>
+            <div className="stat-info" style={{ color: '#fff', position: 'relative' }}>
               <div className="stat-num" style={{ color: '#fff' }}>{currency(grandTotal)} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
               <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
             </div>
           </div>
-        )}
-        {loading
-          ? null
-          : rows.map((r, i) => (
-              <div className="stat-card" key={r.id}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
+            {rows.map((r, i) => (
+              <div className="stat-card" key={r.id} style={{ width: 280, maxWidth: '100%', boxSizing: 'border-box' }}>
                 <div className="stat-icon" style={{ background: i % 2 ? '#E7F3EC' : '#EAF1FB', color: i % 2 ? '#1f6f3f' : '#2563eb' }}>
                   {['BSCT', 'MANN', 'AFLF'].includes(r.id) ? r.id.slice(0, 2) : r.name.slice(0, 1)}
                 </div>
@@ -362,7 +389,9 @@ export default function Reports() {
                 </div>
               </div>
             ))}
-      </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <>
