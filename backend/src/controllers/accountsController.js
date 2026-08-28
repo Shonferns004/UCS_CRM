@@ -4897,61 +4897,49 @@ export const getReportData = async (req, res) => {
       if (slug && holidayByNgo[slug]) holidayByNgo[slug].push(String(h.date).slice(0, 10));
     }
 
-    // Bank audit entries for the month (or single day), grouped per (project_id, source name)
     const lastDay = new Date(y, m, 0).getDate();
     let dateFrom = `${month}-01`;
     let dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
     if (dayMode) { dateFrom = day; dateTo = day; }
-    const { data: entries, error: bErr } = await db
-      .from('bank_audit_entries')
-      .select('amount, project_id, status, bank_audit_sources(name)')
-      .gte('transaction_date', dateFrom)
-      .lte('transaction_date', dateTo);
-    if (bErr) throw bErr;
 
-    // NGO collection totals come from the RECEIPTS table (matches the Receipts
-    // page exactly). Bank-audit entries only cover source-matched money, so the
-    // per-source breakdown is a subset and is reported under its own subtotal.
+    // NGO collection totals AND the per-payment-source split both come from the
+    // RECEIPTS table (matching the Receipts page exactly). The payment source is
+    // the receipt's `mode`; its subtotals sum to the full receipts collection.
     const receiptTotalByNgo = {};
     for (const n of ngoIds) receiptTotalByNgo[n] = { count: 0, total: 0 };
     const { data: monthReceipts, error: rErr } = await db
       .from('receipts')
-      .select('project_id, amount')
+      .select('project_id, amount, mode')
       .not('receipt_no', 'is', null)
       .gte('receipt_date', dateFrom)
       .lte('receipt_date', dateTo);
     if (rErr) throw rErr;
-    for (const r of monthReceipts || []) {
-      const ngo = r.project_id && receiptTotalByNgo[r.project_id] ? r.project_id : null;
-      if (ngo) {
-        receiptTotalByNgo[ngo].total += Number(r.amount || 0);
-        receiptTotalByNgo[ngo].count += 1;
-      }
-    }
+
+    const makeModeLabel = (m) => {
+      const s = String(m || '').trim();
+      if (!s) return 'Unknown';
+      return s.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    };
 
     const sourceOrder = [];
     const sourceSet = {};
     const byNgo = {};
-    for (const n of ngoIds) {
-      byNgo[n] = { sources: {}, suspense: 0 };
-    }
-    for (const e of entries || []) {
-      const ngo = e.project_id && byNgo[e.project_id] ? e.project_id : null;
-      const srcName = e.bank_audit_sources?.name || 'Unknown';
-      if (ngo) {
-        const amt = Number(e.amount || 0);
-        if (e.status === 'unverified') {
-          byNgo[ngo].suspense += amt;
-        }
-        byNgo[ngo].sources[srcName] = (byNgo[ngo].sources[srcName] || 0) + amt;
-        if (!sourceSet[srcName]) { sourceSet[srcName] = true; sourceOrder.push(srcName); }
-      }
+    for (const n of ngoIds) byNgo[n] = { sources: {} };
+    for (const r of monthReceipts || []) {
+      const ngo = r.project_id && receiptTotalByNgo[r.project_id] ? r.project_id : null;
+      if (!ngo) continue;
+      receiptTotalByNgo[ngo].total += Number(r.amount || 0);
+      receiptTotalByNgo[ngo].count += 1;
+      const label = makeModeLabel(r.mode);
+      const key = label.toLowerCase();
+      if (!sourceSet[key]) { sourceSet[key] = true; sourceOrder.push(label); }
+      byNgo[ngo].sources[label] = (byNgo[ngo].sources[label] || 0) + Number(r.amount || 0);
     }
 
     // Build per-NGO output rows
     const ngoRows = [];
     for (const n of ngoIds) {
-      const auditTotal = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
+      const sourceTotal = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
       const total = receiptTotalByNgo[n].total;
       const receiptCount = receiptTotalByNgo[n].count;
       const ngoTarget = Number(savedByNgo[n]) || 0;
@@ -4987,8 +4975,7 @@ export const getReportData = async (req, res) => {
         name: (ngoList.find((g) => g.id === n) || {}).name || n,
         total,
         receiptCount,
-        auditTotal,
-        suspense: byNgo[n].suspense,
+        sourceTotal,
         daysElapsed,
         workingDaysSoFar,
         targetDaily,
