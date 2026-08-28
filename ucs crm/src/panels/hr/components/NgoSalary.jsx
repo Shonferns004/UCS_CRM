@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useHR } from '../store';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Dropdown, SkeletonRows } from './ui';
 import { api } from '../../../api/auth';
 import * as XLSX from 'xlsx';
@@ -9,7 +10,6 @@ const monthNow = () => {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const fmtAmt = (n) => '₹' + parseFloat(n || 0).toLocaleString('en-IN');
 const fmtMonth = (m) => {
   if (!m) return '—';
   const p = String(m).slice(0, 10).split('-');
@@ -51,6 +51,7 @@ function SummaryCard({ label, value, sub, color }) {
 
 /* ─── NGO Management ─── */
 function NgoManagementTab({ ngos, onChanged, onAddNgo, onEditNgo }) {
+  const { formatSalary } = useSalaryPrivacy();
   const [modal, setModal] = useState(null);
 
   return (
@@ -70,7 +71,7 @@ function NgoManagementTab({ ngos, onChanged, onAddNgo, onEditNgo }) {
               <td>{n.volunteers || 0}</td>
               <td>{n.allocation_percentage != null ? `${parseFloat(n.allocation_percentage)}%` : '—'}</td>
               <td>{n.salary_employees || 0}</td>
-              <td>{fmtAmt(n.salary_amount)}</td>
+              <td>{formatSalary(n.salary_amount)}</td>
               <td>
                 <span className="pill" style={{
                   background: n.is_active ? '#d1fae5' : '#f3f4f6',
@@ -235,6 +236,7 @@ function SettingsTab({ settings, ngos, onSave }) {
 
 /* ─── NGO Salary Report ─── */
 function ReportTab({ month, setMonth, ngos, workers }) {
+  const { formatSalary, promptUnlock } = useSalaryPrivacy();
   const { fetchNgoSalaryReport, fetchNgoSalaryReportFallback, fetchNgoReport, generateAllSalaryAllocations } = useHR();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -264,21 +266,23 @@ function ReportTab({ month, setMonth, ngos, workers }) {
   const totalPaid = rows.reduce((s, r) => s + parseFloat(r.paid_amount || 0), 0);
 
   const exportExcel = () => {
-    const headers = ['Employee', 'Emp ID', 'Department', 'NGO', 'Month', 'Allocation %', 'Allocation Amount', 'Paid Amount', 'Payment Status'];
-    const wsData = [headers, ...rows.map(r => [
-      r.worker_name, r.employee_id, r.department, r.ngo_name, fmtMonth(r.salary_month),
-      r.allocation_percentage, r.allocation_amount, r.paid_amount, r.payment_status,
-    ])];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'NGO Salary');
-    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    link.download = `ngo-salary-${month}.xlsx`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    promptUnlock(() => {
+      const headers = ['Employee', 'Emp ID', 'Department', 'NGO', 'Month', 'Allocation %', 'Allocation Amount', 'Paid Amount', 'Payment Status'];
+      const wsData = [headers, ...rows.map(r => [
+        r.worker_name, r.employee_id, r.department, r.ngo_name, fmtMonth(r.salary_month),
+        r.allocation_percentage, r.allocation_amount, r.paid_amount, r.payment_status,
+      ])];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'NGO Salary');
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `ngo-salary-${month}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
   };
 
   const openDetail = async (r) => {
@@ -305,8 +309,8 @@ function ReportTab({ month, setMonth, ngos, workers }) {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 20, padding: '8px 16px', fontSize: 13 }}>
-        <span>Total allocation: <strong>{fmtAmt(totalAmount)}</strong></span>
-        <span>Total paid: <strong style={{ color: 'var(--sage)' }}>{fmtAmt(totalPaid)}</strong></span>
+        <span>Total allocation: <strong>{formatSalary(totalAmount)}</strong></span>
+        <span>Total paid: <strong style={{ color: 'var(--sage)' }}>{formatSalary(totalPaid)}</strong></span>
         <span>Rows: <strong>{rows.length}</strong></span>
       </div>
       <table>
@@ -325,8 +329,8 @@ function ReportTab({ month, setMonth, ngos, workers }) {
                 <td style={{ color: 'var(--ink-soft)' }}>{r.employee_id || '—'}</td>
                 <td>{r.ngo_name}</td>
                 <td>{parseFloat(r.allocation_percentage)}%</td>
-                <td style={{ fontWeight: 600 }}>{fmtAmt(r.allocation_amount)}</td>
-                <td>{fmtAmt(r.paid_amount)}</td>
+                <td style={{ fontWeight: 600 }}>{formatSalary(r.allocation_amount)}</td>
+                <td>{formatSalary(r.paid_amount)}</td>
                 <td><StatusPill status={r.payment_status} /></td>
                 <td style={{ textAlign: 'right' }}>
                   <button className="btn btn-sm" onClick={() => openDetail(r)}>Detail</button>
@@ -350,9 +354,9 @@ function ReportTab({ month, setMonth, ngos, workers }) {
                 <>
                   <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 12 }}>
                     <span>Employees: <strong>{detail.detail.total_employees}</strong></span>
-                    <span>Total: <strong>{fmtAmt(detail.detail.total_amount)}</strong></span>
-                    <span>Paid: <strong style={{ color: 'var(--sage)' }}>{fmtAmt(detail.detail.paid_amount)}</strong></span>
-                    <span>Pending: <strong style={{ color: 'var(--danger)' }}>{fmtAmt(detail.detail.pending_amount)}</strong></span>
+                    <span>Total: <strong>{formatSalary(detail.detail.total_amount)}</strong></span>
+                    <span>Paid: <strong style={{ color: 'var(--sage)' }}>{formatSalary(detail.detail.paid_amount)}</strong></span>
+                    <span>Pending: <strong style={{ color: 'var(--danger)' }}>{formatSalary(detail.detail.pending_amount)}</strong></span>
                   </div>
                   <table>
                     <thead><tr><th>Employee</th><th>Emp ID</th><th>Allocation %</th><th>Amount</th><th>Status</th></tr></thead>
@@ -362,7 +366,7 @@ function ReportTab({ month, setMonth, ngos, workers }) {
                           <td>{d.worker_name}</td>
                           <td>{d.employee_id || '—'}</td>
                           <td>{parseFloat(d.allocation_percentage)}%</td>
-                          <td>{fmtAmt(d.allocation_amount)}</td>
+                          <td>{formatSalary(d.allocation_amount)}</td>
                           <td><StatusPill status={d.payment_status} /></td>
                         </tr>
                       ))}
@@ -397,6 +401,7 @@ function PaymentsTab({ month, ngos, workers }) {
       .finally(() => setLoading(false));
   }, [month, statusFilter, refresh]);
 
+  const { formatSalary } = useSalaryPrivacy();
   const paid = payments.filter(p => p.payment_status === 'paid' || p.payment_status === 'processing').reduce((s, p) => s + parseFloat(p.amount || 0), 0);
 
   return (
@@ -410,7 +415,7 @@ function PaymentsTab({ month, ngos, workers }) {
         </div>
       </div>
       <div style={{ padding: '8px 16px', fontSize: 13 }}>
-        Paid/Processing: <strong style={{ color: 'var(--sage)' }}>{fmtAmt(paid)}</strong> across {payments.length} records
+        Paid/Processing: <strong style={{ color: 'var(--sage)' }}>{formatSalary(paid)}</strong> across {payments.length} records
       </div>
       <table>
         <thead>
@@ -426,7 +431,7 @@ function PaymentsTab({ month, ngos, workers }) {
               <tr key={p.id}>
                 <td style={{ fontWeight: 600 }}>{p.workers?.name || 'Unknown'}</td>
                 <td>{p.ngos?.name || '—'}</td>
-                <td style={{ fontWeight: 600 }}>{fmtAmt(p.amount)}</td>
+                <td style={{ fontWeight: 600 }}>{formatSalary(p.amount)}</td>
                 <td>{fmtMonth(p.salary_month)}</td>
                 <td>
                   <Dropdown value={p.payment_status} onChange={e => updatePaymentStatus(p.id, e.target.value).then(() => setRefresh(r => r + 1)).catch(err => alert(err.message))}
@@ -491,6 +496,7 @@ function PaymentsTab({ month, ngos, workers }) {
 
 /* ─── Main ─── */
 export default function NgoSalary() {
+  const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary } = useSalaryPrivacy();
   const { fetchNgoSalarySummary, fetchNgoAllocationSettings, saveNgoAllocationSettings, fetchNgoSummaryList, fetchWorkers } = useHR();
   const [tab, setTab] = useState('management');
   const [summary, setSummary] = useState(null);
@@ -510,12 +516,41 @@ export default function NgoSalary() {
 
   return (
     <div>
+      {/* Confidential Lock Bar */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+        marginBottom: 16, padding: '10px 16px', borderRadius: 8,
+        background: isSalaryUnlocked ? '#f0fdf4' : '#fffbeb',
+        border: `1px solid ${isSalaryUnlocked ? '#bbf7d0' : '#fef08a'}`
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <span style={{ fontSize: 16 }}>{isSalaryUnlocked ? '🔓' : '🔒'}</span>
+          <div>
+            <span style={{ fontWeight: 700, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
+              {isSalaryUnlocked ? 'Salary Amounts Unlocked' : 'Confidential Salaries Hidden (XXXX)'}
+            </span>
+            <div style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
+              {isSalaryUnlocked ? 'All salary allocations and payment figures are currently visible.' : 'Salary details are confidential. Unlock to view or export.'}
+            </div>
+          </div>
+        </div>
+        {isSalaryUnlocked ? (
+          <button className="btn btn-sm btn-outline" onClick={lockSalary} style={{ fontSize: 11, padding: '4px 12px', background: '#fff' }}>
+            🔒 Hide Salaries
+          </button>
+        ) : (
+          <button className="btn btn-sm btn-primary" onClick={() => promptUnlock()} style={{ fontSize: 11, padding: '5px 14px', background: 'var(--sage)', color: '#fff', border: 'none', fontWeight: 600 }}>
+            👁️ View Salaries
+          </button>
+        )}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
         <SummaryCard label="Active Employees" value={summary?.employees != null ? Number(summary.employees).toLocaleString('en-IN') : '—'} sub="across all NGOs" />
         <SummaryCard label="NGOs" value={summary?.ngos ?? '—'} sub="active entities" />
-        <SummaryCard label="Monthly Salary" value={summary?.total_salary != null ? fmtAmt(summary.total_salary) : '—'} sub="all employees" color="var(--gold)" />
-        <SummaryCard label="Paid (this month)" value={summary?.paid != null ? fmtAmt(summary.paid) : '—'} sub="paid & processing" color="var(--sage)" />
-        <SummaryCard label="Pending (this month)" value={summary?.pending != null ? fmtAmt(summary.pending) : '—'} sub="awaiting payment" color="var(--danger)" />
+        <SummaryCard label="Monthly Salary" value={summary?.total_salary != null ? formatSalary(summary.total_salary) : '—'} sub="all employees" color="var(--gold)" />
+        <SummaryCard label="Paid (this month)" value={summary?.paid != null ? formatSalary(summary.paid) : '—'} sub="paid & processing" color="var(--sage)" />
+        <SummaryCard label="Pending (this month)" value={summary?.pending != null ? formatSalary(summary.pending) : '—'} sub="awaiting payment" color="var(--danger)" />
       </div>
 
       <div className="tabs">

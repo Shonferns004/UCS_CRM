@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
+import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
 import { Component } from 'react'
 import Login from './pages/Login'
 import SuperAdminPanel from './panels/super-admin/SuperAdminPanel'
@@ -129,6 +130,7 @@ export default function App() {
   return (
     <ErrorBoundary>
     <UcsProvider>
+    <SalaryPrivacyProvider>
       <Routes>
         <Route path="/login" element={<LoginWrapper />} />
         <Route path="/" element={<RootRedirect />} />
@@ -187,6 +189,7 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </SalaryPrivacyProvider>
     </UcsProvider>
     </ErrorBoundary>
   )
