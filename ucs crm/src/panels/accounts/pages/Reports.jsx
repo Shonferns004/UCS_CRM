@@ -31,8 +31,8 @@ const StatCardSkeleton = () => (
 );
 
 const TenorCrab = () => (
-  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 4, height: 46, pointerEvents: 'none' }}>
-    <div style={{ position: 'absolute', top: 0, left: 0, width: 108, height: 46, animation: 'rpSweep 26s ease-in-out infinite' }}>
+  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 4, height: 60, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, width: 130, height: 60, animation: 'rpSweep 26s ease-in-out infinite' }}>
       <video
         src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
         poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
@@ -42,7 +42,7 @@ const TenorCrab = () => (
         playsInline
         style={{
           width: '100%', height: '100%', objectFit: 'contain',
-          mixBlendMode: 'multiply', imageRendering: 'pixelated', opacity: .75
+          mixBlendMode: 'multiply', imageRendering: 'pixelated', opacity: .85
         }}
       />
     </div>
@@ -72,8 +72,8 @@ const animStyle = `
   @keyframes rpSweep {
     0%   { left: 0; }
     12%  { left: 0; }
-    45%  { left: calc(100% - 108px); }
-    55%  { left: calc(100% - 108px); }
+    45%  { left: calc(100% - 130px); }
+    55%  { left: calc(100% - 130px); }
     88%  { left: 0; }
     100% { left: 0; }
   }
@@ -363,7 +363,7 @@ export default function Reports() {
         <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
       ) : (
         <div className="rp-card" style={{ marginBottom: 20 }}>
-          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 90, paddingBottom: 66 }}>
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: '#2563eb', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 82, paddingBottom: 56 }}>
             <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
