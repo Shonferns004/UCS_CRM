@@ -25,6 +25,7 @@ import Tickets from './components/Tickets'
 import Quizzes from './components/Quizzes'
 import SettingsPage from './components/Settings'
 import NgoSalary from './components/NgoSalary'
+import ChangeSalaryAccessCode from './components/ChangeSalaryAccessCode'
 import { fetchTicketCount } from './store'
 import ToastContainer from '../../components/Toast'
 
@@ -42,6 +43,12 @@ const NAV = [
   { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
+]
+
+const hrSettingsViews = [
+  { key: 'salary-access-code', label: 'Change Salary Access Code', width: 380,
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+    content: <ChangeSalaryAccessCode /> },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -195,6 +202,7 @@ function HRPageShell({ children }) {
             themes={themes}
             themeName={themeName}
             onThemeChange={(key) => setThemeName(key)}
+            views={hrSettingsViews}
           />
         </header>
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
