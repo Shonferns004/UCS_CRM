@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link2, Loader2, X } from 'lucide-react';
+import { Link2, ListFilter, Loader2, X } from 'lucide-react';
 import { apiGet, apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
@@ -25,6 +25,7 @@ export default function LeadAudit() {
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
   const [receiptNums, setReceiptNums] = useState(null);
+  const [showWsFilter, setShowWsFilter] = useState(false);
   const workspaceRef = useRef(null);
 
   // Last issued + next upcoming receipt number per NGO. Read-only; refetched
@@ -68,7 +69,6 @@ export default function LeadAudit() {
 
   const filterBar = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#8a93a3' }}>Filter</span>
       <span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>NGO</span>
       <select value={globalNgo} onChange={e => setGlobalNgo(e.target.value)} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontWeight: 600, background: '#fff' }}>
         <option value="">All NGOs</option>
@@ -83,30 +83,30 @@ export default function LeadAudit() {
       </div>
       <span style={{ fontSize: 11, fontWeight: 600, color: '#475569' }}>Amount</span>
       <input type="number" min="0" step="any" placeholder="All amounts" value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontWeight: 600, width: 96 }} />
-      <span style={{ fontSize: 10.5, color: '#9ca3af' }}>Filters both Lead &amp; Audit</span>
     </div>
   );
 
   return (
     <>
       <div style={{ display: 'flex', gap: 14, marginBottom: 18, alignItems: 'stretch' }}>
-        <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: 18 }}>
-            <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
-          </div>
-          <div style={{ height: 1, background: '#eef1f6' }} />
-          <div style={{ padding: '12px 18px' }}>
-            {filterBar}
-          </div>
-        </div>
-        {receiptNums && receiptNums.length > 0 && (
-          <div style={{ width: 250, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
-            {receiptNums.map(n => (
+        <div style={{ width: 250, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+          {receiptNums === null ? (
+            [0, 1, 2].map(i => (
+              <div key={i} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                <span className="sk" style={{ width: '62%', height: 12, borderRadius: 6 }} />
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
+                  <span className="sk" style={{ width: '40%', height: 14, borderRadius: 6 }} />
+                </div>
+              </div>
+            ))
+          ) : receiptNums && receiptNums.length > 0 ? (
+            receiptNums.map(n => (
               <div key={n.project_id} style={{ border: '1px solid #e7ecf3', borderRadius: 14, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: '#374151', flex: 1, marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ color: '#9ca3af', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Last</div>
+                    <div style={{ color: '#9ca3af', fontSize: 8.5, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Current</div>
                     <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{n.last_no || '\u2014'}</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
@@ -115,9 +115,26 @@ export default function LeadAudit() {
                   </div>
                 </div>
               </div>
-            ))}
+            ))
+          ) : null}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, border: '1px solid #e7ecf3', borderRadius: 16, background: '#fff', boxShadow: '0 6px 24px rgba(30,41,59,.06)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: 18 }}>
+            <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} bare />
           </div>
-        )}
+          <div style={{ height: 1, background: '#eef1f6' }} />
+          <div style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button
+              onClick={() => setShowWsFilter(v => !v)}
+              title={showWsFilter ? 'Hide workspace filter' : 'Show workspace filter'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', fontSize: 12.5, fontWeight: 700, padding: '7px 12px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}>
+              <ListFilter size={14} strokeWidth={2.5} color="#374151" />
+              Workspace filter
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: showWsFilter ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}><polyline points="6 9 12 15 18 9" /></svg>
+            </button>
+            {showWsFilter && filterBar}
+          </div>
+        </div>
       </div>
 
       <div ref={workspaceRef} className="lead-audit-workspace" style={{ position: 'relative', marginRight: isPanelOpen ? 640 : 0, width: isPanelOpen ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
