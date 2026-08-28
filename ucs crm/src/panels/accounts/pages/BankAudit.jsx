@@ -24,6 +24,7 @@ const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u
 // id) and must keep using the entry endpoints for edit/delete.
 const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id === 'string' && String(r.id).indexOf('suspense-') === 0);
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
+const NGO_STYLE = { bsct:{background:'#dbeafe',color:'#1d4ed8'}, aflf:{background:'#dcfce7',color:'#166534'}, mann:{background:'#fce7f3',color:'#be185d'} };
 const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:TODAY_IST,remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
 const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','Paytm','others'];
@@ -284,22 +285,29 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
   const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
   const mask=(v)=>locked?'XXXX':v;
   const ngoTabs=[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']];
-
-  if(loading){
-    return (
-      <div style={{display:'flex',alignItems:'center',gap:12,padding:bare?0:'22px 24px',borderRadius:16,border:bare?'none':'1px solid #e7ecf3',background:bare?'transparent':'linear-gradient(135deg,#fff,#f8fafc)'}}>
-        <span className="sk" style={{width:46,height:46,borderRadius:12,flexShrink:0}}/>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <span className="sk" style={{width:110,height:13,borderRadius:7}}/>
-          <span className="sk" style={{width:150,height:24,borderRadius:8}}/>
-        </div>
-      </div>
-    );
-  }
-
   const outer = bare
     ? {display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16}
     : {display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:16,padding:'20px 22px',borderRadius:16,background:'linear-gradient(135deg,#ffffff 0%,#f6f8fb 100%)',border:'1px solid #e7ecf3',boxShadow:'0 6px 24px rgba(30,41,59,.06)'};
+
+  if(loading){
+    return (
+      <div style={outer}>
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          <span className="sk" style={{width:50,height:50,borderRadius:14,flexShrink:0}}/>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <span className="sk" style={{width:70,height:11,borderRadius:6}}/>
+            <span className="sk" style={{width:150,height:28,borderRadius:8}}/>
+            <span className="sk" style={{width:180,height:12,borderRadius:6}}/>
+          </div>
+        </div>
+        {setSuspenseNgo&&(
+          <div style={{display:'inline-flex',gap:4,padding:4,background:'#eef1f6',borderRadius:12}}>
+            {ngoTabs.map((t,i)=><span key={i} className="sk" style={{width:52,height:30,borderRadius:9}}/>)}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={outer}>
@@ -407,7 +415,11 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           <div className="ec-main">
             <div className="ec-primary">
               <div className="ec-title">{e.payer_name||'\u2014'}</div>
-              <div className="ec-sub">{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2, minWidth: 0 }}>
+                <span className="ec-sub" style={{ marginTop: 0 }}>{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</span>
+                {(e.verify_type||e.verify_fro_worker_id)&&<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED</span>}
+                {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="ec-sub" style={{ marginTop: 0 }} title="Agent">{e.agent_name||e.match_fro}</span>}
+              </div>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               {e.receipt_no&&<span style={{fontSize:15,fontWeight:800,color:'#16a34a',fontFamily:'monospace',letterSpacing:'.5px'}}>{e.receipt_no}</span>}
@@ -416,16 +428,16 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             </div>
           </div>
           <div className="ec-meta">
-            {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='static_fro'?'#fef9c3':e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='static_fro'?'#854d0e':e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='static_fro'?'STATIC FRO':e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
-            {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
-            {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
-            <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
-            {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
-            {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
-            {(e.verify_type||e.verify_fro_worker_id)&&<span className="pill" style={{fontSize:10,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap',fontWeight:700}} title="Manual verify details saved">SAVED{e.verify_fro_name?` \u00B7 ${e.verify_fro_name}`:''}</span>}
-            <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
-            {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name||e.match_fro}</span>}
-            <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px', minWidth: 0, flex: 1 }}>
+              {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#ffedd5',color:'#c2410c',whiteSpace:'nowrap'}}>MATCHED</span>}
+              {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
+              {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
+              <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
+              {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
+              {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
+              <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
+            </div>
+            <span className="pill" style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, background: (NGO_STYLE[ngoOf(e)]||{background:'#f3f4f6',color:'#6b7280'}).background, color: (NGO_STYLE[ngoOf(e)]||{background:'#f3f4f6',color:'#6b7280'}).color, borderRadius: 999, padding: '3px 10px' }}>{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
           </div>
         </div>
       )}
@@ -782,7 +794,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {st==='unverified'&&!isReceiptSuspense(se)&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:se.match_source==='static_fro'?'#fefce8':'#f0fdf4',border:`1px solid ${se.match_source==='static_fro'?'#fde68a':'#86efac'}`,borderRadius:10,alignItems:'center'}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:se.match_source==='static_fro'?'#92400e':'#166534'}}>{se.match_source==='static_fro'?'STATIC FRO VERIFIED':se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:se.match_source==='static_fro'?'#92400e':'#166534'}}>{se.match_source==='static_fro'?'STATIC FRO VERIFIED':'MATCHED'}</div>
           <div style={{fontSize:12,color:se.match_source==='static_fro'?'#92400e':'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.agent_name||''}{se.match_donor?` · ${se.match_donor}`:''}</div>
           {se.editable_until&&<div style={{fontSize:10,color:'#92400e',marginTop:2}}>Editable until {new Date(se.editable_until).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>}
         </div>

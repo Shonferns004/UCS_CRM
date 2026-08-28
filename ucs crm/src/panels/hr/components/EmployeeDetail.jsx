@@ -882,10 +882,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   <span style={{ fontSize: 16 }}>{isSalaryUnlocked ? '🔓' : '🔒'}</span>
                   <div>
                     <span style={{ fontWeight: 700, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
-                      {isSalaryUnlocked ? 'Salary Unlocked (Viewing Full Numbers)' : 'Salary Confidential & Hidden (XXXX)'}
+                      {isSalaryUnlocked ? 'Salary Unlocked (Viewing Full Numbers)' : 'Salary Confidential & Hidden (XXX)'}
                     </span>
                     <div style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
-                      {isSalaryUnlocked ? 'You can view and update confidential salary information.' : 'Enter your password to reveal or update confidential salary figures.'}
+                      {isSalaryUnlocked ? 'You can view and update confidential salary information.' : 'Enter your access code to reveal or update confidential salary figures.'}
                     </div>
                   </div>
                 </div>
@@ -1120,7 +1120,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         <Equals />
                         <Box num={paidDays} label={'Paid\nDays'} color="#5B6B4E" />
                         <Times />
-                        <Box num={isSalaryUnlocked ? ('₹' + perDay.toFixed(2)) : '₹ ••••••'} label={'Per Day\nRate'} color="#4F6472" />
+                        <Box num={isSalaryUnlocked ? ('₹' + perDay.toFixed(2)) : '₹ XXX'} label={'Per Day\nRate'} color="#4F6472" />
                         <Arrow />
                         <Box num={lateDeductionDays > 0 ? '-' + lateDeductionDays : '0'} label={'Late\nDeduction'} color={lateDeductionDays > 0 ? '#e67e22' : '#5B6B4E'} />
                         {joiningDeduction > 0 && <><Arrow /><Box num={'−' + joiningDeduction + 'd'} label={'Join\nDeduction'} color="#8B5CF6" /></>}
