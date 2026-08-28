@@ -5049,3 +5049,45 @@ export const getReportData = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// Shared 4-digit access code gating downloads & the locked Reports page.
+// Only accounts / super_admin can reach these routes (enforced at the router).
+const ACCESS_CODE_SETTING_KEY = 'accounts_access_code';
+
+const codeToStr = (v) => String(v ?? '').trim();
+
+// GET /accounts/access-code/status -> { set: boolean }
+export const getAccessCodeStatus = async (req, res) => {
+  try {
+    const raw = await getSetting(ACCESS_CODE_SETTING_KEY);
+    return res.json({ set: Boolean(raw) });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/access-code  { code } -> create if none exists
+export const createAccessCode = async (req, res) => {
+  try {
+    const existing = await getSetting(ACCESS_CODE_SETTING_KEY);
+    if (existing) return res.status(409).json({ message: 'Access code already set.' });
+    const code = codeToStr(req.body?.code);
+    if (!/^\d{4}$/.test(code)) return res.status(400).json({ message: 'Code must be exactly 4 digits.' });
+    await upsertSetting(ACCESS_CODE_SETTING_KEY, code);
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/access-code/verify  { code } -> { ok }
+export const verifyAccessCode = async (req, res) => {
+  try {
+    const code = codeToStr(req.body?.code);
+    const stored = await getSetting(ACCESS_CODE_SETTING_KEY);
+    if (!stored) return res.json({ ok: false, message: 'No access code set yet.' });
+    return res.json({ ok: stored === code });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
