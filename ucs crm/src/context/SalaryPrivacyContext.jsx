@@ -14,8 +14,8 @@ const SalaryPrivacyContext = createContext({
 export function SalaryPrivacyProvider({ children }) {
   const [isSalaryUnlocked, setIsSalaryUnlocked] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
-  const [password, setPassword] = useState('')
-  const [showPasswordText, setShowPasswordText] = useState(false)
+  const [mode, setMode] = useState('enter') // 'enter' | 'create'
+  const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [pendingCallback, setPendingCallback] = useState(null)
@@ -25,29 +25,49 @@ export function SalaryPrivacyProvider({ children }) {
       if (typeof callback === 'function') callback()
       return
     }
-    setPassword('')
+    setCode('')
     setError('')
-    setShowPasswordText(false)
     setPendingCallback(() => (typeof callback === 'function' ? callback : null))
-    setModalOpen(true)
+    const token = getToken('ucs')
+    fetch(`${API_BASE}/salary/access-code/status`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    })
+      .then(res => res.json())
+      .then(data => {
+        setMode(data && data.set ? 'enter' : 'create')
+        setModalOpen(true)
+      })
+      .catch(() => {
+        setMode('enter')
+        setModalOpen(true)
+      })
   }
 
-  const unlockSalary = async (pwd) => {
+  const unlockSalary = async (enteredCode) => {
     setLoading(true)
     setError('')
     try {
       const token = getToken('ucs')
-      const res = await fetch(`${API_BASE}/salary/verify-password`, {
+      const endpoint = mode === 'create'
+        ? `${API_BASE}/salary/access-code`
+        : `${API_BASE}/salary/access-code/verify`
+      const body = mode === 'create'
+        ? { code: enteredCode }
+        : { code: enteredCode }
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ password: pwd }),
+        body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({ message: res.statusText }))
       if (!res.ok) {
-        throw new Error(data.message || 'Incorrect password. Please try again.')
+        throw new Error(data.message || 'Incorrect code. Please try again.')
+      }
+      if (mode === 'verify' && data.ok === false) {
+        throw new Error(data.message || 'Incorrect code. Please try again.')
       }
       setIsSalaryUnlocked(true)
       setModalOpen(false)
@@ -57,8 +77,14 @@ export function SalaryPrivacyProvider({ children }) {
       }
       return { success: true }
     } catch (err) {
-      setError(err.message || 'Incorrect password. Please try again.')
-      return { success: false, error: err.message }
+      const msg = err.message || 'Incorrect code. Please try again.'
+      if (/already set/i.test(msg)) {
+        setMode('enter')
+        setError('A code already exists. Enter it instead.')
+      } else {
+        setError(msg)
+      }
+      return { success: false, error: msg }
     } finally {
       setLoading(false)
     }
@@ -90,11 +116,11 @@ export function SalaryPrivacyProvider({ children }) {
 
   const handleModalSubmit = async (e) => {
     if (e) e.preventDefault()
-    if (!password.trim()) {
-      setError('Please enter your password')
+    if (code.length !== 4) {
+      setError('Enter the 4-digit code.')
       return
     }
-    await unlockSalary(password)
+    await unlockSalary(code)
   }
 
   return (
@@ -116,143 +142,147 @@ export function SalaryPrivacyProvider({ children }) {
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            backgroundColor: 'rgba(15, 23, 42, 0.55)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 9999,
-            backdropFilter: 'blur(2px)',
+            zIndex: 10000,
+            padding: 16,
+            animation: 'spcFade .18s ease',
           }}
-          onClick={() => {
-            setModalOpen(false)
-            setPendingCallback(null)
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setModalOpen(false)
+              setPendingCallback(null)
+            }
           }}
         >
           <div
-            className="modal-card"
             style={{
               backgroundColor: '#fff',
-              borderRadius: 12,
-              padding: '24px 28px',
-              maxWidth: 420,
-              width: '90%',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08)',
-              animation: 'fadeIn .15s ease-out',
+              borderRadius: 16,
+              maxWidth: 400,
+              width: '100%',
+              overflow: 'hidden',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+              animation: 'spcPop .2s ease',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <div style={{ padding: '22px 24px 16px', borderBottom: '1px solid #eef1f5' }}>
               <div
                 style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  background: '#fef3c7',
-                  color: '#d97706',
+                  width: 48,
+                  height: 48,
+                  borderRadius: 12,
+                  marginBottom: 14,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: 20,
-                  flexShrink: 0,
+                  background: mode === 'create' ? '#EFF6FF' : '#F0FDF4',
+                  boxShadow: 'inset 0 0 0 1px ' + (mode === 'create' ? 'rgba(37,99,235,0.2)' : 'rgba(22,163,74,0.2)'),
                 }}
               >
-                🔒
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={mode === 'create' ? '#2563eb' : '#16a34a'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" />
+                  {mode === 'create'
+                    ? <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                    : <path d="M7 11V7a5 5 0 0 1 10 0v4" />}
+                </svg>
               </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#111827' }}>
-                  Confidential Salary Access
-                </h3>
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>
-                  Enter password to view & update salary.
-                </p>
-              </div>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
+                {mode === 'create' ? 'Create Salary Access Code' : 'Confidential Salary Access'}
+              </h3>
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+                {mode === 'create'
+                  ? 'No access code exists yet. Create a 4-digit code so only authorized users can view salary details.'
+                  : 'Enter the 4-digit access code to view & update salary.'}
+              </p>
             </div>
 
             <form onSubmit={handleModalSubmit}>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Account / Master Password
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type={showPasswordText ? 'text' : 'password'}
-                    placeholder="Enter password..."
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value)
-                      setError('')
-                    }}
-                    autoFocus
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 36px 8px 12px',
-                      borderRadius: 6,
-                      border: `1px solid ${error ? '#ef4444' : '#d1d5db'}`,
-                      fontSize: 14,
-                      outline: 'none',
-                      fontFamily: 'inherit',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswordText(!showPasswordText)}
-                    style={{
-                      position: 'absolute',
-                      right: 8,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 14,
-                      color: '#6b7280',
-                      padding: 2,
-                    }}
-                    title={showPasswordText ? 'Hide password' : 'Show password'}
-                  >
-                    {showPasswordText ? '🙈' : '👁️'}
-                  </button>
-                </div>
+              <div style={{ padding: 20 }}>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoFocus
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value.replace(/\D/g, '').slice(0, 4))
+                    setError('')
+                  }}
+                  placeholder="••••"
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    fontSize: 26,
+                    fontWeight: 600,
+                    textAlign: 'center',
+                    letterSpacing: 14,
+                    boxSizing: 'border-box',
+                    borderRadius: 12,
+                    outline: 'none',
+                    color: '#0f172a',
+                    border: error ? '1px solid #ef4444' : '1px solid #d1d9e4',
+                    background: error ? '#fef2f2' : '#f8fafc',
+                    transition: 'border-color .15s, box-shadow .15s',
+                    boxShadow: error
+                      ? '0 0 0 3px rgba(239,68,68,0.12)'
+                      : (code.length === 4 ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 0 0 3px transparent'),
+                  }}
+                />
                 {error && (
-                  <div style={{ color: '#ef4444', fontSize: 12, marginTop: 6, fontWeight: 500 }}>
+                  <div style={{ fontSize: 12.5, color: '#dc2626', marginTop: 10, fontWeight: 500 }}>
                     {error}
                   </div>
                 )}
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={() => {
-                    setModalOpen(false)
-                    setPendingCallback(null)
-                  }}
-                  style={{ padding: '7px 14px', fontSize: 13, borderRadius: 6, cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={loading || !password.trim()}
-                  style={{
-                    padding: '7px 18px',
-                    fontSize: 13,
-                    borderRadius: 6,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    background: 'var(--sage, #5B6B4E)',
-                    color: '#fff',
-                    border: 'none',
-                  }}
-                >
-                  {loading ? 'Verifying...' : 'Unlock Salary'}
-                </button>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModalOpen(false)
+                      setPendingCallback(null)
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '10px 18px',
+                      borderRadius: 10,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      background: '#ffffff',
+                      color: '#475569',
+                      border: '1px solid #d1d9e4',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || code.length !== 4}
+                    style={{
+                      cursor: loading ? 'default' : 'pointer',
+                      padding: '10px 18px',
+                      borderRadius: 10,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      background: '#2563eb',
+                      color: '#ffffff',
+                      border: 'none',
+                      opacity: (loading || code.length !== 4) ? 0.55 : 1,
+                      boxShadow: '0 4px 14px rgba(37,99,235,0.35)',
+                    }}
+                  >
+                    {loading ? 'Checking…' : (mode === 'create' ? 'Create & Continue' : 'Unlock Salary')}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
+
+          <style>{`
+            @keyframes spcFade { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes spcPop { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+          `}</style>
         </div>
       )}
     </SalaryPrivacyContext.Provider>
