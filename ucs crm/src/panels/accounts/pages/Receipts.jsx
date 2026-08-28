@@ -272,23 +272,6 @@ function DateRangePicker({ from, to, onFromChange, onToChange }) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
-function StatRow({ label, value, color, loading }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '10px 0', borderTop: '1px solid var(--line)' }}>
-      {loading ? (
-        <span style={{ display: 'inline-block', height: 22, width: 72, borderRadius: 6, background: 'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} />
-      ) : (
-        <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color, lineHeight: 1.2, whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>{value}</div>
-      )}
-      <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
-    </div>
-  );
-}
-
-const SkeletonCardTitle = () => (
-  <span style={{ display: 'inline-block', height: 15, width: 110, borderRadius: 6, background: 'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} />
-);
-
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
   const [statsByProject, setStatsByProject] = useState([])
@@ -912,16 +895,6 @@ export default function Receipts() {
   const currentTpl = getNgoSettings(currentNgo)
   const TemplateComp = currentTpl.comp
 
-  const ALL_PROJECTS = ['bsct', 'aflf', 'mann'];
-  const statsMap = {};
-  (filterDate || filterMonth || filterFrom || filterTo ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
-  const totalStats = { count: 0, total_amount: 0 };
-  ALL_PROJECTS.forEach(pid => {
-    const s = statsMap[pid] || {};
-    totalStats.count += s.count || 0;
-    totalStats.total_amount += s.total_amount || 0;
-  });
-
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -932,32 +905,6 @@ export default function Receipts() {
           onFromChange={v => { setFilterFrom(v); if (v) { setFilterDate(null); setFilterMonth(null) } }}
           onToChange={v => { setFilterTo(v); if (v) { setFilterDate(null); setFilterMonth(null) } }}
         />
-      </div>
-
-      <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
-        {ALL_PROJECTS.map(pid => {
-          const s = statsMap[pid] || {};
-          return (
-            <div key={pid} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-                {statsLoading ? <SkeletonCardTitle /> : (PROJECT_LABELS[pid] || pid)}
-              </div>
-              <div style={{ width: '100%' }}>
-                <StatRow label="Receipts" value={(s.count || 0).toLocaleString('en-IN')} color="#2563eb" loading={statsLoading} />
-                <StatRow label="Amount" value={currency(s.total_amount)} color="#0ea5e9" loading={statsLoading} />
-              </div>
-            </div>
-          );
-        })}
-        <div className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-            {statsLoading ? <SkeletonCardTitle /> : 'Total'}
-          </div>
-          <div style={{ width: '100%' }}>
-            <StatRow label="Receipts" value={totalStats.count.toLocaleString('en-IN')} color="#2563eb" loading={statsLoading} />
-            <StatRow label="Amount" value={currency(totalStats.total_amount)} color="#0ea5e9" loading={statsLoading} />
-          </div>
-        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
