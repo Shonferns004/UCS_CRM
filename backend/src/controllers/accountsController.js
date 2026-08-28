@@ -3,6 +3,7 @@ import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
 import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, voidReceipt, deleteReceiptSafely, bulkDeleteReceipts, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
+import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import XLSX from 'xlsx';
@@ -4758,6 +4759,203 @@ export const updateReceipt = async (req, res) => {
     }
 
     return res.json({ receipt: updated, message: 'Receipt updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const TARGETS_SETTING_KEY = 'accounts_report_targets';
+
+// Compute working days from month start -> today for a given NGO.
+// Working days = Mon-Sat days minus that NGO's holidays, PLUS one extra Sunday
+// (the last Sunday of the month) once it has arrived (<= today).
+export function computeReportWorkingDays({ month, today, ngoId, holidayDates }) {
+  const [y, m] = month.split('-').map(Number);
+  const todayT = today || new Date();
+  const todayISO = `${todayT.getFullYear()}-${String(todayT.getMonth() + 1).padStart(2, '0')}-${String(todayT.getDate()).padStart(2, '0')}`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const holiday = new Set((holidayDates || []).map((d) => String(d).slice(0, 10)));
+
+  // last Sunday of the month
+  let lastSunday = null;
+  for (let d = lastDay; d >= 1; d--) {
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow === 0) { lastSunday = d; break; }
+  }
+  const lastSundayISO = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(lastSunday).padStart(2, '0')}`;
+
+  let count = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    const iso = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (iso > todayISO) break; // only count days up to today
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow === 0) continue; // every Sunday off by default
+    if (holiday.has(iso)) continue;
+    count++;
+  }
+  // add the last Sunday of the month once it is <= today
+  if (lastSundayISO <= todayISO && !holiday.has(lastSundayISO)) count++;
+
+  return { count, lastSundayISO };
+}
+
+// GET /accounts/report-targets
+export const getReportTargets = async (req, res) => {
+  try {
+    const raw = await getSetting(TARGETS_SETTING_KEY);
+    const parsed = raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
+    return res.json({
+      month: parsed?.month || new Date().toISOString().slice(0, 7),
+      overall: Number(parsed?.overall) || 0,
+      byNgo: parsed?.byNgo || {},
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// PUT /accounts/report-targets
+export const putReportTargets = async (req, res) => {
+  try {
+    const { month, overall, byNgo } = req.body;
+    const payload = {
+      month: month || new Date().toISOString().slice(0, 7),
+      overall: Number(overall) || 0,
+      byNgo: byNgo || {},
+    };
+    await upsertSetting(TARGETS_SETTING_KEY, JSON.stringify(payload));
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /accounts/report-data?month=YYYY-MM
+export const getReportData = async (req, res) => {
+  try {
+    const requestedMonth = req.query.month || new Date().toISOString().slice(0, 7);
+    let [y, m] = requestedMonth.split('-').map(Number);
+    if (!y || !m) {
+      y = new Date().getFullYear();
+      m = new Date().getMonth() + 1;
+    }
+    const month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
+    const today = new Date();
+
+    const targetsRaw = await getSetting(TARGETS_SETTING_KEY);
+    let savedTargets = null;
+    if (targetsRaw) { try { savedTargets = JSON.parse(targetsRaw); } catch { savedTargets = null; } }
+    const savedOverall = savedTargets && savedTargets.month === month ? (Number(savedTargets.overall) || 0) : 0;
+    const savedByNgo = (savedTargets && savedTargets.month === month && savedTargets.byNgo) ? savedTargets.byNgo : {};
+
+    // NGOs: ngos.id is a UUID; the canonical report key is the lowercase code
+    // (bsct/aflf/mann) which is what bank_audit_entries.project_id uses.
+    const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+    if (naErr) throw naErr;
+    const slugOf = (n) => {
+      if (!n) return null;
+      const code = String(n.code || '').trim().toLowerCase();
+      if (code) return code;
+      const name = String(n.name || '').trim().toLowerCase();
+      return name;
+    };
+    const uuidToSlug = {};
+    const ngoList = [];
+    const seen = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      uuidToSlug[n.id] = slug;
+      if (slug && !seen[slug] && ['bsct', 'aflf', 'mann'].includes(slug)) {
+        seen[slug] = true;
+        ngoList.push({ id: slug, name: n.name });
+      }
+    }
+    const ngoIds = ngoList.map((x) => x.id);
+    if (ngoIds.length === 0) {
+      for (const [slug, name] of [['bsct', 'BSCT'], ['aflf', 'AFLF'], ['mann', 'MANN']]) {
+        ngoList.push({ id: slug, name });
+        ngoIds.push(slug);
+      }
+    }
+
+    // Holiday per NGO (holidays.ngo_id is a UUID -> map via ngos)
+    const { data: holidays, error: hErr } = await db.from('holidays').select('ngo_id, date').eq('type', 'holiday');
+    if (hErr) throw hErr;
+    const holidayByNgo = {};
+    for (const n of ngoIds) holidayByNgo[n] = [];
+    for (const h of holidays || []) {
+      const slug = uuidToSlug[h.ngo_id];
+      if (slug && holidayByNgo[slug]) holidayByNgo[slug].push(String(h.date).slice(0, 10));
+    }
+
+    // Bank audit entries for the month, grouped per (project_id, source name)
+    const dateFrom = `${month}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    const { data: entries, error: bErr } = await db
+      .from('bank_audit_entries')
+      .select('amount, project_id, status, bank_audit_sources(name)')
+      .gte('transaction_date', dateFrom)
+      .lte('transaction_date', dateTo);
+    if (bErr) throw bErr;
+
+    const sourceOrder = [];
+    const sourceSet = {};
+    const byNgo = {};
+    for (const n of ngoIds) {
+      byNgo[n] = { sources: {}, suspense: 0 };
+    }
+    for (const e of entries || []) {
+      const ngo = e.project_id && byNgo[e.project_id] ? e.project_id : null;
+      const srcName = e.bank_audit_sources?.name || 'Unknown';
+      if (ngo) {
+        const amt = Number(e.amount || 0);
+        if (e.status === 'unverified') {
+          byNgo[ngo].suspense += amt;
+        }
+        byNgo[ngo].sources[srcName] = (byNgo[ngo].sources[srcName] || 0) + amt;
+        if (!sourceSet[srcName]) { sourceSet[srcName] = true; sourceOrder.push(srcName); }
+      }
+    }
+
+    // Build per-NGO output rows
+    const ngoRows = [];
+    for (const n of ngoIds) {
+      const total = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
+      const { count: workingDaysSoFar } = computeReportWorkingDays({ month, today, ngoId: n, holidayDates: holidayByNgo[n] });
+      const ngoTarget = Number(savedByNgo[n]) || 0;
+      const targetDaily = workingDaysSoFar > 0 ? ngoTarget / workingDaysSoFar : 0;
+      const daysElapsed = (() => {
+        const [cy, cm] = [today.getFullYear(), today.getMonth() + 1];
+        if (cy === y && cm === m) return today.getDate();
+        if (cy > y || (cy === y && cm > m)) return lastDay; // past months = full month
+        return 0; // future months
+      })();
+      const actualAvg = daysElapsed > 0 ? total / daysElapsed : 0;
+      ngoRows.push({
+        id: n,
+        name: (ngoList.find((g) => g.id === n) || {}).name || n,
+        total,
+        suspense: byNgo[n].suspense,
+        daysElapsed,
+        workingDaysSoFar,
+        targetDaily,
+        actualAvg,
+        diff: actualAvg - targetDaily,
+        monthlyTarget: ngoTarget,
+      });
+    }
+
+    return res.json({
+      month,
+      ngos: ngoList,
+      sourceOrder,
+      byNgo,
+      rows: ngoRows,
+      overallTarget: savedOverall,
+      byNgoTargets: savedByNgo,
+      holidayByNgo,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
