@@ -150,17 +150,16 @@ export default function Reports() {
     grandBySource[s] = ngos.reduce((sum, n) => sum + ((data?.byNgo?.[n.id]?.sources?.[s]) || 0), 0);
   });
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
-  const grandSuspense = rows.reduce((s, r) => s + r.suspense, 0);
-  const grandAuditTotal = rows.reduce((s, r) => s + r.auditTotal, 0);
+  const grandSourceTotal = rows.reduce((s, r) => s + (r.sourceTotal || 0), 0);
   const grandReceiptCount = rows.reduce((s, r) => s + (r.receiptCount || 0), 0);
 
   // export CSV
   const exportCsv = () => {
-    const header = ['NGO', 'Receipts', 'Collection Total', ...sourceOrder.map(s => `${s} (audit)`), 'Audit Total', 'Suspense', 'Monthly Target', 'Working Days', 'Daily Target', 'Avg/Day', 'Diff'];
+    const header = ['NGO', 'Receipts', 'Collection Total', ...sourceOrder.map(s => `Source: ${s}`), 'Source Total', 'Monthly Target', 'Working Days', 'Daily Target', 'Avg/Day', 'Diff'];
     const body = rows.map(r => [
       r.name, r.receiptCount || 0, r.total,
       ...sourceOrder.map(s => (data?.byNgo?.[r.id]?.sources?.[s]) || 0),
-      r.auditTotal, r.suspense, r.monthlyTarget, r.workingDaysSoFar,
+      r.sourceTotal || 0, r.monthlyTarget, r.workingDaysSoFar,
       round2(r.targetDaily), round2(r.actualAvg), round2(r.diff),
     ]);
     const all = [header, ...body];
@@ -291,7 +290,6 @@ export default function Reports() {
                     <th style={{ padding: '8px 12px' }}>Daily Target</th>
                     <th style={{ padding: '8px 12px' }}>Avg/Day</th>
                     <th style={{ padding: '8px 12px' }}>Diff</th>
-                    <th style={{ padding: '8px 12px' }}>Suspense</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -307,7 +305,6 @@ export default function Reports() {
                         <td style={{ padding: '8px 12px' }}>{currency(round2(r.targetDaily))}</td>
                         <td style={{ padding: '8px 12px' }}>{currency(round2(r.actualAvg))}</td>
                         <td style={{ padding: '8px 12px', fontWeight: 700, color: diffColor }}>{round2(r.diff) >= 0 ? '+' : ''}{currency(round2(r.diff))}</td>
-                        <td style={{ padding: '8px 12px', color: '#dc2626' }}>{currency(r.suspense)}</td>
                       </tr>
                     );
                   })}
@@ -319,8 +316,6 @@ export default function Reports() {
                     <td style={{ padding: '8px 12px' }}></td>
                     <td style={{ padding: '8px 12px' }}></td>
                     <td style={{ padding: '8px 12px' }}></td>
-                    <td style={{ padding: '8px 12px' }}></td>
-                    <td style={{ padding: '8px 12px', color: '#dc2626' }}>{currency(grandSuspense)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -346,7 +341,7 @@ export default function Reports() {
               </div>
             </div>
             <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
-              Source-wise split is from bank-audit matched money. The per-NGO "Collected" totals above are the full collection from receipts, so the source subtotals below are part of (not equal to) the receipt totals.
+              Source-wise split is from the receipts' payment mode. Each NGO's source subtotal sums to its full receipts collection total.
             </div>
             <div className="table-wrap" style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
@@ -368,18 +363,11 @@ export default function Reports() {
                     </tr>
                   ))}
                   <tr style={{ borderTop: '2px solid var(--sage)' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>Source Total (bank audit)</td>
+                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
                     {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                      <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.auditTotal) || 0)}</td>
+                      <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0)}</td>
                     ))}
-                    {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandAuditTotal)}</td>}
-                  </tr>
-                  <tr style={{ borderTop: '1px solid var(--line)' }}>
-                    <td style={{ padding: '8px 12px' }}><span className="pill pill-gray" style={{ color: '#dc2626' }}>Suspense</span></td>
-                    {(sourceTab === 'All' ? rows : rows.filter(r => r.id === sourceTab)).map(r => (
-                      <td key={r.id} style={{ padding: '8px 12px', color: '#dc2626' }}>{currency(r.suspense)}</td>
-                    ))}
-                    {sourceTab === 'All' && <td style={{ padding: '8px 12px', color: '#dc2626', fontWeight: 700 }}>{currency(grandSuspense)}</td>}
+                    {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandSourceTotal)}</td>}
                   </tr>
                 </tbody>
               </table>
