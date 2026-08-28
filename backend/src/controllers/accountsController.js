@@ -4833,7 +4833,16 @@ export const putReportTargets = async (req, res) => {
 // GET /accounts/report-data?month=YYYY-MM
 export const getReportData = async (req, res) => {
   try {
-    const requestedMonth = req.query.month || new Date().toISOString().slice(0, 7);
+    const requestedDate = (req.query.date || '').trim(); // YYYY-MM-DD (Day mode)
+    let dayMode = false;
+    let day = '';
+    let requestedMonth = (req.query.month || '').trim();
+    if (requestedDate) {
+      dayMode = true;
+      day = requestedDate.slice(0, 10);
+      requestedMonth = day.slice(0, 7);
+    }
+    if (!requestedMonth || !/^\d{4}-\d{2}$/.test(requestedMonth)) requestedMonth = new Date().toISOString().slice(0, 7);
     let [y, m] = requestedMonth.split('-').map(Number);
     if (!y || !m) {
       y = new Date().getFullYear();
@@ -4888,10 +4897,11 @@ export const getReportData = async (req, res) => {
       if (slug && holidayByNgo[slug]) holidayByNgo[slug].push(String(h.date).slice(0, 10));
     }
 
-    // Bank audit entries for the month, grouped per (project_id, source name)
-    const dateFrom = `${month}-01`;
+    // Bank audit entries for the month (or single day), grouped per (project_id, source name)
     const lastDay = new Date(y, m, 0).getDate();
-    const dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    let dateFrom = `${month}-01`;
+    let dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    if (dayMode) { dateFrom = day; dateTo = day; }
     const { data: entries, error: bErr } = await db
       .from('bank_audit_entries')
       .select('amount, project_id, status, bank_audit_sources(name)')
@@ -4908,8 +4918,8 @@ export const getReportData = async (req, res) => {
       .from('receipts')
       .select('project_id, amount')
       .not('receipt_no', 'is', null)
-      .gte('receipt_date', `${month}-01`)
-      .lte('receipt_date', `${month}-${String(lastDay).padStart(2, '0')}`);
+      .gte('receipt_date', dateFrom)
+      .lte('receipt_date', dateTo);
     if (rErr) throw rErr;
     for (const r of monthReceipts || []) {
       const ngo = r.project_id && receiptTotalByNgo[r.project_id] ? r.project_id : null;
@@ -4944,15 +4954,33 @@ export const getReportData = async (req, res) => {
       const auditTotal = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
       const total = receiptTotalByNgo[n].total;
       const receiptCount = receiptTotalByNgo[n].count;
-      const { count: workingDaysSoFar } = computeReportWorkingDays({ month, today, ngoId: n, holidayDates: holidayByNgo[n] });
       const ngoTarget = Number(savedByNgo[n]) || 0;
-      const targetDaily = workingDaysSoFar > 0 ? ngoTarget / workingDaysSoFar : 0;
-      const daysElapsed = (() => {
+      let workingDaysSoFar;
+      let daysElapsed;
+      if (dayMode) {
+        // Single-day view: 1 working day if the chosen day is a working day
+        const hset = new Set((holidayByNgo[n] || []).map((d) => String(d).slice(0, 10)));
+        const dt = new Date(`${day}T00:00:00Z`);
+        const dow = dt.getUTCDay();
+        const isLastSunday = (() => {
+          const lastD = new Date(y, m, 0).getDate();
+          for (let d = lastD; d >= 1; d--) if (new Date(y, m - 1, d).getDay() === 0) return d;
+          return null;
+        })();
+        const isSunday = dow === 0;
+        const countedSunday = isSunday && Number(day.slice(8, 10)) === isLastSunday;
+        const isWorkDay = (!isSunday || countedSunday) && !hset.has(day);
+        workingDaysSoFar = isWorkDay ? 1 : 0;
+        daysElapsed = 1;
+      } else {
+        const { count } = computeReportWorkingDays({ month, today, ngoId: n, holidayDates: holidayByNgo[n] });
+        workingDaysSoFar = count;
         const [cy, cm] = [today.getFullYear(), today.getMonth() + 1];
-        if (cy === y && cm === m) return today.getDate();
-        if (cy > y || (cy === y && cm > m)) return lastDay; // past months = full month
-        return 0; // future months
-      })();
+        if (cy === y && cm === m) daysElapsed = today.getDate();
+        else if (cy > y || (cy === y && cm > m)) daysElapsed = lastDay; // past months = full month
+        else daysElapsed = 0; // future months
+      }
+      const targetDaily = workingDaysSoFar > 0 ? ngoTarget / workingDaysSoFar : 0;
       const actualAvg = daysElapsed > 0 ? total / daysElapsed : 0;
       ngoRows.push({
         id: n,
@@ -4972,6 +5000,8 @@ export const getReportData = async (req, res) => {
 
     return res.json({
       month,
+      mode: dayMode ? 'day' : 'month',
+      day: dayMode ? day : null,
       ngos: ngoList,
       sourceOrder,
       byNgo,
