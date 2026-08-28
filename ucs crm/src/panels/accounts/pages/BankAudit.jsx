@@ -787,7 +787,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {st==='unverified'&&!isReceiptSuspense(se)&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:se.match_source==='static_fro'?'#fefce8':'#f0fdf4',border:`1px solid ${se.match_source==='static_fro'?'#fde68a':'#86efac'}`,borderRadius:10,alignItems:'center'}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:se.match_source==='static_fro'?'#92400e':'#166534'}}>{se.match_source==='static_fro'?'STATIC FRO VERIFIED':se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:se.match_source==='static_fro'?'#92400e':'#166534'}}>{se.match_source==='static_fro'?'STATIC FRO VERIFIED':'MATCHED'}</div>
           <div style={{fontSize:12,color:se.match_source==='static_fro'?'#92400e':'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.agent_name||''}{se.match_donor?` · ${se.match_donor}`:''}</div>
           {se.editable_until&&<div style={{fontSize:10,color:'#92400e',marginTop:2}}>Editable until {new Date(se.editable_until).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>}
         </div>
