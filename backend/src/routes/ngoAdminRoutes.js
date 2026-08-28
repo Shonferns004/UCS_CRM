@@ -92,9 +92,10 @@ const router = Router();
 router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
 router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
-// Accounts reports need stations/targets — allow accounts role for these read-only endpoints
+// Accounts reports need stations/targets/ngos — allow accounts role for these read-only endpoints
 router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), getStations);
 router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
+router.get('/ngos', authenticateRole('admin', 'super_admin', 'accounts'), getAccessibleNgos);
 
 router.use(authenticateRole('admin', 'super_admin'));
 
@@ -118,7 +119,6 @@ router.put('/followups/:assignmentId/date', updateFollowupDate);
 // Assigned Data
 router.get('/assigned-data', getAssignedData);
 
-router.get('/ngos', getAccessibleNgos);
 router.get('/donors', getDonors);
 router.get('/donors/:donorId/credit', getDonorCreditLogs);
 router.put('/credit-logs/:logId/transfer', transferDonorCredit);
