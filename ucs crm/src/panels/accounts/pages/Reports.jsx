@@ -57,6 +57,7 @@ export default function Reports() {
   const [stationWorkers, setStationWorkers] = useState({}); // station|ngo -> worker name, also station fallback
   const [stationWorkerIds, setStationWorkerIds] = useState({}); // station|ngo -> worker id
   const [realTargets, setRealTargets] = useState({}); // station|ngo -> target amount (derived via worker)
+  const [effectiveNgos, setEffectiveNgos] = useState(NGOS);
   const printRef = useRef(null);
 
   // Approximate targets — UI only, localStorage mock (both overall + per NGO/team)
@@ -97,11 +98,25 @@ export default function Reports() {
   useEffect(() => {
     (async () => {
       try {
+        // Prefer real NGO ids from API (accounts now allowed), fallback to hardcoded slugs
+        let ngoList = NGOS;
+        try {
+          const ngosRes = await apiGet('/ngo-admin/ngos');
+          const arr = Array.isArray(ngosRes) ? ngosRes : ngosRes?.ngos || ngosRes?.data || [];
+          if (Array.isArray(arr) && arr.length > 0 && arr[0]?.id) {
+            ngoList = arr.map(n => {
+              const name = n.name || n.ngo_name || n.id;
+              const code = name.includes('Sevak') || n.id === 'bsct' ? 'BSCT' : name.includes('Ashray') || n.id === 'aflf' ? 'AFLF' : name.includes('Mann') || n.id === 'mann' ? 'MANN' : String(n.id).toUpperCase().slice(0, 4);
+              return { id: n.id, name, code };
+            });
+            setEffectiveNgos(ngoList);
+          }
+        } catch {}
         let stations = null;
         let workerMap = {};
         let workerIdMap = {};
         // Fetch per NGO to get per (station, ngo) worker correctly (46 per NGO)
-        for (const ngo of NGOS) {
+        for (const ngo of ngoList) {
           try {
             const r = await apiGet('/ngo-admin/stations?ngo_id=' + ngo.id);
             const arr = Array.isArray(r) ? r : r?.stations || r?.data || [];
@@ -194,17 +209,18 @@ export default function Reports() {
       // Mock team/ngo aggregates from totalCollected for UI-only — uses allStations
       const stationsForMock = allStations.length > 0 ? allStations : STATIONS_FALLBACK;
       const total = Number(data.totalCollected || 0);
+      const ngosForMock = effectiveNgos.length > 0 ? effectiveNgos : NGOS;
       // NGO wise: split total proportionally by NGO
-      const ngoSplit = NGOS.map((n, idx) => {
+      const ngoSplit = ngosForMock.map((n, idx) => {
         const share = idx === 0 ? 0.5 : idx === 1 ? 0.3 : 0.2;
         return { ngo_id: n.id, ngo_name: n.name, code: n.code, collected: Math.round(total * share), submitted: Math.round((data.totalSubmitted || 0) * share) };
       });
       data.ngoWise = ngoSplit;
       // Team wise: all stations per NGO with worker and target
       data.teamWise = [];
-      for (const ngo of NGOS) {
+      for (const ngo of ngosForMock) {
         for (const st of stationsForMock) {
-          const share = 1 / (stationsForMock.length * NGOS.length);
+          const share = 1 / (stationsForMock.length * ngosForMock.length);
           const key = `${st}|${ngo.id}`;
           const wid = stationWorkerIds[key] || stationWorkerIds[st] || null;
           const widTgt = wid ? realTargets[`__wid_${wid}`] : 0;
@@ -231,7 +247,7 @@ export default function Reports() {
       setReport(data);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); }
-  }, [view, reportDate, reportMonth, allStations, stationWorkers, stationWorkerIds, realTargets, teamTargets]);
+  }, [view, reportDate, reportMonth, allStations, stationWorkers, stationWorkerIds, realTargets, teamTargets, effectiveNgos]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -383,7 +399,7 @@ export default function Reports() {
           }
           <select value={ngoFilter} onChange={e => setNgoFilter(e.target.value)} style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--card-bg)' }}>
             <option value="all">All NGOs</option>
-            {NGOS.map(n => <option key={n.id} value={n.id}>{n.code}</option>)}
+                  {effectiveNgos.map(n => <option key={n.id} value={n.id}>{n.code}</option>)}
           </select>
           {(view === 'team' || view === 'day') && (
             <select value={stationFilter} onChange={e => setStationFilter(e.target.value)} style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--card-bg)' }}>
@@ -412,7 +428,7 @@ export default function Reports() {
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600 }}>Overall target (₹)
               <input type="number" value={overallTarget || ''} onChange={e => saveOverall(e.target.value)} placeholder="Enter amount" style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13 }} />
             </label>
-            {NGOS.map(n => (
+            {effectiveNgos.map(n => (
               <label key={n.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600 }}>{n.code} target (₹)
                 <input type="number" value={ngoTargets[n.id] || ''} onChange={e => saveNgoTarget(n.id, e.target.value)} placeholder="—" style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13 }} />
               </label>
@@ -639,7 +655,7 @@ export default function Reports() {
                 <h3 style={{ margin: 0 }}>Team Details</h3>
                 <select value={teamDetailNgoFilter} onChange={e => setTeamDetailNgoFilter(e.target.value)} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--card-bg)' }}>
                   <option value="all">All NGOs</option>
-                  {NGOS.map(n => <option key={n.id} value={n.id}>{n.code}</option>)}
+            {effectiveNgos.map(n => <option key={n.id} value={n.id}>{n.code}</option>)}
                 </select>
               </div>
               <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
