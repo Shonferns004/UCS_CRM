@@ -30,66 +30,19 @@ const StatCardSkeleton = () => (
   </div>
 );
 
-const PixelCrab = () => {
-  const [claw, setClaw] = useState(false);
-  const [legPhase, setLegPhase] = useState(false);
-  useEffect(() => {
-    let t;
-    const tick = () => {
-      if (Math.random() < 0.5) setClaw(c => !c);
-      setLegPhase(p => !p);
-      t = setTimeout(tick, 300 + Math.random() * 900);
-    };
-    t = setTimeout(tick, 250);
-    return () => clearTimeout(t);
-  }, []);
-
-  const S = 8;
-  const O = '#7a1f14', R = '#e85d4a', D = '#c24a3c', W = '#ffffff', K = '#222222', C = '#ff6b52';
-  const P = (x, y, c) => <rect key={`${x},${y}`} x={x * S} y={y * S} width={S} height={S} fill={c} />;
-  const rect = (x0, x1, y0, y1, c) => {
-    const o = [];
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) o.push(P(x, y, c));
-    return o;
-  };
-
-  return (
-    <div className="no-print" style={{ width: 18 * S, height: 13 * S, flexShrink: 0, alignSelf: 'flex-end', marginLeft: 'auto', imageRendering: 'pixelated' }}>
-      <svg width="100%" height="100%" viewBox={`0 0 ${18 * S} ${13 * S}`} shapeRendering="crispEdges">
-        {/* body */}
-        {rect(4, 13, 5, 9, R)}
-        {rect(4, 13, 10, 10, D)}
-        {rect(4, 4, 5, 10, D)}
-        {rect(13, 13, 5, 10, D)}
-
-        {/* eyes (blink on their own) */}
-        <g style={{ transformOrigin: '64px 28px', animation: 'crabBlink 4.5s ease-in-out infinite' }}>
-          {rect(6, 7, 3, 4, W)}{P(7, 4, K)}
-        </g>
-        <g style={{ transformOrigin: '84px 28px', animation: 'crabBlink 4.5s ease-in-out .2s infinite' }}>
-          {rect(10, 11, 3, 4, W)}{P(11, 4, K)}
-        </g>
-
-        {/* claw arm */}
-        {P(14, 4, O)}{P(15, 4, O)}{P(16, 4, O)}{P(17, 4, O)}
-
-        {/* lower jaw (static) */}
-        {P(16, 3, C)}{P(17, 3, C)}
-
-        {/* upper jaw - random open/close flicks */}
-        <g style={{ transformOrigin: '136px 32px', transition: 'transform .18s', transform: claw ? 'rotate(58deg)' : 'rotate(0deg)' }}>
-          {P(16, 1, C)}{P(17, 1, C)}{P(16, 2, C)}{P(17, 2, C)}
-        </g>
-
-        {/* legs - random scuttle */}
-        <g transform={legPhase ? 'translate(0,1)' : 'translate(0,0)'} style={{ transition: 'transform .12s' }}>
-          {P(4, 11, O)}{P(6, 11, O)}{P(8, 11, O)}{P(10, 11, O)}{P(12, 11, O)}
-          {P(5, 12, O)}{P(7, 12, O)}{P(9, 12, O)}{P(11, 12, O)}
-        </g>
-      </svg>
-    </div>
-  );
-};
+const TenorCrab = () => (
+  <div className="no-print" style={{ width: 104, height: 96, flexShrink: 0, alignSelf: 'flex-end', marginLeft: 'auto' }}>
+    <video
+      src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
+      poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
+      autoPlay
+      loop
+      muted
+      playsInline
+      style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }}
+    />
+  </div>
+);
 
 const inputStyle = { fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontWeight: 600, background: '#fff', color: 'var(--ink)' };
 
@@ -111,7 +64,6 @@ const animStyle = `
   @keyframes rpFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .rp-card { animation: rpFadeUp .35s ease both; }
   .rp-tabs { animation: rpFadeUp .3s ease both; }
-  @keyframes crabBlink { 0%,91%,100% { transform: scaleY(1); } 94%,98% { transform: scaleY(0.08); } }
   @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
 `;
 
@@ -406,7 +358,7 @@ export default function Reports() {
               <div className="stat-num" style={{ color: '#fff' }}>{currency(grandTotal)} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
               <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
             </div>
-            <PixelCrab />
+            <TenorCrab />
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
             {rows.map((r, i) => (
