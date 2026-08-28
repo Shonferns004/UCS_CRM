@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
@@ -30,72 +30,24 @@ const StatCardSkeleton = () => (
   </div>
 );
 
-const CrabWalker = () => {
-  return (
-    <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 4, height: 104, pointerEvents: 'none', overflow: 'visible' }}>
-      {/* crab walks across the stage, pausing along the way */}
-      <div style={{ position: 'absolute', top: 4, width: 190, height: 100, animation: 'rpCrabWalk 20s ease-in-out infinite' }}>
-        <svg width="190" height="100" viewBox="0 0 190 100" style={{ width: '100%', height: '100%' }}>
-          {/* legs - back (left) */}
-          <g style={{ transformOrigin: '58px 68px', animation: 'crabLegs .3s ease-in-out infinite' }}>
-            <path d="M58 68 L48 82 L40 82" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
-          </g>
-          <g style={{ transformOrigin: '70px 68px', animation: 'crabLegs .3s ease-in-out infinite reverse' }}>
-            <path d="M70 68 L63 84 L55 86" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
-          </g>
-          <g style={{ transformOrigin: '82px 68px', animation: 'crabLegs .3s ease-in-out infinite' }}>
-            <path d="M82 68 L77 85 L69 87" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
-          </g>
-
-          {/* body shell */}
-          <ellipse cx="96" cy="56" rx="44" ry="30" fill="#e85d4a" stroke="#8f2418" strokeWidth="2.5"/>
-          <path d="M70 44 Q96 26 122 44 M66 60 Q96 44 126 60" stroke="#c74b3d" strokeWidth="3.5" fill="none"/>
-          <path d="M54 54 L38 45 L38 58 L54 57 Z" fill="#c74b3d"/>
-
-          {/* legs - front (right) */}
-          <g style={{ transformOrigin: '110px 68px', animation: 'crabLegs .3s ease-in-out infinite reverse' }}>
-            <path d="M110 68 L117 84 L125 86" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
-          </g>
-          <g style={{ transformOrigin: '122px 68px', animation: 'crabLegs .3s ease-in-out infinite' }}>
-            <path d="M122 68 L130 82 L138 82" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
-          </g>
-
-          {/* eyes (stalks) with blink */}
-          <g style={{ transformOrigin: '106px 18px', animation: 'crabBlink 5.5s ease-in-out infinite' }}>
-            <line x1="104" y1="38" x2="102" y2="23" stroke="#8f2418" strokeWidth="3.5"/>
-            <circle cx="101" cy="18" r="5.5" fill="#fff" stroke="#8f2418" strokeWidth="1.8"/>
-            <circle cx="102" cy="17" r="2.4" fill="#222"/>
-          </g>
-          <g style={{ transformOrigin: '116px 18px', animation: 'crabBlink 5.5s ease-in-out .18s infinite' }}>
-            <line x1="115" y1="36" x2="118" y2="21" stroke="#8f2418" strokeWidth="3.5"/>
-            <circle cx="118" cy="17" r="5.5" fill="#fff" stroke="#8f2418" strokeWidth="1.8"/>
-            <circle cx="119" cy="16" r="2.4" fill="#222"/>
-          </g>
-
-          {/* claw arm */}
-          <path d="M132 44 L150 32" stroke="#9b2c20" strokeWidth="7" strokeLinecap="round"/>
-          {/* lower claw finger */}
-          <path d="M148 32 Q162 42 168 42 Q160 49 146 42" fill="#c74b3d" stroke="#8f2418" strokeWidth="2"/>
-          {/* upper claw finger (opens/closes) */}
-          <g style={{ transformOrigin: '149px 33px', animation: 'clawOpen 5.5s ease-in-out infinite' }}>
-            <path d="M148 33 Q163 18 170 22 Q163 34 150 35" fill="#e85d4a" stroke="#8f2418" strokeWidth="2"/>
-          </g>
-
-          {/* second small claw */}
-          <path d="M128 56 L142 58" stroke="#9b2c20" strokeWidth="5" strokeLinecap="round"/>
-          <path d="M141 58 Q150 62 152 67 Q142 68 138 63" fill="#c74b3d" stroke="#8f2418" strokeWidth="2"/>
-        </svg>
-      </div>
-
-      {/* ground */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, overflow: 'hidden', opacity: .8 }}>
-        <div style={{ width: 560, height: 5, display: 'flex', gap: 22, animation: 'rpGround 1.4s linear infinite' }}>
-          {[...Array(18)].map((_, i) => <div key={i} style={{ width: 20, height: 5, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />)}
-        </div>
-      </div>
+const TenorCrab = () => (
+  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 6, height: 104, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, width: 150, height: 104, animation: 'rpSweep 9s ease-in-out infinite' }}>
+      <video
+        src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
+        poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          width: '100%', height: '100%', objectFit: 'contain',
+          mixBlendMode: 'multiply', imageRendering: 'pixelated'
+        }}
+      />
     </div>
-  );
-};
+  </div>
+);
 
 const inputStyle = { fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontWeight: 600, background: '#fff', color: 'var(--ink)' };
 
@@ -117,33 +69,15 @@ const animStyle = `
   @keyframes rpFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .rp-card { animation: rpFadeUp .35s ease both; }
   .rp-tabs { animation: rpFadeUp .3s ease both; }
-  @keyframes rpRun { 0%,100% { transform: translateY(0); } 25% { transform: translateY(-6px); } 50% { transform: translateY(0); } 75% { transform: translateY(-3px); } }
-  @keyframes rpLeg { 0%,100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
-  @keyframes rpGround { to { transform: translateX(-28px); } }
-  @keyframes rpJump { 0% { transform: translateY(0) scale(1); } 30% { transform: translateY(-58px) scale(1.05); } 60% { transform: translateY(-14px) scale(.98); } 100% { transform: translateY(0) scale(1); } }
-  @keyframes rpLeap { 0% { transform: translateY(0) scale(1); } 35% { transform: translateY(-90px) scale(1.08); } 100% { transform: translateY(0) scale(1); } }
-  @keyframes rpCactus { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
-  @keyframes rpCrabWalk {
-    0%   { left: 6%; }
-    8%   { left: 24%; }
-    12%  { left: 24%; }
-    24%  { left: 40%; }
-    28%  { left: 40%; }
-    44%  { left: 57%; }
-    48%  { left: 57%; }
-    64%  { left: 74%; }
-    68%  { left: 74%; }
-    78%  { left: calc(100% - 200px); }
-    82%  { left: calc(100% - 200px); }
-    86%  { left: 62%; }
-    90%  { left: 36%; }
-    94%  { left: 18%; }
-    100% { left: 6%; }
+  @keyframes rpSweep {
+    0%   { left: 0; }
+    12%  { left: 0; }
+    45%  { left: calc(100% - 150px); }
+    55%  { left: calc(100% - 150px); }
+    88%  { left: 0; }
+    100% { left: 0; }
   }
-  @keyframes crabLegs { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(16deg); } }
-  @keyframes crabBlink { 0%,91%,100% { transform: scaleY(1); } 94%,98% { transform: scaleY(0.08); } }
-  @keyframes clawOpen { 0%,64%,82%,100% { transform: rotate(0deg); } 70% { transform: rotate(-38deg); } 76% { transform: rotate(0deg); } 88% { transform: rotate(-34deg); } }
-  @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs, [style*="rpSweep"] { animation: none; } }
 `;
 
 export default function Reports() {
@@ -429,8 +363,7 @@ export default function Reports() {
         <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
       ) : (
         <div className="rp-card" style={{ marginBottom: 20 }}>
-          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1e40af,#3b82f6)', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 150, paddingBottom: 112 }}>
-            <CrabWalker />
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1e40af,#3b82f6)', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 150, paddingBottom: 110 }}>
             <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
@@ -438,6 +371,7 @@ export default function Reports() {
               <div className="stat-num" style={{ color: '#fff' }}>{currency(grandTotal)} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
               <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
             </div>
+            <TenorCrab />
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
             {rows.map((r, i) => (
