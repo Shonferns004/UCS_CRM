@@ -30,70 +30,67 @@ const StatCardSkeleton = () => (
   </div>
 );
 
-const RunnerCharacter = () => {
-  const [fast, setFast] = useState(false);
-  const [hop, setHop] = useState(null); // 'jump' | 'leap'
-  const hopTimer = useRef(null);
-  const moveAccum = useRef(0);
-
-  const triggerHop = (kind, resetAccum = false) => {
-    if (resetAccum) moveAccum.current = 0;
-    clearTimeout(hopTimer.current);
-    setHop(kind);
-    hopTimer.current = setTimeout(() => setHop(null), kind === 'leap' ? 700 : 620);
-  };
-
-  const runDur = fast ? '.38s' : '1.1s';
-  const hopAnim = hop === 'leap' ? 'rpLeap .7s ease-out'
-    : hop === 'jump' ? 'rpJump .62s ease-out'
-    : ''; // '' means use run animation instead below
-
+const CrabWalker = () => {
   return (
-    <div className="no-print"
-      onPointerEnter={() => { triggerHop('jump'); setFast(true); }}
-      onPointerLeave={() => { setFast(false); setHop(null); }}
-      onPointerMove={e => {
-        moveAccum.current += Math.abs(e.movementX) + Math.abs(e.movementY);
-        if (moveAccum.current > 26) { triggerHop('jump'); moveAccum.current = 0; }
-      }}
-      onPointerDown={() => triggerHop('leap', true)}
-      onDoubleClick={() => triggerHop('leap', true)}
-      title="Jump! Move or click the runner"
-      style={{ position: 'relative', width: 220, height: 132, flexShrink: 0, alignSelf: 'flex-end', cursor: 'pointer', userSelect: 'none' }}
-    >
-      {/* cactus obstacle */}
-      <div style={{ position: 'absolute', right: 6, bottom: 16, width: 26, height: 46, animation: 'rpCactus 2s ease-in-out infinite' }}>
-        <svg width="26" height="46" viewBox="0 0 26 46" fill="none">
-          <rect x="11" y="6" width="5" height="36" rx="2.5" fill="#2f8f5b" stroke="#1f6f3f" strokeWidth="1.2"/>
-          <rect x="3" y="12" width="13" height="5" rx="2.5" fill="#2f8f5b" stroke="#1f6f3f" strokeWidth="1.2"/>
-          <rect x="15" y="22" width="10" height="5" rx="2.5" fill="#2f8f5b" stroke="#1f6f3f" strokeWidth="1.2"/>
-        </svg>
-      </div>
+    <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 4, height: 104, pointerEvents: 'none', overflow: 'visible' }}>
+      {/* crab walks across the stage, pausing along the way */}
+      <div style={{ position: 'absolute', top: 4, width: 190, height: 100, animation: 'rpCrabWalk 20s ease-in-out infinite' }}>
+        <svg width="190" height="100" viewBox="0 0 190 100" style={{ width: '100%', height: '100%' }}>
+          {/* legs - back (left) */}
+          <g style={{ transformOrigin: '58px 68px', animation: 'crabLegs .3s ease-in-out infinite' }}>
+            <path d="M58 68 L48 82 L40 82" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
+          </g>
+          <g style={{ transformOrigin: '70px 68px', animation: 'crabLegs .3s ease-in-out infinite reverse' }}>
+            <path d="M70 68 L63 84 L55 86" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
+          </g>
+          <g style={{ transformOrigin: '82px 68px', animation: 'crabLegs .3s ease-in-out infinite' }}>
+            <path d="M82 68 L77 85 L69 87" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
+          </g>
 
-      {/* dino */}
-      <div style={{ position: 'absolute', right: 74, bottom: 18, width: 120, height: 86, animation: hopAnim || (fast ? 'rpRun .38s ease-in-out infinite' : 'rpRun 1.1s ease-in-out infinite') }}>
-        <svg width="120" height="86" viewBox="0 0 120 86" fill="none" style={{ width: '100%', height: '100%' }}>
-          <path d="M12 60 C9 40 30 15 63 15 C87 15 102 29 105 43 C114 43 117 52 108 55 L90 58 C84 76 63 80 48 72 L30 78 Z" fill="#7ce495" stroke="#2f8f5b" strokeWidth="2"/>
-          <circle cx="93" cy="29" r="4.6" fill="#1f6f3f"/>
-          <circle cx="94.4" cy="27.6" r="1.5" fill="#fff"/>
-          <path d="M87 49 C96 47 102 48 105 51" stroke="#1f6f3f" strokeWidth="2" fill="none" strokeLinecap="round"/>
-          <path d="M48 44 C38 38 35 31 38 26" stroke="#1f6f3f" strokeWidth="4.5" strokeLinecap="round" fill="none"/>
-          <g style={{ transformOrigin: '57px 60px', animation: 'rpLeg .62s ease-in-out infinite' }}>
-            <rect x="54" y="60" width="9" height="20" rx="4.5" fill="#2f8f5b"/>
-            <path d="M54 80 L48 82 M63 80 L69 82" stroke="#2f8f5b" strokeWidth="4" strokeLinecap="round"/>
+          {/* body shell */}
+          <ellipse cx="96" cy="56" rx="44" ry="30" fill="#e85d4a" stroke="#8f2418" strokeWidth="2.5"/>
+          <path d="M70 44 Q96 26 122 44 M66 60 Q96 44 126 60" stroke="#c74b3d" strokeWidth="3.5" fill="none"/>
+          <path d="M54 54 L38 45 L38 58 L54 57 Z" fill="#c74b3d"/>
+
+          {/* legs - front (right) */}
+          <g style={{ transformOrigin: '110px 68px', animation: 'crabLegs .3s ease-in-out infinite reverse' }}>
+            <path d="M110 68 L117 84 L125 86" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
           </g>
-          <g style={{ transformOrigin: '72px 60px', animation: 'rpLeg .62s ease-in-out infinite reverse' }}>
-            <rect x="69" y="60" width="9" height="20" rx="4.5" fill="#2f8f5b"/>
-            <path d="M69 80 L63 82 M78 80 L84 82" stroke="#2f8f5b" strokeWidth="4" strokeLinecap="round"/>
+          <g style={{ transformOrigin: '122px 68px', animation: 'crabLegs .3s ease-in-out infinite' }}>
+            <path d="M122 68 L130 82 L138 82" stroke="#8f2418" strokeWidth="4" fill="none" strokeLinecap="round"/>
           </g>
-          <path d="M18 58 L4 44 L10 36" stroke="#2f8f5b" strokeWidth="6" strokeLinecap="round" fill="none" style={{ transformOrigin: '18px 58px', animation: 'rpLeg .7s ease-in-out infinite' }}/>
+
+          {/* eyes (stalks) with blink */}
+          <g style={{ transformOrigin: '106px 18px', animation: 'crabBlink 5.5s ease-in-out infinite' }}>
+            <line x1="104" y1="38" x2="102" y2="23" stroke="#8f2418" strokeWidth="3.5"/>
+            <circle cx="101" cy="18" r="5.5" fill="#fff" stroke="#8f2418" strokeWidth="1.8"/>
+            <circle cx="102" cy="17" r="2.4" fill="#222"/>
+          </g>
+          <g style={{ transformOrigin: '116px 18px', animation: 'crabBlink 5.5s ease-in-out .18s infinite' }}>
+            <line x1="115" y1="36" x2="118" y2="21" stroke="#8f2418" strokeWidth="3.5"/>
+            <circle cx="118" cy="17" r="5.5" fill="#fff" stroke="#8f2418" strokeWidth="1.8"/>
+            <circle cx="119" cy="16" r="2.4" fill="#222"/>
+          </g>
+
+          {/* claw arm */}
+          <path d="M132 44 L150 32" stroke="#9b2c20" strokeWidth="7" strokeLinecap="round"/>
+          {/* lower claw finger */}
+          <path d="M148 32 Q162 42 168 42 Q160 49 146 42" fill="#c74b3d" stroke="#8f2418" strokeWidth="2"/>
+          {/* upper claw finger (opens/closes) */}
+          <g style={{ transformOrigin: '149px 33px', animation: 'clawOpen 5.5s ease-in-out infinite' }}>
+            <path d="M148 33 Q163 18 170 22 Q163 34 150 35" fill="#e85d4a" stroke="#8f2418" strokeWidth="2"/>
+          </g>
+
+          {/* second small claw */}
+          <path d="M128 56 L142 58" stroke="#9b2c20" strokeWidth="5" strokeLinecap="round"/>
+          <path d="M141 58 Q150 62 152 67 Q142 68 138 63" fill="#c74b3d" stroke="#8f2418" strokeWidth="2"/>
         </svg>
       </div>
 
       {/* ground */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 5, overflow: 'hidden', opacity: .85 }}>
-        <div style={{ width: 520, height: 5, display: 'flex', gap: 22, animation: `rpGround ${runDur} linear infinite` }}>
-          {[...Array(16)].map((_, i) => <div key={i} style={{ width: 20, height: 5, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />)}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 5, overflow: 'hidden', opacity: .8 }}>
+        <div style={{ width: 560, height: 5, display: 'flex', gap: 22, animation: 'rpGround 1.4s linear infinite' }}>
+          {[...Array(18)].map((_, i) => <div key={i} style={{ width: 20, height: 5, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />)}
         </div>
       </div>
     </div>
@@ -126,6 +123,26 @@ const animStyle = `
   @keyframes rpJump { 0% { transform: translateY(0) scale(1); } 30% { transform: translateY(-58px) scale(1.05); } 60% { transform: translateY(-14px) scale(.98); } 100% { transform: translateY(0) scale(1); } }
   @keyframes rpLeap { 0% { transform: translateY(0) scale(1); } 35% { transform: translateY(-90px) scale(1.08); } 100% { transform: translateY(0) scale(1); } }
   @keyframes rpCactus { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
+  @keyframes rpCrabWalk {
+    0%   { left: 6%; }
+    8%   { left: 24%; }
+    12%  { left: 24%; }
+    24%  { left: 40%; }
+    28%  { left: 40%; }
+    44%  { left: 57%; }
+    48%  { left: 57%; }
+    64%  { left: 74%; }
+    68%  { left: 74%; }
+    78%  { left: calc(100% - 200px); }
+    82%  { left: calc(100% - 200px); }
+    86%  { left: 62%; }
+    90%  { left: 36%; }
+    94%  { left: 18%; }
+    100% { left: 6%; }
+  }
+  @keyframes crabLegs { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(16deg); } }
+  @keyframes crabBlink { 0%,91%,100% { transform: scaleY(1); } 94%,98% { transform: scaleY(0.08); } }
+  @keyframes clawOpen { 0%,64%,82%,100% { transform: rotate(0deg); } 70% { transform: rotate(-38deg); } 76% { transform: rotate(0deg); } 88% { transform: rotate(-34deg); } }
   @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
 `;
 
@@ -412,8 +429,8 @@ export default function Reports() {
         <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
       ) : (
         <div className="rp-card" style={{ marginBottom: 20 }}>
-          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1f6f3f,#2e8b57)', border: 'none', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', right: 8, bottom: 4 }}><RunnerCharacter /></div>
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1e40af,#3b82f6)', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 150, paddingBottom: 112 }}>
+            <CrabWalker />
             <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
