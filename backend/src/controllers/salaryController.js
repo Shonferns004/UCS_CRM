@@ -1,6 +1,7 @@
 import {
   getSalariesByWorker,
   getActiveSalaryByWorker,
+  getSalaryById,
   createSalary,
   updateSalary,
   deleteSalary,
@@ -17,8 +18,52 @@ import { getTarget, upsertTarget } from '../models/incentiveModel.js';
 import { calculateAKI, getDayName, getMonthsEmployed, AKI_RANGES } from '../utils/incentive.js';
 import { getMergedDailyAmounts } from '../utils/dailyAchievementAggregator.js';
 import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
+import bcrypt from 'bcryptjs';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
+import { getUserById } from '../models/userModel.js';
+
+export const verifySalaryPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ message: 'Password is required' });
+    }
+
+    // 1. Check dedicated salary password
+    const salaryPassword = process.env.SALARY_PASSWORD;
+    if (salaryPassword && password === salaryPassword) {
+      return res.json({ success: true, message: 'Password verified' });
+    }
+
+    // 2. Check master admin password
+    if (process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD) {
+      return res.json({ success: true, message: 'Password verified' });
+    }
+
+    // 3. Check current authenticated user's password
+    const userId = req.user?.id;
+    if (userId !== undefined && userId !== null) {
+      // Check worker
+      const worker = await getWorkerById(userId);
+      if (worker && worker.password) {
+        const isMatch = await bcrypt.compare(password, worker.password);
+        if (isMatch) return res.json({ success: true, message: 'Password verified' });
+      }
+
+      // Check user
+      const user = await getUserById(userId);
+      if (user && user.password_hash) {
+        const isMatch = await bcrypt.compare(password, user.password_hash);
+        if (isMatch) return res.json({ success: true, message: 'Password verified' });
+      }
+    }
+
+    return res.status(401).json({ message: 'Incorrect password. Please enter your account password or master password.' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 export const getWorkerSalaries = async (req, res) => {
   try {
@@ -34,6 +79,25 @@ export const addSalary = async (req, res) => {
     const { worker_id, salary, from_month, to_month } = req.body;
     if (!worker_id || salary == null || !from_month) {
       return res.status(400).json({ message: 'worker_id, salary, and from_month are required' });
+    }
+    const salNum = Number(salary);
+    if (!Number.isFinite(salNum) || salNum <= 0) {
+      return res.status(400).json({ message: 'salary must be a positive number' });
+    }
+    if (!/^\d{4}-\d{2}-01$/.test(from_month)) {
+      return res.status(400).json({ message: 'from_month must be in YYYY-MM-01 format' });
+    }
+    if (to_month != null && !/^\d{4}-\d{2}-01$/.test(to_month)) {
+      return res.status(400).json({ message: 'to_month must be in YYYY-MM-01 format' });
+    }
+    const existing = await getSalariesByWorker(worker_id);
+    const newMonth = from_month.slice(0, 7);
+    for (const s of existing) {
+      const sFrom = s.from_month.slice(0, 7);
+      const sTo = s.to_month ? s.to_month.slice(0, 7) : '9999-12';
+      if (newMonth >= sFrom && newMonth <= sTo) {
+        return res.status(400).json({ message: 'Salary record for this month already exists for this worker' });
+      }
     }
     const record = await createSalary({
       worker_id,
@@ -51,6 +115,18 @@ export const addSalary = async (req, res) => {
 export const editSalary = async (req, res) => {
   try {
     const { salary, from_month, to_month, extra_amount } = req.body;
+    if (salary !== undefined) {
+      const salNum = Number(salary);
+      if (!Number.isFinite(salNum) || salNum <= 0) {
+        return res.status(400).json({ message: 'salary must be a positive number' });
+      }
+    }
+    if (from_month !== undefined && !/^\d{4}-\d{2}-01$/.test(from_month)) {
+      return res.status(400).json({ message: 'from_month must be in YYYY-MM-01 format' });
+    }
+    if (to_month !== undefined && to_month !== null && !/^\d{4}-\d{2}-01$/.test(to_month)) {
+      return res.status(400).json({ message: 'to_month must be in YYYY-MM-01 format' });
+    }
     const updates = {};
     if (salary !== undefined) updates.salary = salary;
     if (from_month !== undefined) updates.from_month = from_month;
@@ -74,6 +150,10 @@ export const getWorkersSummary = async (req, res) => {
 
 export const paySalary = async (req, res) => {
   try {
+    const existing = await getSalaryById(req.params.id);
+    if (existing && existing.paid_at) {
+      return res.status(400).json({ message: 'Salary is already marked as paid' });
+    }
     const record = await updateSalary(req.params.id, { paid_at: new Date().toISOString() });
     return res.json({ message: 'Salary marked as paid', record });
   } catch (error) {

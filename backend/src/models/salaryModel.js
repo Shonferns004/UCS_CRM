@@ -17,10 +17,21 @@ export const getActiveSalaryByWorker = async (workerId) => {
     .from('salary_history')
     .select('*')
     .eq('worker_id', workerId)
+    .is('to_month', null)
     .order('from_month', { ascending: false })
     .limit(1);
   if (error) throw error;
   return data && data.length > 0 ? data[0] : null;
+};
+
+export const getSalaryById = async (id) => {
+  const { data, error } = await db
+    .from('salary_history')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error) throw error;
+  return data;
 };
 
 export const createSalary = async (salaryData) => {
@@ -59,6 +70,7 @@ export const getAllWorkersSalarySummary = async () => {
 
   const latest = {};
   for (const s of salaries) {
+    if (s.to_month) continue;
     if (!latest[s.worker_id]) latest[s.worker_id] = s;
   }
 
@@ -109,6 +121,7 @@ export const getPayrollData = async (month, extended = false) => {
 
   const latestSalary = {};
   for (const s of salaries) {
+    if (s.to_month) continue;
     if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
   }
 
@@ -429,6 +442,7 @@ export const getPagarExportData = async (month) => {
   if (sErr) throw sErr;
   const latestSalary = {};
   for (const s of salaries) {
+    if (s.to_month) continue;
     if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
   }
 

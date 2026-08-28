@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useHR, avatarColor, avatarTint, initials, DEPTS } from '../store';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { api } from '../../../api/auth';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
@@ -29,6 +30,7 @@ function Badge({ status }) {
 }
 
 export default function EmployeeDetail({ worker, onBack, onOffboard }) {
+  const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary, maskSalary } = useSalaryPrivacy();
   const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc } = useHR();
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
@@ -849,8 +851,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                     <div style={{ textAlign:'right' }}>
                       <div style={{ fontWeight:700, fontSize:16 }}>
                         {prevSalaryRec.paid_at
-                          ? `₹${parseFloat(prevSalaryRec.salary).toLocaleString('en-IN')}`
-                          : `₹${(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0)).toLocaleString('en-IN')}`
+                          ? formatSalary(prevSalaryRec.salary)
+                          : formatSalary(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0))
                         }
                       </div>
                       <div style={{ fontSize:12, color: prevSalaryRec.paid_at ? 'var(--sage)' : 'var(--danger)' }}>
@@ -869,6 +871,35 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
           {tab === 'salary' && (
             <div>
+              {/* Confidential Salary Access Bar */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                marginBottom: 16, padding: '10px 16px', borderRadius: 8,
+                background: isSalaryUnlocked ? '#f0fdf4' : '#fffbeb',
+                border: `1px solid ${isSalaryUnlocked ? '#bbf7d0' : '#fef08a'}`
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <span style={{ fontSize: 16 }}>{isSalaryUnlocked ? '🔓' : '🔒'}</span>
+                  <div>
+                    <span style={{ fontWeight: 700, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
+                      {isSalaryUnlocked ? 'Salary Unlocked (Viewing Full Numbers)' : 'Salary Confidential & Hidden (XXXX)'}
+                    </span>
+                    <div style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
+                      {isSalaryUnlocked ? 'You can view and update confidential salary information.' : 'Enter your password to reveal or update confidential salary figures.'}
+                    </div>
+                  </div>
+                </div>
+                {isSalaryUnlocked ? (
+                  <button className="btn btn-sm btn-outline" onClick={lockSalary} style={{ fontSize: 11, padding: '4px 12px', background: '#fff' }}>
+                    🔒 Hide Salary
+                  </button>
+                ) : (
+                  <button className="btn btn-sm btn-primary" onClick={() => promptUnlock()} style={{ fontSize: 11, padding: '5px 14px', background: 'var(--sage)', color: '#fff', border: 'none', fontWeight: 600 }}>
+                    👁️ View / Update Salary
+                  </button>
+                )}
+              </div>
+
               {prevSalaryRec && (
               <div className="card" style={{ marginBottom:16, padding:'14px 18px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
@@ -879,8 +910,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   <div style={{ textAlign:'right' }}>
                     <div style={{ fontWeight:700, fontSize:16 }}>
                       {prevSalaryRec.paid_at
-                        ? `₹${parseFloat(prevSalaryRec.salary).toLocaleString('en-IN')}`
-                        : `₹${(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0)).toLocaleString('en-IN')}`
+                        ? formatSalary(prevSalaryRec.salary)
+                        : formatSalary(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0))
                       }
                     </div>
                     <div style={{ fontSize:12, color: prevSalaryRec.paid_at ? 'var(--sage)' : 'var(--danger)' }}>
@@ -957,7 +988,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           })()}
                         </svg>
                         <div className="salary-visual-main">
-                          <div className="salary-visual-total">₹{(Math.round(totalDue) + parseFloat(activeSalary?.extra_amount || 0) + (sundayBonus?.incentiveAKI || 0) + (sundayBonus?.incentiveMonthly || 0) - loanDeductionTotal).toLocaleString('en-IN')}</div>
+                          <div className="salary-visual-total">{formatSalary(Math.round(totalDue) + parseFloat(activeSalary?.extra_amount || 0) + (sundayBonus?.incentiveAKI || 0) + (sundayBonus?.incentiveMonthly || 0) - loanDeductionTotal)}</div>
                           <div className="salary-visual-label">Total Due</div>
                         </div>
                       </div>
@@ -1002,7 +1033,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       {/* Key metrics */}
                       <div className="salary-metrics">
                         <div className="salary-metric">
-                          <div className="salary-metric-num">₹{parseFloat(activeSalary.salary).toLocaleString('en-IN')}</div>
+                          <div className="salary-metric-num">{formatSalary(activeSalary.salary)}</div>
                           <div className="salary-metric-lbl">Monthly Salary</div>
                         </div>
                         <div className="salary-metric">
@@ -1065,48 +1096,53 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               onClick={() => setExtraEditing(false)}>Cancel</button>
                           </>
                         ) : (
-<>
-                             <span style={{ fontWeight:600, fontSize:15 }}>₹{parseFloat(activeSalary?.extra_amount || 0).toLocaleString('en-IN')}</span>
-                             <button className="btn btn-icon btn-sm" title="Add extra amount"
-                               onClick={() => { setExtraEditing(true); setExtraVal(String(parseFloat(activeSalary?.extra_amount || 0))); }}>
-                               <Pencil width={13} />
-                             </button>
-                           </>
-                         )}
-                       </div>
+                          <>
+                            <span style={{ fontWeight:600, fontSize:15 }}>{formatSalary(activeSalary?.extra_amount || 0)}</span>
+                            <button className="btn btn-icon btn-sm" title="Add/Edit extra amount"
+                              onClick={() => {
+                                promptUnlock(() => {
+                                  setExtraEditing(true);
+                                  setExtraVal(String(parseFloat(activeSalary?.extra_amount || 0)));
+                                });
+                              }}>
+                              <Pencil width={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
 
-                       {/* Visual flow */}
+                      {/* Visual flow */}
                       <div style={{ borderTop:'1px solid var(--line)', marginTop:16, paddingTop:16 }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
                         <Box num={availableDays} label={joinedThisMonth ? 'Available\nDays' : 'Days in\nMonth'} color="#5B6B4E" />
                         <Arrow />
-                         <Box num={availableDays - paidDays} label={'Deducted\nDays'} color="#d9534f" />
+                        <Box num={availableDays - paidDays} label={'Deducted\nDays'} color="#d9534f" />
                         <Equals />
                         <Box num={paidDays} label={'Paid\nDays'} color="#5B6B4E" />
                         <Times />
-                        <Box num={'₹' + perDay.toFixed(2)} label={'Per Day\nRate'} color="#4F6472" />
+                        <Box num={isSalaryUnlocked ? ('₹' + perDay.toFixed(2)) : '₹ ••••••'} label={'Per Day\nRate'} color="#4F6472" />
                         <Arrow />
                         <Box num={lateDeductionDays > 0 ? '-' + lateDeductionDays : '0'} label={'Late\nDeduction'} color={lateDeductionDays > 0 ? '#e67e22' : '#5B6B4E'} />
                         {joiningDeduction > 0 && <><Arrow /><Box num={'−' + joiningDeduction + 'd'} label={'Join\nDeduction'} color="#8B5CF6" /></>}
-{(() => {
-                           const sb = sundayBonus || {};
-                           const akiAmt = sb.incentiveAKI || 0;
-                           const monthlyAmt = sb.incentiveMonthly || 0;
-                           const baseDue = Math.round(totalDue);
-                           const loanDed = loanDeductionTotal;
-                           const total = baseDue + akiAmt + monthlyAmt - loanDed;
-                           const isFRO = data.department === 'FRO';
+                        {(() => {
+                            const sb = sundayBonus || {};
+                            const akiAmt = sb.incentiveAKI || 0;
+                            const monthlyAmt = sb.incentiveMonthly || 0;
+                            const baseDue = Math.round(totalDue);
+                            const loanDed = loanDeductionTotal;
+                            const total = baseDue + akiAmt + monthlyAmt - loanDed;
+                            const isFRO = data.department === 'FRO';
 
-                           return (
-                             <>
-                               <Box num={'₹' + baseDue.toLocaleString('en-IN')} label={'Salary\\nDue'} color="#5B6B4E" big />
-                               {loanDed > 0 && <><Arrow /><Box num={'−₹' + loanDed.toLocaleString('en-IN')} label={'Loan/\\nAdvance'} color="#e67e22" /></>}
-                               {isFRO && <><Arrow /><Box num={'+₹' + akiAmt.toLocaleString('en-IN')} label={'Incentive\\nAKI'} color={akiAmt > 0 ? '#8B5CF6' : '#ddd'} /></>}
-                               {isFRO && <><Arrow /><Box num={'+₹' + monthlyAmt.toLocaleString('en-IN')} label={'Incentive\\nMonthly'} color={monthlyAmt > 0 ? '#3B82F6' : '#ddd'} /></>}
-                               <Equals />
-                               <Box num={'₹' + total.toLocaleString('en-IN')} label={'Total\\nDue'} color="#16a34a" big />
-                             </>
-                           );
+                            return (
+                              <>
+                                <Box num={formatSalary(baseDue)} label={'Salary\nDue'} color="#5B6B4E" big />
+                                {loanDed > 0 && <><Arrow /><Box num={'−₹' + loanDed.toLocaleString('en-IN')} label={'Loan/\nAdvance'} color="#e67e22" /></>}
+                                {isFRO && <><Arrow /><Box num={'+₹' + akiAmt.toLocaleString('en-IN')} label={'Incentive\nAKI'} color={akiAmt > 0 ? '#8B5CF6' : '#ddd'} /></>}
+                                {isFRO && <><Arrow /><Box num={'+₹' + monthlyAmt.toLocaleString('en-IN')} label={'Incentive\nMonthly'} color={monthlyAmt > 0 ? '#3B82F6' : '#ddd'} /></>}
+                                <Equals />
+                                <Box num={formatSalary(total)} label={'Total\nDue'} color="#16a34a" big />
+                              </>
+                            );
                           })()}
                       </div>
 
@@ -1455,10 +1491,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       setGeneratingSalary(false);
                     }}>{generatingSalary ? '…' : 'Generate from Payroll'}</button>
                     <button className="btn btn-sm" onClick={() => {
-                      setSalarySplitForm(salaryAllocs.length
-                        ? salaryAllocs.map(a => ({ ngo_id: a.ngo_id, portion: String(a.salary_portion ?? '') }))
-                        : []);
-                      setEditingSalary(true); setAllocMsg('');
+                      promptUnlock(() => {
+                        setSalarySplitForm(salaryAllocs.length
+                          ? salaryAllocs.map(a => ({ ngo_id: a.ngo_id, portion: String(a.salary_portion ?? '') }))
+                          : []);
+                        setEditingSalary(true);
+                        setAllocMsg('');
+                      });
                     }}>Edit</button>
                   </div>
                 </div>
@@ -1482,7 +1521,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                   <div style={{ width:64, height:6, background:'var(--line)', borderRadius:3, overflow:'hidden' }}>
                                     <div style={{ width:Math.min(100, pct)+'%', height:6, background:'var(--sage)', borderRadius:3 }} />
                                   </div>
-                                  <span style={{ fontWeight:600, minWidth:110, textAlign:'right' }}>₹{portion.toLocaleString('en-IN')}{activeSalaryVal > 0 ? ' · ' + Math.round(pct) + '%' : ''}</span>
+                                  <span style={{ fontWeight:600, minWidth:110, textAlign:'right' }}>{formatSalary(portion)}{activeSalaryVal > 0 && isSalaryUnlocked ? ' · ' + Math.round(pct) + '%' : ''}</span>
                                 </div>
                               </td>
                             </tr>
@@ -1544,9 +1583,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           return (
                             <tr key={a.id || a.ngo_id}>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontSize:10 }}>{ngoName}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>₹{portion.toLocaleString('en-IN')}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>₹{Math.round(allocPerDay).toLocaleString('en-IN')}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:600, whiteSpace:'nowrap', fontSize:10 }}>₹{Math.round(allocDue).toLocaleString('en-IN')}</td>
+                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(portion)}</td>
+                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(Math.round(allocPerDay))}</td>
+                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:600, whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(Math.round(allocDue))}</td>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', color: allocAKI > 0 ? '#f59e0b' : 'var(--ink-soft)', whiteSpace:'nowrap', fontSize:10 }}>
                                 {allocAKI > 0 ? '₹' + allocAKI.toLocaleString('en-IN') : '₹0'}
                               </td>
@@ -1557,7 +1596,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                 {allocSunday > 0 ? '₹' + allocSunday.toLocaleString('en-IN') : '₹0'}
                               </td>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:700, color: allocGrand > Math.round(allocDue) ? '#16a34a' : 'var(--sage)', whiteSpace:'nowrap', fontSize:10 }}>
-                                ₹{allocGrand.toLocaleString('en-IN')}
+                                {formatSalary(allocGrand)}
                               </td>
                             </tr>
                           );
@@ -1586,13 +1625,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                             <tr>
                               <td style={{ padding:'5px 3px', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>Merged Total</td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>
-                                ₹{totalSalaryVal.toLocaleString('en-IN')}
+                                {formatSalary(totalSalaryVal)}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>
-                                ₹{Math.round(perDay).toLocaleString('en-IN')}
+                                {formatSalary(Math.round(perDay))}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color:'var(--sage)' }}>
-                                ₹{sumDue.toLocaleString('en-IN')}
+                                {formatSalary(sumDue)}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color: sumAKI > 0 ? '#f59e0b' : 'var(--ink-soft)' }}>
                                 {sumAKI > 0 ? '₹' + sumAKI.toLocaleString('en-IN') : '₹0'}
@@ -1604,7 +1643,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                 {sumSunday > 0 ? '₹' + sumSunday.toLocaleString('en-IN') : '₹0'}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:800, fontSize:11, borderTop:'2px solid var(--line)', color:'#16a34a' }}>
-                                ₹{sumGrand.toLocaleString('en-IN')}
+                                {formatSalary(sumGrand)}
                               </td>
                             </tr>
                           </>
@@ -1736,7 +1775,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                               const allocs = salaryNgoCount === 1
                                 ? [{ ngo_id: salaryNgo1, salary_portion: salNum }]
-                                : [{ ngo_id: salaryNgo1, salary_portion: salNum / 2 }, { ngo_id: salaryNgo2, salary_portion: salNum / 2 }];
+                                : [{ ngo_id: salaryNgo1, salary_portion: Math.round(salNum / 2) }, { ngo_id: salaryNgo2, salary_portion: Math.round(salNum / 2) }];
                               await setWorkerAllocations(worker.id, allocs, salNum);
                               setAllocations(allocs);
 
@@ -1786,12 +1825,25 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               setSalaries(p => p.map(x => x.id === latest.id ? { ...x, to_month: prevMonth } : x));
                             }
 
-                            await addWorkerSalary({
+                            const res = await addWorkerSalary({
                               worker_id: worker.id,
                               salary: parseFloat(salaryForm.salary),
                               from_month,
                               to_month: null,
                             });
+                            setSalaries(p => [res.record, ...p]);
+
+                            const oldSalNum = latest ? parseFloat(latest.salary) : 0;
+                            const newSalNum = parseFloat(salaryForm.salary);
+                            if (allocations.length > 0 && oldSalNum > 0) {
+                              const scaledAllocs = allocations.map(a => ({
+                                ngo_id: a.ngo_id,
+                                salary_portion: Math.round(parseFloat(a.salary_portion) * (newSalNum / oldSalNum)),
+                              }));
+                              await setWorkerAllocations(worker.id, scaledAllocs, newSalNum);
+                              setAllocations(scaledAllocs);
+                            }
+
                             setSalaryForm({ salary: '' });
                           } catch (e) { alert(e.message); }
                           finally { setSalarySubmitting(false); }
@@ -1828,7 +1880,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         return (
                           <tr key={s.id}>
                             <td>{i + 1}</td>
-                            <td style={{ fontWeight:600 }}>₹{parseFloat(s.salary).toLocaleString('en-IN')}</td>
+                            <td style={{ fontWeight:600 }}>{formatSalary(s.salary)}</td>
                             <td>{fmtMonth(from)}</td>
                             <td>{to ? fmtMonth(to) : '\u2014 (Current)'}</td>
                             <td>
@@ -1842,11 +1894,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               <div style={{ display:'flex', gap:4 }}>
                                 <button className="btn btn-icon" title="Delete"
                                   onClick={async () => {
-                                    if (!confirm('Delete this salary record?')) return;
-                                    try {
-                                      await fetch(API_BASE + '/salary/' + s.id, { method:'DELETE', headers:{ Authorization: 'Bearer ' + localStorage.getItem('ucs_token') } });
-                                      setSalaries(p => p.filter(x => x.id !== s.id));
-                                    } catch (e) { alert(e.message); }
+                                    promptUnlock(async () => {
+                                      if (!confirm('Delete this salary record?')) return;
+                                      try {
+                                        await fetch(API_BASE + '/salary/' + s.id, { method:'DELETE', headers:{ Authorization: 'Bearer ' + localStorage.getItem('ucs_token') } });
+                                        setSalaries(p => p.filter(x => x.id !== s.id));
+                                      } catch (e) { alert(e.message); }
+                                    });
                                   }}>
                                   <Trash width={14} />
                                 </button>
