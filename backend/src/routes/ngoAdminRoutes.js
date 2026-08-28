@@ -92,6 +92,10 @@ const router = Router();
 router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
 router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
+// Accounts reports need stations/targets — allow accounts role for these read-only endpoints
+router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), getStations);
+router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
+
 router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
@@ -123,7 +127,6 @@ router.get('/donors-by-station', getDonorsByStation);
 router.get('/donors-by-fro', getDonorsByFro);
 router.get('/fro-workers', getFroWorkers);
 router.get('/assignments', getAssignments);
-router.get('/targets', getTargets);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
 router.get('/fro-performance', getFroPerformance);
@@ -135,7 +138,6 @@ router.get('/verification', getVerificationFroWise);
 router.get('/accounts/pending', getAccountsPending);
 router.post('/accounts/:logId/verify', verifyLeadDone);
 
-router.get('/stations', getStations);
 router.post('/stations', createStationHandler);
 router.post('/station-assignments', saveStationAssignment);
 router.delete('/station-assignments/:id', removeStationAssignment);

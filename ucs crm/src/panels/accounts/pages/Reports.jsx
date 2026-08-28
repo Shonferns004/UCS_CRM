@@ -98,46 +98,56 @@ export default function Reports() {
       try {
         let stations = null;
         let workerMap = {};
-        for (const ep of ['/ngo-admin/stations', '/admin/stations', '/super-admin/stations', '/fro/stations']) {
+        // Fetch per NGO to get per (station, ngo) worker correctly (46 per NGO)
+        for (const ngo of NGOS) {
           try {
-            const r = await apiGet(ep);
+            const r = await apiGet('/ngo-admin/stations?ngo_id=' + ngo.id);
             const arr = Array.isArray(r) ? r : r?.stations || r?.data || [];
-            if (Array.isArray(arr) && arr.length > 0) {
-              const names = arr.map(s => s.station || s.name || s).filter(Boolean);
-              if (names.length > 5) {
-                stations = [...new Set(names)].sort();
-                // Build station -> worker map if available
-                for (const s of arr) {
-                  if (s.station && s.fro_worker_name) workerMap[s.station] = s.fro_worker_name;
-                  if (s.station && s.worker_name) workerMap[s.station] = s.worker_name;
-                  if (s.station && s.workers?.name) workerMap[s.station] = s.workers.name;
-                }
-                break;
+            for (const s of arr) {
+              if (s.station) {
+                const key = `${s.station}|${ngo.id}`;
+                if (s.fro_worker_name) workerMap[key] = s.fro_worker_name;
+                else if (s.worker_name) workerMap[key] = s.worker_name;
+                else if (s.workers?.name) workerMap[key] = s.workers.name;
+                // also keep station-only fallback for overall view
+                if (!workerMap[s.station] && workerMap[key]) workerMap[s.station] = workerMap[key];
               }
+            }
+            if (!stations) {
+              const names = arr.map(s => s.station || s.name || s).filter(Boolean);
+              if (names.length > 5) stations = [...new Set(names)].sort();
             }
           } catch {}
         }
+        // Fallback global fetch if per NGO failed
+        if (!stations || stations.length < 5) {
+          for (const ep of ['/ngo-admin/stations', '/admin/stations']) {
+            try {
+              const r = await apiGet(ep);
+              const arr = Array.isArray(r) ? r : r?.stations || r?.data || [];
+              if (Array.isArray(arr) && arr.length > 0) {
+                const names = arr.map(s => s.station || s.name || s).filter(Boolean);
+                if (names.length > 5) { stations = [...new Set(names)].sort(); break; }
+              }
+            } catch {}
+          }
+        }
         if (stations && stations.length > 5) setAllStations(stations);
         if (Object.keys(workerMap).length > 0) setStationWorkers(workerMap);
-        // Fetch real targets for this month
+        // Fetch real targets per station per NGO
         try {
           const t = await apiGet('/ngo-admin/targets?month=' + reportMonth).catch(() => null);
           const arr = Array.isArray(t) ? t : t?.targets || t?.data || [];
           if (Array.isArray(arr) && arr.length > 0) {
             const map = {};
             for (const r of arr) {
-              const st = r.station || r.station_name;
-              if (st && r.target_amount) map[st] = Number(r.target_amount);
-              if (r.fro_station && r.target_amount) map[r.fro_station] = Number(r.target_amount);
+              const st = r.station || r.station_name || r.fro_station;
+              const ngo = r.ngo_id || r.ngo;
+              const key = st && ngo ? `${st}|${ngo}` : st;
+              if (key && r.target_amount) map[key] = Number(r.target_amount);
+              if (st && r.target_amount && !map[st]) map[st] = Number(r.target_amount);
             }
             if (Object.keys(map).length > 0) setRealTargets(map);
-          }
-        } catch {}
-        // Fallback targets via incentive API
-        try {
-          if (Object.keys(workerMap).length === 0) {
-            const r = await apiGet('/incentive/targets?month=' + reportMonth).catch(() => null);
-            if (r && typeof r === 'object') setRealTargets(prev => ({ ...prev, ...r }));
           }
         } catch {}
       } catch {}
@@ -178,8 +188,9 @@ export default function Reports() {
       for (const ngo of NGOS) {
         for (const st of stationsForMock) {
           const share = 1 / (stationsForMock.length * NGOS.length);
-          const tgt = realTargets[st] || teamTargets[st] || 0;
-          const worker = stationWorkers[st] || 'Unassigned';
+          const key = `${st}|${ngo.id}`;
+          const tgt = realTargets[key] || realTargets[st] || teamTargets[key] || teamTargets[st] || 0;
+          const worker = stationWorkers[key] || stationWorkers[st] || 'Unassigned';
           data.teamWise.push({ station: st, ngo_id: ngo.id, collected: Math.round(total * share * (0.8 + Math.random() * 0.4)), team: st, worker_name: worker, target: tgt, avgPerDay: tgt ? Math.ceil(tgt / daysInMonth(...reportMonth.split('-').map(Number))) : 0 });
         }
       }
@@ -619,7 +630,7 @@ export default function Reports() {
                     {(teamDetailNgoFilter === 'all' ? filteredTeam : filteredTeam.filter(r => r.ngo_id === teamDetailNgoFilter)).map(r => {
                       const t = r.target || teamTargets[r.station] || realTargets[r.station] || 0;
                       const avg = r.avgPerDay || (t ? Math.ceil(t / daysInMonth(...reportMonth.split("-").map(Number))) : 0);
-                      const who = r.worker_name || stationWorkers[r.station] || 'Unassigned';
+                      const who = r.worker_name || stationWorkers[`${r.station}|${r.ngo_id}`] || stationWorkers[r.station] || 'Unassigned';
                       return <tr key={`${r.station}-${r.ngo_id}`}><td>{r.station}</td><td>{r.ngo_id}</td><td style={{ fontWeight: 600, color: who === 'Unassigned' ? 'var(--ink-soft)' : 'var(--ink)' }}>{who}</td><td style={{ fontWeight: 600 }}>{currency(r.collected)}</td><td>{t ? currency(t) : '—'}</td><td>{t ? currency(avg) : '—'}</td></tr>;
                     })}
                   </tbody>
