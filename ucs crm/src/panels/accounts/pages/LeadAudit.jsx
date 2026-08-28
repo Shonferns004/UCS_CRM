@@ -29,7 +29,6 @@ export default function LeadAudit() {
   const workspaceRef = useRef(null);
   const access = useAccessCode();
   const [unlocked, setUnlocked] = useState(false);
-  const mask = (v) => (unlocked ? v : 'XXXX');
   const handleUnlock = async () => { if (await access.open()) setUnlocked(true); };
   const handleLock = () => setUnlocked(false);
 
@@ -132,11 +131,11 @@ export default function LeadAudit() {
         <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
           <div style={{ alignSelf: 'flex-start' }}>
             <SectionTitle>Lead Verification</SectionTitle>
-            <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} locked={!unlocked} />
+            <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} />
           </div>
           <div>
             <SectionTitle>Bank Audit</SectionTitle>
-            <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} locked={!unlocked} />
+            <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
           </div>
         </div>
 
@@ -147,9 +146,9 @@ export default function LeadAudit() {
 
         {(selectedLead || selectedEntry) && (
           <div className="match-bar">
-            {chip(selectedLead, () => { setSelectedLead(null); setSelectedEntry(null); }, selectedLead?.donor_name || 'Lead', mask(currency(selectedLead?.amount)), 'Double-click a lead to select · single-click to clear')}
+            {chip(selectedLead, () => { setSelectedLead(null); setSelectedEntry(null); }, selectedLead?.donor_name || 'Lead', currency(selectedLead?.amount), 'Double-click a lead to select · single-click to clear')}
             <span style={{ color: '#d1d5db', fontSize: 16, flexShrink: 0 }}>+</span>
-            {chip(selectedEntry, () => setSelectedEntry(null), selectedEntry?.payment_id || selectedEntry?.check_id || 'No ref', mask(currency(selectedEntry?.amount)), 'Double-click a bank entry to select · single-click to open')}
+            {chip(selectedEntry, () => setSelectedEntry(null), selectedEntry?.payment_id || selectedEntry?.check_id || 'No ref', currency(selectedEntry?.amount), 'Double-click a bank entry to select · single-click to open')}
             <button onClick={handleMatch} disabled={!ready}
               title={!selectedLead ? 'Select a lead first' : !selectedEntry ? 'Select a bank audit entry first' : 'Link entry to lead as manual match'}
               style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, borderRadius: 10, border: 'none', cursor: ready ? 'pointer' : 'not-allowed', background: ready ? 'var(--sage)' : '#d1d5db', color: ready ? '#fff' : '#9ca3af', opacity: matching ? .7 : 1, flexShrink: 0 }}>
