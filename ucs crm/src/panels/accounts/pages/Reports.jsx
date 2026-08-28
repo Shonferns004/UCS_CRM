@@ -142,14 +142,16 @@ export default function Reports() {
   });
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
   const grandSuspense = rows.reduce((s, r) => s + r.suspense, 0);
+  const grandAuditTotal = rows.reduce((s, r) => s + r.auditTotal, 0);
+  const grandReceiptCount = rows.reduce((s, r) => s + (r.receiptCount || 0), 0);
 
   // export CSV
   const exportCsv = () => {
-    const header = ['NGO', ...sourceOrder, 'Total', 'Suspense', 'Monthly Target', 'Working Days', 'Daily Target', 'Avg/Day', 'Diff'];
+    const header = ['NGO', 'Receipts', 'Collection Total', ...sourceOrder.map(s => `${s} (audit)`), 'Audit Total', 'Suspense', 'Monthly Target', 'Working Days', 'Daily Target', 'Avg/Day', 'Diff'];
     const body = rows.map(r => [
-      r.name,
+      r.name, r.receiptCount || 0, r.total,
       ...sourceOrder.map(s => (data?.byNgo?.[r.id]?.sources?.[s]) || 0),
-      r.total, r.suspense, r.monthlyTarget, r.workingDaysSoFar,
+      r.auditTotal, r.suspense, r.monthlyTarget, r.workingDaysSoFar,
       round2(r.targetDaily), round2(r.actualAvg), round2(r.diff),
     ]);
     const all = [header, ...body];
@@ -252,6 +254,7 @@ export default function Reports() {
                 <thead>
                   <tr style={{ textAlign: 'left', color: 'var(--ink-soft)', fontSize: 12 }}>
                     <th style={{ padding: '8px 12px' }}>NGO</th>
+                    <th style={{ padding: '8px 12px' }}>Receipts</th>
                     <th style={{ padding: '8px 12px' }}>Monthly Target</th>
                     <th style={{ padding: '8px 12px' }}>Total Collected</th>
                     <th style={{ padding: '8px 12px' }}>Working Days</th>
@@ -267,6 +270,7 @@ export default function Reports() {
                     return (
                       <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
                         <td style={{ padding: '8px 12px', fontWeight: 600 }}>{r.name}</td>
+                        <td style={{ padding: '8px 12px' }}>{(r.receiptCount || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '8px 12px' }}>{currency(r.monthlyTarget)}</td>
                         <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(r.total)}</td>
                         <td style={{ padding: '8px 12px' }}>{r.workingDaysSoFar}</td>
@@ -277,6 +281,17 @@ export default function Reports() {
                       </tr>
                     );
                   })}
+                  <tr style={{ borderTop: '2px solid var(--sage)', fontWeight: 700 }}>
+                    <td style={{ padding: '8px 12px' }}>Total</td>
+                    <td style={{ padding: '8px 12px' }}>{grandReceiptCount.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '8px 12px' }}>{currency(rows.reduce((s, r) => s + r.monthlyTarget, 0))}</td>
+                    <td style={{ padding: '8px 12px' }}>{currency(grandTotal)}</td>
+                    <td style={{ padding: '8px 12px' }}></td>
+                    <td style={{ padding: '8px 12px' }}></td>
+                    <td style={{ padding: '8px 12px' }}></td>
+                    <td style={{ padding: '8px 12px' }}></td>
+                    <td style={{ padding: '8px 12px', color: '#dc2626' }}>{currency(grandSuspense)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -284,7 +299,10 @@ export default function Reports() {
 
           {/* Source-wise collection per NGO */}
           <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>Collection by Source (NGO-wise)</h3></div>
+            <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>Collection by Payment Source (NGO-wise)</h3></div>
+            <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
+              Source-wise split is from bank-audit matched money. The per-NGO "Collected" totals above are the full collection from receipts, so the source subtotals below are part of (not equal to) the receipt totals.
+            </div>
             <div className="table-wrap" style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
                 <thead>
@@ -305,11 +323,11 @@ export default function Reports() {
                     </tr>
                   ))}
                   <tr style={{ borderTop: '2px solid var(--sage)' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>Total</td>
+                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>Source Total (bank audit)</td>
                     {ngos.map(n => (
-                      <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(data?.byNgo?.[n.id]?.total ?? rows.find(r => r.id === n.id)?.total ?? 0)}</td>
+                      <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.auditTotal) || 0)}</td>
                     ))}
-                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandTotal)}</td>
+                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandAuditTotal)}</td>
                   </tr>
                   <tr style={{ borderTop: '1px solid var(--line)' }}>
                     <td style={{ padding: '8px 12px' }}><span className="pill pill-gray" style={{ color: '#dc2626' }}>Suspense</span></td>

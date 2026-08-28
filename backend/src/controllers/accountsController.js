@@ -4899,6 +4899,26 @@ export const getReportData = async (req, res) => {
       .lte('transaction_date', dateTo);
     if (bErr) throw bErr;
 
+    // NGO collection totals come from the RECEIPTS table (matches the Receipts
+    // page exactly). Bank-audit entries only cover source-matched money, so the
+    // per-source breakdown is a subset and is reported under its own subtotal.
+    const receiptTotalByNgo = {};
+    for (const n of ngoIds) receiptTotalByNgo[n] = { count: 0, total: 0 };
+    const { data: monthReceipts, error: rErr } = await db
+      .from('receipts')
+      .select('project_id, amount')
+      .not('receipt_no', 'is', null)
+      .gte('receipt_date', `${month}-01`)
+      .lte('receipt_date', `${month}-${String(lastDay).padStart(2, '0')}`);
+    if (rErr) throw rErr;
+    for (const r of monthReceipts || []) {
+      const ngo = r.project_id && receiptTotalByNgo[r.project_id] ? r.project_id : null;
+      if (ngo) {
+        receiptTotalByNgo[ngo].total += Number(r.amount || 0);
+        receiptTotalByNgo[ngo].count += 1;
+      }
+    }
+
     const sourceOrder = [];
     const sourceSet = {};
     const byNgo = {};
@@ -4921,7 +4941,9 @@ export const getReportData = async (req, res) => {
     // Build per-NGO output rows
     const ngoRows = [];
     for (const n of ngoIds) {
-      const total = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
+      const auditTotal = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
+      const total = receiptTotalByNgo[n].total;
+      const receiptCount = receiptTotalByNgo[n].count;
       const { count: workingDaysSoFar } = computeReportWorkingDays({ month, today, ngoId: n, holidayDates: holidayByNgo[n] });
       const ngoTarget = Number(savedByNgo[n]) || 0;
       const targetDaily = workingDaysSoFar > 0 ? ngoTarget / workingDaysSoFar : 0;
@@ -4936,6 +4958,8 @@ export const getReportData = async (req, res) => {
         id: n,
         name: (ngoList.find((g) => g.id === n) || {}).name || n,
         total,
+        receiptCount,
+        auditTotal,
         suspense: byNgo[n].suspense,
         daysElapsed,
         workingDaysSoFar,
