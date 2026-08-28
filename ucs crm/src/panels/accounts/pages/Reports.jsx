@@ -31,16 +31,21 @@ const StatCardSkeleton = () => (
 );
 
 const TenorCrab = () => (
-  <div className="no-print" style={{ width: 104, height: 96, flexShrink: 0, alignSelf: 'flex-end', marginLeft: 'auto' }}>
-    <video
-      src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
-      poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
-      autoPlay
-      loop
-      muted
-      playsInline
-      style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }}
-    />
+  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 6, height: 104, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, width: 150, height: 104, animation: 'rpSweep 9s ease-in-out infinite' }}>
+      <video
+        src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
+        poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          width: '100%', height: '100%', objectFit: 'contain',
+          mixBlendMode: 'multiply', imageRendering: 'pixelated'
+        }}
+      />
+    </div>
   </div>
 );
 
@@ -64,7 +69,15 @@ const animStyle = `
   @keyframes rpFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .rp-card { animation: rpFadeUp .35s ease both; }
   .rp-tabs { animation: rpFadeUp .3s ease both; }
-  @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
+  @keyframes rpSweep {
+    0%   { left: 0; }
+    12%  { left: 0; }
+    45%  { left: calc(100% - 150px); }
+    55%  { left: calc(100% - 150px); }
+    88%  { left: 0; }
+    100% { left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs, [style*="rpSweep"] { animation: none; } }
 `;
 
 export default function Reports() {
@@ -350,7 +363,7 @@ export default function Reports() {
         <div className="stats-grid" style={{ marginBottom: 20 }}><div style={{ gridColumn: '1 / -1', width: '100%' }}><StatCardSkeleton /></div></div>
       ) : (
         <div className="rp-card" style={{ marginBottom: 20 }}>
-          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1e40af,#3b82f6)', border: 'none', position: 'relative', overflow: 'hidden' }}>
+          <div className="stat-card" style={{ width: '100%', boxSizing: 'border-box', background: 'linear-gradient(135deg,#1e40af,#3b82f6)', border: 'none', position: 'relative', overflow: 'hidden', minHeight: 150, paddingBottom: 110 }}>
             <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff', position: 'relative' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
