@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
 export default function Workers({ onViewWorker }) {
+  const { formatSalary } = useSalaryPrivacy()
   const [workers, setWorkers] = useState([])
   const [ngos, setNgos] = useState([])
   const [filterNgo, setFilterNgo] = useState('')
@@ -76,7 +78,7 @@ export default function Workers({ onViewWorker }) {
                   <td><code>{w.login_id}</code></td>
                   <td>{w.department || '—'}</td>
                   <td className="sa-muted">{ngo?.name || '—'}</td>
-                  <td>{w.salary ? `₹${Number(w.salary).toLocaleString()}` : '—'}</td>
+                  <td>{w.salary ? formatSalary(w.salary) : '—'}</td>
                   <td><span className={`sa-badge ${w.is_active !== false ? 'active' : 'inactive'}`}>
                     {w.is_active !== false ? 'Active' : 'Inactive'}
                   </span></td>
