@@ -129,11 +129,29 @@ export default function Reports() {
     setTargetForm({ overall: val, perNgo });
   };
 
-  // When an individual NGO target is edited -> recompute overall = sum
+  // When an individual NGO target is edited -> keep the overall as the anchor;
+  // any shortfall vs the per-NGO sum is surfaced as a distribution recommendation.
   const onNgoTargetChange = (slug, val) => {
     const perNgo = { ...targetForm.perNgo, [slug]: val };
-    const overall = Object.values(perNgo).reduce((s, v) => s + (Number(v) || 0), 0);
-    setTargetForm({ overall: overall ? String(overall) : '', perNgo });
+    setTargetForm({ ...targetForm, perNgo });
+  };
+
+  // Distribute the unallocated shortfall across all NGOs (a bit here and there)
+  const distributeShortfall = () => {
+    const ngos = data?.ngos || [];
+    if (ngos.length === 0) return;
+    const overall = Number(targetForm.overall) || 0;
+    const allocated = ngos.reduce((s, n) => s + (Number(targetForm.perNgo[n.id]) || 0), 0);
+    let short = overall - allocated;
+    if (short <= 0) return;
+    const perNgo = { ...targetForm.perNgo };
+    const share = Math.floor(short / ngos.length);
+    let rem = short - share * ngos.length;
+    ngos.forEach((n, i) => {
+      const cur = Number(perNgo[n.id]) || 0;
+      perNgo[n.id] = String(cur + share + (i === ngos.length - 1 ? rem : 0));
+    });
+    setTargetForm({ ...targetForm, perNgo });
   };
 
   const rebalanceEvenly = () => {
@@ -151,12 +169,8 @@ export default function Reports() {
   const saveTarget = async () => {
     const ngos = data?.ngos || [];
     const byNgo = {};
-    let overall = 0;
-    ngos.forEach(n => {
-      const v = Number(targetForm.perNgo[n.id]) || 0;
-      byNgo[n.id] = v;
-      overall += v;
-    });
+    const sum = ngos.reduce((s, n) => { const v = Number(targetForm.perNgo[n.id]) || 0; byNgo[n.id] = v; return s + v; }, 0);
+    const overall = (Number(targetForm.overall) || 0) > 0 ? Number(targetForm.overall) : sum;
     setSavingTarget(true);
     try {
       await apiPut('/accounts/report-targets', { month, overall, byNgo });
@@ -175,6 +189,12 @@ export default function Reports() {
   const ngos = data?.ngos || [];
   const sourceOrder = data?.sourceOrder || [];
   const rows = data?.rows || [];
+
+  // Monthly target form derived state (allocation vs the overall anchor)
+  const overallAnchor = Number(targetForm.overall) || 0;
+  const perNgoSum = ngos.reduce((s, n) => s + (Number(targetForm.perNgo[n.id]) || 0), 0);
+  const shortfall = Math.max(0, overallAnchor - perNgoSum);
+  const excess = Math.max(0, perNgoSum - overallAnchor);
 
   // target lookup: saved per-ngo (byNgoTargets) merged over rows
   const savedTargets = {};
@@ -261,11 +281,17 @@ export default function Reports() {
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
             <div>
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 4 }}>Overall Target (auto even-split)</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 4 }}>Overall Target (kept as-is)</div>
               <input type="number" value={targetForm.overall} onChange={e => onOverallChange(e.target.value)}
                 placeholder="e.g. 900000" style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 14, fontWeight: 600 }} />
             </div>
             <button className="btn btn-sm" onClick={rebalanceEvenly} title="Redistribute overall evenly across NGOs">Re-balance Evenly</button>
+            {shortfall > 0 && (
+              <button className="btn btn-sm" onClick={distributeShortfall} title="Spread the unallocated amount across all NGOs"
+                style={{ background: 'var(--sage)', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                Apply Recommendation
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             {ngos.map(n => (
@@ -277,11 +303,30 @@ export default function Reports() {
               </div>
             ))}
           </div>
+
+          {/* Allocation status + recommendation */}
+          {overallAnchor > 0 && (
+            <div style={{ padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 600, background: shortfall > 0 || excess > 0 ? '#FEF3C7' : '#B9EFCE', color: shortfall > 0 || excess > 0 ? '#92400E' : '#1B7A3D', border: shortfall > 0 || excess > 0 ? '1px solid #FDE68A' : '1px solid #86EFAC' }}>
+              {shortfall > 0 ? (
+                <>
+                  Allocated {currency(perNgoSum)} of {currency(overallAnchor)} · <strong>{currency(shortfall)} left</strong> to distribute.
+                  <div style={{ fontWeight: 500, fontSize: 12, marginTop: 6, background: 'rgba(255,255,255,.6)', padding: '6px 8px', borderRadius: 6 }}>
+                    Recommendation: add <strong>{currency(Math.floor(shortfall / Math.max(ngos.length, 1)))}</strong> to each NGO (≈ +{currency(Math.floor(shortfall / Math.max(ngos.length, 1)))} here &amp; there) so the total reaches {currency(overallAnchor)}. <button onClick={distributeShortfall} style={{ background: '#92400E', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', marginLeft: 6 }}>Apply</button>
+                  </div>
+                </>
+              ) : excess > 0 ? (
+                <>Allocated <strong>{currency(perNgoSum)}</strong> is <strong>{currency(excess)}</strong> more than the overall target {currency(overallAnchor)}. Lower a share or raise the overall.</>
+              ) : (
+                <>Allocated {currency(perNgoSum)} = overall target {currency(overallAnchor)} — fully distributed.</>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button className="btn btn-primary" onClick={saveTarget} disabled={savingTarget}>
               {savingTarget ? 'Saving...' : 'Save Target'}
             </button>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Editing one NGO overrides its equal share; overall = sum of all NGOs.</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Overall stays fixed; set any NGO to a different share and the difference is shown below as a recommendation to spread it here &amp; there.</span>
           </div>
         </div>
       )}
