@@ -5,7 +5,7 @@ import { toast } from '../../../components/Toast'
 
 const PAGE_SIZES = [100, 500, 1000]
 
-function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName }) {
+function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName, category }) {
   const freshStations = stations.filter(s => s.station?.startsWith('FD-'))
   const oldStations = stations.filter(s => !s.station?.startsWith('FD-'))
   const [viewTab, setViewTab] = useState(freshStations.length > 0 ? 'fresh' : 'old')
@@ -57,6 +57,7 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName })
     try {
       const body = { stations: Array.from(selected) }
       if (ngoId) body.ngo_id = ngoId
+      if (category) body.category = category
       const res = await apiPost('/ngo-admin/new-data/distribute', body)
       onDistribute(res)
     } catch (err) {
@@ -77,7 +78,17 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName })
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
         <div className="modal-head">
-          <h3>Distribute New Data — {ngoName || 'All NGOs'}</h3>
+          <div>
+            <h3 style={{ margin: 0 }}>Distribute New Data — {ngoName || 'All NGOs'}</h3>
+            {category ? (
+              <div style={{ fontSize: 11, color: 'var(--sage)', fontWeight: 600, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>Category:</span>
+                <span className="pill" style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', fontSize: 10, padding: '1px 6px' }}>{category}</span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>All Categories</div>
+            )}
+          </div>
           <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
@@ -359,6 +370,7 @@ export default function NewData() {
     try {
       const body = { stations: fdStations.map(s => s.station) }
       if (selectedNgoId !== 'all') body.ngo_id = selectedNgoId
+      if (categoryFilter) body.category = categoryFilter
       const res = await apiPost('/ngo-admin/new-data/distribute', body)
       setResult(res)
       load()
@@ -382,6 +394,7 @@ export default function NewData() {
     try {
       const body = {}
       if (selectedNgoId !== 'all') body.ngo_id = selectedNgoId
+      if (categoryFilter) body.category = categoryFilter
       const res = await apiPost('/ngo-admin/new-data/cleanup', body)
       setResult(res)
       load()
@@ -561,6 +574,7 @@ export default function NewData() {
               onDistribute={(res) => { setShowStationSelect(false); setResult(res); load() }}
               ngoId={selectedNgoId}
               ngoName={currentNgoName}
+              category={categoryFilter}
             />
           )}
 
@@ -582,6 +596,10 @@ export default function NewData() {
                       <strong>{accessibleNgos.find(n => n.id === selectedNgoId)?.name || '—'}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span style={{ color: 'var(--ink-soft)' }}>Category:</span>
+                      <strong style={{ color: categoryFilter ? 'var(--sage)' : 'inherit' }}>{categoryFilter || 'All Categories'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                       <span style={{ color: 'var(--ink-soft)' }}>FD Stations:</span>
                       <strong>{fdStations.length}</strong>
                     </div>
@@ -589,7 +607,7 @@ export default function NewData() {
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, padding: '8px 12px', borderRadius: 6, background: distributeConfirmed ? '#f0fdf4' : '#f9fafb', border: `1px solid ${distributeConfirmed ? '#86efac' : 'var(--line)'}`, transition: 'all .15s' }}>
                     <input type="checkbox" checked={distributeConfirmed} onChange={e => setDistributeConfirmed(e.target.checked)} />
-                    <span>I confirm I want to distribute this data to <strong>all FD stations</strong> ({fdStations.length})</span>
+                    <span>I confirm I want to distribute this data{categoryFilter ? ` (${categoryFilter})` : ''} to <strong>all FD stations</strong> ({fdStations.length})</span>
                   </label>
 
                   <div className="modal-actions">
@@ -612,9 +630,9 @@ export default function NewData() {
                 </div>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ background: '#fef2f2', borderRadius: 8, padding: '14px 16px', border: '1px solid #fecaca' }}>
-                    <div style={{ fontSize: 13, color: '#991b1b', fontWeight: 600, marginBottom: 6 }}>⚠ This will delete all undistributed new data</div>
+                    <div style={{ fontSize: 13, color: '#991b1b', fontWeight: 600, marginBottom: 6 }}>⚠ This will delete undistributed new data</div>
                     <div style={{ fontSize: 12, color: '#991b1b' }}>
-                      {total} unassigned donor record(s) for <strong>{currentNgoName || 'All NGOs'}</strong> will be permanently removed from the new_data table.
+                      {total} unassigned donor record(s){categoryFilter ? ` for category "${categoryFilter}"` : ''} in <strong>{currentNgoName || 'All NGOs'}</strong> will be permanently removed from the new_data table.
                     </div>
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
                       Already distributed data (assigned to FROs) will NOT be affected. Old data and donor profiles remain safe.
@@ -623,14 +641,14 @@ export default function NewData() {
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, padding: '8px 12px', borderRadius: 6, background: cleanupConfirmed ? '#fef2f2' : '#f9fafb', border: `1px solid ${cleanupConfirmed ? '#fca5a5' : 'var(--line)'}`, transition: 'all .15s' }}>
                     <input type="checkbox" checked={cleanupConfirmed} onChange={e => setCleanupConfirmed(e.target.checked)} />
-                    <span>I understand this will permanently delete <strong>{total}</strong> undistributed records</span>
+                    <span>I understand this will permanently delete <strong>{total}</strong> undistributed records{categoryFilter ? ` (${categoryFilter})` : ''}</span>
                   </label>
 
                   <div className="modal-actions">
                     <button className="btn btn-outline" onClick={() => setShowCleanupConfirm(false)}>Cancel</button>
                     <button className="btn" onClick={executeCleanup} disabled={!cleanupConfirmed}
                       style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
-                      Delete All Undistributed Data
+                      Delete Undistributed Data
                     </button>
                   </div>
                 </div>
