@@ -418,7 +418,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2, minWidth: 0 }}>
                 <span className="ec-sub" style={{ marginTop: 0 }}>{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</span>
                 {(e.verify_type||e.verify_fro_worker_id)&&<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED</span>}
-                {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="ec-sub" style={{ marginTop: 0 }} title="Agent">{e.agent_name||e.match_fro}</span>}
+                {(e.agent_name||e.verify_fro_name||e.match_fro)?(ag=>ag!=='Suspense'&&<span className="ec-sub" style={{ marginTop: 0 }} title="Agent">{ag}</span>)(e.agent_name||e.verify_fro_name||e.match_fro):null}
               </div>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
