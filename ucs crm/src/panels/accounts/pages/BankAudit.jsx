@@ -282,8 +282,9 @@ function FroSearchPicker({ value, fros = [], onChange }){
 }
 
 // ─── Audit Stat Cards ──────────────────────────────────────
-export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null}){
+export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null,locked=false}){
   const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
+  const mask=(v)=>locked?'XXXX':v;
   return <div className="stats-grid">
     {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
       {c&&<div className="stat-card">
@@ -291,8 +292,8 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg>
         </div>
         <div className="stat-info">
-          <div className="stat-num" style={{color:'#111827'}}>{c.count}</div>
-          <div style={{fontSize:11,color:'#6b7280'}}>{curr(c.amount)}</div>
+          <div className="stat-num" style={{color:'#111827'}}>{mask(c.count)}</div>
+          <div style={{fontSize:11,color:'#6b7280'}}>{mask(curr(c.amount))}</div>
           {setSuspenseNgo&&<div className="stat-actions">
             {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']].map(([v,l])=>
               <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#111827':'#e5e7eb',color:suspenseNgo===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
@@ -305,7 +306,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
         </div>
         <div className="stat-info">
-          <div className="stat-num" style={{color:C[i%C.length]}}>{curr(summary[s.name]||0)}</div>
+          <div className="stat-num" style={{color:C[i%C.length]}}>{mask(curr(summary[s.name]||0))}</div>
           <div className="stat-lbl">{s.name}</div>
         </div>
       </div>)}
@@ -314,7 +315,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey,amountFilter='',dateFilter='',sharedListRef,onListScroll}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey,amountFilter='',dateFilter='',sharedListRef,onListScroll,locked=false}){
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -339,6 +340,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,ngoFilter,sq,amountFilter,dateFilter,stf]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
+  const mask=v=>locked?'XXXX':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
   const NGO_LABELS={bsct:'Being Sevak',mann:'Mann Care',aflf:'Ashray'};
   const ngoOf=e=>{
@@ -403,7 +405,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               {e.receipt_no&&<span style={{fontSize:15,fontWeight:800,color:'#16a34a',fontFamily:'monospace',letterSpacing:'.5px'}}>{e.receipt_no}</span>}
-              <div className="ec-amount">{curr(e.amount)}</div>
+              <div className="ec-amount">{mask(curr(e.amount))}</div>
               <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
           </div>
@@ -428,7 +430,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 }
 
 // ─── Main ──────────────────────────────────────────────────
-export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView,amountFilter='',dateFilter='',listRef,onListScroll,onAmounts}){
+export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView,amountFilter='',dateFilter='',listRef,onListScroll,onAmounts,locked=false}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
@@ -698,7 +700,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       selDate={sd} setSelDate={setSd} selDay={dd} setSelDay={setDd} doLoad={load}
       ngoFilter={ngoFilter} setNgoFilter={setNf} hideNgoFilter={useGlobalNgo}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
-      amountFilter={amountFilter} dateFilter={dateFilter} sharedListRef={listRef} onListScroll={onListScroll}
+      amountFilter={amountFilter} dateFilter={dateFilter} sharedListRef={listRef} onListScroll={onListScroll} locked={locked}
       form={fm} setForm={setFm}
       handleAdd={addEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc}

@@ -5050,16 +5050,19 @@ export const getReportData = async (req, res) => {
   }
 };
 
-// Shared 4-digit access code gating downloads & the locked Reports page.
-// Only accounts / super_admin can reach these routes (enforced at the router).
-const ACCESS_CODE_SETTING_KEY = 'accounts_access_code';
+// Per-user 4-digit access code gating downloads & the locked Reports/status pages.
+// Each accounts user has their own code, stored in the settings table under a key
+// derived from their id. Only accounts / super_admin can reach these routes
+// (enforced at the router), and super_admin has no code.
+const accessCodeKey = (userId) => `accounts_access_code_${userId}`;
 
 const codeToStr = (v) => String(v ?? '').trim();
 
 // GET /accounts/access-code/status -> { set: boolean }
 export const getAccessCodeStatus = async (req, res) => {
   try {
-    const raw = await getSetting(ACCESS_CODE_SETTING_KEY);
+    if (!req.user || req.user.id == null) return res.json({ set: false });
+    const raw = await getSetting(accessCodeKey(req.user.id));
     return res.json({ set: Boolean(raw) });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -5069,11 +5072,12 @@ export const getAccessCodeStatus = async (req, res) => {
 // POST /accounts/access-code  { code } -> create if none exists
 export const createAccessCode = async (req, res) => {
   try {
-    const existing = await getSetting(ACCESS_CODE_SETTING_KEY);
+    if (!req.user || req.user.id == null) return res.status(400).json({ message: 'Not authenticated.' });
+    const existing = await getSetting(accessCodeKey(req.user.id));
     if (existing) return res.status(409).json({ message: 'Access code already set.' });
     const code = codeToStr(req.body?.code);
     if (!/^\d{4}$/.test(code)) return res.status(400).json({ message: 'Code must be exactly 4 digits.' });
-    await upsertSetting(ACCESS_CODE_SETTING_KEY, code);
+    await upsertSetting(accessCodeKey(req.user.id), code);
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -5083,10 +5087,31 @@ export const createAccessCode = async (req, res) => {
 // POST /accounts/access-code/verify  { code } -> { ok }
 export const verifyAccessCode = async (req, res) => {
   try {
+    if (!req.user || req.user.id == null) return res.json({ ok: false, message: 'Not authenticated.' });
     const code = codeToStr(req.body?.code);
-    const stored = await getSetting(ACCESS_CODE_SETTING_KEY);
+    const stored = await getSetting(accessCodeKey(req.user.id));
     if (!stored) return res.json({ ok: false, message: 'No access code set yet.' });
     return res.json({ ok: stored === code });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/access-code/change  { currentCode, newCode } -> change own code
+// Requires the current code so only the owner can rotate it, mirroring the
+// password-change flow.
+export const changeAccessCode = async (req, res) => {
+  try {
+    if (!req.user || req.user.id == null) return res.status(400).json({ message: 'Not authenticated.' });
+    const currentCode = codeToStr(req.body?.currentCode);
+    const newCode = codeToStr(req.body?.newCode);
+    if (!/^\d{4}$/.test(newCode)) return res.status(400).json({ message: 'New code must be exactly 4 digits.' });
+    const key = accessCodeKey(req.user.id);
+    const stored = await getSetting(key);
+    if (!stored) return res.status(404).json({ message: 'No access code set yet. Create one first.' });
+    if (stored !== currentCode) return res.status(401).json({ message: 'Current access code is incorrect.' });
+    await upsertSetting(key, newCode);
+    return res.json({ ok: true, message: 'Access code changed successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

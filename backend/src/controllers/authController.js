@@ -2,9 +2,9 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import db from '../config/db.js';
-import { getWorkerByLoginId, getWorkerById } from '../models/workerModel.js';
-import { getUserByEmail, getUserByName, getUserById } from '../models/userModel.js';
-import { getHRByEmail } from '../models/hrModel.js';
+import { getWorkerByLoginId, getWorkerById, updateWorker } from '../models/workerModel.js';
+import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
+import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
 import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } from '../models/workAsSessionModel.js';
 
@@ -544,6 +544,56 @@ export const releaseWorkAs = async (req, res) => {
     const operatorId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : req.user.id;
     const released = await releaseOperatorSessions(operatorId);
     return res.json({ message: 'Work-as sessions released', released });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /auth/change-password  { currentPassword, newPassword }
+// Lets any DB-backed user (worker | users | hrs) change their own password by
+// confirming the current one. Super admin (env-based) and the env 'user' have no
+// DB row, so they are rejected — their credentials are managed elsewhere.
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    }
+
+    // Super admin & env user have no DB-backed identity to update.
+    if (req.user.role === 'super_admin' || req.user.id == null || req.user.id === -1 || req.user.id === 0) {
+      return res.status(403).json({ message: 'Password change is not supported for this account.' });
+    }
+
+    let source = null; // { id, table, passwordColumn, currentHash }
+    if (req.user.login_id) {
+      const worker = await getWorkerByLoginId(req.user.login_id) || await getWorkerById(req.user.id);
+      if (worker) source = { id: worker.id, update: (h) => updateWorker(worker.id, { password: h }), currentHash: worker.password };
+    } else if (req.user.role === 'hr') {
+      const hr = await getHRById(req.user.id) || await getHRByEmail(req.user.email);
+      if (hr) source = { id: hr.id, update: (h) => updateHR(hr.id, { password_hash: h }), currentHash: hr.password_hash };
+    } else {
+      const user = await getUserById(req.user.id) || await getUserByEmail(req.user.email);
+      if (user) source = { id: user.id, update: (h) => updateUser(user.id, { password_hash: h }), currentHash: user.password_hash };
+    }
+
+    if (!source) {
+      return res.status(404).json({ message: 'Account not found.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, source.currentHash);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Current password is incorrect.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(newPassword, salt);
+    await source.update(hashed);
+
+    return res.json({ message: 'Password changed successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
