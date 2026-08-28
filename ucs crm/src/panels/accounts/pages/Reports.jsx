@@ -46,6 +46,13 @@ const printStyle = `
   }
 `;
 
+const animStyle = `
+  @keyframes rpFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .rp-card { animation: rpFadeUp .35s ease both; }
+  .rp-tabs { animation: rpFadeUp .3s ease both; }
+  @media (prefers-reduced-motion: reduce) { .rp-card, .rp-tabs { animation: none; } }
+`;
+
 export default function Reports() {
   const [month, setMonth] = useState(() => {
     const d = new Date();
@@ -205,11 +212,12 @@ export default function Reports() {
   const handlePrint = () => { window.print(); };
 
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ maxWidth: '100%' }}>
       <style>{printStyle}</style>
+      <style>{animStyle}</style>
 
       {/* Header + Toolbar */}
-      <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div className="no-print rp-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>Collection Report</h1>
           <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 2 }}>{reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
@@ -246,7 +254,7 @@ export default function Reports() {
 
       {/* Monthly Target editor */}
       {showTargetForm && (
-        <div className="card" style={{ marginBottom: 16, padding: 16, border: '2px solid var(--sage)' }}>
+        <div className="card rp-card" style={{ marginBottom: 16, padding: 16, border: '2px solid var(--sage)' }}>
           <div className="card-head" style={{ padding: 0, border: 0, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Monthly Target — {monthLabel(month)}</h3>
             <button className="btn btn-sm" onClick={() => setShowTargetForm(false)}>Cancel</button>
@@ -279,7 +287,7 @@ export default function Reports() {
       )}
 
       {/* Summary stat cards */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
+      <div className="stats-grid rp-card" style={{ marginBottom: 20 }}>
         {loading ? (
           <StatCardSkeleton />
         ) : (
@@ -313,11 +321,11 @@ export default function Reports() {
 
       {loading ? (
         <>
-          <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card rp-card" style={{ marginBottom: 16 }}>
             <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3></div>
             <TableSkeleton cols={8} rows={4} />
           </div>
-          <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card rp-card" style={{ marginBottom: 16 }}>
             <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>Collection by Payment Source (NGO-wise)</h3></div>
             <TableSkeleton cols={5} rows={5} />
           </div>
@@ -325,7 +333,7 @@ export default function Reports() {
       ) : (
         <>
           {/* Target & daily-average summary */}
-          <div className="card" style={{ marginBottom: 16, overflow: 'hidden' }}>
+          <div className="card rp-card" style={{ marginBottom: 16, overflow: 'hidden' }}>
             <div className="card-head">
               <h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3>
               <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>vs monthly target · {reportDay ? 'daily view' : 'monthly'}</span>
@@ -376,7 +384,7 @@ export default function Reports() {
           </div>
 
           {/* Payment Source / Team-wise tabs */}
-          <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div className="no-print rp-tabs" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 4, gap: 4 }}>
               <button
                 onClick={() => setViewTab('source')}
@@ -398,7 +406,7 @@ export default function Reports() {
           </div>
 
           {viewTab === 'source' && (
-            <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card rp-card" style={{ marginBottom: 16 }}>
               <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Collection by Payment Source (NGO-wise)</h3>
                 <div className="no-print" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -448,7 +456,7 @@ export default function Reports() {
           )}
 
           {viewTab === 'team' && (
-            <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card rp-card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Team-wise Collection</h3></div>
               <div className="empty" style={{ padding: 48, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>
                 Coming soon.
