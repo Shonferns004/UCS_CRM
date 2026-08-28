@@ -9,7 +9,7 @@ const NGOS = [
   { id: 'aflf', name: 'Ashray Foundation', code: 'AFLF' },
   { id: 'mann', name: 'Mann Care', code: 'MANN' },
 ];
-const STATIONS = ['DH-1','DH-3','FD-1','FD-7','FD-12','ND-2','M-2'];
+const STATIONS_FALLBACK = ['DH-1','DH-2','DH-3','DH-4','DH-5','DH-6','DH-7','DH-8','DH-9','DH-10','DH-11','DH-12','DH-13','DH-14','FD-1','FD-2','FD-3','FD-4','FD-5','FD-6','FD-7','FD-8','FD-9','FD-10','FD-11','FD-12','FD-13','FD-14','FD-15','FD-16','FD-17','FD-18','FD-19','FD-20','FD-21','FD-22','FD-23','ND-1','ND-2','ND-3','ND-4','ND-5','ND-6','ND-7','ND-8','M-2'];
 
 function SkeletonBar({ w }) {
   return <div style={{ height: 14, width: w || '60%', borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>;
@@ -52,6 +52,8 @@ export default function Reports() {
   });
   const [ngoFilter, setNgoFilter] = useState('all');
   const [stationFilter, setStationFilter] = useState('all');
+  const [teamDetailNgoFilter, setTeamDetailNgoFilter] = useState('all');
+  const [allStations, setAllStations] = useState(STATIONS_FALLBACK);
   const printRef = useRef(null);
 
   // Approximate targets — UI only, localStorage mock (both overall + per NGO/team)
@@ -89,6 +91,33 @@ export default function Reports() {
     localStorage.setItem(`accounts_approx_${reportMonth}_team`, JSON.stringify(next));
   };
 
+  useEffect(() => {
+    (async () => {
+      try {
+        // Try multiple endpoints to get all stations per NGO
+        let stations = null;
+        for (const ep of ['/ngo-admin/stations', '/admin/stations', '/super-admin/stations', '/fro/stations']) {
+          try {
+            const r = await apiGet(ep);
+            const arr = Array.isArray(r) ? r : r?.stations || r?.data || [];
+            if (Array.isArray(arr) && arr.length > 0) {
+              const names = arr.map(s => s.station || s.name || s).filter(Boolean);
+              if (names.length > 5) { stations = [...new Set(names)].sort(); break; }
+            }
+          } catch {}
+        }
+        // Fallback: derive from teamWise mock if API fails — use distinct stations from assignments via reports data
+        if (!stations || stations.length < 5) {
+          try {
+            const r = await apiGet('/accounts/day-end-report?month=' + reportMonth);
+            if (r?.teamWise) stations = [...new Set(r.teamWise.map(t => t.station))].sort();
+          } catch {}
+        }
+        if (stations && stations.length > 5) setAllStations(stations);
+      } catch {}
+    })();
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setSent(false);
@@ -109,7 +138,8 @@ export default function Reports() {
         .filter((s, i, a) => a.findIndex(x => x.name === s.name) === i)
         .map(s => ({ name: s.name, amount: srcMap[s.name] || 0 }));
 
-      // Mock team/ngo aggregates from sourceBreakdown + totalCollected for UI-only
+      // Mock team/ngo aggregates from totalCollected for UI-only — uses allStations
+      const stationsForMock = allStations.length > 0 ? allStations : STATIONS_FALLBACK;
       const total = Number(data.totalCollected || 0);
       // NGO wise: split total proportionally by NGO
       const ngoSplit = NGOS.map((n, idx) => {
@@ -118,8 +148,8 @@ export default function Reports() {
       });
       data.ngoWise = ngoSplit;
       // Team wise: split by stations
-      data.teamWise = STATIONS.map((st, idx) => {
-        const share = 1 / STATIONS.length;
+      data.teamWise = stationsForMock.map((st, idx) => {
+        const share = 1 / stationsForMock.length;
         return { station: st, ngo_id: NGOS[idx % 3].id, collected: Math.round(total * share * (0.8 + Math.random() * 0.4)), team: st };
       });
       // Month trend mock (12 months)
@@ -140,7 +170,7 @@ export default function Reports() {
       setReport(data);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); }
-  }, [view, reportDate, reportMonth]);
+  }, [view, reportDate, reportMonth, allStations]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -149,7 +179,7 @@ export default function Reports() {
     setSending(true);
     setSent(false);
     try {
-      const label = view === 'day' ? 'Day Report' : view === 'month' ? 'Month Report' : view === 'team' ? 'Team Report' : 'NGO Report';
+      const label = view === 'overall' ? 'Overall Report' : view === 'day' ? 'Day Report' : view === 'month' ? 'Month Report' : view === 'team' ? 'Team Report' : 'NGO Report';
       const lines = [label + ' - ' + report.date, '', 'Total Submitted: ' + currency(report.totalSubmitted), 'Total Collected: ' + currency(report.totalCollected), 'Suspense: ' + currency(report.suspenseAmount) + ' (' + report.suspenseCount + ' entries)'];
       if ((report.sourceBreakdown || []).length > 0) {
         lines.push('', 'Source-wise Collection:');
@@ -287,8 +317,8 @@ export default function Reports() {
           </select>
           {(view === 'team' || view === 'day') && (
             <select value={stationFilter} onChange={e => setStationFilter(e.target.value)} style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--card-bg)' }}>
-              <option value="all">All Teams</option>
-              {STATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              <option value="all">All Teams ({allStations.length})</option>
+              {allStations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
           <button className="btn btn-sm" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -318,13 +348,14 @@ export default function Reports() {
               </label>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-            {STATIONS.slice(0,4).map(st => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, maxHeight: 180, overflowY: 'auto', paddingRight: 4, border: '1px dashed var(--line)', borderRadius: 8, padding: 8 }}>
+            {allStations.map(st => (
               <label key={st} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 600 }}>{st} target (₹)
                 <input type="number" value={teamTargets[st] || ''} onChange={e => saveTeamTarget(st, e.target.value)} placeholder="—" style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13 }} />
               </label>
             ))}
           </div>
+          <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 4 }}>Showing all {allStations.length} stations — scroll to see more</div>
           {overallTarget > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 4 }}>
               <div style={{ background: '#F3EFE7', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--line)' }}>
@@ -534,12 +565,18 @@ export default function Reports() {
 
           {(view === 'overall' || view === 'team') && filteredTeam.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
-              <div className="card-head"><h3>Team Details</h3></div>
-              <div className="table-wrap">
+              <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <h3 style={{ margin: 0 }}>Team Details</h3>
+                <select value={teamDetailNgoFilter} onChange={e => setTeamDetailNgoFilter(e.target.value)} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--card-bg)' }}>
+                  <option value="all">All NGOs</option>
+                  {NGOS.map(n => <option key={n.id} value={n.id}>{n.code}</option>)}
+                </select>
+              </div>
+              <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
                 <table>
                   <thead><tr><th>Team / Station</th><th>NGO</th><th>Collected</th><th>Target</th><th>Avg / day</th></tr></thead>
                   <tbody>
-                    {filteredTeam.map(r => {
+                    {(teamDetailNgoFilter === 'all' ? filteredTeam : filteredTeam.filter(r => r.ngo_id === teamDetailNgoFilter)).map(r => {
                       const t = teamTargets[r.station] || 0;
                       const avg = t ? Math.ceil(t / daysInMonth(...reportMonth.split("-").map(Number))) : 0;
                       return <tr key={r.station}><td>{r.station}</td><td>{r.ngo_id}</td><td style={{ fontWeight: 600 }}>{currency(r.collected)}</td><td>{t ? currency(t) : '—'}</td><td>{t ? currency(avg) : '—'}</td></tr>;
