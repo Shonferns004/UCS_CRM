@@ -1885,32 +1885,35 @@ export const getNewData = async (req, res) => {
       }));
     }
 
-    // Category-wise filter (by data_category)
+    // Helper to extract category name from a record
+    const getRowCategory = (r) => String(r?.data_category || r?.category || '').trim();
+
+    // Category-wise filter (by data_category or category, case-insensitive)
     if (normalizedCategory) {
-      unassigned = unassigned.filter(e => (e.data_category || '') === normalizedCategory);
-      ngoData = ngoData.filter(e => (e.data_category || '') === normalizedCategory);
+      unassigned = unassigned.filter(e => getRowCategory(e).toLowerCase() === normalizedCategory.toLowerCase());
+      ngoData = ngoData.filter(e => getRowCategory(e).toLowerCase() === normalizedCategory.toLowerCase());
     }
 
     // Distinct data categories for the filter dropdown (across new_data + donor_profiles, NGO-scoped)
-    // Uses dedicated DISTINCT queries so the dropdown is complete regardless of the 25k row-fetch limit.
     const categorySet = new Set();
     const { data: newDataCats } = await db
       .from('new_data')
-      .select('data_category')
+      .select('data_category, category')
       .in('ngo', ngoNames)
-      .not('data_category', 'is', null);
+      .or('status.eq.pending,status.is.null');
     for (const c of newDataCats || []) {
-      if (c.data_category && String(c.data_category).trim()) categorySet.add(String(c.data_category).trim());
+      const cat = getRowCategory(c);
+      if (cat) categorySet.add(cat);
     }
     const { data: profileCats } = await db
       .from('donor_profiles')
-      .select('data_category')
-      .in('ngo', ngoNames)
-      .not('data_category', 'is', null);
+      .select('data_category, category')
+      .in('ngo', ngoNames);
     for (const c of profileCats || []) {
-      if (c.data_category && String(c.data_category).trim()) categorySet.add(String(c.data_category).trim());
+      const cat = getRowCategory(c);
+      if (cat) categorySet.add(cat);
     }
-    const categoryOptions = [...categorySet].sort();
+    const categoryOptions = [...categorySet].sort((a, b) => a.localeCompare(b));
 
     const total = unassigned.length;
     const start = (pageNum - 1) * perPage;
@@ -1968,7 +1971,7 @@ export const distributeNewData = async (req, res) => {
           .order('id', { ascending: false });
 
         if (normalizedCategory) {
-          query = query.eq('data_category', normalizedCategory);
+          query = query.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
         }
 
         const { data, error } = await query.range(offset, offset + PAGE - 1);
@@ -2246,7 +2249,7 @@ export const cleanupNewData = async (req, res) => {
         .eq('ngo', ngoName)
         .is('status', null);
       if (normalizedCategory) {
-        q1 = q1.eq('data_category', normalizedCategory);
+        q1 = q1.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
       }
       const r1 = await q1;
       if (r1.error) {
@@ -2262,7 +2265,7 @@ export const cleanupNewData = async (req, res) => {
         .eq('ngo', ngoName)
         .eq('status', 'pending');
       if (normalizedCategory) {
-        q2 = q2.eq('data_category', normalizedCategory);
+        q2 = q2.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
       }
       const r2 = await q2;
       if (r2.error) {
