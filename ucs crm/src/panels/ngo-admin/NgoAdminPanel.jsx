@@ -352,7 +352,10 @@ export default function NgoAdminPanel() {
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#d97706' }}>S</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{s.station || 'Unknown'}</div>
-                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{s.workers?.name || 'No FRO'}{s.donor_count != null ? ` � ${s.donor_count} donors` : ''}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>
+                              {s.workers?.name || 'No FRO'}
+                              {s.donor_count != null ? ` • ${typeof s.donor_count === 'object' ? Object.values(s.donor_count).reduce((sum, v) => sum + (Number(v) || 0), 0) : s.donor_count} donors` : ''}
+                            </div>
                           </div>
                         </div>
                       ))}

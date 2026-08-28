@@ -15,6 +15,16 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName, c
   })
   const [loading, setLoading] = useState(false)
 
+  const getDonorCount = (dc) => {
+    if (!dc) return 0
+    if (typeof dc === 'number') return dc
+    if (typeof dc === 'object') {
+      if (ngoId && dc[ngoId] !== undefined) return Number(dc[ngoId]) || 0
+      return Object.values(dc).reduce((sum, n) => sum + (Number(n) || 0), 0)
+    }
+    return 0
+  }
+
   const activeList = viewTab === 'fresh' ? freshStations : oldStations
   const activeSelected = activeList.filter(s => selected.has(s.station))
 
@@ -140,7 +150,7 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName, c
                 <span style={{ fontSize: 10, color: 'var(--ink-soft)', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {s.fro_worker_name || 'No FRO'}
                 </span>
-                <span className="pill pill-blue" style={{ fontSize: 10, minWidth: 24, textAlign: 'center' }}>{s.donor_count || 0}</span>
+                <span className="pill pill-blue" style={{ fontSize: 10, minWidth: 24, textAlign: 'center' }}>{getDonorCount(s.donor_count)}</span>
               </label>
             ))}
           </div>
