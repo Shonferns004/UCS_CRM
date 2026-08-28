@@ -407,11 +407,12 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           onDoubleClick={()=>{if(clickRef.current){clearTimeout(clickRef.current);clickRef.current=null}if(!onSelectEntry||!selectionEnabled||e.match_source==='auto'||e.match_status==='confirmed')return;if(selectedEntryId===e.id)onSelectEntry(null);else onSelectEntry(e)}}>
           <div className="ec-main">
             <div className="ec-primary">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <div className="ec-title" style={{ flex: '1 1 auto' }}>{e.payer_name||'\u2014'}</div>
-                {(e.verify_type||e.verify_fro_worker_id)&&<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#dcfce7', color: '#166534', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED</span>}
+              <div className="ec-title">{e.payer_name||'\u2014'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2, minWidth: 0 }}>
+                <span className="ec-sub" style={{ marginTop: 0 }}>{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</span>
+                {(e.verify_type||e.verify_fro_worker_id)&&<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED</span>}
+                {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="ec-sub" style={{ marginTop: 0 }} title="Agent">{e.agent_name||e.match_fro}</span>}
               </div>
-              <div className="ec-sub">{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</div>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               {e.receipt_no&&<span style={{fontSize:15,fontWeight:800,color:'#16a34a',fontFamily:'monospace',letterSpacing:'.5px'}}>{e.receipt_no}</span>}
@@ -421,13 +422,12 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           </div>
           <div className="ec-meta">
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 10px', minWidth: 0, flex: 1 }}>
-              {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap'}}>MATCHED</span>}
+              {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#ffedd5',color:'#c2410c',whiteSpace:'nowrap'}}>MATCHED</span>}
               {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
               {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
               <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
               {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
               {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
-              {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name||e.match_fro}</span>}
               <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
             </div>
             <span className="pill" style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, background: (NGO_STYLE[ngoOf(e)]||{background:'#f3f4f6',color:'#6b7280'}).background, color: (NGO_STYLE[ngoOf(e)]||{background:'#f3f4f6',color:'#6b7280'}).color, borderRadius: 999, padding: '3px 10px' }}>{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
