@@ -1,6 +1,6 @@
-import React, { createContext, useContext } from 'react'
-import useAccessCode from '../panels/accounts/components/AccessGate'
-import { useAccessCodeStore } from './accessCodeStore'
+import React, { createContext, useContext, useState } from 'react'
+import { getToken } from '../api/auth'
+import { API_BASE } from '../lib/apiBase'
 
 const SalaryPrivacyContext = createContext({
   isSalaryUnlocked: false,
@@ -51,22 +51,19 @@ export function SalaryPrivacyProvider({ children }) {
       const endpoint = mode === 'create'
         ? `${API_BASE}/salary/access-code`
         : `${API_BASE}/salary/access-code/verify`
-      const body = mode === 'create'
-        ? { code: enteredCode }
-        : { code: enteredCode }
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ code: enteredCode }),
       })
       const data = await res.json().catch(() => ({ message: res.statusText }))
       if (!res.ok) {
         throw new Error(data.message || 'Incorrect code. Please try again.')
       }
-      if (mode === 'verify' && data.ok === false) {
+      if (data.ok === false) {
         throw new Error(data.message || 'Incorrect code. Please try again.')
       }
       setIsSalaryUnlocked(true)
@@ -91,7 +88,7 @@ export function SalaryPrivacyProvider({ children }) {
   }
 
   const lockSalary = () => {
-    useAccessCodeStore.getState().reset()
+    setIsSalaryUnlocked(false)
   }
 
   const formatSalary = (amount, prefix = '₹') => {
@@ -101,10 +98,10 @@ export function SalaryPrivacyProvider({ children }) {
     if (isSalaryUnlocked) {
       return `${prefix}${parseFloat(amount).toLocaleString('en-IN')}`
     }
-    return `${prefix} XXX`
+    return `${prefix} ••••••`
   }
 
-  const maskSalary = (amount, prefix = '₹', placeholder = 'XXX') => {
+  const maskSalary = (amount, prefix = '₹', placeholder = 'XXXX') => {
     if (amount === null || amount === undefined || isNaN(Number(amount))) {
       return placeholder
     }
@@ -128,7 +125,7 @@ export function SalaryPrivacyProvider({ children }) {
       value={{
         isSalaryUnlocked,
         promptUnlock,
-        unlockSalary: async () => ({}),
+        unlockSalary,
         lockSalary,
         formatSalary,
         maskSalary,
