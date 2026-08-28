@@ -31,8 +31,8 @@ const StatCardSkeleton = () => (
 );
 
 const TenorCrab = () => (
-  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 46, pointerEvents: 'none' }}>
-    <div style={{ position: 'absolute', top: 0, left: 0, width: 104, height: 46, animation: 'rpSweep 26s ease-in-out infinite' }}>
+  <div className="no-print" style={{ position: 'absolute', left: 0, right: 0, bottom: 2, height: 55, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, width: 124, height: 55, animation: 'rpSweep 26s ease-in-out infinite' }}>
       <video
         src="https://media.tenor.com/ReQRC0WV_coAAAPo/minecraft-crab.mp4"
         poster="https://media.tenor.com/ReQRC0WV_coAAAAe/minecraft-crab.png"
@@ -72,8 +72,8 @@ const animStyle = `
   @keyframes rpSweep {
     0%   { left: 0; }
     12%  { left: 0; }
-    45%  { left: calc(100% - 104px); }
-    55%  { left: calc(100% - 104px); }
+    45%  { left: calc(100% - 124px); }
+    55%  { left: calc(100% - 124px); }
     88%  { left: 0; }
     100% { left: 0; }
   }
