@@ -4,6 +4,34 @@ import { apiGet, apiPut } from '../api/auth';
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
+const Sk = ({ w = '100%', h = 14, r = 6, mb = 0, style = {} }) => (
+  <div className="sk" style={{ width: w, height: h, borderRadius: r, marginBottom: mb, ...style }} />
+);
+
+const TableSkeleton = ({ cols = 5, rows = 3 }) => (
+  <div style={{ padding: 6 }}>
+    {[...Array(rows)].map((_, i) => (
+      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 14px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
+        {[...Array(cols)].map((_, j) => (
+          <Sk key={j} h={12} style={{ flex: 1, maxWidth: j === cols - 1 ? 90 : 'none' }} />
+        ))}
+      </div>
+    ))}
+  </div>
+);
+
+const StatCardSkeleton = () => (
+  <div className="stat-card">
+    <div className="stat-icon"><Sk w={20} h={20} r={6} /></div>
+    <div className="stat-info" style={{ flex: 1 }}>
+      <Sk h={22} mb={6} />
+      <Sk w="60%" h={10} />
+    </div>
+  </div>
+);
+
+const inputStyle = { fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontWeight: 600, background: '#fff', color: 'var(--ink)' };
+
 const printStyle = `
   @media print {
     .no-print { display: none !important; }
@@ -180,40 +208,32 @@ export default function Reports() {
     <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
       <style>{printStyle}</style>
 
-      {/* Toolbar */}
-      <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {/* Header + Toolbar */}
+      <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>Collection Report</h1>
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 2 }}>{reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Day</span>
-            <input
-              type="date"
-              value={reportDay || ''}
-              onChange={e => {
-                const v = e.target.value || null;
-                setReportDay(v);
-                if (v) { const mm = v.slice(0, 7); setMonth(mm); }
-              }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', fontWeight: 600 }}
-            />
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Day</span>
+            <input type="date" value={reportDay || ''} style={inputStyle}
+              onChange={e => { const v = e.target.value || null; setReportDay(v); if (v) setMonth(v.slice(0, 7)); }} />
           </div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Month</span>
-            <input
-              type="month"
-              value={month}
-              onChange={e => { setMonth(e.target.value); setReportDay(null); }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', fontWeight: 600 }}
-            />
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>Month</span>
+            <input type="month" value={month} style={inputStyle}
+              onChange={e => { setMonth(e.target.value); setReportDay(null); }} />
           </div>
-          <button className="btn btn-sm" onClick={() => load()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn" onClick={() => load()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
           </button>
+          <button className="btn btn-primary" onClick={openTargetForm} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Monthly Target
+          </button>
         </div>
-        <button className="btn btn-primary" onClick={openTargetForm} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Monthly Target
-        </button>
       </div>
 
       {savedToast && (
@@ -259,64 +279,96 @@ export default function Reports() {
       )}
 
       {/* Summary stat cards */}
-      <div className="stats-grid" style={{ marginBottom: 16 }}>
-        <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
-          <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Collection Report — {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>{loading ? 'Loading...' : `${currency(grandTotal)} collected`}</div>
-        </div>
-        {rows.map(r => (
-          <div className="stat-card" key={r.id}>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{r.name} · {currency(r.total)}</div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>{currency(r.monthlyTarget)}<span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}> target</span></div>
+      <div className="stats-grid" style={{ marginBottom: 20 }}>
+        {loading ? (
+          <StatCardSkeleton />
+        ) : (
+          <div className="stat-card" style={{ gridColumn: '1 / -1', background: 'linear-gradient(135deg,#1f6f3f,#2e8b57)', border: 'none' }}>
+            <div className="stat-icon" style={{ background: 'rgba(255,255,255,.18)', color: '#fff' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div className="stat-info" style={{ color: '#fff' }}>
+              <div className="stat-num" style={{ color: '#fff' }}>{currency(grandTotal)} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
+              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportDay ? dayLabel(reportDay) : monthLabel(month)}</div>
+            </div>
           </div>
-        ))}
+        )}
+        {loading
+          ? null
+          : rows.map((r, i) => (
+              <div className="stat-card" key={r.id}>
+                <div className="stat-icon" style={{ background: i % 2 ? '#E7F3EC' : '#EAF1FB', color: i % 2 ? '#1f6f3f' : '#2563eb' }}>
+                  {['BSCT', 'MANN', 'AFLF'].includes(r.id) ? r.id.slice(0, 2) : r.name.slice(0, 1)}
+                </div>
+                <div className="stat-info">
+                  <div className="stat-lbl" style={{ fontSize: 12 }}>{r.name}</div>
+                  <div className="stat-num" style={{ fontSize: 20 }}>{currency(r.total)}</div>
+                  <div className="stat-sub">
+                    <span style={{ color: r.diff >= 0 ? '#1B7A3D' : '#B3392B', fontWeight: 700 }}>{round2(r.diff) >= 0 ? '+' : ''}{currency(round2(r.diff))}</span> avg/day vs &nbsp;{currency(r.monthlyTarget)} target
+                  </div>
+                </div>
+              </div>
+            ))}
       </div>
 
       {loading ? (
-        <div className="empty" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft)' }}>Loading report…</div>
+        <>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3></div>
+            <TableSkeleton cols={8} rows={4} />
+          </div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>Collection by Payment Source (NGO-wise)</h3></div>
+            <TableSkeleton cols={5} rows={5} />
+          </div>
+        </>
       ) : (
         <>
           {/* Target & daily-average summary */}
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head"><h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3></div>
+          <div className="card" style={{ marginBottom: 16, overflow: 'hidden' }}>
+            <div className="card-head">
+              <h3 style={{ margin: 0, fontSize: 14 }}>NGO-wise Target vs Collection</h3>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>vs monthly target · {reportDay ? 'daily view' : 'monthly'}</span>
+            </div>
             <div className="table-wrap">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--ink-soft)', fontSize: 12 }}>
-                    <th style={{ padding: '8px 12px' }}>NGO</th>
-                    <th style={{ padding: '8px 12px' }}>Receipts</th>
-                    <th style={{ padding: '8px 12px' }}>Monthly Target</th>
-                    <th style={{ padding: '8px 12px' }}>Total Collected</th>
-                    <th style={{ padding: '8px 12px' }}>Working Days</th>
-                    <th style={{ padding: '8px 12px' }}>Daily Target</th>
-                    <th style={{ padding: '8px 12px' }}>Avg/Day</th>
-                    <th style={{ padding: '8px 12px' }}>Diff</th>
+                  <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                    <th style={{ padding: '9px 12px' }}>NGO</th>
+                    <th style={{ padding: '9px 12px' }}>Receipts</th>
+                    <th style={{ padding: '9px 12px' }}>Monthly Target</th>
+                    <th style={{ padding: '9px 12px' }}>Total Collected</th>
+                    <th style={{ padding: '9px 12px' }}>Working Days</th>
+                    <th style={{ padding: '9px 12px' }}>Daily Target</th>
+                    <th style={{ padding: '9px 12px' }}>Avg/Day</th>
+                    <th style={{ padding: '9px 12px' }}>Diff</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map(r => {
                     const diffColor = r.diff >= 0 ? '#1B7A3D' : '#B3392B';
                     return (
-                      <tr key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
-                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>{r.name}</td>
-                        <td style={{ padding: '8px 12px' }}>{(r.receiptCount || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '8px 12px' }}>{currency(r.monthlyTarget)}</td>
-                        <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(r.total)}</td>
-                        <td style={{ padding: '8px 12px' }}>{r.workingDaysSoFar}</td>
-                        <td style={{ padding: '8px 12px' }}>{currency(round2(r.targetDaily))}</td>
-                        <td style={{ padding: '8px 12px' }}>{currency(round2(r.actualAvg))}</td>
-                        <td style={{ padding: '8px 12px', fontWeight: 700, color: diffColor }}>{round2(r.diff) >= 0 ? '+' : ''}{currency(round2(r.diff))}</td>
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--line)', background: r.id === sourceTab ? '#F3FBF6' : 'transparent' }}>
+                        <td style={{ padding: '9px 12px', fontWeight: 600 }}>{r.name}</td>
+                        <td style={{ padding: '9px 12px' }}>{(r.receiptCount || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '9px 12px' }}>{currency(r.monthlyTarget)}</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 700 }}>{currency(r.total)}</td>
+                        <td style={{ padding: '9px 12px' }}>{r.workingDaysSoFar}</td>
+                        <td style={{ padding: '9px 12px' }}>{currency(round2(r.targetDaily))}</td>
+                        <td style={{ padding: '9px 12px' }}>{currency(round2(r.actualAvg))}</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 700, color: diffColor }}>{round2(r.diff) >= 0 ? '+' : ''}{currency(round2(r.diff))}</td>
                       </tr>
                     );
                   })}
-                  <tr style={{ borderTop: '2px solid var(--sage)', fontWeight: 700 }}>
-                    <td style={{ padding: '8px 12px' }}>Total</td>
-                    <td style={{ padding: '8px 12px' }}>{grandReceiptCount.toLocaleString('en-IN')}</td>
-                    <td style={{ padding: '8px 12px' }}>{currency(rows.reduce((s, r) => s + r.monthlyTarget, 0))}</td>
-                    <td style={{ padding: '8px 12px' }}>{currency(grandTotal)}</td>
-                    <td style={{ padding: '8px 12px' }}></td>
-                    <td style={{ padding: '8px 12px' }}></td>
-                    <td style={{ padding: '8px 12px' }}></td>
+                  <tr style={{ borderTop: '2px solid var(--sage)', fontWeight: 700, background: '#F6F8F7' }}>
+                    <td style={{ padding: '9px 12px' }}>Total</td>
+                    <td style={{ padding: '9px 12px' }}>{grandReceiptCount.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '9px 12px' }}>{currency(rows.reduce((s, r) => s + r.monthlyTarget, 0))}</td>
+                    <td style={{ padding: '9px 12px' }}>{currency(grandTotal)}</td>
+                    <td style={{ padding: '9px 12px' }}></td>
+                    <td style={{ padding: '9px 12px' }}></td>
+                    <td style={{ padding: '9px 12px' }}></td>
+                    <td style={{ padding: '9px 12px' }}></td>
                   </tr>
                 </tbody>
               </table>
@@ -366,28 +418,28 @@ export default function Reports() {
               <div className="table-wrap" style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
                   <thead>
-                    <tr style={{ textAlign: 'left', color: 'var(--ink-soft)', fontSize: 12 }}>
-                      <th style={{ padding: '8px 12px' }}>Source</th>
-                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => <th key={n.id} style={{ padding: '8px 12px' }}>{n.name}</th>)}
-                      {sourceTab === 'All' && <th style={{ padding: '8px 12px' }}>Total</th>}
+                    <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                      <th style={{ padding: '9px 12px' }}>Source</th>
+                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => <th key={n.id} style={{ padding: '9px 12px' }}>{n.name}</th>)}
+                      {sourceTab === 'All' && <th style={{ padding: '9px 12px' }}>Total</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {sourceOrder.map(src => (
                       <tr key={src} style={{ borderTop: '1px solid var(--line)' }}>
-                        <td style={{ padding: '8px 12px' }}><span className="pill pill-gray">{src}</span></td>
+                        <td style={{ padding: '9px 12px' }}><span className="pill pill-gray">{src}</span></td>
                         {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                          <td key={n.id} style={{ padding: '8px 12px' }}>{currency(data?.byNgo?.[n.id]?.sources?.[src] || 0)}</td>
+                          <td key={n.id} style={{ padding: '9px 12px' }}>{currency(data?.byNgo?.[n.id]?.sources?.[src] || 0)}</td>
                         ))}
-                        {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandBySource[src])}</td>}
+                        {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{currency(grandBySource[src])}</td>}
                       </tr>
                     ))}
-                    <tr style={{ borderTop: '2px solid var(--sage)' }}>
-                      <td style={{ padding: '8px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
+                    <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7' }}>
+                      <td style={{ padding: '9px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
                       {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                        <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0)}</td>
+                        <td key={n.id} style={{ padding: '9px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0)}</td>
                       ))}
-                      {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandSourceTotal)}</td>}
+                      {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{currency(grandSourceTotal)}</td>}
                     </tr>
                   </tbody>
                 </table>
