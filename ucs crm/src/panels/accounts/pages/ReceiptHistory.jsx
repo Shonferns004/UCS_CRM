@@ -7,6 +7,7 @@ import { Download, FileSpreadsheet, Pencil, Trash2 } from 'lucide-react';
 import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
+import useAccessCode from '../components/AccessGate';
 import { generateReceiptPDF, formatReceiptDate } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
@@ -192,6 +193,7 @@ export default function ReceiptHistory() {
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
+  const access = useAccessCode();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -597,6 +599,7 @@ export default function ReceiptHistory() {
   };
 
   const handleDownloadReceipts = async () => {
+    if (!(await access.open())) return;
     setTodayDownloading(true);
     try {
       const all = await fetchAllFiltered();
@@ -609,6 +612,7 @@ export default function ReceiptHistory() {
   };
 
   const handleDownloadExcel = async () => {
+    if (!(await access.open())) return;
     setExcelDownloading(true);
     try {
       const all = await fetchAllFiltered();
@@ -1281,6 +1285,8 @@ export default function ReceiptHistory() {
           [data-receipt-print] [data-pdf-width="794"] { zoom: 0.85; }
         }
       `}</style>
+
+      {access.modal}
     </div>
   );
 }

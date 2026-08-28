@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiGet, apiPut } from '../api/auth';
+import { apiGet, apiPut, apiPost } from '../api/auth';
+import useAccessCode from '../components/AccessGate';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
@@ -93,6 +94,15 @@ export default function Reports() {
   const [error, setError] = useState(null);
   const [sourceTab, setSourceTab] = useState('All');
   const [viewTab, setViewTab] = useState('source');
+  const access = useAccessCode();
+  const [locked, setLocked] = useState(true);
+
+  const handleUnlock = async () => {
+    const ok = await access.open();
+    if (ok) setLocked(false);
+  };
+  const handleLock = () => setLocked(true);
+  const mask = (v) => (locked ? 'XXXX' : v);
 
   // monthly target editor state
   const [showTargetForm, setShowTargetForm] = useState(false);
@@ -250,7 +260,8 @@ export default function Reports() {
   const grandReceiptCount = rows.reduce((s, r) => s + (r.receiptCount || 0), 0);
 
   // export CSV
-  const exportCsv = () => {
+  const exportCsv = async () => {
+    if (locked) { const ok = await access.open(); if (!ok) return; setLocked(false); }
     const header = ['NGO', 'Receipts', 'Collection Total', ...sourceOrder.map(s => `Source: ${s}`), 'Source Total', 'Monthly Target', 'Working Days', 'Daily Target', 'Avg/Day', 'Diff'];
     const body = rows.map(r => [
       r.name, r.receiptCount || 0, r.total,
@@ -309,6 +320,17 @@ export default function Reports() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
           </button>
+          {locked ? (
+            <button className="btn" onClick={handleUnlock} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #fcd34d', color: '#92400e', background: '#fffbeb' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></svg>
+              Unlock values
+            </button>
+          ) : (
+            <button className="btn" onClick={handleLock} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #d1d5db', color: '#4b5563' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+              Lock values
+            </button>
+          )}
           <button className="btn btn-primary" onClick={openTargetForm} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Add Monthly Target
@@ -393,8 +415,8 @@ export default function Reports() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3a4 4 0 0 0 0-8H6"/></svg>
             </div>
             <div className="stat-info" style={{ color: '#fff', position: 'relative' }}>
-              <div className="stat-num" style={{ color: '#fff' }}>{currency(grandTotal)} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
-              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{grandReceiptCount.toLocaleString('en-IN')} receipts · {reportFrom && reportTo ? rangeLabel(reportFrom, reportTo) : (reportDay ? dayLabel(reportDay) : monthLabel(month))}</div>
+              <div className="stat-num" style={{ color: '#fff' }}>{mask(currency(grandTotal))} <span style={{ fontSize: 13, fontWeight: 500, opacity: .85 }}>collected</span></div>
+              <div className="stat-lbl" style={{ color: 'rgba(255,255,255,.9)' }}>{mask(grandReceiptCount.toLocaleString('en-IN'))} receipts · {reportFrom && reportTo ? rangeLabel(reportFrom, reportTo) : (reportDay ? dayLabel(reportDay) : monthLabel(month))}</div>
             </div>
             <TenorCrab />
           </div>
@@ -406,9 +428,9 @@ export default function Reports() {
                 </div>
                 <div className="stat-info">
                   <div className="stat-lbl" style={{ fontSize: 12 }}>{r.name}</div>
-                  <div className="stat-num" style={{ fontSize: 20 }}>{currency(r.total)}</div>
+                  <div className="stat-num" style={{ fontSize: 20 }}>{mask(currency(r.total))}</div>
                   <div className="stat-sub">
-                    <span style={{ color: r.diff >= 0 ? '#1B7A3D' : '#B3392B', fontWeight: 700 }}>{round2(r.diff) >= 0 ? '+' : ''}{currency(round2(r.diff))}</span> avg/day vs &nbsp;{currency(r.monthlyTarget)} target
+                    <span style={{ color: r.diff >= 0 ? '#1B7A3D' : '#B3392B', fontWeight: 700 }}>{mask((round2(r.diff) >= 0 ? '+' : '') + currency(round2(r.diff)))}</span> avg/day vs &nbsp;{mask(currency(r.monthlyTarget))} target
                   </div>
                 </div>
               </div>
@@ -456,21 +478,21 @@ export default function Reports() {
                     return (
                       <tr key={r.id} style={{ borderTop: '1px solid var(--line)', background: r.id === sourceTab ? '#F3FBF6' : 'transparent' }}>
                         <td style={{ padding: '9px 12px', fontWeight: 600 }}>{r.name}</td>
-                        <td style={{ padding: '9px 12px' }}>{(r.receiptCount || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '9px 12px' }}>{currency(r.monthlyTarget)}</td>
-                        <td style={{ padding: '9px 12px', fontWeight: 700 }}>{currency(r.total)}</td>
-                        <td style={{ padding: '9px 12px' }}>{r.workingDaysSoFar}</td>
-                        <td style={{ padding: '9px 12px' }}>{currency(round2(r.targetDaily))}</td>
-                        <td style={{ padding: '9px 12px' }}>{currency(round2(r.actualAvg))}</td>
-                        <td style={{ padding: '9px 12px', fontWeight: 700, color: diffColor }}>{round2(r.diff) >= 0 ? '+' : ''}{currency(round2(r.diff))}</td>
+                        <td style={{ padding: '9px 12px' }}>{mask((r.receiptCount || 0).toLocaleString('en-IN'))}</td>
+                        <td style={{ padding: '9px 12px' }}>{mask(currency(r.monthlyTarget))}</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(r.total))}</td>
+                        <td style={{ padding: '9px 12px' }}>{mask(r.workingDaysSoFar)}</td>
+                        <td style={{ padding: '9px 12px' }}>{mask(currency(round2(r.targetDaily)))}</td>
+                        <td style={{ padding: '9px 12px' }}>{mask(currency(round2(r.actualAvg)))}</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 700, color: diffColor }}>{mask((round2(r.diff) >= 0 ? '+' : '') + currency(round2(r.diff)))}</td>
                       </tr>
                     );
                   })}
                   <tr style={{ borderTop: '2px solid var(--sage)', fontWeight: 700, background: '#F6F8F7' }}>
                     <td style={{ padding: '9px 12px' }}>Total</td>
-                    <td style={{ padding: '9px 12px' }}>{grandReceiptCount.toLocaleString('en-IN')}</td>
-                    <td style={{ padding: '9px 12px' }}>{currency(rows.reduce((s, r) => s + r.monthlyTarget, 0))}</td>
-                    <td style={{ padding: '9px 12px' }}>{currency(grandTotal)}</td>
+                    <td style={{ padding: '9px 12px' }}>{mask(grandReceiptCount.toLocaleString('en-IN'))}</td>
+                    <td style={{ padding: '9px 12px' }}>{mask(currency(rows.reduce((s, r) => s + r.monthlyTarget, 0)))}</td>
+                    <td style={{ padding: '9px 12px' }}>{mask(currency(grandTotal))}</td>
                     <td style={{ padding: '9px 12px' }}></td>
                     <td style={{ padding: '9px 12px' }}></td>
                     <td style={{ padding: '9px 12px' }}></td>
@@ -535,17 +557,17 @@ export default function Reports() {
                       <tr key={src} style={{ borderTop: '1px solid var(--line)' }}>
                         <td style={{ padding: '9px 12px' }}><span className="pill pill-gray">{src}</span></td>
                         {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                          <td key={n.id} style={{ padding: '9px 12px' }}>{currency(data?.byNgo?.[n.id]?.sources?.[src] || 0)}</td>
+                          <td key={n.id} style={{ padding: '9px 12px' }}>{mask(currency(data?.byNgo?.[n.id]?.sources?.[src] || 0))}</td>
                         ))}
-                        {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{currency(grandBySource[src])}</td>}
+                        {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(grandBySource[src]))}</td>}
                       </tr>
                     ))}
                     <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7' }}>
                       <td style={{ padding: '9px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
                       {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                        <td key={n.id} style={{ padding: '9px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0)}</td>
+                        <td key={n.id} style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0))}</td>
                       ))}
-                      {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{currency(grandSourceTotal)}</td>}
+                      {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(grandSourceTotal))}</td>}
                     </tr>
                   </tbody>
                 </table>
@@ -574,6 +596,8 @@ export default function Reports() {
           </div>
         </>
       )}
+
+      {access.modal}
     </div>
   );
 }
