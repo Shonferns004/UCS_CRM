@@ -9,6 +9,7 @@ import { requestNotifPermission, showDesktopNotification } from '../../utils/des
 import { useRealtime } from '../../hooks/useRealtime'
 import ToastContainer from '../../components/Toast'
 import LeadAudit from './pages/LeadAudit'
+import Reports from './pages/Reports'
 import Donors from './pages/Donors'
 import AddressImport from './pages/AddressImport'
 import AssetRegister from './pages/AssetRegister'
@@ -41,6 +42,8 @@ const NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
   { id: 'tickets', path: '/accounts/tickets', label: 'Tickets',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 5H3v14h12"/><path d="M21 12l-6-6v4H9v4h6v4l6-6z"/></svg> },
+  { id: 'reports', path: '/accounts/reports', label: 'Reports',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
 ]
 
 const settingsViews = [
@@ -276,6 +279,7 @@ export default function AccountsPanel() {
             <Route path="tickets" element={<AccountsTickets />} />
             <Route path="template-settings" element={<TemplateSettings />} />
             <Route path="asset-register" element={<AssetRegister />} />
+            <Route path="reports" element={<Reports />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>
