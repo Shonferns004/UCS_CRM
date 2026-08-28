@@ -28,6 +28,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sourceTab, setSourceTab] = useState('All');
+  const [viewTab, setViewTab] = useState('source');
 
   // monthly target editor state
   const [showTargetForm, setShowTargetForm] = useState(false);
@@ -322,57 +323,86 @@ export default function Reports() {
             </div>
           </div>
 
-          {/* Source-wise collection per NGO */}
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <h3 style={{ margin: 0, fontSize: 14 }}>Collection by Payment Source (NGO-wise)</h3>
-              <div className="no-print" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {[{ id: 'All', name: 'All' }, ...ngos].map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => setSourceTab(t.id)}
-                    style={{
-                      padding: '5px 12px', borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      border: '1px solid var(--line)', background: sourceTab === t.id ? 'var(--sage)' : '#fff',
-                      color: sourceTab === t.id ? '#fff' : '#374151'
-                    }}
-                  >{t.name}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
-              Source-wise split is from the receipts' payment mode. Each NGO's source subtotal sums to its full receipts collection total.
-            </div>
-            <div className="table-wrap" style={{ overflowX: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--ink-soft)', fontSize: 12 }}>
-                    <th style={{ padding: '8px 12px' }}>Source</th>
-                    {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => <th key={n.id} style={{ padding: '8px 12px' }}>{n.name}</th>)}
-                    {sourceTab === 'All' && <th style={{ padding: '8px 12px' }}>Total</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sourceOrder.map(src => (
-                    <tr key={src} style={{ borderTop: '1px solid var(--line)' }}>
-                      <td style={{ padding: '8px 12px' }}><span className="pill pill-gray">{src}</span></td>
-                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                        <td key={n.id} style={{ padding: '8px 12px' }}>{currency(data?.byNgo?.[n.id]?.sources?.[src] || 0)}</td>
-                      ))}
-                      {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandBySource[src])}</td>}
-                    </tr>
-                  ))}
-                  <tr style={{ borderTop: '2px solid var(--sage)' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
-                    {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
-                      <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0)}</td>
-                    ))}
-                    {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandSourceTotal)}</td>}
-                  </tr>
-                </tbody>
-              </table>
+          {/* Payment Source / Team-wise tabs */}
+          <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 4, gap: 4 }}>
+              <button
+                onClick={() => setViewTab('source')}
+                style={{
+                  padding: '7px 18px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
+                  background: viewTab === 'source' ? '#fff' : 'transparent', color: viewTab === 'source' ? '#1f6f3f' : '#6b7280',
+                  boxShadow: viewTab === 'source' ? '0 1px 3px rgba(0,0,0,.12)' : 'none'
+                }}
+              >Collection by Payment Source</button>
+              <button
+                onClick={() => setViewTab('team')}
+                style={{
+                  padding: '7px 18px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
+                  background: viewTab === 'team' ? '#fff' : 'transparent', color: viewTab === 'team' ? '#1f6f3f' : '#6b7280',
+                  boxShadow: viewTab === 'team' ? '0 1px 3px rgba(0,0,0,.12)' : 'none'
+                }}
+              >Team-wise Collection</button>
             </div>
           </div>
+
+          {viewTab === 'source' && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Collection by Payment Source (NGO-wise)</h3>
+                <div className="no-print" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[{ id: 'All', name: 'All' }, ...ngos].map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setSourceTab(t.id)}
+                      style={{
+                        padding: '5px 14px', borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        border: '1px solid var(--line)', background: sourceTab === t.id ? 'var(--sage)' : '#fff',
+                        color: sourceTab === t.id ? '#fff' : '#374151'
+                      }}
+                    >{t.name}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--ink-soft)', fontSize: 12 }}>
+                      <th style={{ padding: '8px 12px' }}>Source</th>
+                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => <th key={n.id} style={{ padding: '8px 12px' }}>{n.name}</th>)}
+                      {sourceTab === 'All' && <th style={{ padding: '8px 12px' }}>Total</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sourceOrder.map(src => (
+                      <tr key={src} style={{ borderTop: '1px solid var(--line)' }}>
+                        <td style={{ padding: '8px 12px' }}><span className="pill pill-gray">{src}</span></td>
+                        {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
+                          <td key={n.id} style={{ padding: '8px 12px' }}>{currency(data?.byNgo?.[n.id]?.sources?.[src] || 0)}</td>
+                        ))}
+                        {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandBySource[src])}</td>}
+                      </tr>
+                    ))}
+                    <tr style={{ borderTop: '2px solid var(--sage)' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
+                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
+                        <td key={n.id} style={{ padding: '8px 12px', fontWeight: 700 }}>{currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0)}</td>
+                      ))}
+                      {sourceTab === 'All' && <td style={{ padding: '8px 12px', fontWeight: 700 }}>{currency(grandSourceTotal)}</td>}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {viewTab === 'team' && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head"><h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Team-wise Collection</h3></div>
+              <div className="empty" style={{ padding: 48, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>
+                Coming soon.
+              </div>
+            </div>
+          )}
 
           <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn" onClick={exportCsv} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
