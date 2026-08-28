@@ -309,8 +309,8 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
         </div>
         <div>
           <div style={{fontSize:11.5,fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',color:'#8a93a3'}}>Suspense</div>
-          <div style={{fontSize:28,fontWeight:800,letterSpacing:'-.02em',lineHeight:1.15,color:'#111827',fontVariantNumeric:'tabular-nums'}}>{mask(curr(c&&c.amount))}</div>
-          <div style={{fontSize:12.5,color:'#6b7280',marginTop:2}}>{mask(c&&c.count)} leads · {mask(c&&c.entries)} entries</div>
+          <div style={{fontSize:28,fontWeight:800,letterSpacing:'-.02em',lineHeight:1.15,color:'#111827',fontVariantNumeric:'tabular-nums'}}>{mask(c&&c.count)}</div>
+          <div style={{fontSize:12.5,color:'#6b7280',marginTop:2}}>{mask(c&&c.count)} leads · {mask(curr(c&&c.amount))}</div>
         </div>
       </div>
 
@@ -345,7 +345,6 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   const visible=searched;
   const dateVisible=dateFilter?visible.filter(e=>String(e.transaction_date||'').slice(0,10)===dateFilter):visible;
   const amountVisible=amountFilter!==''&&amountFilter!=null?dateVisible.filter(e=>Number(e.amount)===Number(amountFilter)):dateVisible;
-  const suspenseCount=claimVisible.filter(e=>e.kind==='suspense').length;
   const pageCount=Math.max(1,Math.ceil(amountVisible.length/PAGE_SIZE));
   const pageItems=amountVisible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
   useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,ngoFilter,sq,amountFilter,dateFilter,stf]);
@@ -369,10 +368,6 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     </div>}
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
       <div className="filter-bar">
-        <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700,padding:'5px 11px',borderRadius:999,background:suspenseCount>0?'#FDE7DB':'#f3f4f6',color:suspenseCount>0?'#B5603A':'#9ca3af',whiteSpace:'nowrap'}}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
-          {suspenseCount} Suspense
-        </span>
         <span style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px',borderRadius:7,background:'#f3f4f6',flexWrap:'wrap'}}>
           {[['','All'],['pending','Pending'],['claimed','Claimed']].map(([v,l])=>
             <button key={v||'all'} onClick={()=>setStf(v)} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:6,border:'none',cursor:'pointer',background:stf===v?'#111827':'transparent',color:stf===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
