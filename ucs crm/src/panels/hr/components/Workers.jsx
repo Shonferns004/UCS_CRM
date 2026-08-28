@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check } from '../icons';
 import { api } from '../../../api/auth';
@@ -107,6 +108,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
 
 export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
+  const { formatSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
   const [empIdMap, setEmpIdMap] = useState({});
@@ -915,7 +917,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                       <td>
                         {sw?.current_salary ? (
                           <span style={{ fontWeight:600 }}>
-                            ₹{parseFloat(sw.current_salary).toLocaleString('en-IN')}
+                            {formatSalary(sw.current_salary)}
                             {paid && <span className="pill pill-green" style={{ marginLeft:6, fontSize:10 }}>Paid</span>}
                           </span>
                         ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}

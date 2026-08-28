@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Users, Check, Plane, Bell, Star, Heart } from '../icons';
 import { Avatar } from './ui';
 import { fetchWorkers, fetchAttendance, fetchLeaves, fetchHolidays, fetchNgoSummaryList } from '../store';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import api from '../api/auth';
 import RecentNotices from '../../../components/RecentNotices';
 import RecruiterOverview from './RecruiterOverview';
@@ -108,6 +109,7 @@ function MiniStacked({ data, h = 8 }) {
 
 /* ─── Main component ─── */
 export default function Visualizations() {
+  const { formatSalary } = useSalaryPrivacy();
   const [workers, setWorkers] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
@@ -332,7 +334,7 @@ export default function Visualizations() {
                 </div>
                 <span style={{ minWidth: 44, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{Number(n.allocation_percentage) || 0}%</span>
                 <span style={{ minWidth: 90, textAlign: 'right', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
-                  {Number(n.salary_employees) || 0} emp · ₹{Number(n.salary_amount || 0).toLocaleString('en-IN')}
+                  {Number(n.salary_employees) || 0} emp · {formatSalary(n.salary_amount)}
                 </span>
               </div>
             ))}

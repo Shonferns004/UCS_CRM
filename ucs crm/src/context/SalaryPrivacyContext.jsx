@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState } from 'react'
-import { api } from '../api/auth'
+import { getToken } from '../api/auth'
+import { API_BASE } from '../lib/apiBase'
 
 const SalaryPrivacyContext = createContext({
   isSalaryUnlocked: false,
@@ -35,11 +36,19 @@ export function SalaryPrivacyProvider({ children }) {
     setLoading(true)
     setError('')
     try {
-      await api('/salary/verify-password', {
+      const token = getToken('ucs')
+      const res = await fetch(`${API_BASE}/salary/verify-password`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ password: pwd }),
-        _prefix: 'ucs',
       })
+      const data = await res.json().catch(() => ({ message: res.statusText }))
+      if (!res.ok) {
+        throw new Error(data.message || 'Incorrect password. Please try again.')
+      }
       setIsSalaryUnlocked(true)
       setModalOpen(false)
       if (pendingCallback) {
