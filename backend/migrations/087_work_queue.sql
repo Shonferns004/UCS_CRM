@@ -41,6 +41,36 @@ CREATE INDEX IF NOT EXISTS idx_work_queue_worker_status
 -- hardens the app-level same-day dedup (findDispositionLogToday) so an
 -- accidental double-save / double-click / second-tab save cannot insert a
 -- duplicate timeline entry.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_fro_donor_logs_same_day_disp
-  ON fro_donor_logs(assignment_id, fro_worker_id, disposition_detail, (created_at::date))
-  WHERE action = 'disposition';
+--
+-- A trigger is used (not a unique index) because created_at is timestamptz and
+-- timestamptz -> date is timezone-dependent (not IMMUTABLE), so it cannot be an
+-- index expression. The trigger compares on the IST date to match the app's
+-- same-day semantics. Money events (done / lead_done) always insert. Raises
+-- error code 23505, which the backend treats as idempotent success.
+CREATE OR REPLACE FUNCTION uq_fro_donor_logs_same_day_disp_guard() RETURNS trigger AS $$
+DECLARE
+  today_ist date;
+BEGIN
+  IF TG_OP = 'INSERT' AND NEW.action = 'disposition'
+     AND NEW.disposition_detail IS NOT NULL
+     AND NEW.disposition_detail NOT IN ('done', 'lead_done') THEN
+    today_ist := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+    IF EXISTS (
+      SELECT 1 FROM fro_donor_logs
+      WHERE assignment_id = NEW.assignment_id
+        AND fro_worker_id = NEW.fro_worker_id
+        AND disposition_detail = NEW.disposition_detail
+        AND (created_at AT TIME ZONE 'Asia/Kolkata')::date = today_ist
+    ) THEN
+      RAISE EXCEPTION 'duplicate same-day disposition' USING ERRCODE = '23505';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_uq_fro_donor_logs_same_day_disp ON fro_donor_logs;
+CREATE TRIGGER trg_uq_fro_donor_logs_same_day_disp
+  BEFORE INSERT ON fro_donor_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION uq_fro_donor_logs_same_day_disp_guard();
