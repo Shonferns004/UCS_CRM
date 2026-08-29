@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
@@ -667,15 +667,8 @@ export default function MyDonors() {
       setMessage({ type: 'success', text: 'Donation recorded' });
       const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: 'donation_collected', is_new: false });
       setDonors(newDonors);
-      const advance = () => {
-        const nextIdx = findNextDonorIndex(newDonors, donor.id);
-        if (nextIdx < 0 || !newDonors[nextIdx]) {
-          setIndex(Math.min(indexRef.current, Math.max(0, newDonors.length - 1)));
-          return;
-        }
-        setIndex(nextIdx);
-        saveProgress(dataTab, newDonors[nextIdx].id, nextIdx);
-      };
+      // Backend-authoritative next donor.
+      const advance = () => goToBackendNext(donor);
       if (resumeTo) {
         const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
         setResumeTo(null);
@@ -844,6 +837,41 @@ export default function MyDonors() {
     return () => { cancelled = true; };
   }, [donor?.id]);
 
+  // Backend-authoritative "next donor": the controlled queue endpoint picks the
+  // next donor (order, dedup, current position all live server-side) so the
+  // front-end never skips or re-orders a lead on its own. Falls back to the
+  // local list so the flow can never dead-end if the queue call fails.
+  const goToBackendNext = useCallback(async (priorDonor) => {
+    try {
+      const cur = await getQueueCurrent(stationOpts(dataTab, selectedStation));
+      if (!cur || cur.done || !cur?.donor) {
+        setMessage({ type: 'success', text: 'All caught up — every lead here is dispositioned. New leads appear automatically.' });
+        return;
+      }
+      const n = cur.donor;
+      const list = donorsRef.current;
+      const found = list.findIndex(d => d.id === n.donor_id && d.ngo_id === n.ngo_id);
+      if (found >= 0) {
+        setIndex(found);
+        saveProgress(dataTab, n.donor_id, found);
+      } else {
+        // Backend chose a donor not in the loaded local list (e.g. another
+        // station/tab view) — render it directly as the current card.
+        if (priorDonor) setReturnToDonor({ id: priorDonor.id, ngo_id: priorDonor.ngo_id, idx: indexRef.current });
+        setExternalDonor(n);
+      }
+    } catch (err) {
+      // Local fallback (proven path) — never dead-end the FRO.
+      const nextIdx = findNextDonorIndex(donorsRef.current, priorDonor?.id);
+      if (nextIdx >= 0 && donorsRef.current[nextIdx]) {
+        setIndex(nextIdx);
+        saveProgress(dataTab, donorsRef.current[nextIdx].id, nextIdx);
+      } else {
+        setMessage({ type: 'success', text: 'All caught up — every lead here is dispositioned. New leads appear automatically.' });
+      }
+    }
+  }, [dataTab, selectedStation, selectedNgo]);
+
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
@@ -913,19 +941,9 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const advance = () => {
-          const nextIdx = findNextDonorIndex(newDonors, donor.id);
-          if (nextIdx < 0 || !newDonors[nextIdx]) {
-            // Queue exhausted: hold a valid position and say so instead of
-            // silently snapping back to an already-worked lead.
-            const fallbackIdx = Math.min(indexRef.current, Math.max(0, newDonors.length - 1));
-            setIndex(fallbackIdx);
-            setMessage({ type: 'success', text: 'All caught up — every lead here is dispositioned. New leads appear automatically.' });
-            return;
-          }
-          setIndex(nextIdx);
-          saveProgress(dataTab, newDonors[nextIdx].id, nextIdx);
-        };
+        // Controlled advance: the BACKEND chooses the next donor (order, dedup,
+        // position all server-side) — the FRO only ever picks the disposition.
+        const advance = () => goToBackendNext(donor);
         if (resumeTo) {
           const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
           setResumeTo(null);
