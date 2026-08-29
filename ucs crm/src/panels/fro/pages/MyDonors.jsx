@@ -203,6 +203,13 @@ export default function MyDonors() {
   const manualTabSwitchRef = useRef(false);
   const autoFallbackToOldRef = useRef(false);
   const autoFallbackAttemptedRef = useRef(false);
+  // Suppresses realtime-triggered reloads right after the FRO saves a
+  // disposition. Logging a lead often causes the backend to INSERT/UPDATE a
+  // fro_assignments row (findOrCreateAssignment), whose realtime event would
+  // otherwise refetch + re-sort the list and snap the position indicator to a
+  // "random" number. We let the local list update be authoritative for a short
+  // window so the cursor advances sequentially (#1 -> #2 -> #3).
+  const suppressRealtimeUntilRef = useRef(0);
   const [stations, setStations] = useState([]);
   const VIEW_STATE_KEY = 'mydonors_view_state';
   const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
@@ -436,7 +443,10 @@ export default function MyDonors() {
 
   useRealtime('fro_assignments', {
     event: 'INSERT',
-    onInsert: (row) => { if (isInsertInCurrentView(row)) debouncedReload(); },
+    onInsert: (row) => {
+      if (Date.now() < suppressRealtimeUntilRef.current) return;
+      if (isInsertInCurrentView(row)) debouncedReload();
+    },
   });
 
   const saveProgress = useCallback((tab, donorId, donorIndex) => {
@@ -869,6 +879,12 @@ export default function MyDonors() {
       }
       await addDonorLog(donor.id, logData);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
+
+      // Suppress realtime-triggered reloads for a short window so the INSERT
+      // produced by this log's findOrCreateAssignment doesn't refetch/re-sort
+      // the list and snap the "#N of M" position to a random value.
+      suppressRealtimeUntilRef.current = Date.now() + 10000;
+      if (debounceReloadRef.current) { clearTimeout(debounceReloadRef.current); debounceReloadRef.current = null; }
 
       // DND donors disappear from the queue immediately — the backend keeps
       // them hidden until the next month (see getMyDonors dnd filter).
