@@ -370,6 +370,17 @@ export default function FROPanel() {
             showDesktopNotification(n.title, n.body);
           }
         });
+        allNotifs
+          .filter(n => n.type === 'new_audit' && !n.read_at)
+          .slice(0, 20)
+          .forEach(n => {
+            if (!seenNotifIds.current.has(n.id)) {
+              seenNotifIds.current.add(n.id);
+              localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+              showDesktopNotification(n.title, n.body, '/fro/suspense');
+              toast(`${n.title}: ${n.body}`, 'info');
+            }
+          });
         setAllNotifs(rejected);
         setAllVerified(verified);
         setRejectedItems(rejectedSlice);
