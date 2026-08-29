@@ -1,11 +1,14 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import * as ctrl from '../controllers/eventHeadController.js';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head');
 // Events (static paths BEFORE :id)
+router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);
 router.get('/events/calendar', eh, (req, res) => {
   const { month, year } = req.query;
@@ -16,6 +19,9 @@ router.get('/events/calendar', eh, (req, res) => {
   }
   return ctrl.listEventHeadEvents(req, res);
 });
+// Event sheet import/export (static paths BEFORE /events/:id)
+router.post('/events/import', eh, upload.single('file'), ctrl.importEvents);
+router.get('/events/export', eh, ctrl.exportEvents);
 router.get('/events/ngo/:ngoId', eh, ctrl.getEventHeadEventsByNgo);
 router.get('/events/state/:state', eh, ctrl.getEventHeadEventsByState);
 router.post('/events', eh, ctrl.createEventHandler);
@@ -93,5 +99,19 @@ router.get('/approvals', eh, ctrl.listApprovals);
 // Partners & Donors
 router.get('/csr-partners', eh, ctrl.listPartners);
 router.get('/donors', eh, ctrl.listDonors);
+
+// NGO context (read-only for the Event Head workspace)
+router.get('/ngos', eh, ctrl.listEventHeadNgos);
+
+// Sectors & Activities (NGO → Sector → Activity)
+router.get('/sectors', eh, ctrl.listSectors);
+router.get('/activities', eh, ctrl.listActivities);
+router.post('/activities', eh, ctrl.createActivity);
+// Sheet import/export (static paths BEFORE /activities/:id)
+router.post('/activities/import', eh, upload.single('file'), ctrl.importActivities);
+router.get('/activities/export', eh, ctrl.exportActivities);
+router.get('/activities/:id', eh, ctrl.getActivity);
+router.put('/activities/:id', eh, ctrl.updateActivity);
+router.put('/activities/:id/status', eh, ctrl.setActivityStatus);
 
 export default router;
