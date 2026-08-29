@@ -5,6 +5,14 @@ import useAccessCode from '../components/AccessGate';
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
+const TEAM_STYLE = {
+  UFS1: { bg: '#E7F3EC', fg: '#1f6f3f' },
+  UFS2: { bg: '#EAF1FB', fg: '#2563eb' },
+  UFS3: { bg: '#FDF2E3', fg: '#B45309' },
+  UFS4: { bg: '#F3E8F8', fg: '#7C3AED' },
+  'No Team': { bg: '#F3F4F6', fg: '#6b7280' },
+};
+
 const Sk = ({ w = '100%', h = 14, r = 6, mb = 0, style = {} }) => (
   <div className="sk" style={{ width: w, height: h, borderRadius: r, marginBottom: mb, ...style }} />
 );
@@ -90,10 +98,12 @@ export default function Reports() {
   const [reportFrom, setReportFrom] = useState(null);
   const [reportTo, setReportTo] = useState(null);
   const [data, setData] = useState(null);
+  const [atc, setAtc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sourceTab, setSourceTab] = useState('All');
   const [viewTab, setViewTab] = useState('source');
+  const [atcTab, setAtcTab] = useState('agent');
   const access = useAccessCode();
   const [locked, setLocked] = useState(true);
 
@@ -141,6 +151,12 @@ export default function Reports() {
       else if (reportDay) q = `date=${reportDay}`;
       const res = await apiGet('/accounts/report-data?' + q);
       setData(res);
+      try {
+        const atcRes = await apiGet('/accounts/report-agent-team?' + q);
+        setAtc(atcRes);
+      } catch (e) {
+        setAtc(null);
+      }
     } catch (e) {
       setError(e.message || 'Failed to load report');
     } finally {
@@ -259,6 +275,13 @@ export default function Reports() {
   const grandSourceTotal = rows.reduce((s, r) => s + (r.sourceTotal || 0), 0);
   const grandReceiptCount = rows.reduce((s, r) => s + (r.receiptCount || 0), 0);
 
+  // Agent / Team collection (from /report-agent-team)
+  const atcAgents = atc?.agents || [];
+  const atcTeams = atc?.teams || [];
+  const atcSlugs = atc?.ngos && atc.ngos.length > 0 ? atc.ngos.map(n => n.id) : (ngos.map(n => String(n.id).toLowerCase()).filter(id => ['bsct', 'aflf', 'mann'].includes(id)));
+  const atcLabel = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' };
+  const sumByNgo = (arr, n) => arr.reduce((s, a) => s + (a.byNgo?.[n] || 0), 0);
+
   // export CSV
   const exportCsv = async () => {
     if (locked) { const ok = await access.open(); if (!ok) return; setLocked(false); }
@@ -270,6 +293,15 @@ export default function Reports() {
       round2(r.targetDaily), round2(r.actualAvg), round2(r.diff),
     ]);
     const all = [header, ...body];
+    if (atc) {
+      all.push([], ['Agent-wise Collection', ...atcSlugs.map(s => atcLabel[s] || s), 'Total', 'Receipts']);
+      atcAgents.forEach(a => all.push([a.name, ...atcSlugs.map(s => a.byNgo?.[s] || 0), a.total, a.count]));
+      if (atcTeams.length > 0) {
+        all.push([], ['Team-wise Collection', 'Members', ...atcSlugs.map(s => atcLabel[s] || s), 'Total', 'Receipts']);
+        all.push(['Grand Total', atcTeams.reduce((s, t) => s + t.members, 0), ...atcSlugs.map(s => sumByNgo(atcTeams, s)), atcTeams.reduce((s, t) => s + t.total, 0), atcTeams.reduce((s, t) => s + t.count, 0)]);
+        atcTeams.forEach(t => all.push([t.team, t.members, ...atcSlugs.map(s => t.byNgo?.[s] || 0), t.total, t.count]));
+      }
+    }
     const csv = '\uFEFF' + all.map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -577,10 +609,126 @@ export default function Reports() {
 
           {viewTab === 'team' && (
             <div className="card rp-card" style={{ marginBottom: 16 }}>
-              <div className="card-head"><h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Team-wise Collection</h3></div>
-              <div className="empty" style={{ padding: 48, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>
-                Coming soon.
+              <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Team-wise Collection</h3>
+                <div className="no-print" style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: 4, gap: 4 }}>
+                  <button
+                    onClick={() => setAtcTab('agent')}
+                    style={{
+                      padding: '7px 18px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
+                      background: atcTab === 'agent' ? '#fff' : 'transparent', color: atcTab === 'agent' ? '#1f6f3f' : '#6b7280',
+                      boxShadow: atcTab === 'agent' ? '0 1px 3px rgba(0,0,0,.12)' : 'none'
+                    }}
+                  >Agent-wise (FRO)</button>
+                  <button
+                    onClick={() => setAtcTab('team')}
+                    style={{
+                      padding: '7px 18px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
+                      background: atcTab === 'team' ? '#fff' : 'transparent', color: atcTab === 'team' ? '#1f6f3f' : '#6b7280',
+                      boxShadow: atcTab === 'team' ? '0 1px 3px rgba(0,0,0,.12)' : 'none'
+                    }}
+                  >Team-wise</button>
+                </div>
               </div>
+
+              {!atc ? (
+                <div className="empty" style={{ padding: 48, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>
+                  Agent / team collection unavailable. The report needs the <code>workers.team</code> column and the <code>/accounts/report-agent-team</code> endpoint.
+                </div>
+              ) : (
+                <>
+                  {/* Team stat cards */}
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
+                    {atcTeams.map(t => {
+                      const st = TEAM_STYLE[t.team] || TEAM_STYLE['No Team'];
+                      return (
+                        <div key={t.team} className="stat-card" style={{ width: 200, maxWidth: '100%', boxSizing: 'border-box' }}>
+                          <div className="stat-icon" style={{ background: st.bg, color: st.fg }}>{t.team === 'No Team' ? '—' : t.team.slice(-1)}</div>
+                          <div className="stat-info">
+                            <div className="stat-lbl" style={{ fontSize: 12 }}>{t.team}</div>
+                            <div className="stat-num" style={{ fontSize: 18 }}>{mask(currency(t.total))}</div>
+                            <div className="stat-sub">{mask(t.members)} members · {mask(t.count.toLocaleString('en-IN'))} receipts</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {atcTeams.length === 0 && <div className="empty" style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No teams yet — assign FRO workers to UFS1–UFS4 in HR &gt; Workers.</div>}
+                  </div>
+
+                  <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
+                          <th style={{ padding: '9px 12px' }}>#</th>
+                          <th style={{ padding: '9px 12px' }}>{atcTab === 'agent' ? 'Agent' : 'Team'}</th>
+                          {atcTab === 'agent' && <th style={{ padding: '9px 12px' }}>Team</th>}
+                          {atcTab === 'team' && <th style={{ padding: '9px 12px' }}>Members</th>}
+                          {atcSlugs.map(s => <th key={s} style={{ padding: '9px 12px' }}>{atcLabel[s] || String(s).toUpperCase()}</th>)}
+                          <th style={{ padding: '9px 12px' }}>Total</th>
+                          <th style={{ padding: '9px 12px' }}>Receipts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {atcTab === 'agent' ? (
+                          <>
+                            {atcAgents.map((a, i) => (
+                              <tr key={a.id || 'unassigned'} style={{ borderTop: '1px solid var(--line)', background: a.id == null ? '#F9FAFB' : 'transparent' }}>
+                                <td style={{ padding: '9px 12px', color: '#6b7280' }}>{i + 1}</td>
+                                <td style={{ padding: '9px 12px', fontWeight: 600 }}>
+                                  {a.name}
+                                  {a.id == null && <span style={{ color: '#9ca3af', fontWeight: 400 }}> · unattributed receipts</span>}
+                                </td>
+                                <td style={{ padding: '9px 12px' }}>
+                                  {a.team ? <span className="pill" style={{ background: (TEAM_STYLE[a.team] || TEAM_STYLE['No Team']).bg, color: (TEAM_STYLE[a.team] || TEAM_STYLE['No Team']).fg, fontWeight: 600 }}>{a.team}</span> : <span style={{ color: '#9ca3af' }}>—</span>}
+                                </td>
+                                {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px' }}>{mask(currency(a.byNgo?.[s] || 0))}</td>)}
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(a.total))}</td>
+                                <td style={{ padding: '9px 12px' }}>{mask((a.count || 0).toLocaleString('en-IN'))}</td>
+                              </tr>
+                            ))}
+                            {atcAgents.length > 0 && (
+                              <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7' }}>
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>Total</td>
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{atcAgents.length} agents</td>
+                                <td style={{ padding: '9px 12px' }}></td>
+                                {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(sumByNgo(atcAgents, s)))}</td>)}
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(atcAgents.reduce((s, a) => s + a.total, 0)))}</td>
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(atcAgents.reduce((s, a) => s + (a.count || 0), 0).toLocaleString('en-IN'))}</td>
+                              </tr>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {atcTeams.map((t, i) => {
+                              const st = TEAM_STYLE[t.team] || TEAM_STYLE['No Team'];
+                              return (
+                                <tr key={t.team} style={{ borderTop: '1px solid var(--line)', background: t.team === 'No Team' ? '#F9FAFB' : 'transparent' }}>
+                                  <td style={{ padding: '9px 12px', color: '#6b7280' }}>{i + 1}</td>
+                                  <td style={{ padding: '9px 12px', fontWeight: 600 }}><span className="pill" style={{ background: st.bg, color: st.fg, fontWeight: 700 }}>{t.team}</span></td>
+                                  <td style={{ padding: '9px 12px' }}>{mask(t.members)}</td>
+                                  {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px' }}>{mask(currency(t.byNgo?.[s] || 0))}</td>)}
+                                  <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(t.total))}</td>
+                                  <td style={{ padding: '9px 12px' }}>{mask((t.count || 0).toLocaleString('en-IN'))}</td>
+                                </tr>
+                              );
+                            })}
+                            {atcTeams.length > 0 && (
+                              <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7' }}>
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>Total</td>
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{atcTeams.reduce((s, t) => s + t.members, 0)} members</td>
+                                <td style={{ padding: '9px 12px' }}></td>
+                                {atcSlugs.map(s => <td key={s} style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(sumByNgo(atcTeams, s)))}</td>)}
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(atcTeams.reduce((s, t) => s + t.total, 0)))}</td>
+                                <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(atcTeams.reduce((s, t) => s + (t.count || 0), 0).toLocaleString('en-IN'))}</td>
+                              </tr>
+                            )}
+                          </>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

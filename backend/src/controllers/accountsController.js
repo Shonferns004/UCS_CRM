@@ -5050,6 +5050,207 @@ export const getReportData = async (req, res) => {
   }
 };
 
+// GET /accounts/report-agent-team  ->  { agents, teams, ngos, grandTotal, grandCount }
+// Agent-wise = per-FRO collection (mirrors the NGO-admin /collections/fro-wise report);
+// Team-wise  = same receipts grouped by workers.team (UFS1-UFS4). Both use the same
+// month / day / from-to range and NGO (bsct/aflf/mann) scope as /report-data, and count
+// each receipt once across the whole run so agent totals always sum to team totals.
+const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+export const getAgentTeamCollections = async (req, res) => {
+  try {
+    const requestedDate = (req.query.date || '').trim();
+    const requestedFrom = (req.query.from || '').trim();
+    const requestedTo = (req.query.to || '').trim();
+    let requestedMonth = (req.query.month || '').trim();
+    let dayMode = false;
+    let rangeMode = false;
+    let day = '';
+    if (requestedDate) {
+      dayMode = true;
+      day = requestedDate.slice(0, 10);
+      requestedMonth = day.slice(0, 7);
+    }
+    if (!dayMode && requestedFrom && requestedTo) {
+      rangeMode = true;
+      requestedMonth = String(requestedFrom).slice(0, 7);
+    }
+    if (!requestedMonth || !/^\d{4}-\d{2}$/.test(requestedMonth)) requestedMonth = new Date().toISOString().slice(0, 7);
+    const [y, m] = requestedMonth.split('-').map(Number);
+    const month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
+
+    let dateFrom;
+    let dateTo;
+    if (rangeMode) {
+      dateFrom = String(requestedFrom).slice(0, 10);
+      dateTo = String(requestedTo).slice(0, 10);
+      if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+    } else if (dayMode) {
+      dateFrom = day;
+      dateTo = day;
+    } else {
+      const lastDay = new Date(y, m, 0).getDate();
+      dateFrom = `${month}-01`;
+      dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+    if (naErr) throw naErr;
+    const slugOf = (n) => {
+      if (!n) return null;
+      const code = String(n.code || '').trim().toLowerCase();
+      if (code) return code;
+      const name = String(n.name || '').trim().toLowerCase();
+      return name;
+    };
+    const ngoList = [];
+    const seen = {};
+    const uuidToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      uuidToSlug[String(n.id).toLowerCase()] = slug;
+      if (slug && !seen[slug] && ['bsct', 'aflf', 'mann'].includes(slug)) {
+        seen[slug] = true;
+        ngoList.push({ id: slug, name: n.name });
+      }
+    }
+    const ngoIds = ngoList.map((x) => x.id);
+    if (ngoIds.length === 0) {
+      for (const [slug, name] of [['bsct', 'BSCT'], ['aflf', 'AFLF'], ['mann', 'MANN']]) {
+        ngoList.push({ id: slug, name });
+        ngoIds.push(slug);
+      }
+    }
+    const slugSet = new Set(ngoIds);
+    const nameNormToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      if (!slug || !slugSet.has(slug)) continue;
+      const nn = normKey(n.name);
+      if (nn) nameNormToSlug[nn] = slug;
+      if (nn.includes('sevak') || nn.includes('beingsevak')) nameNormToSlug['bsct'] = slug;
+      if (nn.includes('ashray')) nameNormToSlug['aflf'] = slug;
+      if (nn.includes('mann')) nameNormToSlug['mann'] = slug;
+    }
+    // Resolve a receipt's project_id (slug / ngo uuid / name) to a report NGO slug.
+    const resolveNgo = (pid) => {
+      if (!pid) return null;
+      const low = String(pid).toLowerCase().trim();
+      if (slugSet.has(low)) return low;
+      if (uuidToSlug[low] && slugSet.has(uuidToSlug[low])) return uuidToSlug[low];
+      const nn = normKey(pid);
+      if (nameNormToSlug[nn]) return nameNormToSlug[nn];
+      return null;
+    };
+
+    const { data: receipts, error: rErr } = await db
+      .from('receipts')
+      .select('id, project_id, amount, agent_name, receipt_no, donor_id, payment_id, receipt_date')
+      .not('receipt_no', 'is', null)
+      .gte('receipt_date', dateFrom)
+      .lte('receipt_date', dateTo);
+    if (rErr) throw rErr;
+
+    const { data: froWorkers, error: fwErr } = await db
+      .from('workers')
+      .select('id, name, team')
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active');
+    if (fwErr) throw fwErr;
+    const workerList = (froWorkers || []).filter((w) => w.id);
+    const workerByKey = {};
+    for (const w of workerList) {
+      const k = normKey(w.name);
+      if (k && !workerByKey[k]) workerByKey[k] = w;
+    }
+
+    const byNgo = (ngoIds) => {
+      const o = {};
+      for (const n of ngoIds) o[n] = 0;
+      return o;
+    };
+    const agents = {};
+    for (const w of workerList) {
+      agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    }
+    agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+
+    const seenReceipts = new Set();
+    for (const r of receipts || []) {
+      const amount = parseFloat(r.amount || 0);
+      if (!(amount > 0)) continue;
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${String(r.receipt_date || '').slice(0, 10)}|${r.payment_id || ''}`;
+      if (seenReceipts.has(dedupKey)) continue;
+      seenReceipts.add(dedupKey);
+
+      const ngo = resolveNgo(r.project_id);
+      if (!ngo) continue;
+
+      let agent = agents.__unassigned;
+      const rawAgent = String(r.agent_name || '').trim();
+      if (rawAgent) {
+        const canonical = await normalizeAgentName(rawAgent);
+        const found = workerByKey[normKey(canonical)];
+        if (found) agent = agents[found.id];
+      }
+
+      agent.byNgo[ngo] = (agent.byNgo[ngo] || 0) + amount;
+      agent.total += amount;
+      agent.count += 1;
+    }
+
+    const agentRows = workerList
+      .map((w) => agents[w.id])
+      .concat(agents.__unassigned)
+      .filter((a) => a)
+      .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));
+
+    // Team-wise rollup from the same agent data.
+    const teamMap = {};
+    for (const a of agentRows) {
+      const team = a.team && String(a.team).trim() !== '' ? String(a.team).trim().toUpperCase() : null;
+      if (!team) continue;
+      if (!teamMap[team]) teamMap[team] = { team, members: 0, byNgo: byNgo(ngoIds), total: 0, count: 0, memberNames: [] };
+      teamMap[team].members += 1;
+      teamMap[team].memberNames.push(a.name);
+      for (const n of ngoIds) teamMap[team].byNgo[n] += a.byNgo[n] || 0;
+      teamMap[team].total += a.total;
+      teamMap[team].count += a.count;
+    }
+    const unassignedAgents = agentRows.filter((a) => !(a.team && String(a.team).trim() !== '') && a.id != null);
+    let teams = Object.values(teamMap)
+      .map((t) => ({ ...t, memberNames: undefined }))
+      .sort((a, b) => b.total - a.total || String(a.team).localeCompare(String(b.team)));
+    if (unassignedAgents.length > 0) {
+      const u = { team: 'No Team', members: unassignedAgents.length, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+      for (const a of unassignedAgents) {
+        for (const n of ngoIds) u.byNgo[n] += a.byNgo[n] || 0;
+        u.total += a.total;
+        u.count += a.count;
+      }
+      teams = teams.concat(u);
+    }
+
+    const grandTotal = agentRows.reduce((s, a) => s + a.total, 0);
+    const grandCount = agentRows.reduce((s, a) => s + a.count, 0);
+
+    return res.json({
+      month,
+      mode: dayMode ? 'day' : (rangeMode ? 'range' : 'month'),
+      day: dayMode ? day : null,
+      from: rangeMode ? dateFrom : null,
+      to: rangeMode ? dateTo : null,
+      ngos: ngoList,
+      agents: agentRows,
+      teams,
+      grandTotal,
+      grandCount,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Per-user 4-digit access code gating downloads & the locked Reports/status pages.
 // Each accounts user has their own code, stored in the settings table under a key
 // derived from their id. Only accounts / super_admin can reach these routes
