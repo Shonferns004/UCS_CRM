@@ -7,6 +7,7 @@ export function useHR() {
   return {
     ...ctx,
     DEPTS,
+    TEAMS,
     fetchWorkers, fetchNGOs, addWorker, removeWorker, abscondWorker, offboardWorker, fetchWorkerById, updateWorker, bulkUpdateWorkers,
     fetchAttendance, fetchLeaves, decideLeave,
     fetchTemplates, generateLetter, fetchWorkerLetters, sendNotif,
@@ -45,6 +46,8 @@ const tint = (hex) => hex + '22';
 export const avatarTint = tint;
 
 export const DEPTS = ['FRO','Admin','HR-Recruiter','Housekeeping','CSR','Digital','Manager','Event Manager','NA', 'NGO Admin'];
+
+export const TEAMS = ['UFS1','UFS2','UFS3','UFS4'];
 
 export const fetchWorkers = (status) => {
   let path = '/workers';

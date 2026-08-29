@@ -107,7 +107,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
 }
 
 export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
-  const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
+  const { addWorker, DEPTS, TEAMS, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
@@ -115,6 +115,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
+  const [team, setTeam] = useState('');
   const [client, setClient] = useState('BSCT');
   const [err, setErr] = useState('');
   const [nameErr, setNameErr] = useState('');
@@ -226,7 +227,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     setErr('');
     setCreated(null);
     try {
-      const body = { name: name.trim(), department: dept };
+      const body = { name: name.trim(), department: dept, team: team || null };
       const allocations = [];
       if (dept === 'NGO Admin' && selectedNgos.length > 0) {
         allocations.push(...selectedNgos.map(id => ({ ngo_id: id, salary_portion: 0 })));
@@ -238,11 +239,17 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       setCreated(res.worker);
       setName('');
       setDept(DEPTS?.[0] || '');
+      setTeam('');
       setSelectedNgos([]);
       reload();
     } catch (e) {
       setErr(e.message);
     }
+  };
+
+  const saveTeam = (w, val) => {
+    setWorkers(prev => prev.map(x => x.id === w.id ? { ...x, team: val ? val : null } : x));
+    updateWorker(w.id, { team: val ? val : null }).catch(e => { console.error('Error:', e.message); });
   };
 
   const handleFullPayExport = async () => {
@@ -803,6 +810,10 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             <label className="field">Client
               <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={CLIENTS} />
             </label>
+            <label className="field">UFS Team
+              <Dropdown value={team} onChange={e=>setTeam(e.target.value)}
+                options={[{value:'',label:'No Team'}, ...TEAMS.map(t => ({value:t, label:t}))]} />
+            </label>
           </div>
           {dept === 'NGO Admin' && ngos.length > 0 && (
             <div className="form-row" style={{ marginTop:8 }}>
@@ -893,7 +904,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           )}
         </div>
         <table>
-          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>NGO</th><th>Team</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -935,6 +946,11 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                       </td>
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#eef1f5', color:'#374151' }}>{clientOf(w)}</span>
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <Dropdown value={w.team || ''} onChange={e => saveTeam(w, e.target.value)}
+                          style={{ minWidth: 78 }}
+                          options={[{value:'',label:'—'}, ...TEAMS.map(t => ({value:t, label:t}))]} />
                       </td>
                       <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
                       <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
