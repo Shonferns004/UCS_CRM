@@ -1958,11 +1958,27 @@ export const getMyDonors = async (req, res) => {
       'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
     ]);
 
+    // Statuses that are a hard "never work this donor again" so they must NEVER
+    // be workable, independent of whether the matching disposition log was
+    // captured. (Terminal connected dispositions like email_sent / query_complaint
+    // may still need follow-up, so they are NOT excluded by status here — they are
+    // already hidden via terminalForeverIds when a log exists.)
+    const HARD_TERMINAL_STATUSES = new Set([
+      'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible',
+      'language_barrier', 'call_disconnected',
+      'wrong_number', 'invalid_number', 'invalid', 'rejected', 'temporary_network_issue', 'incoming_out',
+    ]);
+
     let baseFiltered;
     if (req.query.verified_only === 'true') {
       baseFiltered = null;
     } else {
       baseFiltered = result.filter(r => {
+        // Status is authoritative for hard-terminal dispositions: a donor already
+        // marked not_interested / dnd / wrong_person / not_possible / wrong_number
+        // etc. must NOT be workable even if its disposition log wasn't captured —
+        // otherwise it leaks into the work queue and reappears.
+        if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
         if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
         if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
