@@ -1,0 +1,142 @@
+/* Dashboard-only styling. Scoped under .dash so it never affects other pages. */
+
+.dash { display: flex; flex-direction: column; gap: 20px; }
+
+.dash-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 16px 20px; border-radius: 14px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #bfdbfe;
+}
+.dash-banner .b-txt { font-size: 14px; font-weight: 600; color: var(--sim-ink); }
+.dash-banner .b-sub { font-size: 12px; color: var(--sim-ink-soft); margin-top: 2px; }
+
+/* --- KPI cards --- */
+.dash-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+
+.dash-kpi {
+  position: relative; overflow: hidden;
+  background: var(--sim-white); border: 1px solid var(--sim-line);
+  border-radius: 14px; box-shadow: var(--sim-shadow);
+  padding: 18px;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.dash-kpi:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15, 23, 42, .08); border-color: #d3dff0; }
+.dash-kpi .kpi-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.dash-kpi .kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.dash-kpi .kpi-ic { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.dash-kpi .kpi-label { font-size: 12px; font-weight: 600; color: var(--sim-ink-soft); }
+.dash-kpi .kpi-num { font-size: 30px; font-weight: 800; color: var(--sim-ink); line-height: 1.05; letter-spacing: -.02em; }
+.dash-kpi .kpi-sub { font-size: 11px; color: var(--sim-ink-soft); margin-top: 4px; }
+.dash-kpi .kpi-foot { margin-top: 12px; height: 4px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
+.dash-kpi .kpi-foot > span { display: block; height: 100%; border-radius: 99px; }
+
+/* --- Panels --- */
+.dash-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
+
+.dash-panel {
+  background: var(--sim-white); border: 1px solid var(--sim-line);
+  border-radius: 14px; box-shadow: var(--sim-shadow); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.dash-panel .panel-head {
+  padding: 14px 18px; border-bottom: 1px solid var(--sim-line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.dash-panel .panel-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--sim-ink); }
+.dash-panel .panel-head .ln { font-size: 11px; color: var(--sim-ink-soft); }
+.panel-link {
+  font-size: 12px; font-weight: 600; color: var(--sim-blue); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+}
+.panel-link:hover { color: var(--sim-blue-dark); }
+
+/* --- SIM Status Overview --- */
+.status-layout { display: flex; align-items: center; gap: 28px; padding: 20px; }
+.donut { flex-shrink: 0; position: relative; }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.donut-center .n { font-size: 22px; font-weight: 800; color: var(--sim-ink); line-height: 1; }
+.donut-center .l { font-size: 10px; color: var(--sim-ink-soft); margin-top: 2px; }
+.legend { flex: 1; display: grid; gap: 8px; min-width: 0; }
+.legend-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+  background: var(--sim-bg); border: 1px solid var(--sim-line);
+  transition: background .12s ease, transform .12s ease;
+}
+.legend-row:hover { background: #fff; transform: translateX(2px); }
+.legend-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.legend-row .nm { font-size: 12px; color: var(--sim-ink-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend-row .vl { font-size: 14px; font-weight: 700; color: var(--sim-ink); }
+.legend-row .pc { font-size: 11px; color: var(--sim-ink-soft); width: 44px; text-align: right; }
+
+/* --- SIM Inventory summary --- */
+.inv-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.inv-total { text-align: center; padding: 10px; border-radius: 12px; background: var(--sim-blue-soft); border: 1px solid #dbeafe; }
+.inv-total .n { font-size: 30px; font-weight: 800; color: var(--sim-blue-dark); line-height: 1; }
+.inv-total .l { font-size: 11px; color: var(--sim-blue-dark); margin-top: 4px; font-weight: 600; }
+.inv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.inv-item { background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 10px; padding: 12px; }
+.inv-item .t { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--sim-ink-soft); font-weight: 600; }
+.inv-item .t .d { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.inv-item .v { font-size: 22px; font-weight: 800; color: var(--sim-ink); margin-top: 6px; line-height: 1; }
+
+/* --- SIM Expiry Overview --- */
+.expiry-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 18px; }
+.expiry-item { border: 1px solid var(--sim-line); border-radius: 11px; padding: 13px 14px; background: #fbfdff; }
+.expiry-item .t { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.expiry-item .t .lab { font-size: 12px; color: var(--sim-ink-soft); font-weight: 600; }
+.expiry-item .t .val { font-size: 15px; font-weight: 800; color: var(--sim-ink); }
+.expiry-item .bar { height: 7px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
+.expiry-item .bar > span { display: block; height: 100%; border-radius: 99px; transition: width .4s ease; }
+
+/* --- Quick Actions --- */
+.qa-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 16px; }
+.qa-add { grid-column: 1 / -1; }
+.qa-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px; border: 1px solid var(--sim-line); border-radius: 10px;
+  background: var(--sim-white); color: var(--sim-ink); text-decoration: none;
+  font-size: 12px; font-weight: 600;
+  transition: all .12s ease; cursor: pointer;
+}
+.qa-item:hover { border-color: var(--sim-blue); background: var(--sim-blue-soft); color: var(--sim-blue-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37, 99, 235, .08); }
+.qa-item .qic { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+/* --- Expiring table widget --- */
+.dash-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dash-table thead th {
+  text-align: left; padding: 9px 14px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--sim-ink-soft);
+  background: #f8fafc; border-bottom: 1px solid var(--sim-line); white-space: nowrap;
+}
+.dash-table tbody td { padding: 9px 14px; border-bottom: 1px solid var(--sim-line); white-space: nowrap; color: var(--sim-ink); }
+.dash-table tbody tr:last-child td { border-bottom: none; }
+.dash-table tbody tr:hover { background: var(--sim-blue-soft); }
+
+.dash-empty { padding: 26px 16px; text-align: center; }
+.dash-empty .check {
+  width: 42px; height: 42px; margin: 0 auto 10px; border-radius: 50%;
+  background: var(--sim-green-soft); color: var(--sim-green);
+  display: flex; align-items: center; justify-content: center;
+}
+.dash-empty .big { font-size: 14px; font-weight: 700; color: var(--sim-ink); }
+.dash-empty .small { font-size: 12px; color: var(--sim-ink-soft); margin-top: 4px; }
+
+/* --- Recent Activity --- */
+.activity-list { padding: 4px 0; }
+.activity-item { display: flex; align-items: flex-start; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--sim-line); }
+.activity-item:last-child { border-bottom: none; }
+.activity-item .aic {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  background: var(--sim-blue-soft); color: var(--sim-blue); display: flex; align-items: center; justify-content: center;
+}
+.activity-item .at { display: flex; flex-direction: column; min-width: 0; }
+.activity-item .tt { font-size: 13px; font-weight: 600; color: var(--sim-ink); }
+.activity-item .dt { font-size: 12px; color: var(--sim-ink-soft); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-item .md { font-size: 11px; color: var(--sim-blue); margin-top: 2px; }
+
+@media (max-width: 560px) {
+  .expiry-grid, .inv-grid, .qa-grid { grid-template-columns: 1fr; }
+  .status-layout { flex-direction: column; align-items: center; }
+  .legend { width: 100%; }
+}
