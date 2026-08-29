@@ -13,6 +13,7 @@ import EventHeadPanel from './panels/event-head/EventHeadPanel'
 import DocumentationPanel from './panels/documentation/DocumentationPanel'
 import WhatsAppPanel from './panels/whatsapp/WhatsAppPanel'
 import DevPanel from './panels/dev-panel/DevPanel'
+import SimCardPanel from './panels/sim-card/SimCardPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -181,9 +182,16 @@ export default function App() {
             <WhatsAppPanel />
           </ProtectedRoute>
         } />
+
         <Route path="/docs/*" element={
           <ProtectedRoute role={['*']}>
             <DocumentationPanel />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/sim/*" element={
+          <ProtectedRoute role={['super_admin', 'admin']}>
+            <SimCardPanel />
           </ProtectedRoute>
         } />
 
