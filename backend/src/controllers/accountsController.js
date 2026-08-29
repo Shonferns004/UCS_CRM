@@ -148,10 +148,13 @@ export const getLeadList = async (req, res) => {
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
-      agent_name: (req.user?.impersonation && req.user.imposter_name && (r.fro_worker_id === req.user.id || r.fro_worker_id === req.user.imposter_id))
-        ? req.user.imposter_name
-        : r.fro_assignments?.workers?.name || 'Priyank Shah',
-      agent_login: r.fro_assignments?.workers?.login_id || '',
+      // The credited worker is fro_donor_logs.fro_worker_id — when an acting
+      // FRO "works as" another FRO and claims a lead, that is the acting FRO,
+      // while the assignment stays with the owner. Resolve the agent from the
+      // credited worker first so the Lead Verification list shows the acting
+      // FRO, falling back to the assignment owner.
+      agent_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
+      agent_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
