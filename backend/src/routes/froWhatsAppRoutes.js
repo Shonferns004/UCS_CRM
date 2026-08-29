@@ -23,6 +23,7 @@ import {
   listMyAccounts,
   getMedia,
 } from '../controllers/froWhatsAppController.js';
+import { sendInteractive } from '../controllers/whatsappEnhancementsController.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -49,6 +50,7 @@ router.post('/send-direct', sendDirect);
 router.post('/create-conversation', createConversation);
 router.get('/conversations/:id/messages', listMessages);
 router.post('/conversations/:id/send', sendMessage);
+router.post('/conversations/:id/send-interactive', sendInteractive);
 router.put('/conversations/:id/read', markRead);
 router.get('/search', searchMessages);
 router.get('/media/:mediaId', getMedia);

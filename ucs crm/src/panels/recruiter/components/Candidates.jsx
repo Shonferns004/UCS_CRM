@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRec } from '../store';
-import { Search, Trash, X } from '../icons';
-import { Dropdown, Who } from './ui';
+import { Search, Trash, X, Pencil, Eye } from '../icons';
+import { Dropdown, Who, cleanField } from './ui';
 import { CANDIDATE_STAGES, CANDIDATE_SOURCES, STAGE_TO_STATUS, getCandidateProfile, buildCandidateNotes } from '../store';
 import CandidateForm from './CandidateForm';
 import CandidateDetail from './CandidateDetail';
+import { ScheduleForm, DetailView, CompleteForm, CancelForm, ivToForm } from './Interviews';
 
 const SkeletonRow = ({ cols }) => (
   <tr>
@@ -14,13 +15,90 @@ const SkeletonRow = ({ cols }) => (
   </tr>
 );
 
+const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested' };
+
+const DEFAULT_CONNECTED = [
+  { value: 'follow_up', label: 'Follow Up' },
+  { value: 'call_back', label: 'Call Back' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'not_interested', label: 'Not Interested' },
+];
+
+const DEFAULT_NOT_CONNECTED = [
+  { value: 'ringing', label: 'Ringing' },
+  { value: 'unreachable', label: 'Unreachable' },
+  { value: 'busy', label: 'Busy' },
+  { value: 'switched_off', label: 'Switched Off' },
+  { value: 'wrong_number', label: 'Wrong Number' },
+  { value: 'invalid', label: 'Invalid' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+const readList = (key, defaults) => {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch (e) {}
+  return defaults;
+};
+
+const statusPill = (s, labelMap) => {
+  const m = { rejected:'pill-danger', hold:'pill-gold', scheduled:'pill-clay', selected:'pill-green', joined:'pill-green' };
+  const label = s ? (labelMap[s] || s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())) : '\u2014';
+  return <span className={`pill ${m[s] || 'pill-gray'}`}>{label}</span>;
+};
+
+const INTERVIEW_ACTIVE = ['Scheduled', 'Confirmed', 'In Progress', 'Rescheduled'];
+
+const fmtInterviewDate = (str) => {
+  if (!str) return '—';
+  const d = new Date(str + 'T00:00:00');
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const fmtInterviewTime = (t) => {
+  if (!t) return '—';
+  const [h, m] = t.split(':').map(Number);
+  return new Date(0, 0, 0, h, m).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+};
+
+const getNextInterview = (c) => {
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  return (c.interviews || [])
+    .filter(iv => iv && iv.date && INTERVIEW_ACTIVE.includes(iv.status) && iv.date >= today)
+    .sort((a, b) => ((a.date || '') + ' ' + (a.startTime || '')).localeCompare((b.date || '') + ' ' + (b.startTime || '')))[0] || null;
+};
+
+const getLatestInterview = (c) => {
+  const arr = (c.interviews || []).filter(Boolean);
+  if (arr.length === 0) return null;
+  return arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+};
+
+const getInterviewOnDate = (c, date) => {
+  return (c.interviews || [])
+    .filter(iv => iv && iv.date === date)
+    .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))[0] || null;
+};
+
 export default function Candidates() {
-  const { candidates, leadsLoading, user, updateLead, deleteLead } = useRec();
+  const { candidates, leadsLoading, user, updateLead, deleteLead, interviews, saveInterview, updateCandidateStatus } = useRec();
   const [view, setView] = useState(null);
   const [q, setQ] = useState('');
   const [stageFilter, setStageFilter] = useState('All');
   const [sourceFilter, setSourceFilter] = useState('All');
   const [jobFilter, setJobFilter] = useState('All');
+  const [dateFilter, setDateFilter] = useState('');
+  const [formMode, setFormMode] = useState('schedule');
+  const [formInitial, setFormInitial] = useState(null);
+  const [ivDetail, setIvDetail] = useState(null);
+  const [ivComplete, setIvComplete] = useState(null);
+  const [ivCancel, setIvCancel] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const [toastErr, setToastErr] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteMsg, setDeleteMsg] = useState('');
@@ -44,9 +122,17 @@ export default function Candidates() {
       if (stageFilter !== 'All' && c.stage !== stageFilter) return false;
       if (sourceFilter !== 'All' && c.source !== sourceFilter) return false;
       if (jobFilter !== 'All' && c.role !== jobFilter) return false;
+      if (dateFilter && !(c.interviews || []).some(iv => iv && iv.date === dateFilter)) return false;
       return true;
     });
-  }, [candidates, q, stageFilter, sourceFilter, jobFilter]);
+  }, [candidates, q, stageFilter, sourceFilter, jobFilter, dateFilter]);
+
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, stageFilter, sourceFilter, jobFilter, dateFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const jobOptions = useMemo(() => {
     const roles = [...new Set(candidates.map(c => c.role).filter(Boolean))].sort();
@@ -54,6 +140,99 @@ export default function Candidates() {
   }, [candidates]);
 
   const jobRoleSuggestions = useMemo(() => jobOptions.slice(1).map(o => o.value), [jobOptions]);
+
+  const ivCandidateOptions = useMemo(() => candidates.map(c => ({ value: c.id, label: c.name + (c.role && c.role !== '—' ? ' · ' + c.role : '') })), [candidates]);
+  const ivJobOptions = useMemo(() => [...new Set(candidates.map(c => c.role).filter(r => r && r !== '—'))].sort(), [candidates]);
+
+  const notify = (ok, text) => {
+    if (ok) setToastMsg(text); else setToastErr(text);
+    setTimeout(() => { setToastMsg(''); setToastErr(''); }, 3500);
+  };
+
+  const handleFormSave = async (dataRaw) => {
+    const { stage: nextStage, ...data } = dataRaw;
+    setBusy(true);
+    try {
+      const nowIso = new Date().toISOString();
+      let iv;
+      if (formMode === 'edit') {
+        const prev = formInitial;
+        const timesChanged = prev.date !== data.date || prev.startTime !== data.startTime || prev.endTime !== data.endTime || prev.interviewer !== data.interviewer;
+        iv = {
+          ...data,
+          status: timesChanged && !['Completed', 'Cancelled', 'No Show'].includes(prev.status) ? 'Rescheduled' : prev.status,
+          result: prev.result, rating: prev.rating, feedback: prev.feedback, strengths: prev.strengths, weaknesses: prev.weaknesses, recommendation: prev.recommendation, cancelReason: prev.cancelReason,
+          createdBy: prev.createdBy, createdAt: prev.createdAt, updatedAt: nowIso,
+        };
+      } else {
+        iv = {
+          ...data,
+          id: crypto.randomUUID ? crypto.randomUUID() : 'iv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+          status: 'Scheduled',
+          result: '', rating: 0, feedback: '', strengths: '', weaknesses: '', recommendation: '', cancelReason: '',
+          createdBy: (user && (user.name || user.email)) || 'Recruiter',
+          createdAt: nowIso, updatedAt: nowIso,
+        };
+      }
+      await saveInterview(iv);
+      const cand = candidates.find(c => c.id === data.candidateId);
+      if (formMode !== 'edit') {
+        const st = cand && cand.status;
+        if (!['selected', 'offer_released', 'offer_accepted', 'onboarding', 'joined', 'rejected'].includes(st)) {
+          await updateCandidateStatus(data.candidateId, 'scheduled');
+        }
+      }
+      if (nextStage && cand && cand.stage !== nextStage) {
+        await updateLead(data.candidateId, { status: STAGE_TO_STATUS[nextStage] || cand.status });
+      }
+      setFormInitial(null);
+      notify(true, formMode === 'edit' ? 'Interview updated.' : 'Interview scheduled.');
+    } catch (e) {
+      notify(false, (e && e.message) || 'Failed to save interview');
+    } finally { setBusy(false); }
+  };
+
+  const handleIvComplete = async (fb) => {
+    if (!ivComplete) return;
+    setBusy(true);
+    try {
+      const iv = { ...ivComplete, ...fb, status: 'Completed', updatedAt: new Date().toISOString() };
+      await saveInterview(iv);
+      const st = fb.recommendation === 'Reject' ? 'rejected'
+        : fb.recommendation === 'Select' ? 'selected'
+        : fb.recommendation === 'On Hold' ? 'on_hold'
+        : 'interviewed';
+      await updateCandidateStatus(iv.candidateId, st);
+      setIvComplete(null);
+      notify(true, 'Interview marked completed.');
+    } catch (e) {
+      notify(false, (e && e.message) || 'Failed to update interview');
+    } finally { setBusy(false); }
+  };
+
+  const handleIvCancel = async (reason) => {
+    if (!ivCancel) return;
+    setBusy(true);
+    try {
+      const iv = { ...ivCancel, status: 'Cancelled', cancelReason: reason, updatedAt: new Date().toISOString() };
+      await saveInterview(iv);
+      setIvCancel(null);
+      notify(true, 'Interview cancelled.');
+    } catch (e) {
+      notify(false, (e && e.message) || 'Failed to cancel interview');
+    } finally { setBusy(false); }
+  };
+
+  const handleSetStatus = async (iv, status) => {
+    setBusy(true);
+    try {
+      await saveInterview({ ...iv, status, updatedAt: new Date().toISOString() });
+      setIvDetail(null);
+      notify(true, 'Interview marked ' + status.toLowerCase() + '.');
+    } catch (e) {
+      notify(false, (e && e.message) || 'Failed to update interview');
+    } finally { setBusy(false); }
+  };
 
   const handleUpdate = async (form) => {
     const existing = findCandidate(view.id);
@@ -117,6 +296,25 @@ export default function Candidates() {
   const stageOptions = [{ value: 'All', label: 'All stages' }, ...CANDIDATE_STAGES.map(s => ({ value: s, label: s }))];
   const sourceOptions = [{ value: 'All', label: 'All sources' }, ...CANDIDATE_SOURCES.map(s => ({ value: s, label: s }))];
 
+  const connectedOpts = readList('rec_leads_connectedOptions', DEFAULT_CONNECTED);
+  const notConnectedOpts = readList('rec_leads_notConnectedOptions', DEFAULT_NOT_CONNECTED);
+  const statusLabelMap = {
+    hold: 'Hold',
+    new: 'New',
+    contacted: 'Contacted',
+    screening: 'Screening',
+    shortlisted: 'Shortlisted',
+    selected: 'Selected',
+    interviewed: 'Interviewed',
+    offer_released: 'Offer Released',
+    offer_accepted: 'Offer Accepted',
+    onboarding: 'Onboarding',
+    on_hold: 'On Hold',
+    withdrawn: 'Withdrawn',
+    ...connectedOpts.reduce((acc, o) => { acc[CONNECTED_STATUS_MAP[o.value] || o.value] = o.label; return acc; }, {}),
+    ...notConnectedOpts.reduce((acc, o) => { acc[o.value] = o.label; return acc; }, {}),
+  };
+
   return (
     <>
       {view?.type === 'edit' && current && (
@@ -149,11 +347,14 @@ export default function Candidates() {
             <div className="filter-bar">
               <Dropdown className="filter-select" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} options={sourceOptions} />
               <Dropdown className="filter-select" value={jobFilter} onChange={e => setJobFilter(e.target.value)} options={jobOptions} />
+              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} aria-label="Filter by date"
+                style={{ border: '1.5px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: '5px 10px', background: 'transparent', color: 'var(--ink)', fontSize: 12, fontFamily: 'inherit', outline: 'none', transition: 'border-color .2s' }} />
+              <Dropdown className="filter-select" value={stageFilter} onChange={e => setStageFilter(e.target.value)} options={stageOptions} />
               <span className="sub" style={{ marginLeft: 'auto' }}>{leadsLoading && candidates.length === 0 ? '…' : filtered.length + ' candidates'}</span>
             </div>
           </div>
           {leadsLoading && candidates.length === 0 ? (
-            <div style={{ overflowX: 'auto' }}><table><tbody>{[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={4}/>)}</tbody></table></div>
+            <div style={{ overflowX: 'auto' }}><table><tbody>{[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table></div>
           ) : filtered.length === 0 ? (
             <div className="empty">No candidates match.</div>
           ) : (
@@ -161,22 +362,105 @@ export default function Candidates() {
               <table>
                 <thead>
                   <tr>
-                    <th>Candidate</th><th>Phone</th><th>Stage</th><th>Source</th>
+                    <th>Candidate</th><th>Phone</th><th>Stage</th><th>Source</th><th>Next Interview</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(c => (
-                    <tr key={c.id}>
-                      <td><Who name={c.name} role={c.role} /></td>
-                      <td style={{ color: 'var(--ink-soft)' }}>{c.phone}</td>
-                      <td style={{ color: 'var(--ink-soft)' }}>{c.stage}</td>
-                      <td style={{ color: 'var(--ink-soft)' }}>{c.source}</td>
-                    </tr>
-                  ))}
+                  {paginated.map(c => {
+                    const nextIv = dateFilter ? getInterviewOnDate(c, dateFilter) : (getNextInterview(c) || getLatestInterview(c));
+                    return (
+                      <tr key={c.id}>
+                        <td><Who name={c.name} role={c.role} /></td>
+                        <td style={{ color: 'var(--ink-soft)' }}>{c.phone}</td>
+                        <td>{statusPill(cleanField(c._raw ? c._raw.status : c.status), statusLabelMap)}</td>
+                        <td style={{ color: 'var(--ink-soft)' }}>{c.source}</td>
+                        <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+                          {nextIv ? (
+                            <>
+                              <div style={{ fontWeight: 500 }}>{nextIv.date ? fmtInterviewDate(nextIv.date) : 'Not scheduled'}</div>
+                              {nextIv.startTime && nextIv.endTime && (
+                                <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtInterviewTime(nextIv.startTime)}–{fmtInterviewTime(nextIv.endTime)} · {nextIv.round || ''}</div>
+                              )}
+                              {nextIv.interviewer && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{nextIv.interviewer}</div>}
+                            </>
+                          ) : (
+                            <span style={{ color: 'var(--ink-soft)' }}>Not scheduled</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                            <button type="button" className="btn btn-icon btn-sm" title="Schedule / Edit Interview"
+                              onClick={() => {
+                                setFormInitial({
+                                  candidateId: c.id,
+                                  jobRole: c.role && c.role !== '—' ? c.role : '',
+                                  round: '', interviewer: '', date: '', startTime: '', endTime: '',
+                                  mode: 'Online', link: '', location: '', notes: '', reminder: 'none',
+                                });
+                                setFormMode('schedule');
+                              }}>
+                              <Pencil width={14} />
+                            </button>
+                            {nextIv && (
+                              <button type="button" className="btn btn-icon btn-sm" title="View Interview" onClick={() => setIvDetail(nextIv)}><Eye width={14} /></button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
+          {!leadsLoading && filtered.length > 0 && totalPages > 1 && (
+            <div className="pagination">
+              <div className="pagination-left">
+                <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
+              </div>
+              <div className="pagination-center">Page {safePage} of {totalPages}</div>
+              <div className="pagination-right">
+                <div className="pagination-dots">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                    <span key={p} className={`dot ${p === safePage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
+                  ))}
+                </div>
+                <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {formInitial && (
+        <ScheduleForm title={formMode === 'edit' ? 'Edit interview' : 'Schedule interview'}
+          editing={formMode === 'edit'} initial={formInitial} candidates={candidates}
+          candidateOptions={ivCandidateOptions} jobOptions={ivJobOptions} interviews={interviews} saving={busy}
+          onSave={handleFormSave} onClose={() => setFormInitial(null)} />
+      )}
+
+      {ivDetail && (
+        <DetailView iv={ivDetail}
+          onEdit={() => { const iv = ivDetail; setIvDetail(null); setFormInitial(ivToForm(iv)); setFormMode('edit'); }}
+          onConfirm={() => handleSetStatus(ivDetail, 'Confirmed')}
+          onNoShow={() => handleSetStatus(ivDetail, 'No Show')}
+          onComplete={() => { const iv = ivDetail; setIvDetail(null); setIvComplete(iv); }}
+          onCancel={() => { const iv = ivDetail; setIvDetail(null); setIvCancel(iv); }}
+          onClose={() => setIvDetail(null)} />
+      )}
+      {ivComplete && <CompleteForm iv={ivComplete} saving={busy} onSave={handleIvComplete} onClose={() => setIvComplete(null)} />}
+      {ivCancel && <CancelForm iv={ivCancel} saving={busy} onSave={handleIvCancel} onClose={() => setIvCancel(null)} />}
+
+      {toastMsg && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', padding: '10px 20px', fontSize: 14, zIndex: 1200, display: 'flex', alignItems: 'center', gap: 10, color: '#166534' }}>
+          <span>{toastMsg}</span>
+          <button className="btn btn-sm" onClick={() => setToastMsg('')} style={{ padding: '2px 6px', lineHeight: 1, color: '#166534' }}><X width={12}/></button>
+        </div>
+      )}
+      {toastErr && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', padding: '10px 20px', fontSize: 14, zIndex: 1200, display: 'flex', alignItems: 'center', gap: 10, color: '#B5603A' }}>
+          <span>{toastErr}</span>
+          <button className="btn btn-sm" onClick={() => setToastErr('')} style={{ padding: '2px 6px', lineHeight: 1, color: '#B5603A' }}><X width={12}/></button>
         </div>
       )}
 

@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
+import { useTeams } from '../../../components/useTeams';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check } from '../icons';
 import { api } from '../../../api/auth';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
 
 function load() {
@@ -104,13 +107,17 @@ function WhoWithPhoto({ name, role, photo_url }) {
   );
 }
 
-export default function Workers({ onSelect, onOffboard }) {
-  const { addWorker, DEPTS, fetchWorkers, fetchNGOs } = useHR();
+export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
+  const { addWorker, DEPTS, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
+  const { teams: teamOptions } = useTeams();
+  const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
+  const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
   const [empIdMap, setEmpIdMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
+  const [team, setTeam] = useState('');
   const [client, setClient] = useState('BSCT');
   const [err, setErr] = useState('');
   const [nameErr, setNameErr] = useState('');
@@ -122,8 +129,11 @@ export default function Workers({ onSelect, onOffboard }) {
   const [created, setCreated] = useState(null);
   const [salaryMap, setSalaryMap] = useState({});
   const [ngos, setNgos] = useState([]);
+  const [ngoSummary, setNgoSummary] = useState([]);
   const [selectedNgos, setSelectedNgos] = useState([]);
   const [workerDetails, setWorkerDetails] = useState({});
+  const [pagarMonth, setPagarMonth] = useState('');
+  const [showPagarModal, setShowPagarModal] = useState(false);
   const PAGE_SIZE = 20;
   const tableRef = useRef(null);
 
@@ -154,6 +164,7 @@ export default function Workers({ onSelect, onOffboard }) {
       });
     });
     fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
+    fetchNgoSummaryList().then(setNgoSummary).catch((err) => { console.error('API error:', err.message); });
     api('/salary/workers-summary', { _prefix: 'ucs' })
       .then(data => {
         const map = {};
@@ -167,8 +178,9 @@ export default function Workers({ onSelect, onOffboard }) {
   const clientOf = (w) => {
     if (!w.ngo_id) return 'Other';
     const ngo = ngos.find(n => n.id === w.ngo_id);
-    const name = ngo ? (ngo.name || '').trim().toUpperCase() : '';
-    return ['BSCT','AFLF','MANN'].includes(name) ? name : 'Other';
+    if (!ngo) return 'Other';
+    const name = (ngo.name || '').trim().toUpperCase();
+    return name === 'OTHER' ? 'Other' : (name || 'Other');
   };
   const filtered = workers.filter(w => {
     const role = w.department || 'Team Member';
@@ -187,11 +199,18 @@ export default function Workers({ onSelect, onOffboard }) {
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const CLIENTS = ['BSCT', 'AFLF', 'MANN', 'Other'];
-  const CLIENT_COLORS = { BSCT: '#5B6B4E', AFLF: '#C08A2E', MANN: '#7A5C7E', Other: '#9aa0a6' };
-  const clientCounts = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
-  workers.forEach(w => { const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; });
-  const clientTotal = clientCounts.BSCT + clientCounts.AFLF + clientCounts.MANN + clientCounts.Other;
+  const CLIENTS = [...new Set([
+    ...(ngos || []).filter(n => (n.name || '').trim().toUpperCase() !== 'TESTING')
+      .map(n => (n.name || '').trim().toUpperCase() === 'OTHER' ? 'Other' : (n.name || '').trim().toUpperCase()).filter(Boolean),
+    'Other',
+  ])];
+  const PALETTE = ['#5B6B4E', '#C08A2E', '#7A5C7E', '#B5603A', '#4F6472', '#88693D', '#2E7D32', '#1565C0', '#6A1B9A', '#00838F'];
+  const CLIENT_COLORS = {};
+  CLIENTS.forEach((c, i) => { CLIENT_COLORS[c] = PALETTE[i % PALETTE.length]; });
+  const clientCounts = {};
+  CLIENTS.forEach(c => { clientCounts[c] = 0; });
+  workers.forEach(w => { const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; else clientCounts[c] = 1; });
+  const clientTotal = CLIENTS.reduce((s, c) => s + (clientCounts[c] || 0), 0);
   const clientPct = (c) => clientTotal ? Math.round((clientCounts[c] / clientTotal) * 100) : 0;
 
   const mountedSearch = useRef(false);
@@ -210,23 +229,29 @@ export default function Workers({ onSelect, onOffboard }) {
     setErr('');
     setCreated(null);
     try {
-      const body = { name: name.trim(), department: dept };
+      const body = { name: name.trim(), department: dept, team: team || null };
       const allocations = [];
       if (dept === 'NGO Admin' && selectedNgos.length > 0) {
         allocations.push(...selectedNgos.map(id => ({ ngo_id: id, salary_portion: 0 })));
       }
-      const clientNgo = ngos.find(n => (n.name || '').trim().toUpperCase() === client);
+      const clientNgo = ngos.find(n => (n.name || '').trim().toUpperCase() === String(client).toUpperCase());
       if (clientNgo) allocations.push({ ngo_id: clientNgo.id, salary_portion: 0 });
       if (allocations.length > 0) body.allocations = allocations;
       const res = await addWorker(body);
       setCreated(res.worker);
       setName('');
       setDept(DEPTS?.[0] || '');
+      setTeam('');
       setSelectedNgos([]);
       reload();
     } catch (e) {
       setErr(e.message);
     }
+  };
+
+  const saveTeam = (w, val) => {
+    setWorkers(prev => prev.map(x => x.id === w.id ? { ...x, team: val ? val : null } : x));
+    updateWorker(w.id, { team: val ? val : null }).catch(e => { console.error('Error:', e.message); });
   };
 
   const handleFullPayExport = async () => {
@@ -261,7 +286,7 @@ export default function Workers({ onSelect, onOffboard }) {
             r.department || '',
             r.ngo_name,
             r.name,
-            r.date_of_joining ? r.date_of_joining.split('T')[0] : '',
+            r.date_of_joining ? (() => { const d = r.date_of_joining.split('T')[0].split('-'); return `${d[2]}-${d[1]}-${d[0]}`; })() : '',
             r.salary || 0,           // E: Salary
             r.target || 0,           // F: Target
             r.achieved || 0,         // G: Achieved
@@ -321,6 +346,263 @@ export default function Workers({ onSelect, onOffboard }) {
     } catch (e) { alert(e.message); }
   };
 
+  const handlePagarExport = async () => {
+    const today = new Date();
+    const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    setPagarMonth(defaultMonth);
+    setShowPagarModal(true);
+  };
+
+  const doPagarExport = async (month) => {
+    try {
+      const data = await api('/salary/pagar-export?month=' + month, { _prefix: 'ucs' });
+      if (!data.rows || data.rows.length === 0) { alert('No payroll data for this month'); return; }
+
+      const rows = data.rows;
+      const daysInMonth = data.days_in_month || new Date(Date.UTC(new Date(month + '-01').getFullYear(), new Date(month + '-01').getMonth() + 1, 0)).getUTCDate();
+      const monthDate = new Date(month + '-01');
+      const monthName = monthDate.toLocaleString('default', { month: 'long' });
+      const year = monthDate.getFullYear();
+
+      // Column indices (0-based)
+      const COL = {
+        NAME: 0, STATUS: 1, AC_HOLDER: 2, AC_REL: 3, BANK: 4, AC_NUM: 5, STATION: 6, DOJ: 7, SALARY: 8,
+        TARGET: 9, TOTAL_ACH: 10, BSCT_ACH: 11, AFLF_ACH: 12, MANN_ACH: 13,
+        BALANCE: 14, ACH_PCT: 15,
+        PRES_DAYS: 16, TRAIN_SUN_DED: 17, NET_PRES: 18,
+        MONTH_SAL: 19, INCENT_10: 20, TOTAL_AKI: 21, AKI: 22, GROSS: 23,
+        OT: 24, PENDING: 25, ADVANCE: 26, NET_PAY: 27,
+        FIRST_DAY_COL: 28
+      };
+      const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
+
+      const headers = [
+        'Agent Name', 'Status', 'Account Holder Name', 'Account Holder Relation',
+        'Bank Name', 'Bank Account Number', 'STATION', 'Date of Joining', 'Salary',
+        'New Target', 'Total Achieved', 'BSCT Achieved', 'AFLF Achieved', 'Mann Achieved',
+        'Balance', 'Achieved %',
+        `${monthName} Present Days`, 'Training and Sunday Deduction', `Net ${monthName} Present Days`,
+        `${monthName} Salary`, 'Monthly 10% Incentive', 'Total AKI', 'Aaj Ka Incentive (Daily 50% for PC)',
+        'Gross Payable Salary',
+        'OT/Appreciation/Extra Incentive', 'Any Pending Salary Paid for Previous Month',
+        `Advance need to be deducted in ${monthName}, ${year}`, 'Net Payable Salary',
+        ...Array.from({ length: daysInMonth }, (_, i) => {
+          const d = new Date(year, monthDate.getMonth(), i + 1);
+          return d.toLocaleString('default', { day: '2-digit', month: 'short' });
+        })
+      ];
+
+      const wsData = [headers];
+      const rowStyles = [];
+      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0;
+      let lastActiveFroRow = 0, lastMgmtRow = 0, lastHrRow = 0;
+
+      for (const r of rows) {
+        const daily = r.daily || {};
+        const dailyArr = Array.from({ length: daysInMonth }, (_, i) => daily[i + 1] || 0);
+        const row = [
+          r.name,
+          r.status || '',
+          r.account_holder_name || '',
+          r.account_holder_relation || '',
+          r.bank_name || '',
+          r.account_number || '',
+          r.station || '',
+          r.doj ? (() => { const d = r.doj.split('-'); return `${d[2]}-${d[1]}-${d[0]}`; })() : '',
+          r.salary || 0,
+          r.target || 0,
+          r.achieved || 0,
+          r.achieved_bsct || 0,
+          r.achieved_aflf || 0,
+          r.achieved_mann || 0,
+          null, // Balance formula
+          null, // Achieved % formula
+          r.gross_present_days || 0,
+          r.training_sunday_ded || 0,
+          null, // Net Present Days formula
+          null, // Month Salary formula
+          r.monthly_incentive || 0,
+          r.total_aki || 0,
+          r.aki_payout || 0,
+          null, // Gross formula
+          0,    // OT (manual)
+          0,    // Pending (manual)
+          r.advance_deduction || 0,
+          null, // Net Payable formula
+          ...dailyArr
+        ];
+        wsData.push(row);
+        const met = (r.target || 0) > 0 && (r.achieved || 0) >= r.target;
+        rowStyles.push(met ? { fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } } : null);
+        const rowIdx = wsData.length - 1;
+        const isActive = r.status === 'ACTIVE';
+        const isAbscond = r.status === 'ABSCONDED' || r.status === 'ABSCOND';
+        const isFro = r.department === 'FRO';
+        const isMgmt = ['Digital', 'Admin', 'NGO Admin', 'Event Manager', 'Housekeeping'].includes(r.department);
+        const isHr = ['HR', 'HR-Recruiter'].includes(r.department);
+
+        if (isActive && isFro) { activeFroCount++; lastActiveFroRow = rowIdx; }
+        else if (isActive && isMgmt) { mgmtCount++; lastMgmtRow = rowIdx; }
+        else if (isActive && isHr) { hrCount++; lastHrRow = rowIdx; }
+        else if (!isActive || isAbscond) { abscondCount++; }
+      }
+
+      // Add subtotal rows with SUM formulas
+      const addSubtotalRow = (label, startRow, endRow) => {
+        if (startRow > endRow) return;
+        const subtotal = [label];
+        for (let c = 1; c < TOTAL_COLS; c++) {
+          const colLetter = XLSX.utils.encode_col(c);
+          if (c >= COL.SALARY && c <= COL.NET_PAY) {
+            subtotal.push({ f: `SUM(${colLetter}${startRow}:${colLetter}${endRow})` });
+          } else if (c >= COL.FIRST_DAY_COL) {
+            subtotal.push({ f: `SUM(${colLetter}${startRow}:${colLetter}${endRow})` });
+          } else {
+            subtotal.push('');
+          }
+        }
+        wsData.push(subtotal);
+      };
+
+      // Subtotals for each section (if they have rows)
+      let dataStartRow = 2; // row 2 is first data row (1-indexed)
+      const subtotalRowIndices = []; // track subtotal row numbers (1-indexed)
+      if (activeFroCount > 0) {
+        const endRow = dataStartRow + activeFroCount - 1;
+        addSubtotalRow('Active FRO Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1); // subtotal row = endRow + 1
+        dataStartRow = endRow + 2;
+      }
+      if (mgmtCount > 0) {
+        const endRow = dataStartRow + mgmtCount - 1;
+        addSubtotalRow('Management Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1);
+        dataStartRow = endRow + 2;
+      }
+      if (hrCount > 0) {
+        const endRow = dataStartRow + hrCount - 1;
+        addSubtotalRow('HR Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1);
+        dataStartRow = endRow + 2;
+      }
+      if (abscondCount > 0) {
+        const endRow = dataStartRow + abscondCount - 1;
+        addSubtotalRow('Absconded Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1);
+        dataStartRow = endRow + 2;
+      }
+
+      // Grand Total = sum of subtotal rows (avoids double-counting)
+      const grandTotal = ['Grand Total'];
+      for (let c = 1; c < TOTAL_COLS; c++) {
+        const colLetter = XLSX.utils.encode_col(c);
+        if (c >= COL.SALARY && c <= COL.NET_PAY) {
+          if (subtotalRowIndices.length > 0) {
+            grandTotal.push({ f: subtotalRowIndices.map(r => `${colLetter}${r}`).join('+') });
+          } else {
+            grandTotal.push({ f: `SUM(${colLetter}2:${colLetter}${wsData.length})` });
+          }
+        } else if (c >= COL.FIRST_DAY_COL) {
+          if (subtotalRowIndices.length > 0) {
+            grandTotal.push({ f: subtotalRowIndices.map(r => `${colLetter}${r}`).join('+') });
+          } else {
+            grandTotal.push({ f: `SUM(${colLetter}2:${colLetter}${wsData.length})` });
+          }
+        } else {
+          grandTotal.push('');
+        }
+      }
+      wsData.push(grandTotal);
+      const grandTotalRow = wsData.length; // 1-indexed row of Grand Total
+
+      // Bank Total (same as Grand Total for numeric cols)
+      const bankTotal = ['Bank Total'];
+      for (let c = 1; c < TOTAL_COLS; c++) {
+        const colLetter = XLSX.utils.encode_col(c);
+        if (c >= COL.SALARY && c <= COL.NET_PAY) {
+          bankTotal.push({ f: `SUM(${colLetter}2:${colLetter}${grandTotalRow - 1})` });
+        } else if (c >= COL.FIRST_DAY_COL) {
+          bankTotal.push({ f: `SUM(${colLetter}2:${colLetter}${grandTotalRow - 1})` });
+        } else {
+          bankTotal.push('');
+        }
+      }
+      wsData.push(bankTotal);
+      const bankTotalRow = wsData.length;
+
+      // Difference = Grand Total - Bank Total
+      const diffRow = ['Difference'];
+      for (let c = 1; c < TOTAL_COLS; c++) {
+        const colLetter = XLSX.utils.encode_col(c);
+        if (c >= COL.SALARY && c <= COL.NET_PAY) {
+          diffRow.push({ f: `${colLetter}${grandTotalRow}-${colLetter}${bankTotalRow}` });
+        } else if (c >= COL.FIRST_DAY_COL) {
+          diffRow.push({ f: `${colLetter}${grandTotalRow}-${colLetter}${bankTotalRow}` });
+        } else {
+          diffRow.push('');
+        }
+      }
+      wsData.push(diffRow);
+
+      // Apply formulas for data rows
+      for (let i = 1; i < 1 + rows.length; i++) {
+        const row = i + 1; // 1-indexed
+        const colLetter = (c) => XLSX.utils.encode_col(c);
+        // Balance = Target - Total Achieved
+        wsData[i][COL.BALANCE] = { f: `${colLetter(COL.TARGET)}${row}-${colLetter(COL.TOTAL_ACH)}${row}` };
+        // Achieved % = Total Achieved / Target * 100
+        wsData[i][COL.ACH_PCT] = { f: `IF(${colLetter(COL.TARGET)}${row}>0,${colLetter(COL.TOTAL_ACH)}${row}/${colLetter(COL.TARGET)}${row}*100,0)` };
+        // Net Present Days = Present Days - Training Sunday Ded
+        wsData[i][COL.NET_PRES] = { f: `${colLetter(COL.PRES_DAYS)}${row}-${colLetter(COL.TRAIN_SUN_DED)}${row}` };
+        // Month Salary = Salary / DaysInMonth * Net Present Days
+        wsData[i][COL.MONTH_SAL] = { f: `${colLetter(COL.SALARY)}${row}/${daysInMonth}*${colLetter(COL.NET_PRES)}${row}` };
+        // Gross = Month Salary + 10% Incentive + AKI
+        wsData[i][COL.GROSS] = { f: `${colLetter(COL.MONTH_SAL)}${row}+${colLetter(COL.INCENT_10)}${row}+${colLetter(COL.AKI)}${row}` };
+        // Net Payable = Gross + OT + Pending - Advance
+        wsData[i][COL.NET_PAY] = { f: `${colLetter(COL.GROSS)}${row}+${colLetter(COL.OT)}${row}+${colLetter(COL.PENDING)}${row}-${colLetter(COL.ADVANCE)}${row}` };
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Apply achievement-progress colour gradient to each data row
+      for (let i = 0; i < rowStyles.length; i++) {
+        if (!rowStyles[i]) continue;
+        const excelRow = i + 2;
+        for (let c = 0; c < TOTAL_COLS; c++) {
+          const addr = `${XLSX.utils.encode_col(c)}${excelRow}`;
+          if (ws[addr]) ws[addr].s = rowStyles[i];
+        }
+      }
+
+      // Column widths
+      const colWidths = [
+        { wch: 22 }, { wch: 10 }, { wch: 22 }, { wch: 18 },
+        { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 10 },
+        { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 12 }, { wch: 12 },
+        { wch: 18 }, { wch: 22 }, { wch: 22 },
+        { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 24 },
+        { wch: 22 },
+        { wch: 22 }, { wch: 26 },
+        { wch: 22 }, { wch: 20 },
+        ...Array.from({ length: daysInMonth }, () => ({ wch: 10 }))
+      ];
+      ws['!cols'] = colWidths;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, monthName);
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `${monthName} ${year} Salary File.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      setShowPagarModal(false);
+    } catch (e) { alert(e.message); }
+  };
+
   const handleOffboard = (e, worker) => {
     e.stopPropagation();
     if (onOffboard) onOffboard(worker);
@@ -337,6 +619,25 @@ export default function Workers({ onSelect, onOffboard }) {
       if (!list || list.length === 0) { alert('No workers to export'); return; }
       const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })));
       const data = full.filter(Boolean);
+
+      const now = new Date();
+      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let allocByWorker = {};
+      let peopleByWorker = {};
+      try {
+        const rep = await api('/ngo-allocations/report/ngo-salary?month=' + month, { _prefix: 'ucs' });
+        for (const r of (rep && rep.rows) || []) {
+          if (!allocByWorker[r.worker_id]) allocByWorker[r.worker_id] = [];
+          allocByWorker[r.worker_id].push(r);
+        }
+      } catch (e) { console.error('Error:', e.message); }
+      try {
+        await Promise.all(data.map(async w => {
+          try {
+            peopleByWorker[w.id] = await api('/ngo-allocations/workers/' + w.id + '/people', { _prefix: 'ucs' });
+          } catch (e) { /* ignore per-worker people fetch errors */ }
+        }));
+      } catch (e) { console.error('Error:', e.message); }
 
       const famKeys = ['name', 'relationship', 'occupation', 'phone'];
 
@@ -369,6 +670,12 @@ export default function Workers({ onSelect, onOffboard }) {
           Email: w.email,
           'Login ID': w.login_id,
           Department: toTitleCase(w.department),
+          NGO: clientOf(w),
+          'NGO Allocation %': (peopleByWorker[w.id] || []).map(p => `${p.ngos?.name || ''}: ${parseFloat(p.allocation_percentage || 0)}%`).join('; '),
+          'Total Salary (₹)': w.salary,
+          'NGO Salary Amount (₹)': (allocByWorker[w.id] || []).map(a => `${a.ngo_name}: ${parseFloat(a.allocation_amount || 0).toLocaleString('en-IN')}`).join('; '),
+          'Salary Month': (allocByWorker[w.id] || [])[0]?.salary_month || month,
+          'Payment Status': (allocByWorker[w.id] || []).map(a => `${a.ngo_name}: ${a.payment_status}`).join('; ') || 'unpaid',
           Gender: toTitleCase(w.gender),
           DOB: w.dob,
           Phone: w.phone,
@@ -471,7 +778,7 @@ export default function Workers({ onSelect, onOffboard }) {
     <>
       <div className="card" style={{ marginBottom:20 }}>
         <div className="card-head">
-          <h3>Add a volunteer</h3>
+          <h3>{showAddForm ? 'Add a volunteer' : 'Volunteers by NGO'}</h3>
           <div style={{ display:'flex', alignItems:'center', gap:'8px 16px', flexWrap:'wrap' }}>
             <span style={{ fontSize:12, fontWeight:600 }}>Volunteers by NGO</span>
             <div style={{ display:'flex', height:12, borderRadius:6, overflow:'hidden', background:'var(--line)', width:180 }}>
@@ -491,6 +798,7 @@ export default function Workers({ onSelect, onOffboard }) {
             {clientTotal === 0 && <span style={{ fontSize:12, color:'var(--ink-soft)' }}>No volunteers yet.</span>}
           </div>
         </div>
+        {showAddForm && (
         <div className="card-pad">
           <div className="form-row">
             <label className="field">Full name
@@ -502,7 +810,11 @@ export default function Workers({ onSelect, onOffboard }) {
               <Dropdown value={dept} onChange={e=>{ setDept(e.target.value); setSelectedNgos([]); }} options={DEPTS} />
             </label>
             <label className="field">Client
-              <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={['BSCT','AFLF','MANN','Other']} />
+              <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={CLIENTS} />
+            </label>
+            <label className="field">UFS Team
+              <Dropdown value={team} onChange={e=>setTeam(e.target.value)}
+                options={[{value:'',label:'No Team'}, ...teamOptions.map(t => ({value:t, label:t}))]} />
             </label>
           </div>
           {dept === 'NGO Admin' && ngos.length > 0 && (
@@ -541,17 +853,20 @@ export default function Workers({ onSelect, onOffboard }) {
             </div>
           )}
         </div>
+        )}
       </div>
 
       <div className="card" ref={tableRef}>
-        <div className="card-head"><h3>Volunteers</h3>
+        <div className="card-head"><h3>{title}</h3>
           <div className="search-input-wrap">
+            {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
+            {showPagarExport && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
             <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
-            <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>
+            {showBulkPrint && <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>}
             <span className="sub">{filtered.length} total</span>
-            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All','BSCT','AFLF','MANN','Other']} />
+            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} />
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
               options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:r}))]} />
             <Dropdown className="status-filter" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
@@ -566,8 +881,32 @@ export default function Workers({ onSelect, onOffboard }) {
               style={{ marginTop:0, maxWidth:200 }} />
           </div>
         </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+          marginBottom: 12, padding: '8px 14px', borderRadius: 8,
+          background: isSalaryUnlocked ? '#f0fdf4' : '#fffbeb',
+          border: `1px solid ${isSalaryUnlocked ? '#bbf7d0' : '#fef08a'}`
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <span style={{ fontWeight: 600, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
+              {isSalaryUnlocked ? 'Salary visible' : 'Salaries hidden (XXX)'}
+            </span>
+            <span style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
+              {isSalaryUnlocked ? 'Entering the access code anywhere unlocks salary for this session.' : 'Enter your access code to view salary figures.'}
+            </span>
+          </div>
+          {isSalaryUnlocked ? (
+            <button className="btn btn-sm btn-outline" onClick={lockSalary} style={{ fontSize: 11, padding: '4px 12px', background: '#fff' }}>
+              🔒 Hide Salary
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-primary" onClick={() => promptUnlock()} style={{ fontSize: 11, padding: '5px 14px', background: 'var(--sage)', color: '#fff', border: 'none', fontWeight: 600 }}>
+              🔓 Unlock Salary
+            </button>
+          )}
+        </div>
         <table>
-          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>NGO</th><th>Team</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -610,12 +949,17 @@ export default function Workers({ onSelect, onOffboard }) {
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#eef1f5', color:'#374151' }}>{clientOf(w)}</span>
                       </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <Dropdown value={w.team || ''} onChange={e => saveTeam(w, e.target.value)}
+                          style={{ minWidth: 78 }}
+                          options={[{value:'',label:'—'}, ...teamOptions.map(t => ({value:t, label:t}))]} />
+                      </td>
                       <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
                       <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
                       <td>
                         {sw?.current_salary ? (
                           <span style={{ fontWeight:600 }}>
-                            ₹{parseFloat(sw.current_salary).toLocaleString('en-IN')}
+                            {formatSalary(sw.current_salary)}
                             {paid && <span className="pill pill-green" style={{ marginLeft:6, fontSize:10 }}>Paid</span>}
                           </span>
                         ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
@@ -650,6 +994,42 @@ export default function Workers({ onSelect, onOffboard }) {
           </div>
         )}
       </div>
+    {showPagarModal && (
+      <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
+        <div onClick={e => e.stopPropagation()} style={{ 
+          width: 360, 
+          background: 'var(--card-bg)', 
+          borderRadius: 14, 
+          boxShadow: '0 12px 48px rgba(0,0,0,.15)',
+          border: '1px solid var(--line)',
+          maxHeight: 'calc(100vh - 40px)',
+          overflow: 'hidden'
+        }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            padding: '14px 18px', 
+            borderBottom: '1px solid var(--line)' 
+          }}>
+            <h4 style={{ margin: 0, fontSize: 15 }}>Download Salary File</h4>
+            <button onClick={() => setShowPagarModal(false)} style={{ 
+              width: 28, height: 28, borderRadius: '50%', border: 'none', 
+              background: 'rgba(0,0,0,.08)', color: '#666', fontSize: 18, 
+              cursor: 'pointer', display: 'grid', placeItems: 'center', lineHeight: 1 
+            }}>×</button>
+          </div>
+          <div style={{ padding: 20 }}>
+            <p style={{ marginBottom: 16, color: 'var(--ink-soft)' }}>Select month for the Salary File export:</p>
+            <input type="month" className="input" value={pagarMonth} onChange={e => setPagarMonth(e.target.value)} style={{ width: '100%', padding: '10px 12px', marginBottom: 16, fontSize: 14 }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-outline" onClick={() => setShowPagarModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => { doPagarExport(pagarMonth); }}>Download</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }

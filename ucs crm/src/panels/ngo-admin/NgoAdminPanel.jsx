@@ -1,46 +1,43 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
-import { useRealtime } from '../../hooks/useRealtime'
+import { usePolling } from './hooks/usePolling'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { masterSearch } from './api/auth'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import DonorDetailModal from '../../components/DonorDetailModal'
-import Dashboard from './pages/Dashboard'
-import Donors from './pages/Donors'
-import DonorDetail from './pages/DonorDetail'
-import StationManagement from './pages/StationManagement'
-import NewData from './pages/NewData'
-import Alerts from './pages/Alerts'
-import RejectedLeads from './pages/RejectedLeads'
-import NgoAttendance from './pages/Attendance'
-import FroLiveStatus from './pages/FroLiveStatus'
-import Suspense from './pages/Suspense'
-import DonorCRM from './pages/DonorCRM'
-import SearchResults from './pages/SearchResults'
-import CallAnalytics from './pages/CallAnalytics'
-import OldData from './pages/OldData'
-import DataOverview from './pages/DataOverview'
-import Codes from './pages/Codes'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Donors = lazy(() => import('./pages/Donors'))
+const DonorDetail = lazy(() => import('./pages/DonorDetail'))
+const StationManagement = lazy(() => import('./pages/StationManagement'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const RejectedLeads = lazy(() => import('./pages/RejectedLeads'))
+const NgoAttendance = lazy(() => import('./pages/Attendance'))
+const FroLiveStatus = lazy(() => import('./pages/FroLiveStatus'))
+const SuspensePage = lazy(() => import('./pages/Suspense'))
+const DonorCRM = lazy(() => import('./pages/DonorCRM'))
+const SearchResults = lazy(() => import('./pages/SearchResults'))
+const CallAnalytics = lazy(() => import('./pages/CallAnalytics'))
+const DataOverview = lazy(() => import('./pages/DataOverview'))
+const Codes = lazy(() => import('./pages/Codes'))
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
-  { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
-  { id: 'call-analytics', path: '/ngo-admin/call-analytics', label: 'Call Analytics', icon: 'callAnalytics' },
+  // { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
+  // { id: 'call-analytics', path: '/ngo-admin/call-analytics', label: 'Call Analytics', icon: 'callAnalytics' },
   { id: 'donor-crm', path: '/ngo-admin/donor-crm', label: 'Donor CRM', icon: 'donorCrm' },
   { id: 'suspense', path: '/ngo-admin/suspense', label: 'Suspense', icon: 'suspense' },
-  { id: 'alerts', path: '/ngo-admin/alerts', label: 'Alerts', icon: 'alerts' },
+  // { id: 'alerts', path: '/ngo-admin/alerts', label: 'Alerts', icon: 'alerts' },
   { id: 'donors', path: '/ngo-admin/donors', label: 'Donors', icon: 'donors' },
-  { id: 'new-data', path: '/ngo-admin/new-data', label: 'New Data', icon: 'newData' },
-  { id: 'old-data', path: '/ngo-admin/old-data', label: 'Old Data', icon: 'oldData' },
-  { id: 'data-overview', path: '/ngo-admin/data-overview', label: 'Data Overview', icon: 'dataOverview' },
+  // { id: 'data-overview', path: '/ngo-admin/data-overview', label: 'Data Overview', icon: 'dataOverview' },
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'rejected', path: '/ngo-admin/rejected-leads', label: 'Rejected Leads', icon: 'rejected' },
-  { id: 'codes', path: '/ngo-admin/codes', label: 'Work-as Codes', icon: 'codes' },
+  { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
 ]
 
 const ICONS = {
@@ -48,14 +45,12 @@ const ICONS = {
   alerts: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
   donorCrm: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
   donors: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-  newData: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
   station: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   attendance: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   rejected: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
   froStatus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17a4 4 0 0 1 8 0"/><circle cx="9" cy="7" r="4"/><path d="M13 4.13A4 4 0 0 1 18 8v4"/><path d="M18 12v6"/><line x1="16" y1="18" x2="20" y2="18"/></svg>,
   suspense: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   callAnalytics: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
-  oldData: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
   dataOverview: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>,
   codes: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
 }
@@ -175,17 +170,23 @@ export default function NgoAdminPanel() {
     requestNotifPermission();
   }, [user?.id]);
 
-  useRealtime('rejected_lead_tickets', {
-    event: '*',
-    onInsert: () => loadRejectedCount(true),
-    enabled: true,
-  });
+  // Polling for rejected leads (replaces useRealtime)
+  usePolling(
+    () => loadRejectedCount(true),
+    30000,
+    {
+      enabled: true,
+    }
+  );
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadNotifications(),
-    enabled: !!user?.id,
-  });
+  // Polling for notifications (replaces useRealtime)
+  usePolling(
+    () => loadNotifications(),
+    30000,
+    {
+      enabled: !!user?.id,
+    }
+  );
 
   useEffect(() => {
     const handler = (e) => {
@@ -345,7 +346,10 @@ export default function NgoAdminPanel() {
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#d97706' }}>S</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{s.station || 'Unknown'}</div>
-                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{s.workers?.name || 'No FRO'}{s.donor_count != null ? ` � ${s.donor_count} donors` : ''}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>
+                              {s.workers?.name || 'No FRO'}
+                              {s.donor_count != null ? ` • ${typeof s.donor_count === 'object' ? Object.values(s.donor_count).reduce((sum, v) => sum + (Number(v) || 0), 0) : s.donor_count} donors` : ''}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -391,6 +395,7 @@ export default function NgoAdminPanel() {
           />
         </header>
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+          <Suspense fallback={<div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'60vh'}}><span style={{fontSize:13,color:'var(--ink-soft)'}}>Loading...</span></div>}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
@@ -398,19 +403,18 @@ export default function NgoAdminPanel() {
             <Route path="donor-crm" element={<DonorCRM />} />
             <Route path="donors" element={<DonorsPage />} />
             <Route path="donors/:id" element={<DonorDetailPage />} />
-            <Route path="new-data" element={<NewData />} />
             <Route path="station-mgmt" element={<StationManagement />} />
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="fro-status" element={<FroLiveStatus />} />
-            <Route path="suspense" element={<Suspense />} />
+            <Route path="suspense" element={<SuspensePage />} />
             <Route path="search" element={<SearchResults />} />
             <Route path="call-analytics" element={<CallAnalytics />} />
-            <Route path="old-data" element={<OldData />} />
             <Route path="data-overview" element={<DataOverview />} />
             <Route path="codes" element={<Codes />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
+          </Suspense>
         </div>
       </div>
       {/* Search Result Detail Modal */}

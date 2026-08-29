@@ -4,13 +4,13 @@ import { DayPicker } from 'react-day-picker';
 import { format } from 'date-fns';
 import 'react-day-picker/style.css';
 
-export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a date...', style }) {
+export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a date...', style, disabled }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const inputRef = useRef(null);
 
   const sel = value ? new Date(value + 'T00:00:00') : undefined;
-  const maxTime = max ? max.getTime() : null;
+  const maxStr = max ? `${max.getFullYear()}-${String(max.getMonth()+1).padStart(2,'0')}-${String(max.getDate()).padStart(2,'0')}` : null;
 
   const updatePos = useCallback(() => {
     const el = inputRef.current;
@@ -23,6 +23,7 @@ export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a da
   }, []);
 
   const openPicker = () => {
+    if (disabled) return;
     updatePos();
     setOpen(true);
   };
@@ -57,8 +58,8 @@ export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a da
         onClick={() => (open ? setOpen(false) : openPicker())}
         style={{
           width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
-          fontSize: 13, background: '#fff', cursor: 'pointer', outline: 'none', boxSizing: 'border-box',
-          color: value ? '#111827' : '#9ca3af', ...style,
+          fontSize: 13, background: disabled ? '#f3f4f6' : '#fff', cursor: disabled ? 'not-allowed' : 'pointer', outline: 'none', boxSizing: 'border-box',
+          color: value ? '#111827' : '#9ca3af', opacity: disabled ? 0.7 : 1, ...style,
         }}
       />
       {open && pos && createPortal(
@@ -70,7 +71,7 @@ export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a da
               onChange(d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '');
               setOpen(false);
             }}
-            disabled={maxTime ? (d) => d.getTime() > maxTime : undefined}
+            disabled={maxStr ? (d) => { const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return ds > maxStr; } : undefined}
             defaultMonth={sel || new Date()}
             captionLayout="dropdown"
             showOutsideDays

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
+import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
 import { Component } from 'react'
 import Login from './pages/Login'
 import SuperAdminPanel from './panels/super-admin/SuperAdminPanel'
@@ -12,6 +13,7 @@ import EventHeadPanel from './panels/event-head/EventHeadPanel'
 import DocumentationPanel from './panels/documentation/DocumentationPanel'
 import WhatsAppPanel from './panels/whatsapp/WhatsAppPanel'
 import DevPanel from './panels/dev-panel/DevPanel'
+import SimCardPanel from './panels/sim-card/SimCardPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -129,6 +131,7 @@ export default function App() {
   return (
     <ErrorBoundary>
     <UcsProvider>
+    <SalaryPrivacyProvider>
       <Routes>
         <Route path="/login" element={<LoginWrapper />} />
         <Route path="/" element={<RootRedirect />} />
@@ -179,14 +182,22 @@ export default function App() {
             <WhatsAppPanel />
           </ProtectedRoute>
         } />
+
         <Route path="/docs/*" element={
           <ProtectedRoute role={['*']}>
             <DocumentationPanel />
           </ProtectedRoute>
         } />
 
+        <Route path="/sim/*" element={
+          <ProtectedRoute role={['super_admin', 'admin']}>
+            <SimCardPanel />
+          </ProtectedRoute>
+        } />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </SalaryPrivacyProvider>
     </UcsProvider>
     </ErrorBoundary>
   )

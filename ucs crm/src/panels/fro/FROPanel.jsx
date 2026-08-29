@@ -7,12 +7,13 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
-import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
+import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
 import { CallProvider } from './CallContext'
+import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import ToastContainer from '../../components/Toast'
@@ -25,10 +26,12 @@ import IncentiveInfo from './pages/IncentiveInfo'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import { istDateString } from './utils/time'
 
 const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Up / Callback', Icon: CalendarClock },
+  { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Ups', Icon: CalendarClock },
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', Icon: HeartCrack },
@@ -53,7 +56,7 @@ function loadTodayStats() {
     const raw = localStorage.getItem('fro_call_stats');
     if (!raw) return null;
     const data = JSON.parse(raw);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = istDateString();
     if (data.date !== today) return null;
     return data;
   } catch { return null; }
@@ -88,6 +91,9 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
         <div className="sidebar-brand">
           <div className="brand-mark">U</div>
           <div><h1>UFS</h1><span>FRO Panel</span></div>
+          <button className="sidebar-close" onClick={onClose} aria-label="Close menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
         </div>
         <nav className="sidebar-nav">
           {nav.map(n => {
@@ -134,6 +140,7 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
 export default function FROPanel() {
   const { user, logout } = useUcs()
   const location = useLocation()
+  const isMobile = useIsMobile()
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -151,12 +158,20 @@ export default function FROPanel() {
   const [codeSubmitting, setCodeSubmitting] = useState(false)
   const [generatingCode, setGeneratingCode] = useState(false)
   const [codeGenerated, setCodeGenerated] = useState(false)
+  // Station-scoped work-as: modal phase ('stations' → 'code') and the picker.
+  const [waPhase, setWaPhase] = useState('stations')
+  const [waStations, setWaStations] = useState([])
+  const [waStationsLoading, setWaStationsLoading] = useState(false)
+  const [pickedStations, setPickedStations] = useState(() => new Set())
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
-    setShowWorkAs(v => !v)
+    const opening = !showWorkAs
+    setShowWorkAs(!showWorkAs)
+    if (!opening) return
     setWorkAsSearch('')
-    if (froList.length > 0) return
+    // Refetch on every open so newly added FROs show up without a reload;
+    // the previous list stays visible while loading.
     setWorkAsLoading(true)
     try {
       const res = await getFroWorkersForImpersonation()
@@ -165,12 +180,49 @@ export default function FROPanel() {
     finally { setWorkAsLoading(false) }
   }
 
+  const stationKeyOf = (s) => `${s?.ngo_id ?? ''}|${String(s?.station ?? '').trim()}`
+
+  const loadWorkAsStations = async (worker) => {
+    setWaStations([])
+    setWaStationsLoading(true)
+    try {
+      const res = await getFroWorkAsStations(worker.id)
+      const list = res?.stations || []
+      setWaStations(list)
+      // Pre-tick our own still-active claims so Continue keeps them.
+      setPickedStations(new Set(list.filter(s => s.mine).map(stationKeyOf)))
+    } catch (e) {
+      console.error('Error:', e.message)
+      toast(e.message || 'Could not load stations')
+      setPendingTarget(null)
+    } finally { setWaStationsLoading(false) }
+  }
+
   const pickImpersonateTarget = (worker) => {
     setShowWorkAs(false)
     setPendingTarget(worker)
     setCodeInput('')
     setCodeGenerated(false)
+    setWaPhase('stations')
+    setPickedStations(new Set())
+    loadWorkAsStations(worker)
   }
+
+  const togglePickStation = (s) => {
+    setPickedStations(prev => {
+      const next = new Set(prev)
+      const k = stationKeyOf(s)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  }
+
+  const selectAllPickableStations = () =>
+    setPickedStations(new Set(waStations.filter(s => s.available || s.mine).map(stationKeyOf)))
+
+  const pickedPairs = () =>
+    waStations.filter(s => pickedStations.has(stationKeyOf(s))).map(s => ({ ngo_id: s.ngo_id, station: s.station }))
 
   const generateCodeForSwitch = async () => {
     setGeneratingCode(true)
@@ -192,19 +244,29 @@ export default function FROPanel() {
     if (!pendingTarget) return
     setCodeSubmitting(true)
     try {
-      const res = await impersonateFRO(pendingTarget.id, codeInput.trim())
+      const res = await impersonateFRO(pendingTarget.id, codeInput.trim(), undefined, pickedPairs())
       startImpersonation(res.token, res.user)
       setPendingTarget(null)
+      setCodeInput('')
+      setCodeGenerated(false)
       window.location.reload()
     } catch (e) {
       console.error('Error:', e.message)
-      alert(e.message || 'Could not switch FRO')
+      toast(e.message || 'Could not switch FRO')
+      // Someone else grabbed a station between pick and switch — back to the
+      // picker with fresh availability so they can choose free stations.
+      if (/already being worked/.test(e.message || '') && pendingTarget) {
+        setWaPhase('stations')
+        loadWorkAsStations(pendingTarget)
+      }
     } finally {
       setCodeSubmitting(false)
     }
   }
 
-  const doExitImpersonation = () => {
+  const doExitImpersonation = async () => {
+    // Free our claimed stations server-side before restoring the own session.
+    try { await releaseWorkAs() } catch (e) { console.error('Error:', e.message) }
     exitImpersonation()
     window.location.reload()
   }
@@ -309,6 +371,17 @@ export default function FROPanel() {
             showDesktopNotification(n.title, n.body);
           }
         });
+        allNotifs
+          .filter(n => n.type === 'new_audit' && !n.read_at)
+          .slice(0, 20)
+          .forEach(n => {
+            if (!seenNotifIds.current.has(n.id)) {
+              seenNotifIds.current.add(n.id);
+              localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+              showDesktopNotification(n.title, n.body, '/fro/suspense');
+              toast(`${n.title}: ${n.body}`, 'info');
+            }
+          });
         setAllNotifs(rejected);
         setAllVerified(verified);
         setRejectedItems(rejectedSlice);
@@ -333,7 +406,6 @@ export default function FROPanel() {
     try {
       const token = localStorage.getItem('ucs_token')
       if (!token) return
-      const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
 
       // Try auto-login first if no agents stored
       const storedAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
@@ -395,16 +467,16 @@ export default function FROPanel() {
 
   const loadReminders = () => {
     Promise.all([getScheduled(), getCallbacks()]).then(([scheduled, callbacks]) => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = istDateString();
       const items = []; const seen = new Set();
       (scheduled || []).forEach(d => {
-        if (d.scheduled_at && d.scheduled_at.slice(0, 10) !== todayStr && !seen.has(d.id)) {
+        if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(d.id)) {
           seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, assignment_id: d.assignment_id, type: 'scheduled' });
         }
       });
       (callbacks || []).forEach(d => { if (!seen.has(d.id)) { seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, assignment_id: d.assignment_id, type: 'callback' }); } });
       (scheduled || []).forEach(d => {
-        if (d.scheduled_at && d.scheduled_at.slice(0, 10) === todayStr && !seen.has(d.id)) {
+        if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(d.id)) {
           seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, assignment_id: d.assignment_id, type: 'callback' });
         }
       });
@@ -460,10 +532,14 @@ export default function FROPanel() {
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+            <button className="hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle menu">
+              {sidebarOpen ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+              )}
             </button>
-            <div>
+            <div className="topbar-label">
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
@@ -476,12 +552,12 @@ export default function FROPanel() {
               </div>
             </div>
             <div ref={workAsRef} style={{ position: 'relative' }}>
-              <div onClick={openWorkAs} title={impersonating ? `Working as ${userName}` : 'Work as another FRO'} style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', background: impersonating ? 'var(--sage-soft, rgba(22,163,74,.15))' : undefined }}>
+              <div onClick={openWorkAs} title={impersonating ? `Acting FRO: ${user?.imposter_name || userName}` : 'Acting FRO'} style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', background: impersonating ? 'var(--sage-soft, rgba(22,163,74,.15))' : undefined }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={impersonating ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M16 8h.01"/><path d="M8 12h8"/><path d="M8 8h.01"/><path d="M16 12h.01"/></svg>
               </div>
               {showWorkAs && (
                 <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 240, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, zIndex: 60 }}>
-                  <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Work as FRO</div>
+                  <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Acting FRO</div>
                   <input
                     value={workAsSearch}
                     onChange={e => setWorkAsSearch(e.target.value)}
@@ -491,12 +567,16 @@ export default function FROPanel() {
                   {workAsLoading && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>}
                   {!workAsLoading && (
                     <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                      {filteredFroList.map(w => (
+                      {filteredFroList.map(w => {
+                        const inactive = w.is_active === false || w.employment_status === 'terminated'
+                        return (
                         <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
                           <span style={{ fontWeight: 600 }}>{w.name}</span>
+                          {inactive && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '1px 7px' }}>INACTIVE</span>}
                           {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
                         </div>
-                      ))}
+                        )
+                      })}
                       {filteredFroList.length === 0 && (
                         <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{froList.length === 0 ? 'No other FROs available' : 'No matching FROs'}</div>
                       )}
@@ -511,7 +591,7 @@ export default function FROPanel() {
                 <div className="user-menu">
                   <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
                     <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
-                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>{impersonating && user?.imposter_name ? `Working as FRO · you are ${user.imposter_name}` : 'FRO'}</div>
+                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>{impersonating && user?.imposter_name ? `OWNER: ${userName} · ACTING: ${user.imposter_name}` : 'FRO'}</div>
                   </div>
                   <div className="user-menu-divider" />
                   <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
@@ -538,50 +618,102 @@ export default function FROPanel() {
         {impersonating && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-            <span><b>{userName}</b>'s account · you are {user?.imposter_name || 'an administrator'}. Collections credit to {user?.imposter_name || 'you'}.</span>
-            <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit work-as</button>
+            <span>OWNER: <b>{userName}</b> · ACTING FRO: <b>{user?.imposter_name || 'you'}</b>{Array.isArray(user?.act_stations) && user.act_stations.length > 0 && <> · Stations: <b>{[...new Set(user.act_stations.map(s => s.station))].join(', ')}</b></>} · Credit goes to <b>{user?.imposter_name || 'you'}</b></span>
+            <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit Acting FRO</button>
           </div>
         )}
         {pendingTarget && (
           <div className="modal-overlay" onClick={() => setPendingTarget(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360, padding: 22, borderRadius: 'var(--radius)' }}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, padding: 22, borderRadius: 'var(--radius)' }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
-                Work as {pendingTarget.name}
+                Acting FRO: {pendingTarget.name}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
-                {codeGenerated
-                  ? 'Code generated! Ask your admin for the code and enter it below to switch.'
-                  : 'Generate a code to authorize switching. Your admin will share the code with you.'}
-              </div>
-              {!codeGenerated && (
-                <button
-                  className="btn"
-                  onClick={generateCodeForSwitch}
-                  disabled={generatingCode}
-                  style={{ width: '100%', justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
-                >
-                  {generatingCode ? 'Generating…' : '+ Generate code'}
-                </button>
+              {waPhase === 'stations' ? (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
+                    Select which stations you want to work on. Taken stations stay with their current operator.
+                  </div>
+                  {waStationsLoading && <div style={{ padding: '14px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading stations…</div>}
+                  {!waStationsLoading && waStations.length === 0 && (
+                    <div style={{ padding: '10px 0', fontSize: 12, color: '#b91c1c' }}>No stations assigned to this FRO.</div>
+                  )}
+                  {!waStationsLoading && waStations.length > 0 && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <button onClick={selectAllPickableStations} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', cursor: 'pointer' }}>Select all</button>
+                        <button onClick={() => setPickedStations(new Set())} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-soft)', cursor: 'pointer' }}>Clear</button>
+                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)' }}>{pickedStations.size}/{waStations.length}</span>
+                      </div>
+                      <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {waStations.map(s => {
+                          const k = stationKeyOf(s)
+                          const locked = !s.available && !s.mine
+                          const checked = pickedStations.has(k)
+                          return (
+                            <div key={k} onClick={() => { if (!locked) togglePickStation(s) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 8, border: checked ? '1px solid var(--sage)' : '1px solid var(--line)', background: locked ? 'rgba(148,163,184,.08)' : checked ? 'rgba(22,163,74,.07)' : 'transparent', cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? .75 : 1 }}>
+                              <span style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', background: checked ? 'var(--sage)' : 'transparent', border: checked ? 'none' : '1.5px solid var(--line)' }}>{checked ? '✓' : ''}</span>
+                              <span style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{s.station}</span>
+                              {s.ngo_name && <span style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{s.ngo_name}</span>}
+                              <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {locked
+                                  ? <span style={{ color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '2px 7px' }}>with {s.taken_by}</span>
+                                  : s.mine && <span style={{ color: 'var(--sage)' }}>yours</span>}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                        <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+                        <button className="btn" onClick={() => setWaPhase('code')} disabled={pickedStations.size === 0}
+                          style={{ flex: 1, justifyContent: 'center', background: pickedStations.size === 0 ? '#d1d5db' : 'var(--sage)', color: pickedStations.size === 0 ? '#9ca3af' : '#fff', cursor: pickedStations.size === 0 ? 'not-allowed' : 'pointer' }}>
+                          Continue
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
+                    Stations: <b style={{ color: 'var(--ink)' }}>{[...new Set(pickedPairs().map(p => p.station))].join(', ') || '—'}</b>{' '}
+                    <span onClick={() => setWaPhase('stations')} style={{ color: 'var(--sage)', cursor: 'pointer', textDecoration: 'underline' }}>(change)</span>
+                    {codeGenerated
+                      ? ' · Code generated! Ask your admin for the code and enter it below to switch.'
+                      : ' · Generate a code to authorize switching. Your admin will share the code with you.'}
+                  </div>
+                  {!codeGenerated && (
+                    <button
+                      className="btn"
+                      onClick={generateCodeForSwitch}
+                      disabled={generatingCode}
+                      style={{ width: '100%', justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
+                    >
+                      {generatingCode ? 'Generating…' : '+ Generate code'}
+                    </button>
+                  )}
+                  <input
+                    value={codeInput}
+                    onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
+                    placeholder="••••"
+                    inputMode="numeric"
+                    style={{ width: '100%', textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', marginTop: 14 }}
+                  />
+                  <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                    <button className="btn" onClick={() => setWaPhase('stations')} style={{ flex: 1, justifyContent: 'center' }}>Back</button>
+                    <button
+                      className="btn"
+                      onClick={doImpersonate}
+                      disabled={codeInput.length !== 4 || codeSubmitting}
+                      style={{ flex: 1, justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
+                    >
+                      {codeSubmitting ? 'Switching…' : 'Switch'}
+                    </button>
+                  </div>
+                </>
               )}
-              <input
-                value={codeInput}
-                onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
-                placeholder="••••"
-                inputMode="numeric"
-                style={{ width: '100%', textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', marginTop: 14 }}
-              />
-              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-                <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
-                <button
-                  className="btn"
-                  onClick={doImpersonate}
-                  disabled={codeInput.length !== 4 || codeSubmitting}
-                  style={{ flex: 1, justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
-                >
-                  {codeSubmitting ? 'Switching…' : 'Switch'}
-                </button>
-              </div>
             </div>
           </div>
         )}
@@ -618,7 +750,7 @@ export default function FROPanel() {
                     const pct = Math.round((ts.totalSeconds / (totalProd || 1)) * 100);
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                        <div className="fro-stat-grid-3" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
                           <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
                             <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1 }}>{ts.calls}</div>
                             <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Calls</div>
@@ -633,7 +765,7 @@ export default function FROPanel() {
                           </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                           <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div>
                               <div style={{ fontSize: 22, fontWeight: 700, color: '#d97706' }}>{ts.skippedDonors}</div>
@@ -672,7 +804,7 @@ export default function FROPanel() {
                       </div>
                     ) : statsData?.target ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
                           <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', textAlign: 'center' }}>
                             <div style={{ fontSize: 22, fontWeight: 700, color: '#8b5cf6' }}>{'\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN')}</div>
                             <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Target</div>
@@ -700,7 +832,7 @@ export default function FROPanel() {
                         )}
 
                         {statsData.dash && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                             {[
                               { label: 'Connected (M)', value: statsData.dash.monthly_connected, color: '#3b82f6' },
                               { label: 'Connected (D)', value: statsData.dash.daily_connected, color: '#8b5cf6' },

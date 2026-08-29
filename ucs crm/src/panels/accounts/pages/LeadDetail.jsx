@@ -13,7 +13,6 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 const SHORT_NGO_LABELS = { mann: 'Mann Care', aflf: 'Ashray', bsct: 'Being Sevak' };
-const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Cheque', 'NEFT'];
 
 function resolveNgo(projectId) {
   const p = (projectId || '').toLowerCase().trim();
@@ -77,6 +76,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [receipt, setReceipt] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [goBackOpen, setGoBackOpen] = useState(false);
@@ -223,6 +223,16 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       if (res.receipt) setReceipt(res.receipt);
       if (onBack) onBack();
       toast('Successfully verified', 'success');
+    } catch(err) { alert(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDone = async () => {
+    if (!lead) return; setDoneOpen(false); setSubmitting(true);
+    try {
+      await apiPost(`/accounts/leads/${lead.log_id}/done`);
+      toast('Lead completed', 'success');
+      if (onBack) onBack();
     } catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
@@ -397,7 +407,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Agent</div>
-                  <div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{l.agent_name}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{l.claimant_name || l.agent_name}</div>
                   <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{l.agent_login}</div>
                 </div>
                 <div>
@@ -406,13 +416,17 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                   <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{new Date(l.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
                 </div>
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Payment Mode</div>
-                  {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'NA'}</div>}
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>MOP (as per audit)</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{l.audit_mop||'NA'}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Received Bank</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{l.audit_source||'NA'}</div>
                 </div>
                 <div style={{position:'relative'}} ref={suggestRef}>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>UPI Transaction ID</div>
                   {isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.upi_transaction_id||'NA'}</div>}
-                  {isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:4}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{fontWeight:500}}>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}
+                  {isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:4}}>{suggestions.map(s=><div key={s.id} onMouseDown={(e)=>{e.stopPropagation();selectSuggestion(s);}} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{fontWeight:500}}>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Date</div>
@@ -459,28 +473,16 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                   {isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)'}}>{form.donor_mobile||'NA'}</div>}
                 </div>
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>City</div>
-                  {isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_city||'NA'}</div>}
-                </div>
-                <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Email</div>
                   {isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_email||'NA'}</div>}
                 </div>
                 <div style={{gridColumn:'1 / -1'}}>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Address</div>
-                  {isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="NA" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:4}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div style={{fontSize:12,color:'var(--ink)',lineHeight:1.5}}>{form.donor_address||'NA'}</div>}
+                  {isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="NA" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:4}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={(e)=>{e.stopPropagation();selectAddressSuggestion(s);}} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div style={{fontSize:12,color:'var(--ink)',lineHeight:1.5}}>{form.donor_address||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>PAN</div>
                   {isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12,textTransform:'uppercase'}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',textTransform:'uppercase'}}>{form.donor_pan||'NA'}</div>}
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>DOB</div>
-                  {isPending?<DatePicker selected={form.donor_dob} onChange={d=>setField('donor_dob',d)} dateFormat="dd/MM/yyyy" placeholderText="NA" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={80} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_dob?new Date(form.donor_dob).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'NA'}</div>}
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Project</div>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)'}}>{l.donor_project||'NA'}</div>
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Donations</div>
@@ -513,7 +515,13 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               )}
               <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
               <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
-              <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              {receipt?.receipt_no ? (
+                <button onClick={()=>setDoneOpen(true)} disabled={submitting} style={{flex:2,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#0369a1',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                  {submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Done'}
+                </button>
+              ) : (
+                <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              )}
             </div>
           )}
           {isVerified && (
@@ -530,7 +538,13 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
             <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
               <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
               <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
-              <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              {receipt?.receipt_no ? (
+                <button onClick={()=>setDoneOpen(true)} disabled={submitting} style={{flex:2,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#0369a1',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                  {submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Done'}
+                </button>
+              ) : (
+                <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              )}
             </div>
           )}
           {isVerified && (
@@ -553,6 +567,22 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:20}}>
                 <button className="btn btn-sm" onClick={()=>setConfirmOpen(false)}>Cancel</button>
                 <button className="verify-btn" onClick={handleVerify} disabled={submitting}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Confirm & Save'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {doneOpen && (
+        <div className="modal-overlay" onClick={()=>setDoneOpen(false)}>
+          <div className="modal" style={{maxWidth:420,width:'90%'}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><h3>Complete Lead</h3></div>
+            <div className="modal-body" style={{padding:20}}>
+              <p style={{margin:'0 0 6px',fontSize:14}}>Mark this lead as done?</p>
+              <p style={{margin:0,fontSize:13,color:'var(--ink-soft)'}}>Receipt <strong>{receipt?.receipt_no}</strong> already exists. This will credit the FRO and mark the lead verified.</p>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:20}}>
+                <button className="btn btn-sm" onClick={()=>setDoneOpen(false)}>Cancel</button>
+                <button className="verify-btn" onClick={handleDone} disabled={submitting} style={{background:'#0369a1'}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Done'}</button>
               </div>
             </div>
           </div>

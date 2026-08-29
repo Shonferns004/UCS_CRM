@@ -45,6 +45,7 @@ export default function History() {
         {filtered.length === 0 ? (
           <div style={{ textAlign:'center', padding:40, fontSize:12, color:'var(--ink-soft)' }}>No activity yet.</div>
         ) : (
+          <div className="table-wrap">
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--line)' }}>
@@ -82,7 +83,8 @@ export default function History() {
                 </tr>
               ))}
             </tbody>
-          </table>
+           </table>
+          </div>
         )}
       </div>
     </div>

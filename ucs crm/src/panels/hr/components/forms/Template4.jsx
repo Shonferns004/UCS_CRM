@@ -1,4 +1,5 @@
-export default function Template5({ personal }) {
+export default function Template5({ personal, ngoHeading, ngoAddress, ngoTagline }) {
+  const heading = ngoHeading || 'Being Sevak Charitable Trust';
   return (
     <div className="print-page">
       <style>{`
@@ -26,9 +27,9 @@ export default function Template5({ personal }) {
         .t5 .footer-sep{display:none}
       `}</style>
       <div className="t5">
-        <h1>Being Sevak Charitable Trust</h1>
+        <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
         <div className="redline"></div>
-        <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div className="sub">{ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G'}</div>
 
         <p>You shall abide by the Trust's guidelines and volunteer policies as presented in the Volunteer Guidelines, and by all general or administrative rules, regulations, and directives of the Trust made from time to time, so long as they are not inconsistent with this agreement. For any work-related matter, issue, or communication, the volunteer must contact the concerned coordinator directly. <strong>Attire Guidelines:</strong> Monday to Friday [Formals]; Saturday [Smart Casuals].</p>
 
@@ -57,7 +58,7 @@ export default function Template5({ personal }) {
 
         <div className="section">Acknowledgement</div>
         <p style={{marginBottom:30}}>The volunteer agrees to maintain confidentiality and indemnify the Trust from damages, claims, or disputes arising from any violation of confidentiality or obligations. Signing below confirms that the volunteer has read, understood, and accepted all terms.</p>
-        <p style={{marginBottom:8}}>Yours sincerely,<br /><b style={{display:'block',marginTop:8}}>For Being Sevak Charitable Trust – HOD</b></p>
+        <p style={{marginBottom:8}}>Yours sincerely,<br /><b style={{display:'block',marginTop:8}}>For {heading} – HOD</b></p>
         <p style={{marginBottom:16}}>I accept all the terms and conditions as mentioned in this letter.</p>
 
         <div className="sign" style={{marginBottom:16}}>
@@ -70,8 +71,7 @@ export default function Template5({ personal }) {
         </div>
 
         <div className="footer">
-          Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
-          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

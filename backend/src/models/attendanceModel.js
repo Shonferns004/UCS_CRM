@@ -150,6 +150,17 @@ export const deleteAttendance = async (id) => {
   return data;
 };
 
+export const getTodayAttendanceAll = async () => {
+  const today = istDateStr();
+  const { data, error } = await db
+    .from('attendance')
+    .select('*, workers(name, login_id, department)')
+    .eq('date', today)
+    .order('punch_in_time', { ascending: false });
+  if (error) throw error;
+  return data;
+};
+
 export const getFirstQRCode = async () => {
   const { data, error } = await db
     .from('qr_codes')

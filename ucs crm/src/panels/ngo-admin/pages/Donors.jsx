@@ -160,6 +160,7 @@ export default function Donors({ onSelect }) {
   const [page, setPage] = useState(1);
   const [selectedNgoId, setSelectedNgoId] = useState('all');
   const [accessibleNgos, setAccessibleNgos] = useState([]);
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
@@ -178,6 +179,20 @@ export default function Donors({ onSelect }) {
   };
 
   useEffect(load, [selectedNgoId]);
+
+  const handleRestoreWrong = async () => {
+    if (!confirm('This will remove donors who were manually assigned to FROs they don\'t belong to (no station). Continue?')) return;
+    setRestoring(true);
+    try {
+      const res = await apiPost('/ngo-admin/restore-wrong-assignments');
+      toast.success(`Restored ${res?.restored || 0} wrong assignments`);
+      load();
+    } catch (e) {
+      toast.error('Failed: ' + e.message);
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   const stations = useMemo(() => {
     const s = new Set();
@@ -254,6 +269,9 @@ export default function Donors({ onSelect }) {
             </select>
             <span className="count">{filtered.length} donors</span>
             {totalPages > 1 && <span className="count" style={{ background: '#eef2ff', color: '#6366f1' }}>Page {page} of {totalPages}</span>}
+            <button className="btn btn-sm" onClick={handleRestoreWrong} disabled={restoring} style={{marginLeft:'auto',background:restoring?'#e5e7eb':'#fef3c7',color:'#92400e',border:'1px solid #f59e0b',borderRadius:6,padding:'4px 12px',fontSize:12,fontWeight:600,cursor:restoring?'not-allowed':'pointer'}}>
+              {restoring ? 'Restoring...' : 'Restore Wrong Assignments'}
+            </button>
           </div>
           {loading ? (
             <div className="loading">Loading donors...</div>

@@ -84,6 +84,21 @@ export async function importStatement(req, res) {
           .single();
 
         if (error) throw error;
+
+        try {
+          const { data: receipt } = await db.from('receipts').insert({
+            project_id: 'bsct',
+            donor_name: row.description?.slice(0, 100) || 'Unknown',
+            amount: row.amount,
+            receipt_date: row.date,
+            agent_name: 'Suspense',
+            purpose: 'Bank Audit Entry',
+          }).select().single();
+          if (receipt?.id) {
+            await db.from('bank_audit_entries').update({ receipt_id: receipt.id }).eq('id', entry.id);
+          }
+        } catch (rcErr) { console.error('Failed to create receipt for bank entry:', rcErr.message); }
+
         entries.push(entry);
       } catch (err) {
         errors.push({ row: row.row, error: err.message });

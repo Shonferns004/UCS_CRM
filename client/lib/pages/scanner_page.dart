@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:camera/camera.dart';
 import '../services/api_service.dart';
 import '../widgets/skeleton_loader.dart';
 
 class ScannerPage extends StatefulWidget {
-  final int delaySeconds;
-  const ScannerPage({super.key, this.delaySeconds = 7});
+  const ScannerPage({super.key});
 
   @override
   State<ScannerPage> createState() => _ScannerPageState();
@@ -26,10 +27,6 @@ class _ScannerPageState extends State<ScannerPage>
 
   Position? _cachedPosition;
   bool _isLocating = true;
-  List<Map<String, dynamic>> _todayCodes = [];
-  bool _codesLoading = true;
-
-  bool _sheetVisible = false;
 
   @override
   void initState() {
@@ -43,7 +40,6 @@ class _ScannerPageState extends State<ScannerPage>
     );
     _controller.addListener(_onControllerUpdate);
     _prefetchLocation();
-    _fetchTodayCodes();
   }
 
   Future<void> _prefetchLocation() async {
@@ -56,25 +52,6 @@ class _ScannerPageState extends State<ScannerPage>
       _cachedPosition = pos;
     } catch (_) {}
     if (mounted) setState(() => _isLocating = false);
-  }
-
-  Future<void> _fetchTodayCodes() async {
-    try {
-      final codes = await ApiService.getTodayCodes();
-      if (mounted) {
-        setState(() => _todayCodes = codes);
-        if (codes.isNotEmpty && mounted) {
-          Future.delayed(Duration(seconds: widget.delaySeconds), () {
-            if (mounted && !_detected) {
-              setState(() {
-                _sheetVisible = true;
-              });
-            }
-          });
-        }
-      }
-    } catch (_) {}
-    if (mounted) setState(() => _codesLoading = false);
   }
 
   void _onControllerUpdate() {
@@ -124,12 +101,100 @@ class _ScannerPageState extends State<ScannerPage>
     await _completeWithCode(code);
   }
 
-  Future<void> _submitDailyCode() async {
+  Future<void> _submitWithSelfie() async {
     if (_detected) return;
-    if (_todayCodes.isEmpty) return;
     _detected = true;
-    HapticFeedback.vibrate();
-    await _completeWithDailyCode(_todayCodes.first['daily_code'] as String);
+
+    Position? pos = _cachedPosition;
+    if (pos == null) {
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        ).timeout(const Duration(seconds: 8));
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    if (pos == null) {
+      _detected = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not get location. Make sure GPS is enabled.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final cameras = await availableCameras();
+    if (cameras.isEmpty || !mounted) {
+      _detected = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No front camera available')),
+      );
+      return;
+    }
+
+    final frontCamera = cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.front,
+      orElse: () => cameras.first,
+    );
+
+    final xController = CameraController(frontCamera, ResolutionPreset.medium, enableAudio: false);
+    await xController.initialize();
+    if (!mounted) { await xController.dispose(); return; }
+
+    final selfieFile = await Navigator.push<File>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _SelfieCapturePage(controller: xController),
+      ),
+    );
+    await xController.dispose();
+    if (!mounted) return;
+
+    if (selfieFile == null) {
+      _detected = false;
+      return;
+    }
+
+    final bytes = await selfieFile.readAsBytes();
+    final base64Selfie = base64Encode(bytes);
+
+    try {
+      final isPunchIn = await _shouldPunchIn();
+      final result = await ApiService.selfiePunch(
+        type: isPunchIn ? 'punch_in' : 'punch_out',
+        selfieBase64: base64Selfie,
+        mimeType: 'image/jpeg',
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'] ?? 'Submitted for approval')),
+        );
+        Navigator.pop(context, {'selfie': true, ...result});
+      }
+    } catch (e) {
+      _detected = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  Future<bool> _shouldPunchIn() async {
+    try {
+      final today = await ApiService.getTodayStatus();
+      return today['punch_in_time'] == null;
+    } catch (_) {
+      return true;
+    }
   }
 
   Future<void> _completeWithCode(String code) async {
@@ -163,36 +228,6 @@ class _ScannerPageState extends State<ScannerPage>
     });
   }
 
-  Future<void> _completeWithDailyCode(String dailyCode) async {
-    Position? pos = _cachedPosition;
-    if (pos == null) {
-      try {
-        pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-          ),
-        ).timeout(const Duration(seconds: 8));
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    if (pos == null) {
-      _detected = false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not get location. Make sure GPS is enabled.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-    Navigator.pop(context, {
-      'dailyCode': dailyCode,
-      'lat': pos.latitude,
-      'lng': pos.longitude,
-      'punch_method': 'manual_code',
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -217,36 +252,56 @@ class _ScannerPageState extends State<ScannerPage>
               ),
               errorBuilder: (context, error, child) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && _todayCodes.isNotEmpty && !_sheetVisible) {
-                    setState(() {
-                      _sheetVisible = true;
-                    });
+                  if (mounted && !_detected) {
+                    _submitWithSelfie();
                   }
                 });
                 return const SizedBox();
               },
             ),
             Positioned.fill(child: _ScanOverlay(scanLine: _scanLine)),
-            if (_sheetVisible)
-              GestureDetector(
-                onTap: () => setState(() => _sheetVisible = false),
-                child: Container(color: Colors.black.withValues(alpha: 0.15)),
-              ),
-            if (_sheetVisible)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: SizedBox(
-                  height: 280,
-                  child: _CodeSheetContent(
-                  todayCodes: _todayCodes,
-                  codesLoading: _codesLoading,
-                  isLocating: _isLocating,
-                  onSubmit: _submitDailyCode,
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: _isLocating
+                      ? null
+                      : () {
+                          if (_isLocating) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Getting your location, please wait...'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                            return;
+                          }
+                          _submitWithSelfie();
+                        },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.camera_alt, color: Colors.white70, size: 20),
+                        SizedBox(width: 10),
+                        Text(
+                          'Use Selfie to Punch',
+                          style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                ),
               ),
+            ),
             Positioned(
               top: 48,
               left: 16,
@@ -300,7 +355,7 @@ class _ScanOverlay extends StatelessWidget {
             children: [
               const Spacer(),
               Padding(
-                padding: EdgeInsets.only(bottom: height * 0.18),
+                padding: EdgeInsets.only(bottom: height * 0.22),
                 child: const Text(
                   'Align QR code within the frame',
                   style: TextStyle(
@@ -319,183 +374,89 @@ class _ScanOverlay extends StatelessWidget {
   }
 }
 
-class _CodeSheetContent extends StatefulWidget {
-  final List<Map<String, dynamic>> todayCodes;
-  final bool codesLoading;
-  final bool isLocating;
-  final VoidCallback onSubmit;
-
-  const _CodeSheetContent({
-    required this.todayCodes,
-    required this.codesLoading,
-    required this.isLocating,
-    required this.onSubmit,
-  });
+class _SelfieCapturePage extends StatefulWidget {
+  final CameraController controller;
+  const _SelfieCapturePage({required this.controller});
 
   @override
-  State<_CodeSheetContent> createState() => _CodeSheetContentState();
+  State<_SelfieCapturePage> createState() => _SelfieCapturePageState();
 }
 
-class _CodeSheetContentState extends State<_CodeSheetContent>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseCtrl;
-  late final Animation<double> _pulseAnim;
+class _SelfieCapturePageState extends State<_SelfieCapturePage> {
+  bool _taking = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-    _pulseAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeOut),
-    );
-  }
-
-  double get _heartbeat {
-    final t = _pulseAnim.value;
-    if (t < 0.10) return t / 0.10;
-    if (t < 0.18) return 1.0 - (t - 0.10) / 0.08;
-    if (t < 0.26) return (t - 0.18) / 0.08;
-    if (t < 0.34) return 1.0 - (t - 0.26) / 0.08;
-    return 0.0;
-  }
-
-  @override
-  void dispose() {
-    _pulseCtrl.dispose();
-    super.dispose();
+  Future<void> _take() async {
+    if (_taking) return;
+    setState(() => _taking = true);
+    try {
+      final file = await widget.controller.takePicture();
+      if (mounted) Navigator.pop(context, File(file.path));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to capture selfie')),
+        );
+        Navigator.pop(context);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final code = widget.todayCodes.isNotEmpty
-        ? widget.todayCodes.first['daily_code'] as String
-        : '----';
-    final mq = MediaQuery.of(context);
-    final boxW = (mq.size.width - 80).clamp(200.0, 320.0);
-    final codeBoxH = boxW * 0.12 + 36.0;
-
-    return Container(
-      width: double.infinity,
-      height: 180,
-      decoration: const BoxDecoration(
-        color: Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Stack(
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
         children: [
+          Center(child: CameraPreview(widget.controller)),
           Positioned(
-            top: 12,
+            top: 48,
+            left: 16,
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 48,
             left: 0,
             right: 0,
             child: Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
+              child: GestureDetector(
+                onTap: _take,
+                child: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 4),
+                  ),
+                  child: _taking
+                      ? const Padding(
+                          padding: EdgeInsets.all(18),
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                        )
+                      : const Icon(Icons.camera_alt, color: Colors.white, size: 32),
                 ),
               ),
             ),
           ),
-          Center(
-            child: GestureDetector(
-              onTap: () {
-                if (widget.isLocating) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Getting your location, please wait...'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                  return;
-                }
-                widget.onSubmit();
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AnimatedBuilder(
-                    animation: _pulseAnim,
-                    builder: (context, child) {
-                      final hb = _heartbeat;
-                      return Opacity(
-                        opacity: 0.5 + hb * 0.3,
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.touch_app, color: Colors.white38, size: 14),
-                            SizedBox(width: 6),
-                            Text(
-                              'Tap to punch in',
-                              style: TextStyle(
-                                color: Colors.white38,
-                                fontSize: 13,
-                                letterSpacing: 1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  AnimatedBuilder(
-                    animation: _pulseAnim,
-                    builder: (context, child) {
-                      final hb = _heartbeat;
-                      return SizedBox(
-                        width: boxW,
-                        height: codeBoxH,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            if (hb > 0)
-                              for (final i in [0, 1])
-                                Transform.scale(
-                                  scale: 1.0 + hb * (0.04 + i * 0.02),
-                                  child: Container(
-                                    width: boxW,
-                                    height: codeBoxH,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: const Color(0xFF2563eb).withValues(alpha: (hb * (0.35 - i * 0.1)).clamp(0.0, 1.0)),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            Container(
-                              width: boxW,
-                              height: codeBoxH,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.white12),
-                                color: Colors.white.withValues(alpha: 0.03),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  code,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: mq.size.width > 400 ? 38 : 34,
-                                    fontWeight: FontWeight.w300,
-                                    letterSpacing: 10,
-                                    height: 1,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
+          const Positioned(
+            bottom: 130,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Text(
+                'Take a selfie',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
               ),
             ),
           ),

@@ -38,6 +38,10 @@ if (process.env.DATABASE_URL) {
     poolConfig.ssl = { rejectUnauthorized: false };
   }
 }
+// The business operates on IST calendar days. Pinning each session's timezone
+// makes now(), ::date casts and naive timestamp comparisons mean IST
+// everywhere, killing the UTC-vs-IST date-filter bug class at the root.
+poolConfig.options = [poolConfig.options, '-c timezone=Asia/Kolkata'].filter(Boolean).join(' ');
 const pgPool = new pg.Pool(poolConfig);
 pgPool.on('error', (err) => console.error('pg pool idle client error:', err.message));
 
@@ -460,6 +464,8 @@ class QueryBuilder {
   not(col, op, value) { this.filters.push({ col, op: `not_${op}`, value }); return this; }
   or(str) { this.orGroups.push(String(str)); return this; }
   order(col, opts = {}) {
+    const m = /^(\w+)\(([^)]+)\)$/.exec(String(col));
+    if (m) col = `${m[1]}.${m[2]}`;
     this.orders.push({ col, ascending: opts.ascending !== false, nullsFirst: opts.nullsFirst });
     return this;
   }
@@ -497,6 +503,13 @@ class QueryBuilder {
       if (this.op === 'delete') return await this._execDelete();
       return { data: null, error: null };
     } catch (err) {
+      // Inside a PostgreSQL transaction any error automatically aborts the
+      // entire transaction.  Returning the error as a result object lets the
+      // caller continue executing queries on the same (now dead) transaction
+      // client, which surfaces the generic "current transaction is aborted"
+      // error and masks the real cause.  Re-throw immediately so the
+      // transaction wrapper can ROLLBACK and propagate the original error.
+      if (txStore.getStore()) throw err;
       return {
         data: null,
         error: {
@@ -748,8 +761,6 @@ class QueryBuilder {
       if (data.length === 0) {
         if (this.singleFlag) return { data: null, count, error: { ...PGRST116 } };
         resultData = null;
-      } else if (data.length > 1) {
-        return { data: null, count, error: { ...PGRST116 } };
       } else {
         resultData = data[0];
       }
@@ -1005,8 +1016,6 @@ class QueryBuilder {
       if (data.length === 0) {
         if (this.singleFlag) return { data: null, count: null, error: { ...PGRST116 } };
         result = null;
-      } else if (data.length > 1) {
-        return { data: null, count: null, error: { ...PGRST116 } };
       } else {
         result = data[0];
       }
@@ -1155,7 +1164,14 @@ function getS3() {
   if (_s3) return _s3;
   try {
     const region = process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1';
-    _s3 = { client: new S3Client({ region }), region, bucket: process.env.S3_BUCKET };
+    const s3Config = { region };
+    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+      s3Config.credentials = {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      };
+    }
+    _s3 = { client: new S3Client(s3Config), region, bucket: process.env.S3_BUCKET };
     return _s3;
   } catch {
     return null;
@@ -1233,6 +1249,23 @@ const storage = {
 };
 
 // ---------------------------------------------------------------------------
+// Startup connection test — call once after server boots to verify the pool
+// can actually reach the database.  Logs a clear message on success/failure.
+// ---------------------------------------------------------------------------
+async function testConnection() {
+  try {
+    const res = await pgPool.query('SELECT current_database(), current_user, inet_server_addr() AS server_ip, now() AS server_time');
+    const row = res.rows[0];
+    console.log(`[DB] Connected to "${row.current_database}" as "${row.current_user}" | server: ${row.server_ip || 'local'} | time: ${row.server_time}`);
+    return true;
+  } catch (err) {
+    console.error(`[DB] CONNECTION FAILED: ${err.message}`);
+    console.error(`[DB] DATABASE_URL host: ${process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).host : 'not set'}`);
+    console.error('[DB] Ensure the RDS instance is running and your IP is allowed in the security group.');
+    return false;
+  }
+}
+
 const db = {
   from(table) { return new QueryBuilder(table); },
   async transaction(callback) {
@@ -1254,6 +1287,7 @@ const db = {
   rpc,
   auth,
   storage,
+  testConnection,
   _pool: pool,
 };
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRec, CANDIDATE_STAGES } from '../store';
-import { Plus, Users, Search, RefreshCw, Trash, X } from '../icons';
+import { Plus, Users, Search, RefreshCw, Trash, X, Pencil } from '../icons';
 import { Dropdown, cleanField } from './ui';
 import LeadDetail from './LeadDetail';
 
@@ -31,6 +31,7 @@ const DEFAULT_CONNECTED = [
   { value: 'call_back', label: 'Call Back' },
   { value: 'schedule', label: 'Schedule' },
   { value: 'not_interested', label: 'Not Interested' },
+  { value: 're_scheduled', label: 'Re-Scheduled' },
 ];
 
 const DEFAULT_NOT_CONNECTED = [
@@ -43,7 +44,17 @@ const DEFAULT_NOT_CONNECTED = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested' };
+const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested', re_scheduled: 're_scheduled' };
+
+const REVERSE_CONNECTED_MAP = { followed_up: 'follow_up', call_back: 'call_back', scheduled: 'schedule', not_interested: 'not_interested', re_scheduled: 're_scheduled' };
+
+const toLocalDT = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
@@ -53,7 +64,11 @@ function useList(key, defaults) {
       const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          const defaultValues = defaults.map(d => d.value);
+          const missing = defaults.filter(d => !parsed.some(p => p.value === d.value));
+          return missing.length > 0 ? [...parsed, ...missing] : parsed;
+        }
       }
     } catch (e) {}
     return defaults;
@@ -144,6 +159,7 @@ export default function Leads() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [editingLead, setEditingLead] = useState(null);
   const [jobRoles, setJobRoles] = useList('rec_leads_jobRoles', DEFAULT_JOB_ROLES);
   const [sources, setSources] = useList('rec_leads_sources', DEFAULT_SOURCES);
   const [connectedOpts, setConnectedOpts] = useList('rec_leads_connectedOptions', DEFAULT_CONNECTED);
@@ -176,6 +192,46 @@ export default function Leads() {
     }
   };
 
+  const resetForm = () => {
+    setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
+    setEditingLead(null);
+  };
+
+  const startEdit = (l) => {
+    setEditingLead(l);
+    setName(l.name || '');
+    setPhone(l.phone || '');
+    setDob(l.dob ? String(l.dob).slice(0, 10) : '');
+    const src = cleanField(l.source);
+    if (sources.some(s => s.value === src)) { setSource(src); setCustomSource(''); }
+    else { setSource('Other'); setCustomSource(src || ''); }
+    let notesArr = [];
+    try { notesArr = JSON.parse(l.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
+    const roleMeta = notesArr.find(n => n && n.__meta && n.type === 'job_role');
+    const role = l.job_role || (roleMeta ? roleMeta.value : '') || '';
+    if (role && jobRoles.some(r => r.value === role)) { setSelectedJobRole(role); setCustomJobRole(''); }
+    else if (role) { setSelectedJobRole('Other'); setCustomJobRole(role); }
+    else { setSelectedJobRole(''); setCustomJobRole(''); }
+    const stageMeta = notesArr.find(n => n && n.__meta && n.type === 'stage');
+    setStage(stageMeta ? stageMeta.value : '');
+    setFormNotes(notesArr.filter(n => !n || !n.__meta));
+    if (REVERSE_CONNECTED_MAP[l.status]) {
+      setConnectionType('connected');
+      setConnectedOption(REVERSE_CONNECTED_MAP[l.status]);
+      setNotConnectedOption('');
+    } else if (notConnectedOpts.some(o => o.value === l.status)) {
+      setConnectionType('not_connected');
+      setNotConnectedOption(l.status);
+      setConnectedOption('');
+    } else {
+      setConnectionType(''); setConnectedOption(''); setNotConnectedOption('');
+    }
+    setFollowUpDateTime(toLocalDT(l.follow_up_date));
+    setCallBackTime(toLocalDT(l.call_back_time));
+    setScheduledDate(toLocalDT(l.scheduled_date));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const addNoteToForm = () => {
     if (!noteText.trim()) return;
     const n = { text: noteText.trim(), date: new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}), by: user.name };
@@ -189,22 +245,29 @@ export default function Leads() {
     if (!formValid) { setFormError('Mandatory field validation is missing.'); setTimeout(() => setFormError(''), 3000); return; }
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
-      const finalStatus = connectionType === 'connected'
+      let finalStatus = connectionType === 'connected'
         ? (CONNECTED_STATUS_MAP[connectedOption] || connectedOption || '')
         : notConnectedOption;
+      if (editingLead && !finalStatus) finalStatus = editingLead.status || '';
       const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
       const notesArr = [...formNotes];
       if (stage) notesArr.unshift({ __meta: true, type: 'stage', value: stage });
       if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
-      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, job_role: finalJobRole || null, created_by_name: user.name };
+      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, job_role: finalJobRole || null };
+      if (!editingLead) payload.created_by_name = user.name;
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
-      await addLead(payload);
-      setSuccessMsg('Lead created successfully.');
+      if (editingLead) {
+        await updateLead(editingLead.id, payload);
+        setSuccessMsg('Lead updated successfully.');
+      } else {
+        await addLead(payload);
+        setSuccessMsg('Lead created successfully.');
+      }
       setTimeout(() => setSuccessMsg(''), 3000);
       setLeadFilters(p => ({ ...p, status: '', source: '' }));
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
+      resetForm();
     } catch (err) { alert(err.message); }
   };
 
@@ -228,6 +291,13 @@ export default function Leads() {
   });
 
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
+
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [leadFilters.search, leadFilters.status, leadFilters.source]);
+  const totalLeadPages = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
+  const safeLeadPage = Math.min(page, totalLeadPages);
+  const paginatedLeads = filteredLeads.slice((safeLeadPage - 1) * PAGE_SIZE, safeLeadPage * PAGE_SIZE);
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
   const formValid = name.trim() && phone.trim() && source && selectedJobRole;
 
@@ -254,6 +324,7 @@ export default function Leads() {
     onboarding: 'Onboarding',
     on_hold: 'On Hold',
     withdrawn: 'Withdrawn',
+    re_scheduled: 'Re-Scheduled',
     ...connectedOpts.reduce((acc, o) => { acc[CONNECTED_STATUS_MAP[o.value] || o.value] = o.label; return acc; }, {}),
     ...notConnectedOpts.reduce((acc, o) => { acc[o.value] = o.label; return acc; }, {}),
   };
@@ -276,7 +347,7 @@ export default function Leads() {
     return (
       <>
         <div className="card" style={{marginBottom:20}}>
-          <div className="card-head"><h3><Users width={18}/> Add new lead</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
+        <div className="card-head"><h3><Users width={18}/> {editingLead ? 'Edit lead' : 'Add new lead'}</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
           <form className="card-pad" onSubmit={handleSubmit}>
             <div className="form-row">
               <label className="field">Name
@@ -440,7 +511,8 @@ export default function Leads() {
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
                 {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
-                <button type="submit" className="btn btn-primary" ><Plus width={15}/> Create lead</button>
+                {editingLead && <button type="button" className="btn" onClick={resetForm}>Cancel</button>}
+                <button type="submit" className="btn btn-primary" ><Plus width={15}/> {editingLead ? 'Update lead' : 'Create lead'}</button>
               </div>
             </div>
           </div>
@@ -474,9 +546,8 @@ export default function Leads() {
           <div className="card-pad" style={{paddingTop:0,paddingBottom:0}}>
             <div className="filter-bar">
               <div className="search-group">
-                <input value={searchInput} onChange={e=>setSearchInput(e.target.value)} onKeyDown={handleSearchKeyDown}
+                <input value={searchInput} onChange={e=>{setSearchInput(e.target.value);setLeadFilters(p=>({...p,search:e.target.value}))}}
                   placeholder="Search by name or phone…" />
-                <button className="btn btn-sm" onClick={handleSearch}><Search width={14}/></button>
               </div>
               <Dropdown className="filter-select" value={leadFilters.status} onChange={e=>setLeadFilters(p=>({...p,status:e.target.value}))}
                 options={[{value:'',label:'All statuses'}, ...statusFilterOptions]} />
@@ -497,7 +568,7 @@ export default function Leads() {
                 </tr>
               </thead>
               <tbody>
-                {filteredLeads.map(l => {
+                {paginatedLeads.map(l => {
                   let parsed = [];
                   try { parsed = JSON.parse(l.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
                   const displayAge = l.dob ? calcAge(l.dob) : l.age;
@@ -509,9 +580,14 @@ export default function Leads() {
                       <td>{statusPill(cleanField(l.status), statusLabelMap)}</td>
                       <td style={{color:'var(--ink-soft)'}}>{cleanField(getJobRole(l)) || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
-                      <button className="btn btn-icon" onClick={() => setDeleteConfirm(l)} title="Delete" style={{color:'#dc2626'}}>
-                        <Trash width={13} />
-                      </button>
+                      <div style={{display:'flex',gap:4}}>
+                        <button className="btn btn-icon" onClick={() => startEdit(l)} title="Edit">
+                          <Pencil width={13} />
+                        </button>
+                        <button className="btn btn-icon" onClick={() => setDeleteConfirm(l)} title="Delete" style={{color:'#dc2626'}}>
+                          <Trash width={13} />
+                        </button>
+                      </div>
                       </td>
                     </tr>
                   );
@@ -520,13 +596,29 @@ export default function Leads() {
             </table>
             </div>
           )}
+          {!leadsLoading && filteredLeads.length > 0 && totalLeadPages > 1 && (
+            <div className="pagination">
+              <div className="pagination-left">
+                <button className="btn btn-sm btn-primary" disabled={safeLeadPage <= 1} onClick={() => setPage(safeLeadPage - 1)}>← Prev</button>
+              </div>
+              <div className="pagination-center">Page {safeLeadPage} of {totalLeadPages}</div>
+              <div className="pagination-right">
+                <div className="pagination-dots">
+                  {Array.from({ length: totalLeadPages }, (_, i) => i + 1).map(p => (
+                    <span key={p} className={`dot ${p === safeLeadPage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
+                  ))}
+                </div>
+                <button className="btn btn-sm btn-primary" disabled={safeLeadPage >= totalLeadPages} onClick={() => setPage(safeLeadPage + 1)}>Next →</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {tab === 'scheduled' && (
         <div className="card" style={{marginTop:20}}>
           <div className="card-head">
-            <h3>Scheduled interviews</h3>
+            <h3>Submit</h3>
             <span className="sub">{scheduledLeads.length} lead{scheduledLeads.length!==1?'s':''}</span>
           </div>
           {leadsLoading ? (
@@ -537,7 +629,7 @@ export default function Leads() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Interview date</th><th>Scheduled by</th><th>Scheduled at</th><th>Source</th>
+                  <th>Name</th><th>Phone</th><th>Interview date</th><th>Scheduled by</th><th>Scheduled at</th><th>Source</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -549,6 +641,11 @@ export default function Leads() {
                     <td>{l.scheduled_by_name || l.created_by_name || '—'}</td>
                     <td style={{color:'var(--ink-soft)'}}>{formatDT(l.scheduled_at)}</td>
                     <td>{cleanField(l.source)}</td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <button className="btn btn-icon" onClick={() => startEdit(l)} title="Reschedule">
+                        <Pencil width={13} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

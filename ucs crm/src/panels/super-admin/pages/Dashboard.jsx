@@ -1,7 +1,7 @@
 ﻿
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts } from '../api/endpoints'
+import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts, getReceiptStats } from '../api/endpoints'
 import { api } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar, LineChart, Line, CartesianGrid, Legend } from 'recharts'
@@ -22,6 +22,8 @@ const GOLD_LIGHT = '#F6C979'    // amber fill
 const SLATE = '#4C7C8C'         // secondary accent
 const PRIMARY = '#1F332B'       // main text (green-black)
 const CORAL = RED_DEEP          // kept name so old references work
+
+const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
 /* fresh chart colors for Volunteers by Department bars */
 const DEPT_COLORS = [
@@ -1190,6 +1192,7 @@ export default function Dashboard() {
   const [acModal, setAcModal] = useState(null)
   const [alertsData, setAlertsData] = useState({ alerts: [], summary: { critical: 0, warning: 0, info: 0 } })
   const [alertModal, setAlertModal] = useState(null)
+  const [receiptStats, setReceiptStats] = useState([])
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1199,6 +1202,12 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
+
+  useEffect(() => {
+    getReceiptStats().then(d => {
+      setReceiptStats(Array.isArray(d?.statsByProject) ? d.statsByProject : [])
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     setTargetsLoading(true)
@@ -2626,6 +2635,39 @@ export default function Dashboard() {
           )
         })()}
       </div>
+
+      {/* ============ RECEIPT OVERVIEW (3 NGO cards) ============ */}
+      {receiptStats.length > 0 && (
+        <div className="nd-card nd-appear" style={{ animationDelay: '0.25s', marginBottom: 20, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#16a34a' }}>receipt_long</span>
+            <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Receipt Overview</h3>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${receiptStats.length}, 1fr)`, gap: 16 }}>
+            {receiptStats.map(g => (
+              <div key={g.project_id || 'unknown'} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 14px', textAlign: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 12 }}>{PROJECT_LABELS[g.project_id] || g.project_id || 'Unknown'}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color: '#5B6B4E', lineHeight: 1.2 }}>{(g.count || 0).toLocaleString('en-IN')}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>Total Receipts</div>
+                  </div>
+                  <div style={{ height: 1, background: '#e5e7eb' }} />
+                  <div>
+                    <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color: '#8b5cf6', lineHeight: 1.2 }}>{(g.donors || 0).toLocaleString('en-IN')}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>Total Donors</div>
+                  </div>
+                  <div style={{ height: 1, background: '#e5e7eb' }} />
+                  <div>
+                    <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>{'\u20B9'}{(g.total_amount || 0).toLocaleString('en-IN')}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>Total Amount</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
 
       {/* ============ 3-COL GRID: Monthly Revenue + Top Performers + Recent Activity ============ */}

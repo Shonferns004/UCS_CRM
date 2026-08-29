@@ -44,8 +44,11 @@ import {
   updateStationNgos,
   getStationStats,
   getDonorsByStation,
+  getDonorsByFro,
   getNewData,
   distributeNewData,
+  cleanupNewData,
+  resetFreshData,
   getDataOverview,
   getAlerts,
   acknowledgeAlert,
@@ -67,6 +70,19 @@ import {
   cleanupOrphanedStations,
   uploadOldData,
   uploadOldDataForStation,
+  // NEW Dashboard APIs
+  getTLDashboard,
+  getDonationFunnel,
+  getHourlyPerformance,
+  getFollowups,
+  reassignFollowup,
+  updateFollowupDate,
+  getIdleAlerts,
+  getTopPerformers,
+  getBottomPerformers,
+  getAssignedData,
+  restoreWrongAssignments,
+  getFroHourlyPerformance,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -76,20 +92,47 @@ const router = Router();
 router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
 router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
+// Accounts reports need stations/targets/ngos — allow accounts role for these read-only endpoints
+router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), getStations);
+router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
+router.get('/ngos', authenticateRole('admin', 'super_admin', 'accounts'), getAccessibleNgos);
+
+// Accounts panel handles New Data distribution + Old Data viewing — allow accounts role
+router.get('/donors-by-station', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByStation);
+router.get('/new-data', authenticateRole('admin', 'super_admin', 'accounts'), getNewData);
+router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'accounts'), distributeNewData);
+router.post('/new-data/cleanup', authenticateRole('admin', 'super_admin', 'accounts'), cleanupNewData);
+router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'accounts'), resetFreshData);
+
 router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);
 router.get('/dashboard/station-stats', getStationStats);
-router.get('/ngos', getAccessibleNgos);
+
+// NEW TL Dashboard APIs
+router.get('/tl-dashboard', getTLDashboard);
+router.get('/dashboard/donation-funnel', getDonationFunnel);
+router.get('/dashboard/hourly-performance', getHourlyPerformance);
+router.get('/dashboard/idle-alerts', getIdleAlerts);
+router.get('/dashboard/top-performers', getTopPerformers);
+router.get('/dashboard/bottom-performers', getBottomPerformers);
+
+// Follow-up Management
+router.get('/followups', getFollowups);
+router.put('/followups/:assignmentId/reassign', reassignFollowup);
+router.put('/followups/:assignmentId/date', updateFollowupDate);
+
+// Assigned Data
+router.get('/assigned-data', getAssignedData);
+
 router.get('/donors', getDonors);
 router.get('/donors/:donorId/credit', getDonorCreditLogs);
 router.put('/credit-logs/:logId/transfer', transferDonorCredit);
 router.get('/donors/:mobile', getDonorDetail);
-router.get('/donors-by-station', getDonorsByStation);
+router.get('/donors-by-fro', getDonorsByFro);
 router.get('/fro-workers', getFroWorkers);
 router.get('/assignments', getAssignments);
-router.get('/targets', getTargets);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
 router.get('/fro-performance', getFroPerformance);
@@ -101,7 +144,6 @@ router.get('/verification', getVerificationFroWise);
 router.get('/accounts/pending', getAccountsPending);
 router.post('/accounts/:logId/verify', verifyLeadDone);
 
-router.get('/stations', getStations);
 router.post('/stations', createStationHandler);
 router.post('/station-assignments', saveStationAssignment);
 router.delete('/station-assignments/:id', removeStationAssignment);
@@ -113,9 +155,7 @@ router.get('/transfers', getTransferHistory);
 router.get('/transfers/:id/donors', getTransferDonors);
 router.post('/transfers/:id/return-early', returnTransferEarly);
 
-router.get('/new-data', getNewData);
 router.get('/data-overview', getDataOverview);
-router.post('/new-data/distribute', distributeNewData);
 
 router.get('/alerts', getAlerts);
 router.put('/alerts/:id/acknowledge', acknowledgeAlert);
@@ -144,10 +184,13 @@ router.post('/donor-crm/followups', createFollowup);
 
 router.get('/master-search', masterSearch);
 router.get('/call-analytics', getCallAnalytics);
+router.get('/fro-hourly-performance', getFroHourlyPerformance);
 
 router.post('/stations/seed', seedStations);
 router.post('/stations/cleanup', cleanupOrphanedStations);
 router.post('/stations/:station/upload-old-data', upload.single('file'), uploadOldDataForStation);
 router.post('/old-data/upload', upload.single('file'), uploadOldData);
+
+router.post('/restore-wrong-assignments', restoreWrongAssignments);
 
 export default router;

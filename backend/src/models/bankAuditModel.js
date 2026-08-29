@@ -25,12 +25,11 @@ export const getUnlinkedReceipts = async () => {
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
            r.receipt_date, r.receipt_time, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
-           r.pan_number, r.address, r.email
+           r.pan_number, r.address, r.email, r.verify_type, r.verify_fro_worker_id
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
-      AND (r.agent_name IS NULL OR trim(r.agent_name) = '' OR lower(trim(r.agent_name)) IN ('na', 'suspense'))
-      AND (r.donor_mobile IS NULL OR trim(r.donor_mobile) = '' OR lower(trim(r.donor_mobile)) IN ('na', 'suspense'))
+      AND r.receipt_no IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
       )
@@ -59,6 +58,74 @@ export const getNextReceiptNo = async (projectId) => {
 export const cancelReceiptNo = async (projectId) => {
   if (!projectId) return;
   await db._pool.query('SELECT cancel_receipt_no($1)', [String(projectId)]);
+};
+
+// Admin "clean up" bulk delete. Bypasses the numbered-delete guard (which is
+// meant to protect against accidental gaps) because this intentionally wipes a
+// whole batch/date range and the counters are reset afterwards. Uses a
+// dedicated connection + SET LOCAL so trigger state is never leaked to the pool.
+export const bulkDeleteReceipts = async (ids) => {
+  if (!ids || ids.length === 0) return 0;
+  const idList = ids.map((n) => Number(n)).filter((n) => Number.isInteger(n)).join(',');
+  if (!idList) return 0;
+  const client = await db._pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL session_replication_role = replica');
+    const { rowCount } = await client.query(`DELETE FROM receipts WHERE id IN (${idList})`);
+    await client.query('COMMIT');
+    return rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
+// Cancel a receipt WITHOUT losing its number: keep the row + number, stamp it
+// voided. The number stays in the book (no gap) and the receipt stops counting.
+export const voidReceipt = async (receiptId, reason) => {
+  const { data, error } = await db
+    .from('receipts')
+    .update({ voided_at: new Date().toISOString(), void_reason: reason || null })
+    .eq('id', receiptId)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+// Safely remove a receipt: unnumbered rows are hard-deleted; a numbered receipt
+// is hard-deleted ONLY if it is the latest number for its project (counter steps
+// back, number reused) — otherwise it is voided so the number is never lost.
+export const deleteReceiptSafely = async (receiptId, reason) => {
+  const { data: r } = await db
+    .from('receipts')
+    .select('id, receipt_no, project_id')
+    .eq('id', receiptId)
+    .maybeSingle();
+  if (!r) return { gone: true };
+  if (!r.receipt_no) {
+    await db.from('receipts').delete().eq('id', receiptId);
+    return { deleted: true };
+  }
+  const { rows } = await db._pool.query(
+    `SELECT COALESCE(MAX(CASE WHEN receipt_no ~ '^[0-9]+$' THEN receipt_no::bigint END), 0) AS m
+     FROM receipts WHERE project_id = $1 AND id <> $2`,
+    [r.project_id, receiptId]
+  );
+  const max = Number((rows && rows[0] && rows[0].m) || 0);
+  if (Number(r.receipt_no) >= max) {
+    await db.from('receipts').delete().eq('id', receiptId);
+    try { await cancelReceiptNo(r.project_id); } catch (_) {}
+    return { deleted: true, freed: true };
+  }
+  await db
+    .from('receipts')
+    .update({ voided_at: new Date().toISOString(), void_reason: reason || null })
+    .eq('id', receiptId);
+  return { voided: true };
 };
 
 // Read-only receipt-number readout per NGO: the last receipt number issued and
@@ -100,6 +167,20 @@ const NGO_PROJECT_ALIASES = {
   bsct: ['bsct', 'beingsevak', 'being sevak', 'sevak'],
   mann: ['mann', 'manncar', 'mann care', 'manncare', 'maan'],
   aflf: ['aflf', 'ashray', 'ashray life'],
+  library: ['library'],
+  pg: ['pg'],
+};
+
+// Map any project_id spelling to its canonical NGO code ('bsct' | 'mann' | 'aflf').
+// Keeps ONE receipt-number sequence per NGO — alias spellings like 'ashray' or
+// 'mann care' would otherwise get their own counter and collide/duplicate.
+export const canonicalProject = (projectId) => {
+  if (!projectId) return projectId;
+  const p = String(projectId).trim().toLowerCase();
+  for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+    if (p === code || aliases.some((a) => a === p)) return code;
+  }
+  return p;
 };
 
 // The canonical project code for a lead is the NGO it is assigned under
@@ -115,9 +196,33 @@ export const projectCodeFromNgoId = async (ngoId) => {
   const name = data?.name ? String(data.name).trim().toLowerCase() : '';
   if (!name) return null;
   for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
-    if (name === code || aliases.some((a) => name === a || name.includes(a))) return code;
+    if (name === code || aliases.some((a) => a === name || name.includes(a))) return code;
   }
   return name;
+};
+
+// Resolve an NGO's id (ngos.id) from a project code (receipts.project_id /
+// bank_audit_entries.project_id, e.g. 'bsct' | 'mann' | 'aflf'). This is the
+// inverse of projectCodeFromNgoId — callers that must set fro_assignments.ngo_id
+// (NOT NULL) resolve it here from the entry's project_id. Returns null when no
+// NGO matches so callers can fall back.
+export const ngoIdFromProjectId = async (projectId) => {
+  if (!projectId) return null;
+  const needle = String(projectId).trim().toLowerCase();
+  if (!needle) return null;
+  const { data, error } = await db.from('ngos').select('id, name');
+  if (error) throw error;
+  for (const ngo of data || []) {
+    const name = ngo?.name ? String(ngo.name).trim().toLowerCase() : '';
+    if (!name) continue;
+    if (name === needle) return ngo.id;
+    for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+      if (code === needle && (name === code || aliases.some((a) => a === name || name.includes(a)))) {
+        return ngo.id;
+      }
+    }
+  }
+  return null;
 };
 
 export const getSources = async () => {
@@ -129,10 +234,10 @@ export const getSources = async () => {
   return data || [];
 };
 
-export const createSource = async (name) => {
+export const createSource = async (name, kind = 'bank') => {
   const { data, error } = await db
     .from('bank_audit_sources')
-    .insert({ name })
+    .insert({ name, kind })
     .select()
     .single();
   if (error) throw error;
@@ -161,7 +266,7 @@ export const deleteSource = async (id) => {
 export const getEntries = async (filters = {}) => {
   let query = db
     .from('bank_audit_entries')
-    .select('*, bank_audit_sources(name), receipts!receipt_id(id, receipt_no, log_id, donor_id, agent_name, donor_name, donor_mobile, mode, bank_name, fro_donor_logs!receipts_log_id_fkey(id, amount_collected))')
+    .select('*, bank_audit_sources(name), donor_profiles!donor_id(name), receipts!receipt_id(id, receipt_no, log_id, donor_id, agent_name, donor_name, donor_mobile, mode, bank_name, fro_donor_logs!receipts_log_id_fkey(id, amount_collected))')
     .order('transaction_date', { ascending: false })
     .order('payment_time', { ascending: false });
 
@@ -274,6 +379,19 @@ export const nextMatchNo = async () => {
 export const manualMatchEntry = async (id, logId, actorId) => {
   const { rows } = await db._pool.query('SELECT match_no FROM bank_audit_entries WHERE id = $1', [id]);
   const matchNo = rows[0]?.match_no || (await nextMatchNo());
+
+  // Resolve the linked lead's FRO worker name so the entry's agent name is set
+  // (it stays nil otherwise). The matched lead is authoritative for the agent.
+  let agentName = null;
+  try {
+    const { data: leadLogs } = await db
+      .from('fro_donor_logs')
+      .select('fro_assignments!inner(workers!left(name))')
+      .eq('id', logId)
+      .limit(1);
+    agentName = leadLogs?.[0]?.fro_assignments?.workers?.name || null;
+  } catch (err) { console.error('Failed to resolve agent for manual match:', err.message); }
+
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -282,11 +400,12 @@ export const manualMatchEntry = async (id, logId, actorId) => {
       match_source: 'manual',
       matched_by: actorId,
       match_no: matchNo,
+      agent_name: agentName,
       matched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, bank_audit_sources(name)')
+    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, agent_name, bank_audit_sources(name)')
     .single();
   if (error) throw error;
   await syncEntryToLead(id, logId);
@@ -324,7 +443,7 @@ export const syncEntryToLead = async (entryId, logId) => {
       ? `${datePart}T${entry.payment_time}+05:30`
       : `${datePart}T00:00:00+05:30`;
   }
-  patch.payment_mode = entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer');
+  patch.payment_mode = entry.mode || (entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer'));
 
   if (Object.keys(patch).length > 0) {
     await db.from('fro_donor_logs').update(patch).eq('id', logId);
@@ -342,7 +461,52 @@ export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {
   return data || null;
 };
 
+export const ensureReceiptNumber = async (entryId) => {
+  const { data: entry } = await db
+    .from('bank_audit_entries')
+    .select('id, receipt_id, project_id, amount, payer_name, payment_id, transaction_date, payment_time, source_id')
+    .eq('id', entryId)
+    .single();
+  if (!entry) return;
+
+  // The receipt's NGO decides its number sequence. Never silently force 'bsct':
+  // an entry whose NGO is unknown (e.g. an Ashray donation with no assignment /
+  // stale project_supported) must NOT draw a number from the Being Sevak counter.
+  // Such entries are left unnumbered until their real NGO is set.
+  const project = canonicalProject(entry.project_id);
+  if (!project) return;
+
+  if (entry.receipt_id) {
+    const { data: receipt } = await db
+      .from('receipts')
+      .select('id, receipt_no, project_id')
+      .eq('id', entry.receipt_id)
+      .single();
+    if (receipt && !receipt.receipt_no) {
+      const receiptNo = await getNextReceiptNo(receipt.project_id || project);
+      await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', receipt.id);
+      await db.from('bank_audit_entries').update({ receipt_no: receiptNo }).eq('id', entryId);
+    }
+  } else {
+    const receiptNo = await getNextReceiptNo(project);
+    const { data: newReceipt } = await db.from('receipts').insert({
+      receipt_no: receiptNo,
+      project_id: project,
+      donor_name: entry.payer_name || 'Unknown',
+      amount: entry.amount,
+      receipt_date: entry.transaction_date,
+      receipt_time: entry.payment_time,
+      purpose: 'Bank Audit Entry',
+      agent_name: 'Suspense',
+    }).select().single();
+    if (newReceipt) {
+      await db.from('bank_audit_entries').update({ receipt_id: newReceipt.id, receipt_no: receiptNo }).eq('id', entryId);
+    }
+  }
+};
+
 export const verifyEntry = async (id) => {
+  await ensureReceiptNumber(id);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({ status: 'verified', updated_at: new Date().toISOString() })
@@ -393,6 +557,7 @@ export const assignSuspenseToFro = async (id, froId, notes) => {
 };
 
 export const resolveSuspense = async (id, screenshotUrl, donorDetails) => {
+  await ensureReceiptNumber(id);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -444,6 +609,7 @@ export const searchFroDispositions = async (froId, searchTerm) => {
 };
 
 export const linkSuspenseToDonor = async (entryId, donorId) => {
+  await ensureReceiptNumber(entryId);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -461,6 +627,7 @@ export const linkSuspenseToDonor = async (entryId, donorId) => {
 };
 
 export const markSuspenseUnmatched = async (entryId, markedBy) => {
+  await ensureReceiptNumber(entryId);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({

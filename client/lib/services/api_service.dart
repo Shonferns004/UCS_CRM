@@ -230,10 +230,8 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? dailyCode, String? punchMethod}) async {
-    final body = dailyCode != null
-        ? {'daily_code': dailyCode, 'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod}
-        : {'code': code, 'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod};
+  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? punchMethod}) async {
+    final body = {'code': code, 'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod};
     final res = await _post(
       Uri.parse('$baseUrl/attendance/punch-in'),
       headers: await _headers(),
@@ -257,14 +255,29 @@ class ApiService {
     return body;
   }
 
-  static Future<List<Map<String, dynamic>>> getTodayCodes() async {
-    final res = await _get(
-      Uri.parse('$baseUrl/qr/today-codes'),
+  static Future<Map<String, dynamic>> selfiePunch({
+    required String type,
+    required String selfieBase64,
+    required String mimeType,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final res = await _post(
+      Uri.parse('$baseUrl/attendance/selfie-punch'),
       headers: await _headers(),
+      body: jsonEncode({
+        'type': type,
+        'selfie_base64': selfieBase64,
+        'mime_type': mimeType,
+        'latitude': latitude,
+        'longitude': longitude,
+      }),
     );
     final body = jsonDecode(res.body);
-    if (res.statusCode != 200) throw Exception('Failed to get today codes');
-    return body is List ? body.cast<Map<String, dynamic>>() : [];
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(body['message'] ?? 'Selfie punch failed');
+    }
+    return body;
   }
 
   static String _todayCacheKey() {
@@ -443,6 +456,18 @@ class ApiService {
       throw Exception(body is Map ? (body['message'] ?? 'Failed to delete attendance') : 'Failed to delete attendance');
     }
     return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+  }
+
+  // ---- Admin: all leave requests ----
+  static Future<List<dynamic>> getAllLeaves() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/leaves'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch leaves') : 'Failed to fetch leaves');
+    if (body is List) return body;
+    return body['leaves'] ?? [];
   }
 
   // ---- Admin: pending leave requests ----

@@ -1,5 +1,6 @@
 import { useContext } from 'react'
 import { UcsContext } from '../../store'
+import { API_BASE } from '../../lib/apiBase'
 export function useHR() {
   const ctx = useContext(UcsContext)
   if (!ctx) throw new Error('useHR must be used within UcsProvider')
@@ -20,6 +21,11 @@ export function useHR() {
     fetchPendingTickets, fetchAllTickets, fetchTicketCount, verifyTicket, rejectTicket,
     generateQR, fetchQRCodes, removeQRCode,
     fetchSettings, updateSettings,
+    fetchNgoSalarySummary, fetchNgoAllocationSettings, saveNgoAllocationSettings, fetchNgoSummaryList,
+    fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations,
+    fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, generateAllSalaryAllocations,
+    fetchPayments, createPayment, updatePaymentStatus,
+    fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport, fetchNgoSalaryReportFallback,
   }
 }
 
@@ -109,6 +115,54 @@ export const fetchQRCodes = () => apiGet('/qr');
 export const removeQRCode = (id) => apiDelete('/qr/' + id);
 export const fetchSettings = () => apiGet('/settings');
 export const updateSettings = (settings) => apiPut('/settings', settings);
+export const fetchNgoSalarySummary = () => apiGet('/ngo-allocations/summary');
+export const fetchNgoAllocationSettings = () => apiGet('/ngo-allocations/settings');
+export const saveNgoAllocationSettings = (allocations) => apiPut('/ngo-allocations/settings', { allocations });
+export const fetchNgoSummaryList = () => apiGet('/ngos/summary');
+export const fetchWorkerPeopleAllocations = (workerId) => apiGet('/ngo-allocations/workers/' + workerId + '/people');
+export const saveWorkerPeopleAllocations = (workerId, allocations) => apiPut('/ngo-allocations/workers/' + workerId + '/people', { allocations });
+export const fetchWorkerSalaryAlloc = (workerId, month) => apiGet('/ngo-allocations/workers/' + workerId + '/salary' + (month ? '?month=' + month : ''));
+export const saveWorkerSalaryAlloc = (workerId, allocations, month) => apiPut('/ngo-allocations/workers/' + workerId + '/salary' + (month ? '?month=' + month : ''), { allocations, month });
+export const generateWorkerSalaryAlloc = (workerId, month) => apiPost('/ngo-allocations/workers/' + workerId + '/salary/generate' + (month ? '?month=' + month : ''));
+export const generateAllSalaryAllocations = (month) => apiPost('/ngo-allocations/salary/generate-all' + (month ? '?month=' + month : ''));
+export const fetchPayments = (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.month) params.set('month', filters.month);
+  if (filters.ngo_id) params.set('ngo_id', filters.ngo_id);
+  if (filters.worker_id) params.set('worker_id', filters.worker_id);
+  if (filters.status) params.set('status', filters.status);
+  const q = params.toString();
+  return apiGet('/ngo-allocations/payments' + (q ? '?' + q : ''));
+};
+export const createPayment = (data) => apiPost('/ngo-allocations/payments', data);
+export const updatePaymentStatus = (id, status) => apiPut('/ngo-allocations/payments/' + id + '/status', { status });
+export const fetchNgoSalaryReport = (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.month) params.set('month', filters.month);
+  if (filters.ngo_id) params.set('ngo_id', filters.ngo_id);
+  if (filters.worker_id) params.set('worker_id', filters.worker_id);
+  if (filters.status) params.set('status', filters.status);
+  const q = params.toString();
+  return apiGet('/ngo-allocations/report/ngo-salary' + (q ? '?' + q : ''));
+};
+// TEMPORARY fallback for NGO Salary Report only: used when /report/ngo-salary
+// fails on servers that do not yet include the QueryBuilder embedded-order fix.
+// Remove once the backend fix is deployed.
+export const fetchNgoSalaryReportFallback = async (filters = {}) => {
+  const month = String(filters.month || '').replace(/[^0-9-]/g, '');
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('Invalid month');
+  const sql = "SELECT sa.worker_id, w.name AS \"worker_name\", w.employee_id, w.department, sa.ngo_id, n.name AS \"ngo_name\", n.code AS \"ngo_code\", sa.salary_month, sa.allocation_percentage, sa.allocation_amount, COALESCE(p.paid, 0) AS \"paid_amount\", COALESCE(p.st, 'unpaid') AS \"payment_status\" FROM salary_allocations sa LEFT JOIN workers w ON w.id = sa.worker_id LEFT JOIN ngos n ON n.id = sa.ngo_id LEFT JOIN (SELECT worker_id, ngo_id, salary_month, SUM(amount) AS paid, CASE WHEN SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) > 0 THEN 'paid' WHEN SUM(CASE WHEN payment_status = 'processing' THEN 1 ELSE 0 END) > 0 THEN 'processing' ELSE 'unpaid' END AS st FROM salary_payments GROUP BY worker_id, ngo_id, salary_month) p ON p.worker_id = sa.worker_id AND p.ngo_id = sa.ngo_id AND p.salary_month = sa.salary_month WHERE sa.salary_month = '" + month + "-01' ORDER BY n.name ASC";
+  const res = await fetch(API_BASE + '/db/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) });
+  if (!res.ok) throw new Error('Fallback query failed: ' + res.status);
+  const data = await res.json();
+  let rows = data.rows || [];
+  if (filters.ngo_id) rows = rows.filter(r => r.ngo_id === filters.ngo_id);
+  if (filters.worker_id) rows = rows.filter(r => r.worker_id === filters.worker_id);
+  if (filters.status) rows = rows.filter(r => (r.payment_status || 'unpaid') === filters.status);
+  return rows;
+};
+export const fetchEmployeeReport = (workerId) => apiGet('/ngo-allocations/report/employee/' + workerId);
+export const fetchNgoReport = (ngoId, month) => apiGet('/ngo-allocations/report/ngo/' + ngoId + (month ? '?month=' + month : ''));
 export const fetchLoans = () => apiGet('/loans');
 export const fetchPendingLoans = () => apiGet('/loans/pending');
 export const decideLoan = (id, status, monthly_deduction, hr_remark) => apiPut('/loans/' + id + '/decide', { status: status === 'approved' ? 'approved' : 'rejected', monthly_deduction, hr_remark });

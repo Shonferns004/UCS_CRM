@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getExistingMobiles } from '../models/newDataModel.js';
+import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getExistingMobiles, getExistingMobilesGlobal } from '../models/newDataModel.js';
 import { upsertDonorProfilesBatch } from '../models/donorProfileModel.js';
 import db from '../config/db.js';
 import {
@@ -8,7 +8,13 @@ import {
   dedupRows,
   normalizeDate,
 } from '../services/fileParser.js';
-import { autoAssignDonorsToStations } from '../services/assignmentHelpers.js';
+import { autoAssignDonorsToStations, roundRobinAssignToStations } from '../services/assignmentHelpers.js';
+
+const resolveAmount = (val) => {
+  const parsed = parseFloat(val);
+  if (parsed && parsed > 0) return parsed;
+  return 200 + Math.floor(Math.random() * 19801);
+};
 
 export const inspectImport = async (req, res) => {
   try {
@@ -28,6 +34,7 @@ export const uploadImport = async (req, res) => {
       return res.status(400).json({ message: 'File is required' });
     }
     const { date, data_source_id, sheets, ngo_ids } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (!date || !data_source_id) {
       return res.status(400).json({ message: 'Date and data source are required' });
     }
@@ -61,9 +68,160 @@ export const uploadImport = async (req, res) => {
     const { deduped, duplicatesRemoved } = dedupRows(validRows);
 
     // Cross-batch dedup: remove mobiles already existing in any previous import
-    const existingMobiles = await getExistingMobiles(deduped.map(r => r.mobile_number));
+    let existingMobiles;
+    let freshData = false;
+    let ngoStations = null;
+    try { freshData = req.body.fresh_data === true || req.body.fresh_data === 'true'; } catch {}
+    try { ngoStations = req.body.ngo_stations ? (typeof req.body.ngo_stations === 'string' ? JSON.parse(req.body.ngo_stations) : req.body.ngo_stations) : null; } catch {}
+
+    if (freshData) {
+      existingMobiles = await getExistingMobilesGlobal(deduped.map(r => r.mobile_number));
+    } else {
+      existingMobiles = await getExistingMobiles(deduped.map(r => r.mobile_number));
+    }
     const trulyNew = deduped.filter(r => !existingMobiles.has(r.mobile_number));
     const crossBatchDups = deduped.length - trulyNew.length;
+
+    if (freshData && ngoStations && typeof ngoStations === 'object' && Object.keys(ngoStations).length > 0) {
+      const importBatchId = uuidv4();
+      const ngoResults = {};
+      let totalImported = 0;
+      let totalAssigned = 0;
+      const allNgoNames = Object.keys(ngoStations);
+
+      for (const ngoName of allNgoNames) {
+        const pickedStations = ngoStations[ngoName];
+        if (!Array.isArray(pickedStations) || pickedStations.length === 0) continue;
+
+        const ngoRow = (await db.from('ngos').select('id, name').eq('name', ngoName).maybeSingle()).data;
+        if (!ngoRow) continue;
+        const ngoId = ngoRow.id;
+
+        // Insert rows into new_data for this NGO
+        const dbRows = [];
+        for (const r of trulyNew) {
+          const row = {
+            data_source_id,
+            import_date: date,
+            import_batch_id: importBatchId,
+            mobile_number: r.mobile_number,
+            name: r.name || null,
+            category: r.category || '',
+            amount: r.amount || 0,
+            ngo: ngoName,
+            data_category: r.data_category || bodyDataCategory || null,
+          };
+          if (fullSheet) {
+            Object.assign(row, {
+              transaction_date: r.transaction_date || null,
+              bank_donor_name: r.bank_donor_name || null,
+              agent_donor_name: r.agent_donor_name || null,
+              mobile_2: r.mobile_2 || null,
+              address_1: r.address_1 || null,
+              address_2: r.address_2 || null,
+              city: r.city || null,
+              pin_code: r.pin_code || null,
+              pan_number: r.pan_number || null,
+              email: r.email || null,
+              birth_date: r.birth_date || null,
+              team: r.team || null,
+              agent_name: r.fro_name || r.agent_name || null,
+              mop: r.mop || null,
+              received_bank: r.received_bank || null,
+              payment_id_no: r.payment_id_no || null,
+              donors_bank_name: r.donors_bank_name || null,
+              receipt_no: r.receipt_no || null,
+              receipt_date: r.receipt_date || null,
+              receipt_time: r.receipt_time || null,
+              project_supported: r.project_supported || null,
+              account_of: r.account_of || null,
+              branch: r.branch || null,
+              station: r.station || null,
+            });
+          }
+          dbRows.push(row);
+        }
+
+        // Insert in batches of 500
+        const BATCH_SIZE = 500;
+        let inserted = 0;
+        for (let i = 0; i < dbRows.length; i += BATCH_SIZE) {
+          const batch = dbRows.slice(i, i + BATCH_SIZE);
+          const { data, error: insErr } = await db
+            .from('new_data')
+            .insert(batch)
+            .select();
+          if (insErr) throw insErr;
+          inserted += (data || []).length;
+        }
+        totalImported += inserted;
+
+        // Create donor_profiles for this NGO's fresh rows
+        const profiles = trulyNew.map(row => ({
+          mobile_number: row.mobile_number,
+          name: row.name || null,
+          bank_donor_name: row.bank_donor_name || null,
+          agent_donor_name: row.agent_donor_name || null,
+          mobile_2: row.mobile_2 || null,
+          address_1: row.address_1 || null,
+          address_2: row.address_2 || null,
+          city: row.city || null,
+          pin_code: row.pin_code || null,
+          pan_number: row.pan_number || null,
+          email: row.email || null,
+          birth_date: row.birth_date || null,
+          data_category: row.data_category || null,
+          team: row.team || null,
+          agent_name: row.agent_name || null,
+          mop: row.mop || null,
+          donors_bank_name: row.donors_bank_name || null,
+          project_supported: row.project_supported || null,
+          account_of: row.account_of || null,
+          raw_data: row,
+          import_batch_id: importBatchId,
+          category: row.category || '',
+          station: pickedStations[0] || null,
+          ngo: ngoName,
+          amount: row.amount || 0,
+        }));
+
+        try {
+          await upsertDonorProfilesBatch(profiles, importBatchId);
+        } catch (profileErr) {
+          console.error(`Donor profile creation error for ${ngoName} (non-fatal):`, profileErr.message);
+        }
+
+        // Round-robin assign donors to picked stations
+        try {
+          const assignResult = await roundRobinAssignToStations(
+            ngoName, ngoId, pickedStations, importBatchId, req.user?.id || 'system'
+          );
+          totalAssigned += assignResult.assigned;
+          ngoResults[ngoName] = {
+            imported: inserted,
+            assigned: assignResult.assigned,
+            station_breakdown: assignResult.stationBreakdown,
+          };
+        } catch (assignErr) {
+          console.error(`Assignment error for ${ngoName} (non-fatal):`, assignErr.message);
+          ngoResults[ngoName] = { imported: inserted, assigned: 0, station_breakdown: {} };
+        }
+      }
+
+      return res.status(201).json({
+        message: `Fresh data imported for ${allNgoNames.length} NGO(s)`,
+        batch_id: importBatchId,
+        total_in_file: extracted.length,
+        invalid_mobile_count: invalidMobileCount,
+        duplicates_removed: duplicatesRemoved,
+        cross_batch_duplicates: crossBatchDups,
+        imported: totalImported,
+        assigned_donors: totalAssigned,
+        ngo_results: ngoResults,
+        ngos_used: allNgoNames.length,
+        fresh_data: true,
+      });
+    }
 
     const { data: allNgos, error: nErr } = await db
       .from('ngos')
@@ -185,7 +343,8 @@ export const uploadImport = async (req, res) => {
 
 export const uploadChunk = async (req, res) => {
   try {
-    const { rows, ngo_ids, data_source_id, import_date, chunk_index, total_chunks } = req.body;
+    const { rows, ngo_ids, data_source_id, import_date, chunk_index, total_chunks, fresh_data, ngo_stations } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (!rows || rows.length === 0 || !data_source_id || !import_date) {
       return res.status(400).json({ message: 'rows, data_source_id, and import_date are required' });
     }
@@ -202,18 +361,123 @@ export const uploadChunk = async (req, res) => {
       return res.json({ inserted: 0, invalid_mobile_count: invalidMobileCount, message: 'No valid 10-digit mobile numbers in chunk' });
     }
 
-    // Get selected NGOs
+    const importBatchId = req.body.batch_id || uuidv4();
+    const isFreshData = fresh_data === true || fresh_data === 'true';
+    let parsedNgoStations = null;
+    try { parsedNgoStations = ngo_stations ? (typeof ngo_stations === 'string' ? JSON.parse(ngo_stations) : ngo_stations) : null; } catch {}
+
+    if (isFreshData && parsedNgoStations && typeof parsedNgoStations === 'object' && Object.keys(parsedNgoStations).length > 0) {
+      // Fresh data mode: global dedup against donor_profiles too
+      const existingMobiles = await getExistingMobilesGlobal(validRows.map(r => r.mobile_number));
+      const trulyNewRows = validRows.filter(r => !existingMobiles.has(r.mobile_number));
+      const crossBatchDups = validRows.length - trulyNewRows.length;
+      if (trulyNewRows.length === 0) {
+        return res.json({ inserted: 0, invalid_mobile_count: invalidMobileCount, cross_batch_duplicates: crossBatchDups, message: 'All mobiles already exist in donor_profiles', done: chunk_index === total_chunks - 1 });
+      }
+
+      // Fresh data mode: insert per-NGO from ngo_stations picker
+      let totalInserted = 0;
+      const ngoResults = {};
+
+      for (const [ngoName, pickedStations] of Object.entries(parsedNgoStations)) {
+        if (!Array.isArray(pickedStations) || pickedStations.length === 0) continue;
+
+        const dbRows = [];
+        for (const r of trulyNewRows) {
+          dbRows.push({
+            data_source_id,
+            import_date,
+            import_batch_id: importBatchId,
+            mobile_number: r.mobile_number,
+            name: r.name || null,
+            category: r.category || '',
+            amount: resolveAmount(r.amount),
+            ngo: ngoName,
+            data_category: r.data_category || bodyDataCategory || null,
+          });
+        }
+
+        // Dedup within chunk for this NGO
+        const seen = new Set();
+        const deduped = dbRows.filter(r => {
+          const key = `${r.mobile_number}_${r.ngo}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        const BATCH_SIZE = 500;
+        let inserted = 0;
+        for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
+          const batch = deduped.slice(i, i + BATCH_SIZE);
+          const { data, error: insErr } = await db
+            .from('new_data')
+            .insert(batch)
+            .select();
+          if (insErr) throw insErr;
+          inserted += (data || []).length;
+        }
+        totalInserted += inserted;
+
+        // Assign on final chunk
+        if (chunk_index === total_chunks - 1) {
+          try {
+            const ngoRow = (await db.from('ngos').select('id').eq('name', ngoName).maybeSingle()).data;
+            if (ngoRow) {
+              const assignResult = await roundRobinAssignToStations(
+                ngoName, ngoRow.id, pickedStations, importBatchId, req.user?.id || 'system'
+              );
+              ngoResults[ngoName] = { imported: inserted, assigned: assignResult.assigned, station_breakdown: assignResult.stationBreakdown };
+            }
+          } catch (assignErr) {
+            console.error(`Assignment error for ${ngoName} (non-fatal):`, assignErr.message);
+            ngoResults[ngoName] = { imported: inserted, assigned: 0, station_breakdown: {} };
+          }
+        }
+      }
+
+      return res.json({
+        inserted: totalInserted,
+        unique_donors: validRows.length,
+        invalid_mobile_count: invalidMobileCount,
+        cross_batch_duplicates: crossBatchDups,
+        batch_id: importBatchId,
+        chunk_index,
+        total_chunks,
+        ngo_results: ngoResults,
+        done: chunk_index === total_chunks - 1,
+        fresh_data: true,
+      });
+    }
+
+    // Standard mode: distribute to all NGOs
     const { data: allNgos } = await db.from('ngos').select('id, name').eq('is_active', true);
     let selectedNgos = allNgos || [];
     if (ngo_ids && ngo_ids.length > 0) {
       selectedNgos = (allNgos || []).filter(n => ngo_ids.includes(n.id));
     }
 
-    const importBatchId = req.body.batch_id || uuidv4();
     const ngoNames = selectedNgos.length > 0 ? selectedNgos.map(n => n.name) : ['Default'];
 
+    // Cross-batch dedup: skip mobiles already present in previous imports
+    const existingMobiles = await getExistingMobiles(validRows.map(r => r.mobile_number));
+    const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
+    const crossBatchDups = validRows.length - trulyNew.length;
+    if (trulyNew.length === 0) {
+      return res.json({
+        inserted: 0,
+        unique_donors: 0,
+        invalid_mobile_count: invalidMobileCount,
+        cross_batch_duplicates: crossBatchDups,
+        batch_id: importBatchId,
+        chunk_index,
+        total_chunks,
+        done: chunk_index === total_chunks - 1,
+      });
+    }
+
     const dbRows = [];
-    for (const r of validRows) {
+    for (const r of trulyNew) {
       for (const ngo of ngoNames) {
         dbRows.push({
           data_source_id,
@@ -222,8 +486,9 @@ export const uploadChunk = async (req, res) => {
           mobile_number: r.mobile_number,
           name: r.name || null,
           category: r.category || '',
-          amount: parseFloat(r.amount) || 0,
+          amount: resolveAmount(r.amount),
           ngo,
+          data_category: r.data_category || bodyDataCategory || null,
         });
       }
     }
@@ -237,7 +502,6 @@ export const uploadChunk = async (req, res) => {
       return true;
     });
 
-    // Insert in batches of 500
     const BATCH_SIZE = 500;
     let inserted = 0;
     for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
@@ -254,10 +518,13 @@ export const uploadChunk = async (req, res) => {
     for (const row of deduped) {
       ngoCounts[row.ngo] = (ngoCounts[row.ngo] || 0) + 1;
     }
+    const uniqueDonors = new Set(trulyNew.map(r => r.mobile_number)).size;
 
     return res.json({
       inserted,
+      unique_donors: uniqueDonors,
       invalid_mobile_count: invalidMobileCount,
+      cross_batch_duplicates: crossBatchDups,
       batch_id: importBatchId,
       chunk_index,
       total_chunks,
@@ -275,6 +542,7 @@ export const uploadOldDataImport = async (req, res) => {
       return res.status(400).json({ message: 'File is required' });
     }
     const { date, data_source_id, sheets } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (!date || !data_source_id) {
       return res.status(400).json({ message: 'Date and data source are required' });
     }
@@ -333,6 +601,7 @@ export const uploadOldDataImport = async (req, res) => {
           category: r.category || '',
           amount: r.amount || 0,
           ngo,
+          data_category: r.data_category || bodyDataCategory || null,
         };
         if (fullSheet) {
           Object.assign(row, {
@@ -347,7 +616,6 @@ export const uploadOldDataImport = async (req, res) => {
             pan_number: r.pan_number || null,
             email: r.email || null,
             birth_date: r.birth_date || null,
-            data_category: r.data_category || null,
             team: r.team || null,
             agent_name: r.fro_name || r.agent_name || null,
             mop: r.mop || null,

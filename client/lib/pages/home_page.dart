@@ -302,7 +302,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         result['code'] ?? '',
         (result['lat'] as num).toDouble(),
         (result['lng'] as num).toDouble(),
-        dailyCode: result['dailyCode'] as String?,
         punchMethod: result['punch_method'] as String?,
       );
       final lm = (data['lateMinutes'] ?? 0) as int;
@@ -355,7 +354,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
-      MaterialPageRoute(builder: (_) => ScannerPage(delaySeconds: 60)),
+      MaterialPageRoute(builder: (_) => const ScannerPage()),
     );
     if (result == null || !mounted) return;
 

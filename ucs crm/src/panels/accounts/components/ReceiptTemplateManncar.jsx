@@ -5,14 +5,20 @@ import MancareLogo from '../assets/MAANCareLogo.jpeg'
 export default function ReceiptTemplateManncar({ donor, index }) {
   const formattedDate = formatReceiptDate(donor['Receipt Date'])
   const amount = Number(donor['Amount']) || 0
-  const hasRealAddr = donor['Address 1'] && !['NA', 'N/A'].includes(donor['Address 1'].trim())
+  const rawAddr1 = donor['Address 1'] || ''
+  const cleanAddr = rawAddr1.replace(/,?\s*NA$/i, '').trim()
+  const hasRealAddr = cleanAddr && !['NA', 'N/A', ''].includes(cleanAddr)
   const cityState = [donor['City'], donor['State']].filter(Boolean).join(', ')
   const pin = donor['Pincode']
   const hasLocation = cityState || pin
 
   if (donor._dataMissing) {
     return (
-      <div style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'2px solid #e4008d', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6', textAlign:'center' }}>
+      <div
+        data-receipt-sheet
+        data-pdf-width="1000"
+        style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'2px solid #e4008d', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6', textAlign:'center' }}
+      >
         <div style={{ fontSize:'48px', fontWeight:'bold', color:'#e4008d', marginTop:'100px' }}>DATA MISSING</div>
         <div style={{ fontSize:'20px', marginTop:'20px', color:'#666' }}>Receipt for <b>{donor['Donor Name'] || 'Unknown'}</b> could not be generated due to missing mandatory fields.</div>
         <div style={{ fontSize:'18px', marginTop:'30px', color:'#999' }}>Receipt No.: {donor['Receipt No.'] || 'N/A'}</div>
@@ -21,20 +27,26 @@ export default function ReceiptTemplateManncar({ donor, index }) {
   }
 
   return (
-    <div style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'1px solid #ddd', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6' }}>
+    <div
+      data-receipt-sheet
+      data-pdf-width="1000"
+      style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'1px solid #ddd', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6' }}
+    >
       <div style={{ textAlign:'center', fontSize:'25px', fontWeight:'bold', marginTop:'10px' }}>CERTIFICATE OF DONATION</div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
         <div style={{ width:'50%', lineHeight:'1.6', fontSize:'16px' }}>
-          <b>Receipt No.:</b> {donor['Receipt No.']}<br /><br />
+          <b>Receipt No.:</b> {donor['Receipt No.'] || 'NA'}<br /><br />
           Dated : {formattedDate}<br /><br />
-          <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name']?.toUpperCase() || 'Unknown'}</span><br />
-          Address. - {hasRealAddr ? <>{donor['Address 1']}<br />{hasLocation ? <>{cityState}{cityState && pin ? ' - ' : ''}{pin}<br /></> : null}</> : <>NA<br /></>}
-          PAN No. - {donor['PAN No.']}<br />
-          Email - {donor['Email ID']}
+          <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name']?.toUpperCase() || 'NA'}</span><br />
+          Address. - {hasRealAddr ? <>{cleanAddr}<br />{hasLocation ? <>{cityState}{cityState && pin ? ' - ' : ''}{pin}<br /></> : null}</> : <>NA<br /></>}
+          PAN No. - {donor['PAN No.'] || 'NA'}<br />
+          Email - {donor['Email ID'] || 'NA'}
         </div>
         <div style={{ width:'42%', textAlign:'right' }}>
           <img src={MancareLogo} alt="Mann Care Foundation" style={{ width:'200px', height:'auto', display:'block', marginLeft:'auto', marginBottom:'10px' }} />
           <div style={{ color:'#d10087', lineHeight:'1.8', fontSize:'18px' }}>
+            CSR Registration No : CSR00115793<br />
+            Unique Registration No : AAUCM9048BE20261<br />
             CIN No : U88900MH2026NPL471199<br />
             TAN No : MUMM75033A<br />
             Trust PAN Card No : AAUCM9048B
@@ -46,11 +58,10 @@ export default function ReceiptTemplateManncar({ donor, index }) {
       <div style={{ fontSize:'20px', textAlign:'center', marginBottom:'25px' }}>We confirm the receipt of donation from Mr/Ms/Mrs <strong>{donor['Donor Name']?.toUpperCase() || 'Unknown'}</strong> as per details below:-</div>
       <table style={{ width:'80%', margin:'0 auto 30px', borderCollapse:'collapse', fontSize:'18px' }}>
         <tbody>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Donation Date</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formattedDate}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Transaction / Reference Number</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Payment ID No.']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Payment Mode</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Mode of Payment (MOP)']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Bank Name</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Donor Bank Name']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Email Address</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Email ID']}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Donation Date</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formattedDate || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Transaction / Reference Number</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Payment ID No.'] || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Payment Mode</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Mode of Payment (MOP)'] || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Email Address</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Email ID'] || 'NA'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Account Of</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Account Of'] || 'Corpus'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Numbers)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formatIndianCurrency(amount)}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Words)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{amountInWords(amount)} Only</td></tr>

@@ -1,6 +1,7 @@
 const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
+const BSCT_TAGLINE = 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G';
 
-export default function Template1({ personal, education, family, organizations, photo_url }) {
+export default function Template1({ personal, education, family, organizations, photo_url, ngoHeading, ngoAddress, ngoTagline }) {
   return (
     <div className="print-page">
       <style>{`
@@ -24,9 +25,9 @@ export default function Template1({ personal, education, family, organizations, 
       `}</style>
       <div className="t1">
         <div className="header">
-          <h1>Being Sevak Charitable Trust</h1>
+          <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
           <div className="top-line"></div>
-          <div className="subtitle">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+          <div className="subtitle">{ngoTagline || BSCT_TAGLINE}</div>
         </div>
         <div className="form-title">VOLUNTEER JOINING FORM</div>
         <table>
@@ -132,8 +133,7 @@ export default function Template1({ personal, education, family, organizations, 
           </tbody>
         </table>
         <div className="footer">
-          Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
-          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

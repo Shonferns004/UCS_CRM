@@ -23,6 +23,19 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
 
+// Backend-authoritative "current donor" for the controlled queue. Returns a
+// SINGLE donor (the next one the backend chose) plus durable progress, never a
+// list — so the front-end cannot pick or skip the next donor itself.
+export async function getQueueCurrent(options = {}) {
+  const params = new URLSearchParams();
+  if (options.newOnly) params.set('new_only', 'true');
+  if (options.oldOnly) params.set('old_only', 'true');
+  if (options.station) params.set('station', options.station);
+  if (options.ngoId) params.set('ngo_id', options.ngoId);
+  const qs = params.toString();
+  return api(`/fro/queue/current${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
+}
+
 export async function getDonorDetail(donorId, ngoId) {
   const params = ngoId ? `?ngo_id=${ngoId}` : ''
   return api(`/fro/donors/${donorId}/logs${params}`, { _prefix: 'ucs' })
@@ -63,8 +76,9 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
-export async function getMyCollections() {
-  return api('/fro/dashboard/collections', { _prefix: 'ucs' })
+export async function getMyCollections(ngoId) {
+  const params = ngoId ? `?ngo_id=${ngoId}` : ''
+  return api(`/fro/dashboard/collections${params}`, { _prefix: 'ucs' })
 }
 
 export async function getSuspenseReceipts() {
@@ -94,6 +108,10 @@ export async function getScheduled() {
 
 export async function getCallbacks() {
   return api('/fro/callbacks', { _prefix: 'ucs' })
+}
+
+export async function getPromises() {
+  return api('/fro/promises', { _prefix: 'ucs' })
 }
 
 export async function markDonorSeen(donorId, ngoId) {

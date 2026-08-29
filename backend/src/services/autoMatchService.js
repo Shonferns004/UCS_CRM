@@ -103,13 +103,25 @@ export const scoreEntryLead = (entry, lead) => {
 // and generates it into receipts).
 const linkSuspenseToLead = async (receipt, lead) => {
   const donor = lead.fro_assignments?.donor_profiles || {};
-  const worker = lead.fro_assignments?.workers || {};
+  // Agent stamp comes from whoever actually collected: the lead's credited
+  // worker (the acting FRO during Work As). Assignment owner is only the
+  // fallback when they are the same person.
+  let agentName = null;
+  if (lead.fro_worker_id) {
+    if (String(lead.fro_worker_id) === String(lead.fro_assignments?.fro_worker_id)) {
+      agentName = lead.fro_assignments?.workers?.name || null;
+    } else {
+      const { data: cwRow } = await db.from('workers').select('name').eq('id', lead.fro_worker_id).maybeSingle();
+      agentName = cwRow?.name || null;
+    }
+  }
+  if (!agentName) agentName = lead.fro_assignments?.workers?.name || null;
   const receiptPatch = {
     log_id: lead.id,
     donor_id: donor.id || null,
     donor_name: donor.name || receipt.donor_name || null,
     donor_mobile: donor.mobile_number || null,
-    agent_name: worker?.name || null,
+    agent_name: agentName,
     project_id: receipt.project_id || donor.project_supported || 'bsct',
     pan_number: donor.pan_number || null,
     address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
@@ -151,7 +163,131 @@ const linkSuspenseToLead = async (receipt, lead) => {
 };
 
 // ─── Engine ────────────────────────────────────────────────
+// ─── Payment-id receipt pass ───────────────────────────────
+// Statement rows whose payment id / UTR already has a receipt are DONE — they
+// were collected and receipted outside the audit flow, so nobody ever flipped
+// the entry's status. Verify + link such entries automatically when the match
+// is unambiguous. Tier 1: identical normalized payment id + identical amount.
+// Tier 2: FROs often key their own reference (or typo the UTR), so fall back
+// to a UNIQUE same-amount, +-1-day, shared-name-token receipt — only when
+// exactly one such receipt exists. Tier 3: bank statements sometimes mask the
+// payer name entirely ("R***************"), so match on the payer's mobile
+// instead when the name yields no tokens.
+const normPay = (v) => String(v || '').replace(/[^A-Za-z0-9]/g, '');
+const normTokens = (v) => String(v || '')
+  .toLowerCase()
+  .replace(/\s*\(.*?\)\s*/g, ' ')
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .split(' ')
+  .filter((w) => w.length >= 3 && !TITLES.has(w));
+
+export const linkEntriesWithReceipts = async () => {
+  const { data: entries, error: eErr } = await db
+    .from('bank_audit_entries')
+    .select('id, amount, payment_id, transaction_date, payer_name, donor_mobile')
+    .eq('status', 'unverified')
+    .is('receipt_id', null);
+  if (eErr) throw eErr;
+
+  const { data: receipts, error: rErr } = await db
+    .from('receipts')
+    .select('id, receipt_no, amount, payment_id, donor_id, agent_name, donor_name, donor_mobile, receipt_date')
+    .not('donor_mobile', 'is', null)
+    .gte('receipt_date', new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10));
+  if (rErr) throw rErr;
+
+  // A receipt can settle at most one statement row.
+  const { data: claimed, error: cErr } = await db
+    .from('bank_audit_entries')
+    .select('receipt_id')
+    .not('receipt_id', 'is', null);
+  if (cErr) throw cErr;
+  const claimedIds = new Set((claimed || []).map((x) => String(x.receipt_id)));
+
+  const byPay = new Map();
+  for (const r of receipts || []) {
+    const k = normPay(r.payment_id);
+    if (!k) continue;
+    if (!byPay.has(k)) byPay.set(k, []);
+    byPay.get(k).push(r);
+  }
+  const dayMs = 86400000;
+  const withinDay = (r, entry) =>
+    Math.abs(new Date(r.receipt_date).getTime() - new Date(entry.transaction_date).getTime()) <= dayMs;
+  const sameAmount = (r, entry) =>
+    Math.abs(parseFloat(r.amount || 0) - parseFloat(entry.amount || 0)) < 0.01;
+  const fuzzyCandidates = (entry, pool) => {
+    const etoks = normTokens(entry.payer_name);
+    if (!etoks.length) return [];
+    const eday = new Date(entry.transaction_date).getTime();
+    return pool.filter((r) => {
+      if (Math.abs(parseFloat(r.amount || 0) - parseFloat(entry.amount || 0)) >= 0.01) return false;
+      if (Math.abs(new Date(r.receipt_date).getTime() - eday) > dayMs) return false;
+      const rtoks = normTokens(r.donor_name);
+      return etoks.some((t) => rtoks.includes(t));
+    });
+  };
+  const mobileCandidates = (entry, pool) => {
+    const mob = String(entry.donor_mobile || '').replace(/\D/g, '');
+    if (mob.length < 10) return [];
+    return pool.filter(
+      (r) => sameAmount(r, entry) && withinDay(r, entry) && String(r.donor_mobile).replace(/\D/g, '') === mob
+    );
+  };
+
+  const usedReceipts = new Set();
+  let linked = 0;
+  for (const entry of entries || []) {
+    let pick = null;
+    const k = normPay(entry.payment_id);
+    if (k) {
+      const cands = (byPay.get(k) || [])
+        .filter((r) => !claimedIds.has(String(r.id)) && !usedReceipts.has(String(r.id)))
+        .filter((r) => Math.abs(parseFloat(r.amount || 0) - parseFloat(entry.amount || 0)) < 0.01);
+      if (cands.length === 1) pick = { receipt: cands[0], source: 'payment_id' };
+    }
+    if (!pick) {
+      const pool = (receipts || []).filter((r) => !claimedIds.has(String(r.id)) && !usedReceipts.has(String(r.id)));
+      const cands = fuzzyCandidates(entry, pool);
+      if (cands.length === 1) pick = { receipt: cands[0], source: 'receipt_fuzzy' };
+    }
+    if (!pick) {
+      const pool = (receipts || []).filter((r) => !claimedIds.has(String(r.id)) && !usedReceipts.has(String(r.id)));
+      const cands = mobileCandidates(entry, pool);
+      if (cands.length === 1) pick = { receipt: cands[0], source: 'receipt_mobile' };
+    }
+    if (!pick) continue;
+    const r = pick.receipt;
+    const matchNo = await nextMatchNo();
+    const { error: uErr } = await db
+      .from('bank_audit_entries')
+      .update({
+        status: 'verified',
+        match_status: 'matched',
+        match_source: pick.source,
+        match_no: matchNo,
+        matched_at: new Date().toISOString(),
+        receipt_id: r.id,
+        receipt_no: r.receipt_no,
+        donor_id: r.donor_id,
+        agent_name: r.agent_name,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', entry.id)
+      .eq('status', 'unverified');
+    if (uErr) throw uErr;
+    usedReceipts.add(String(r.id));
+    linked++;
+  }
+  return linked;
+};
+
 export const findAutoMatches = async () => {
+  // Settle UTR-backed entries first so they never reach lead matching.
+  await linkEntriesWithReceipts();
+
   const { data: entries, error: eErr } = await db
     .from('bank_audit_entries')
     .select('id, amount, payer_name, payment_id, transaction_date, project_id, receipt_id, status')
@@ -163,7 +299,7 @@ export const findAutoMatches = async () => {
   const { data: leads, error: lErr } = await db
     .from('fro_donor_logs')
     .select(`
-      id, amount_collected, upi_transaction_id, transaction_datetime, verified_at, created_at,
+      id, fro_worker_id, amount_collected, upi_transaction_id, transaction_datetime, verified_at, created_at,
       fro_assignments!inner(
         donor_id,
         fro_worker_id,

@@ -10,12 +10,17 @@ export default function Leaves() {
   const [selectedLeave, setSelectedLeave] = useState(null);
   const [remark, setRemark] = useState('');
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('active');
 
   useEffect(() => {
     let cancelled = false;
     fetchLeaves().then(data => { if (!cancelled) setLeaves(data); }).catch((err) => { console.error('API error:', err.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  const activeLeaves = leaves.filter(l => l.status === 'pending');
+  const historyLeaves = leaves.filter(l => l.status !== 'pending');
+  const displayLeaves = tab === 'active' ? activeLeaves : historyLeaves;
 
   const handleDecide = async (id, status) => {
     try {
@@ -47,12 +52,17 @@ export default function Leaves() {
         <div className="card-head">
           <h3>Leave requests</h3>
           <span className="sub">
-            {leaves.filter(l => l.status === 'pending').length} pending
+            {activeLeaves.length} pending
           </span>
           <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()} style={{ marginLeft: 'auto' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
             Reload
           </button>
+        </div>
+
+        <div className="tabs">
+          <button className={'tab' + (tab === 'active' ? ' active' : '')} onClick={() => setTab('active')}>Active ({activeLeaves.length})</button>
+          <button className={'tab' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>History ({historyLeaves.length})</button>
         </div>
 
         <table>
@@ -69,7 +79,7 @@ export default function Leaves() {
             {loading ? (
               <SkeletonRows rows={5} widths={[120, 70, 40, 80, 90]} />
             ) : (
-              leaves.map(l => (
+              displayLeaves.map(l => (
               <tr key={l.id} onClick={() => openLeaveDetail(l)} style={{ cursor: 'pointer' }}>
                 <td style={{ fontWeight: 500 }}>
                   {l.workers?.name || l.name || 'Unknown'}
@@ -84,8 +94,8 @@ export default function Leaves() {
               </tr>
               ))
             )}
-            {!loading && !leaves.length && (
-              <tr><td colSpan={5}><div className="empty">No leave requests.</div></td></tr>
+            {!loading && !displayLeaves.length && (
+              <tr><td colSpan={5}><div className="empty">No {tab === 'active' ? 'pending' : ''} leave requests.</div></td></tr>
             )}
           </tbody>
         </table>
@@ -188,7 +198,7 @@ export default function Leaves() {
                     fontSize: '14px', fontWeight: 700, color: '#111827', textTransform: 'capitalize',
                     fontFamily: "'Inter', sans-serif"
                   }}>
-                    {selectedLeave.type?.replace('_', ' ') || 'Half Day'}
+                    {selectedLeave.type?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Half Day'}
                   </div>
                 </div>
                 <div>

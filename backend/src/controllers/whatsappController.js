@@ -138,7 +138,7 @@ export async function sendReceipt(req, res) {
       }
 
       if (!clientDonorName || !clientAmount || !donorProject || !receiptRow) {
-        const { data: log, error: logError } = await db
+        const { data: logs, error: logError } = await db
           .from('fro_donor_logs')
           .select(`
             amount_collected,
@@ -148,8 +148,9 @@ export async function sendReceipt(req, res) {
             )
           `)
           .eq('id', logId)
-          .single();
+          .limit(1);
 
+        const log = logs?.[0] || null;
         if (!logError && log) {
           const assignment = Array.isArray(log.fro_assignments) ? log.fro_assignments[0] : log.fro_assignments;
           const donor = Array.isArray(assignment?.donor_profiles) ? assignment?.donor_profiles[0] : assignment?.donor_profiles;
@@ -277,7 +278,7 @@ export async function sendDirect(req, res) {
 
     const phone = String(to).replace(/[^0-9]/g, '');
     const tpl = templateName || 'bsct_receipt';
-    const lang = templateLang || 'en_US';
+    const lang = (templateLang || 'en').replace(/_.*/, '');
     const donorProject = project || TEMPLATE_PROJECT_MAP[tpl] || 'bsct';
 
     const account = await resolveAccount(donorProject);
