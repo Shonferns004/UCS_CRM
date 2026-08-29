@@ -469,7 +469,12 @@ export const ensureReceiptNumber = async (entryId) => {
     .single();
   if (!entry) return;
 
-  const project = canonicalProject(entry.project_id || 'bsct');
+  // The receipt's NGO decides its number sequence. Never silently force 'bsct':
+  // an entry whose NGO is unknown (e.g. an Ashray donation with no assignment /
+  // stale project_supported) must NOT draw a number from the Being Sevak counter.
+  // Such entries are left unnumbered until their real NGO is set.
+  const project = canonicalProject(entry.project_id);
+  if (!project) return;
 
   if (entry.receipt_id) {
     const { data: receipt } = await db

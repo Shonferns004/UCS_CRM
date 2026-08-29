@@ -111,7 +111,14 @@ const creditReceipt = async (r, donor, worker, ngoId) => {
   );
   const logId = ins.rows[0].id;
 
-  const no = await client.query(`SELECT next_receipt_no($1) AS n`, [r.project_id || 'bsct']);
+  if (!r.project_id) {
+    // No known NGO for this receipt — never draw a number from the Being Sevak
+    // counter. Leave it unnumbered so it can be attributed to the right NGO.
+    const err = new Error('No project_id for receipt — cannot allocate a receipt number safely.');
+    err.code = 'NO_PROJECT';
+    throw err;
+  }
+  const no = await client.query(`SELECT next_receipt_no($1) AS n`, [r.project_id]);
   const receiptNo = String(no.rows[0].n);
 
   await client.query(

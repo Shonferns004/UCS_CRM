@@ -381,8 +381,10 @@ export const addEntry = async (req, res) => {
 
     // The receipt's project decides its number sequence. The linked receipt /
     // picked donor win; the form value is next; never silently force 'bsct'
-    // (that is what gave Ashray money the next BSCT number).
-    const ngo = link?.receipt?.project_id || resolvedDonor?.project_supported || project_id || 'bsct';
+    // (that is what gave Ashray money the next BSCT number). When no NGO can be
+    // determined, leave it null so the entry stays unnumbered instead of
+    // stealing a number from the Being Sevak counter.
+    const ngo = link?.receipt?.project_id || resolvedDonor?.project_supported || project_id || null;
 
     // Donor-derived fields for the receipt + bank_audit_entries row. A linked
     // lead wins; a picked donor profile is next; otherwise fall back to the
@@ -1252,7 +1254,13 @@ export const manualVerifyEntry = async (req, res) => {
     const amount = Number(entry.amount || 0);
     const now = new Date().toISOString();
     const VALID_PROJECT_OVERRIDES = ['library', 'pg'];
-    const project = (project_id && VALID_PROJECT_OVERRIDES.includes(project_id)) ? project_id : (entry.project_id || 'bsct');
+    // Never silently force 'bsct' as the number sequence: an entry whose NGO is
+    // unknown (e.g. Ashray money with no resolvable project) must NOT draw from
+    // the Being Sevak counter. Require the NGO before numbering instead.
+    const project = (project_id && VALID_PROJECT_OVERRIDES.includes(project_id)) ? project_id : BankAudit.canonicalProject(entry.project_id || req.body.project_id || null);
+    if (!project) {
+      return res.status(400).json({ message: 'Receipt NGO is unknown. Please set the NGO for this entry before verifying.' });
+    }
     const entryAddress = [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null;
     const ngoId = await BankAudit.ngoIdFromProjectId(project);
 
