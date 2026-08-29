@@ -845,6 +845,35 @@ export const rejectLead = async (req, res) => {
       await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
     } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
 
+    // Fully revert the linked bank audit entry so the money leaves the matched
+    // state and re-enters the unclaimed suspense pool: clear the claim match
+    // (matched_lead_log_id / match_status / match_no / matched_by/at) and the
+    // claim-linked donor fields, and set status back to unverified. Without
+    // this the entry keeps an orange "MATCHED" line and is excluded from the
+    // FRO suspense pool (which filters matched_lead_log_id IS NULL), so the
+    // rejected money can never be claimed again. The entry keeps its
+    // receipt_id so the receipt (number intact) returns to the pool too.
+    try {
+      await db.from('bank_audit_entries').update({
+        status: 'unverified',
+        matched_lead_log_id: null,
+        match_status: null,
+        match_source: null,
+        match_no: null,
+        matched_by: null,
+        matched_at: null,
+        donor_id: null,
+        donor_mobile: null,
+        donor_email: null,
+        donor_pan: null,
+        donor_address_1: null,
+        donor_address_2: null,
+        donor_city: null,
+        donor_pin_code: null,
+        updated_at: new Date().toISOString(),
+      }).eq('matched_lead_log_id', logId);
+    } catch (err) { console.error('Failed to revert bank audit entry on lead rejection:', err.message); }
+
     if (log.fro_assignments?.donor_id) {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
