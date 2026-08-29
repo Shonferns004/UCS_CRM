@@ -1,9 +1,12 @@
 import db from '../config/db.js';
+import { canonicalProject } from './bankAuditModel.js';
 
 export const createReceipt = async (data) => {
+  const normalized = { ...data };
+  if (data.project_id !== undefined) normalized.project_id = canonicalProject(data.project_id);
   const { data: result, error } = await db
     .from('receipts')
-    .insert([data])
+    .insert([normalized])
     .select()
     .single();
   if (error) throw error;

@@ -13,6 +13,7 @@ import taskRoutes from './routes/taskRoutes.js';
 import qrRoutes from './routes/qrRoutes.js';
 import attendanceRoutes from './routes/attendanceRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
+import teamRoutes from './routes/teamRoutes.js';
 import leaveRoutes from './routes/leaveRoutes.js';
 import ngoRoutes from './routes/ngoRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -62,6 +63,10 @@ import configRoutes from './routes/configRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
 import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
+import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
+import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
+import simCardRoutes from './routes/simCardRoutes.js';
+import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -135,6 +140,16 @@ app.get(['/api/shon', '/api/test-shon'], (req, res) => {
   res.json({ message: 'hello how are you shon' });
 });
 
+app.get('/api/fro-count', async (req, res) => {
+  try {
+    const { count } = await db.from('workers').select('id', { count: 'exact', head: true }).eq('department', 'fro');
+    const { data: rows } = await db.from('workers').select('id, name, login_id, is_active').eq('department', 'fro');
+    res.json({ fro_count: count, workers: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 app.use('/api/auth', authRoutes);
@@ -144,6 +159,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/qr', qrRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/teams', teamRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/ngos', ngoRoutes);
 app.use('/api/users', userRoutes);
@@ -180,6 +196,7 @@ app.use('/api/accounts/email-import', emailImportRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp', whatsappEnhancementsRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
@@ -195,6 +212,13 @@ app.use('/api/config', configRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/envadmin', envAdminRoutes);
 app.use('/api/temp-cleanup', tempCleanupRoutes);
+app.use('/api/ngo-allocations', ngoAllocationRoutes);
+app.use('/api/sim-cards', simCardRoutes);
+app.use('/api/sim-inventory', simInventoryRoutes);
+
+app.get('/api/deploy-test', (req, res) => {
+  res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });
+});
 
 import multer from 'multer';
 const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -688,17 +712,6 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
-    app.post('/api/cron/generate-daily-codes', async (req, res) => {
-      try {
-        const { generateDailyCodes } = await import('./services/dailyCodeService.js');
-        const result = await generateDailyCodes();
-        res.json(result);
-      } catch (error) {
-        console.error('Daily codes cron error:', error.message);
-        res.status(500).json({ success: false, message: error.message });
-      }
-    });
-
     app.post('/api/cron/razorpay-sync', requireCronAuth, async (req, res) => {
       try {
         const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
@@ -745,15 +758,9 @@ async function checkLeavesTable() {
 }
 
 if (!process.env.VERCEL) {
-  try {
-    const { ensureEventHeadSchema } = await import('./bootstrap/ensureEventHeadSchema.js');
-    await ensureEventHeadSchema();
-    console.log('Event Head schema bootstrap: OK');
-  } catch (err) {
-    console.warn('Event Head schema bootstrap failed (idempotent, will retry next boot):', err && err.message ? err.message : err);
-  }
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', async () => {
     _log(`Server running on port ${PORT}`);
+    await db.testConnection();
     checkLeavesTable();
     import('./services/notificationScheduler.js');
   });

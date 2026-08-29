@@ -69,7 +69,7 @@ function validateAllocations(allocations, salary) {
 
 export const addWorker = async (req, res) => {
   try {
-    const { name, email, gender, dob, ngo_id, department, allocations } = req.body;
+    const { name, email, gender, dob, ngo_id, department, allocations, team } = req.body;
     if (!name) {
       return res.status(400).json({ message: 'Name is required' });
     }
@@ -96,6 +96,7 @@ export const addWorker = async (req, res) => {
       dob: dob || null,
       ngo_id: (finalAllocations && finalAllocations[0]?.ngo_id) || req.user.ngo_id || null,
       department: department || null,
+      team: team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null,
       created_by: req.user.id,
     };
 
@@ -151,6 +152,7 @@ export const bulkAddWorkers = async (req, res) => {
         gender: w.gender || null,
         dob: w.dob || null,
         ngo_id: w.ngo_id || (w.allocations?.[0]?.ngo_id) || req.user.ngo_id || null,
+        team: w.team != null && String(w.team).trim() !== '' ? String(w.team).trim().toUpperCase() : null,
         created_by: req.user.id,
       });
     }
@@ -184,7 +186,7 @@ export const bulkAddWorkers = async (req, res) => {
 
 export const getWorkers = async (req, res) => {
   try {
-    const ngoId = req.user.role === 'hr' ? null : (req.user.ngo_id || req.query.ngo_id);
+    const ngoId = ['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id);
     const status = req.query.status || 'active';
     const workers = await getAllWorkers(ngoId, status);
     const salaries = await Promise.all(workers.map(w =>
@@ -204,6 +206,7 @@ export const getWorkers = async (req, res) => {
         phone: w.phone,
         alternate_phone: w.alternate_phone,
         department: w.department,
+        team: w.team || null,
         address: w.address,
         city: w.city,
         state: w.state,
@@ -341,6 +344,7 @@ export const editWorker = async (req, res) => {
       employment_status,
       education, family, previous_organizations, references,
       declaration_date, declaration_place,
+      team,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -350,6 +354,7 @@ export const editWorker = async (req, res) => {
     if (phone !== undefined) updates.phone = phone;
     if (alternate_phone !== undefined) updates.alternate_phone = alternate_phone;
     if (department !== undefined) updates.department = department;
+    if (team !== undefined) updates.team = team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null;
     if (address !== undefined) updates.address = address;
     if (city !== undefined) updates.city = city;
     if (state !== undefined) updates.state = state;

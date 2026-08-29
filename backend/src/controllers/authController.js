@@ -2,10 +2,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import db from '../config/db.js';
-import { getWorkerByLoginId, getWorkerById } from '../models/workerModel.js';
-import { getUserByEmail, getUserByName, getUserById } from '../models/userModel.js';
-import { getHRByEmail } from '../models/hrModel.js';
+import { getWorkerByLoginId, getWorkerById, updateWorker } from '../models/workerModel.js';
+import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
+import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
+import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } from '../models/workAsSessionModel.js';
 
 dotenv.config();
 
@@ -295,27 +296,45 @@ export const impersonateFRO = async (req, res) => {
     // "108a3f4e-..." to 108 and fail the uuid comparison in Postgres).
     const target = await getWorkerById(String(worker_id).trim());
     if (!target) return res.status(404).json({ message: 'Worker not found' });
-    if (target.is_active === false || target.employment_status === 'terminated') {
-      return res.status(403).json({ message: 'Account is deactivated' });
-    }
 
     const targetDept = String(target.department || '').toLowerCase().trim();
     if (targetDept !== 'fro') {
       return res.status(400).json({ message: 'Only FRO workers can be impersonated' });
     }
 
+    // Any staff role may work as any FRO (the list shows everyone): each switch
+    // is gated by a fresh single-use admin-generated code below, which is the
+    // real authorization. Deactivated FROs stay selectable for data coverage.
     const operatorRole = req.user.role;
-    const operatorDept = String(req.user.department || '').toLowerCase().trim();
-    const isSuper = operatorRole === 'super_admin' || operatorRole === 'master';
-    const isNgoAdmin = operatorRole === 'admin' || operatorDept === 'ngo admin';
-    const isOperatorFro = operatorRole === 'fro' || operatorDept === 'fro';
-
-    if (!isSuper && !isNgoAdmin && !isOperatorFro) {
+    if (!['fro', 'super_admin', 'master', 'admin', 'accounts', 'hr'].includes(operatorRole)) {
       return res.status(403).json({ message: 'Not allowed to impersonate an FRO' });
     }
 
-    if (!isSuper && req.user.ngo_id && target.ngo_id && req.user.ngo_id !== target.ngo_id) {
-      return res.status(403).json({ message: 'Can only impersonate FROs of your own NGO' });
+    // "Who are you?" step: the operator optionally identifies which FRO worker
+    // they are so credit goes to the correct person. When imposter_worker_id is
+    // provided, validate it and use it as the imposter identity in the JWT.
+    let imposterId = req.user.id;
+    let imposterName = req.user.name || '';
+    // Resolve the operator's display name. New worker tokens carry it, but older
+    // sessions / admin accounts may not — fall back to a DB lookup.
+    if (!imposterName && req.user.id != null) {
+      const opWorker = await getWorkerById(String(req.user.id));
+      if (opWorker?.name) imposterName = opWorker.name;
+      else {
+        const opUser = await getUserById(req.user.id);
+        if (opUser?.name) imposterName = opUser.name;
+      }
+    }
+    const { imposter_worker_id } = req.body;
+    if (imposter_worker_id && String(imposter_worker_id) !== String(req.user.id)) {
+      const imposterWorker = await getWorkerById(String(imposter_worker_id).trim());
+      if (!imposterWorker) return res.status(404).json({ message: 'Acting FRO worker not found' });
+      const impDept = String(imposterWorker.department || '').toLowerCase().trim();
+      if (impDept !== 'fro') return res.status(400).json({ message: 'Acting FRO must be an FRO worker' });
+      imposterId = imposterWorker.id;
+      imposterName = imposterWorker.name || '';
+    } else if (imposter_worker_id && String(imposter_worker_id) === String(req.user.id)) {
+      // Picking yourself — use the JWT's existing identity, no worker validation needed.
     }
 
     // Work-as FRO requires a valid admin-generated 4-digit code (single use, 5-min expiry).
@@ -325,7 +344,7 @@ export const impersonateFRO = async (req, res) => {
       return res.status(400).json({ message: 'A 4-digit code is required to impersonate an FRO' });
     }
 
-    const codeRow = await findValidImpersonationCode(codeStr, req.user.ngo_id || null);
+    const codeRow = await findValidImpersonationCode(codeStr);
     if (!codeRow) {
       return res.status(400).json({ message: 'Invalid or expired code' });
     }
@@ -335,49 +354,100 @@ export const impersonateFRO = async (req, res) => {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
-    // Resolve the operator's display name. New worker tokens carry it, but older
-    // sessions / admin accounts may not — fall back to a DB lookup.
-    let imposterName = req.user.name || '';
-    if (!imposterName && req.user.id != null) {
-      const opWorker = await getWorkerById(String(req.user.id));
-      if (opWorker?.name) imposterName = opWorker.name;
-      else {
-        const opUser = await getUserById(req.user.id);
-        if (opUser?.name) imposterName = opUser.name;
+    // Station-scoped work-as: the operator picks which of the target's stations
+    // they will work. Claimed pairs are locked for the session duration so
+    // another operator acting as the same FRO cannot take them too. Omitted
+    // stations field = unrestricted (legacy behaviour).
+    let actStations = null;
+    const rawStations = Array.isArray(req.body?.stations) ? req.body.stations : null;
+    if (rawStations) {
+      const { data: owned, error: ownErr } = await db
+        .from('fro_station_assignments')
+        .select('station, ngo_id')
+        .eq('fro_worker_id', target.id);
+      if (ownErr) throw ownErr;
+      const ownedKeys = new Map((owned || []).map((a) => [`${a.ngo_id ?? ''}|${String(a.station).trim()}`, { ngo_id: a.ngo_id, station: a.station }]));
+      if (ownedKeys.size === 0) {
+        return res.status(400).json({ message: `${target.name} has no stations assigned to work on` });
       }
+
+      let wantedPairs;
+      if (rawStations.includes('all')) {
+        wantedPairs = [...ownedKeys.values()];
+      } else {
+        wantedPairs = [];
+        for (const r of rawStations) {
+          // Strict shape check: rejects PowerShell/JSON-mangled entries like
+          // "@{ngo_id=...;station=...}" that would otherwise poison the JWT
+          // claim and silently blind the whole session.
+          if (!r || typeof r !== 'object' || r.station == null) {
+            return res.status(400).json({ message: 'Invalid stations payload: each entry must be {ngo_id, station}' });
+          }
+          const key = `${r.ngo_id ?? ''}|${String(r.station).trim()}`;
+          if (!ownedKeys.has(key)) {
+            return res.status(400).json({ message: `Station ${r.station} is not assigned to ${target.name}` });
+          }
+          wantedPairs.push(ownedKeys.get(key));
+        }
+      }
+
+      // Switching targets frees this operator's previous work-as sessions first.
+      await releaseOperatorSessions(req.user.id);
+      const claim = await claimStations({
+        targetWorkerId: target.id,
+        pairs: wantedPairs,
+        operatorUserId: req.user.id,
+        operatorName: imposterName,
+      });
+      if (claim.conflict?.length > 0) {
+        return res.status(409).json({
+          message: 'Some selected stations are already being worked by others',
+          conflicts: claim.conflict,
+        });
+      }
+      actStations = claim.ok;
+    } else {
+      // Unrestricted switch still supersedes any earlier scoped session.
+      await releaseOperatorSessions(req.user.id);
     }
 
+    const tokenPayload = {
+      id: target.id,
+      login_id: target.login_id,
+      ngo_id: target.ngo_id,
+      role: 'fro',
+      department: target.department || 'fro',
+      name: target.name,
+      impersonation: true,
+      imposter_id: imposterId,
+      imposter_name: imposterName,
+    };
+    if (actStations && actStations.length > 0) tokenPayload.act_stations = actStations;
+
     const token = jwt.sign(
-      {
-        id: target.id,
-        login_id: target.login_id,
-        ngo_id: target.ngo_id,
-        role: 'fro',
-        department: target.department || 'fro',
-        name: target.name,
-        impersonation: true,
-        imposter_id: req.user.id,
-        imposter_name: imposterName,
-      },
+      tokenPayload,
       process.env.JWT_SECRET,
       { expiresIn: TOKEN_EXPIRY }
     );
 
+    const userPayload = {
+      id: target.id,
+      name: target.name,
+      email: target.email,
+      login_id: target.login_id,
+      ngo_id: target.ngo_id,
+      role: 'fro',
+      department: target.department,
+      impersonation: true,
+      imposter_id: imposterId,
+      imposter_name: imposterName,
+    };
+    if (actStations && actStations.length > 0) userPayload.act_stations = actStations;
+
     return res.json({
       token,
       role: 'fro',
-      user: {
-        id: target.id,
-        name: target.name,
-        email: target.email,
-        login_id: target.login_id,
-        ngo_id: target.ngo_id,
-        role: 'fro',
-        department: target.department,
-        impersonation: true,
-        imposter_id: req.user.id,
-        imposter_name: imposterName,
-      },
+      user: userPayload,
       message: `Working as ${target.name}`,
     });
   } catch (error) {
@@ -386,25 +456,144 @@ export const impersonateFRO = async (req, res) => {
 };
 
 // FROs the current user is allowed to impersonate (for the "Work as" picker).
+// Every worker whose department normalises to 'fro' is listed — including
+// deactivated ones, which the UI marks Inactive. btrim/lower matching so
+// padded or differently-cased departments never hide a name. Every FRO is
+// listed regardless of NGO or active status — each switch is individually
+// authorized by a fresh admin-generated 4-digit code anyway.
 export const getFroWorkersForImpersonation = async (req, res) => {
   try {
-    const operatorRole = req.user.role;
-    const operatorDept = String(req.user.department || '').toLowerCase().trim();
-    const isSuper = operatorRole === 'super_admin' || operatorRole === 'master';
-
-    let query = db
-      .from('workers')
-      .select('id, name, login_id, ngo_id, department')
-      .ilike('department', 'fro');
-
-    if (!isSuper && req.user.ngo_id) {
-      query = query.eq('ngo_id', req.user.ngo_id);
-    }
-
-    const { data, error } = await query.order('name', { ascending: true });
+    const { rows, error } = await db._pool.query(
+      `SELECT id, name, login_id, ngo_id, department, is_active, employment_status
+         FROM workers
+        WHERE lower(btrim(coalesce(department, ''))) = 'fro'
+        ORDER BY name ASC`
+    );
     if (error) throw error;
 
-    return res.json({ workers: (data || []).filter((w) => w.id !== req.user.id) });
+    return res.json({ workers: (rows || []).filter((w) => String(w.id) !== String(req.user.id)) });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Stations of the FRO the operator wants to work as, with live availability:
+// which pairs are already claimed by other operators (and by whom). Powers the
+// station picker in the Work As flow.
+export const getFroWorkAsStations = async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const target = await getWorkerById(String(workerId || '').trim());
+    if (!target) return res.status(404).json({ message: 'Worker not found' });
+
+    const targetDept = String(target.department || '').toLowerCase().trim();
+    if (targetDept !== 'fro') {
+      return res.status(400).json({ message: 'Only FRO workers can be worked as' });
+    }
+
+    const { data: assigns, error: aErr } = await db
+      .from('fro_station_assignments')
+      .select('station, ngo_id')
+      .eq('fro_worker_id', target.id)
+      .order('station', { ascending: true });
+    if (aErr) throw aErr;
+
+    let ngoNames = {};
+    const ngoIds = [...new Set((assigns || []).map((a) => a.ngo_id).filter(Boolean))];
+    if (ngoIds.length > 0) {
+      const { data: ngos } = await db.from('ngos').select('id, name').in('id', ngoIds);
+      for (const n of ngos || []) ngoNames[n.id] = n.name;
+    }
+
+    const sessions = await getActiveSessionsForTarget(target.id);
+    const holderByKey = new Map();
+    for (const s of sessions) {
+      for (const st of s.stations || []) {
+        holderByKey.set(`${st.ngo_id ?? ''}|${String(st.station ?? '').trim()}`, {
+          taken_by: s.operator_name || 'another operator',
+          mine: String(s.operator_user_id) === String(req.user.id),
+        });
+      }
+    }
+
+    const stations = (assigns || []).map((a) => {
+      const key = `${a.ngo_id ?? ''}|${String(a.station).trim()}`;
+      const holder = holderByKey.get(key) || null;
+      return {
+        station: a.station,
+        ngo_id: a.ngo_id,
+        ngo_name: ngoNames[a.ngo_id] || null,
+        available: !holder,
+        taken_by: holder?.taken_by || null,
+        mine: holder?.mine || false,
+      };
+    });
+
+    return res.json({
+      stations,
+      all_taken: stations.length > 0 && stations.every((s) => !s.available),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Release every active work-as session the caller holds (Exit work-as button).
+export const releaseWorkAs = async (req, res) => {
+  try {
+    const operatorId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : req.user.id;
+    const released = await releaseOperatorSessions(operatorId);
+    return res.json({ message: 'Work-as sessions released', released });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /auth/change-password  { currentPassword, newPassword }
+// Lets any DB-backed user (worker | users | hrs) change their own password by
+// confirming the current one. Super admin (env-based) and the env 'user' have no
+// DB row, so they are rejected — their credentials are managed elsewhere.
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    }
+
+    // Super admin & env user have no DB-backed identity to update.
+    if (req.user.role === 'super_admin' || req.user.id == null || req.user.id === -1 || req.user.id === 0) {
+      return res.status(403).json({ message: 'Password change is not supported for this account.' });
+    }
+
+    let source = null; // { id, table, passwordColumn, currentHash }
+    if (req.user.login_id) {
+      const worker = await getWorkerByLoginId(req.user.login_id) || await getWorkerById(req.user.id);
+      if (worker) source = { id: worker.id, update: (h) => updateWorker(worker.id, { password: h }), currentHash: worker.password };
+    } else if (req.user.role === 'hr') {
+      const hr = await getHRById(req.user.id) || await getHRByEmail(req.user.email);
+      if (hr) source = { id: hr.id, update: (h) => updateHR(hr.id, { password_hash: h }), currentHash: hr.password_hash };
+    } else {
+      const user = await getUserById(req.user.id) || await getUserByEmail(req.user.email);
+      if (user) source = { id: user.id, update: (h) => updateUser(user.id, { password_hash: h }), currentHash: user.password_hash };
+    }
+
+    if (!source) {
+      return res.status(404).json({ message: 'Account not found.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, source.currentHash);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Current password is incorrect.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(newPassword, salt);
+    await source.update(hashed);
+
+    return res.json({ message: 'Password changed successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

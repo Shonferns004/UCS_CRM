@@ -20,7 +20,7 @@ router.get('/my', authenticate, myLoans);
 router.get('/', adminOrHrOrHo, listAll);
 router.get('/pending', adminOrHrOrHo, listPending);
 router.put('/:id/decide', adminOrHrOrHo, decide);
-router.get('/worker/:workerId', adminOrHrOrHo, getWorkerLoansHandler);
+router.get('/worker/:workerId', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkerLoansHandler);
 router.get('/worker/:workerId/active', adminOrHrOrHo, getWorkerActiveLoans);
 
 export default router;

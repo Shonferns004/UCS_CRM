@@ -340,7 +340,12 @@ export const getDonorDetail = async (req, res) => {
 export const getAccessibleNgos = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
-    const ngos = access.map(a => ({ id: a.ngo_id, name: a.ngo_name })).filter(n => n.id);
+    const seen = new Set();
+    const ngos = access.map(a => ({ id: a.ngo_id, name: a.ngo_name })).filter(n => {
+      if (!n.id || seen.has(n.id)) return false;
+      seen.add(n.id);
+      return true;
+    });
     return res.json(ngos);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -458,27 +463,30 @@ export const setTarget = async (req, res) => {
     const monthsEmployed = (targetMonth.getFullYear() - joinedAt.getFullYear()) * 12
       + (targetMonth.getMonth() - joinedAt.getMonth());
 
+    let finalTarget = target_amount;
+    let isAuto = false;
     if (monthsEmployed < 3) {
-      let autoTarget;
-      if (monthsEmployed <= 0) autoTarget = currentSalary * 1;
-      else if (monthsEmployed === 1) autoTarget = currentSalary * 2.5;
-      else autoTarget = currentSalary * 3;
-
-      return res.status(400).json({
-        message: `Cannot manually set target for months 1-3. Auto-calculated target for this worker is ₹${autoTarget.toLocaleString('en-IN')}. Manual target setting is allowed from month 4 onwards.`,
-        auto_target: autoTarget,
-      });
+      if (monthsEmployed <= 0) finalTarget = currentSalary * 1;
+      else if (monthsEmployed === 1) finalTarget = currentSalary * 2.5;
+      else finalTarget = currentSalary * 3;
+      isAuto = true;
     }
 
     const result = await upsertTarget({
       fro_worker_id,
       ngo_id: ngoId,
       month: month + '-01',
-      target_amount,
+      target_amount: finalTarget,
       set_by: req.user.id,
     });
 
-    return res.json({ message: 'Target set successfully', data: result });
+    return res.json({
+      message: isAuto
+        ? `Auto-calculated target set for month ${monthsEmployed + 1}: ₹${finalTarget.toLocaleString('en-IN')}`
+        : 'Target set successfully',
+      data: result,
+      auto_target: isAuto,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -618,7 +626,7 @@ export const getDashboard = async (req, res) => {
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
     const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
     const achievedMap = {};
@@ -637,7 +645,8 @@ export const getDashboard = async (req, res) => {
     let monthCollection = 0;
     for (const w of froWorkers) {
       const actual = batchStats.monthCollection[w.id] || 0;
-      monthCollection += achievedMap[w.id] != null ? achievedMap[w.id] : actual;
+      const achieved = achievedMap[w.id];
+      monthCollection += (achieved != null && achieved > 0) ? achieved : actual;
     }
 
     // Data used / unused — per unique donor
@@ -791,6 +800,22 @@ export const getDashboard = async (req, res) => {
       .maybeSingle();
     if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
+    let monthly_target = 0;
+    const currentMonthStr = now.toISOString().slice(0, 7) + '-01';
+    if (origNgoIds.length > 0) {
+      const { data: mTargets } = await db
+        .from('fro_monthly_targets')
+        .select('target_amount')
+        .in('ngo_id', origNgoIds)
+        .eq('month', currentMonthStr);
+      if (mTargets && mTargets.length > 0) {
+        monthly_target = mTargets.reduce((sum, t) => sum + (parseFloat(t.target_amount) || 0), 0);
+      }
+    }
+    if (!monthly_target && daily_target > 0) {
+      monthly_target = daily_target * 26;
+    }
+
     const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersLate - workersAbsent);
 
     return res.json({
@@ -820,6 +845,7 @@ export const getDashboard = async (req, res) => {
             unverified: { amount: unverifiedTodayAmount, count: unverifiedTodayCount },
           },
           daily_target,
+          monthly_target,
         },
         reactivations: {
           today: reactivatedToday,
@@ -879,7 +905,7 @@ export const getFroWiseCollection = async (req, res) => {
       endDate = new Date(); endDate.setHours(23, 59, 59, 999);
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
     const achievedMap = {};
@@ -945,7 +971,7 @@ export const getFroPerformance = async (req, res) => {
       endDate = todayEnd;
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
     const workerIds = froWorkers.map(w => w.id);
@@ -1151,15 +1177,16 @@ export const verifyLeadDone = async (req, res) => {
     const { pan_number, notes } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     const assignmentNgoId = log.fro_assignments?.ngo_id;
     if (assignmentNgoId && !ngoIds.includes(Number(assignmentNgoId))) {
@@ -1243,15 +1270,16 @@ export const getStations = async (req, res) => {
 
     if (faErr) throw faErr;
 
-    // Build total donor count per station (across all NGOs) and per-FRO count
-    const totalDonorCount = {};
+    // Build total donor count per station PER NGO and per-FRO count
+    const totalDonorCount = {}; // { station: { ngo_id: count } }
     const froDonorCount = {};
     const seen = new Set();
     for (const d of faData || []) {
       if (seen.has(d.donor_id)) continue;
       seen.add(d.donor_id);
       const s = d.station.trim();
-      totalDonorCount[s] = (totalDonorCount[s] || 0) + 1;
+      if (!totalDonorCount[s]) totalDonorCount[s] = {};
+      totalDonorCount[s][d.ngo_id] = (totalDonorCount[s][d.ngo_id] || 0) + 1;
       if (d.fro_worker_id) {
         const key = `${s}_${d.fro_worker_id}`;
         froDonorCount[key] = (froDonorCount[key] || 0) + 1;
@@ -1312,7 +1340,7 @@ export const getStations = async (req, res) => {
 
     const result = Object.values(stationMap).map(s => ({
       ...s,
-      donor_count: totalDonorCount[s.station] || 0,
+      donor_count: totalDonorCount[s.station] || {}, // { ngo_id: count }
       fro_donor_count: s.fro_worker_id ? (froDonorCount[`${s.station}_${s.fro_worker_id}`] || 0) : 0,
     }));
 
@@ -1647,6 +1675,110 @@ export const getDonorsByStation = async (req, res) => {
   }
 };
 
+export const getDonorsByFro = async (req, res) => {
+  try {
+    const { fro_worker_id, status, period } = req.query;
+    if (!fro_worker_id) {
+      return res.status(400).json({ message: 'fro_worker_id query param is required' });
+    }
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0 && req.user.ngo_id) ngoIds.push(req.user.ngo_id);
+    if (ngoIds.length === 0) return res.json([]);
+
+    if (period && period !== 'all') {
+      const now = new Date();
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+      let startDate, endDate;
+      if (period === 'today') {
+        startDate = todayStart; endDate = todayEnd;
+      } else if (period === 'week') {
+        const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0, 0, 0, 0);
+        startDate = weekStart; endDate = todayEnd;
+      } else {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      }
+
+      const { data: logs, error: logErr } = await db
+        .from('fro_donor_logs')
+        .select('donor_id, disposition_detail, created_at')
+        .eq('fro_worker_id', fro_worker_id)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      if (logErr) throw logErr;
+
+      const donorIds = [...new Set((logs || []).map(l => l.donor_id).filter(Boolean))];
+      if (donorIds.length === 0) return res.json([]);
+
+      let query = db
+        .from('fro_assignments')
+        .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
+        .in('ngo_id', ngoIds)
+        .eq('fro_worker_id', fro_worker_id)
+        .not('status', 'eq', 'reassigned')
+        .in('donor_id', donorIds);
+
+      if (status) query = query.eq('status', status);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const logStatusMap = {};
+      for (const l of logs || []) {
+        if (!logStatusMap[l.donor_id]) logStatusMap[l.donor_id] = l.disposition_detail;
+      }
+
+      const result = (data || []).map(a => ({
+        id: a.id,
+        donor_id: a.donor_id,
+        donor_mobile: a.donor_profiles?.mobile_number || '',
+        donor_name: a.donor_profiles?.name || 'Unknown',
+        donor_city: a.donor_profiles?.city || '',
+        status: a.status,
+        call_status: logStatusMap[a.donor_id] || a.status,
+        station: a.station || '',
+        notes: a.notes || '',
+        next_follow_up: a.next_follow_up,
+        assigned_at: a.assigned_at,
+      }));
+
+      return res.json(result);
+    }
+
+    let query = db
+      .from('fro_assignments')
+      .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
+      .in('ngo_id', ngoIds)
+      .eq('fro_worker_id', fro_worker_id)
+      .not('status', 'eq', 'reassigned');
+
+    if (status) query = query.eq('status', status);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const result = (data || []).map(a => ({
+      id: a.id,
+      donor_id: a.donor_id,
+      donor_mobile: a.donor_profiles?.mobile_number || '',
+      donor_name: a.donor_profiles?.name || 'Unknown',
+      donor_city: a.donor_profiles?.city || '',
+      status: a.status,
+      station: a.station || '',
+      notes: a.notes || '',
+      next_follow_up: a.next_follow_up,
+      assigned_at: a.assigned_at,
+    }));
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getNewData = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
@@ -1658,9 +1790,10 @@ export const getNewData = async (req, res) => {
       if (ngo) { ngoNames = [ngo.name]; ngoIds = [req.user.ngo_id]; }
     }
 
-    const { ngo_id: filterNgoId, page: pageStr, per_page: perPageStr } = req.query;
+    const { ngo_id: filterNgoId, page: pageStr, per_page: perPageStr, category: categoryFilter } = req.query;
     const pageNum = Math.max(1, parseInt(pageStr) || 1);
     const perPage = Math.min(5000, Math.max(10, parseInt(perPageStr) || 500));
+    const normalizedCategory = categoryFilter ? String(categoryFilter).trim() : '';
 
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
@@ -1679,7 +1812,7 @@ export const getNewData = async (req, res) => {
     const FETCH_LIMIT = 25000;
     const { data: importedRows, error: iErr } = await db
       .from('new_data')
-      .select('name, mobile_number, category, amount, created_at, ngo')
+      .select('name, mobile_number, category, data_category, amount, created_at, ngo')
       .in('ngo', ngoNames)
       .not('mobile_number', 'is', null)
       .or('status.eq.pending,status.is.null')
@@ -1696,33 +1829,43 @@ export const getNewData = async (req, res) => {
         if (!latest[key]) latest[key] = row;
       }
       const entries = Object.values(latest);
-      const mobiles = [...new Set(entries.map(e => e.mobile_number))];
 
-      // Safety check: also exclude if donor_profile already exists (backward compat)
-      // Batch into groups of 500 to avoid Cloudflare 414 URI too large, run in parallel
-      const existingMobiles = new Set();
+      // Safety check: exclude only if donor_profile exists FOR THE SAME NGO (per-NGO isolation)
+      // Group mobiles by NGO, then check donor_profiles with ngo filter
+      const mobilesByNgo = {};
+      for (const e of entries) {
+        if (!mobilesByNgo[e.ngo]) mobilesByNgo[e.ngo] = [];
+        mobilesByNgo[e.ngo].push(e.mobile_number);
+      }
+
+      const existingMobilesByNgo = {};
       const BATCH_SIZE = 500;
-      const batchQueries = [];
-      for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
-        const batch = mobiles.slice(i, i + BATCH_SIZE);
-        batchQueries.push(
-          db.from('donor_profiles').select('mobile_number').in('mobile_number', batch)
-        );
-      }
-      const batchResults = await Promise.allSettled(batchQueries);
-      for (const r of batchResults) {
-        if (r.status === 'fulfilled' && r.value.data) {
-          r.value.data.forEach(p => existingMobiles.add(p.mobile_number));
+      for (const [ngo, mobiles] of Object.entries(mobilesByNgo)) {
+        const existingMobiles = new Set();
+        const batchQueries = [];
+        for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
+          const batch = mobiles.slice(i, i + BATCH_SIZE);
+          batchQueries.push(
+            db.from('donor_profiles').select('mobile_number').in('mobile_number', batch).eq('ngo', ngo)
+          );
         }
+        const batchResults = await Promise.allSettled(batchQueries);
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled' && r.value.data) {
+            r.value.data.forEach(p => existingMobiles.add(p.mobile_number));
+          }
+        }
+        existingMobilesByNgo[ngo] = existingMobiles;
       }
-      unassigned = entries.filter(e => !existingMobiles.has(e.mobile_number));
+
+      unassigned = entries.filter(e => !existingMobilesByNgo[e.ngo]?.has(e.mobile_number));
     }
 
     // 2. NGO's donor_profiles not yet FRO-assigned
     let ngoData = [];
     const { data: ngoProfiles, error: npErr } = await db
       .from('donor_profiles')
-      .select('id, name, mobile_number, category, amount, first_imported_at, ngo')
+      .select('id, name, mobile_number, category, data_category, amount, first_imported_at, ngo')
       .in('ngo', ngoNames)
       .order('first_imported_at', { ascending: false });
 
@@ -1742,11 +1885,41 @@ export const getNewData = async (req, res) => {
       }));
     }
 
+    // Helper to extract category name from a record
+    const getRowCategory = (r) => String(r?.data_category || r?.category || '').trim();
+
+    // Category-wise filter (by data_category or category, case-insensitive)
+    if (normalizedCategory) {
+      unassigned = unassigned.filter(e => getRowCategory(e).toLowerCase() === normalizedCategory.toLowerCase());
+      ngoData = ngoData.filter(e => getRowCategory(e).toLowerCase() === normalizedCategory.toLowerCase());
+    }
+
+    // Distinct data categories for the filter dropdown (across new_data + donor_profiles, NGO-scoped)
+    const categorySet = new Set();
+    const { data: newDataCats } = await db
+      .from('new_data')
+      .select('data_category, category')
+      .in('ngo', ngoNames)
+      .or('status.eq.pending,status.is.null');
+    for (const c of newDataCats || []) {
+      const cat = getRowCategory(c);
+      if (cat) categorySet.add(cat);
+    }
+    const { data: profileCats } = await db
+      .from('donor_profiles')
+      .select('data_category, category')
+      .in('ngo', ngoNames);
+    for (const c of profileCats || []) {
+      const cat = getRowCategory(c);
+      if (cat) categorySet.add(cat);
+    }
+    const categoryOptions = [...categorySet].sort((a, b) => a.localeCompare(b));
+
     const total = unassigned.length;
     const start = (pageNum - 1) * perPage;
     const pagedUnassigned = unassigned.slice(start, start + perPage);
 
-    return res.json({ unassigned: pagedUnassigned, ngo_data: ngoData, total, page: pageNum, per_page: perPage });
+    return res.json({ unassigned: pagedUnassigned, ngo_data: ngoData, category_options: categoryOptions, total, page: pageNum, per_page: perPage });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1756,22 +1929,23 @@ export const getNewData = async (req, res) => {
 
 export const distributeNewData = async (req, res) => {
   try {
-    const { stations: selectedStations, ngo_id: filterNgoId } = req.body;
+    const { stations: selectedStations, ngo_id: filterNgoId, category } = req.body;
+    const normalizedCategory = category ? String(category).trim() : '';
     let access = await getUserNgoAccess(req.user.id);
     let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
     }
-    // Filter to specific NGO if provided
+    // Filter to specific NGO if provided (match by ID or name)
     if (filterNgoId) {
-      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
     }
     if (ngoEntries.length === 0) {
       return res.json({ message: 'No NGO assigned to your account', count: 0 });
     }
     console.log('--- distributeNewData start ---');
-    console.log('ngoEntries:', JSON.stringify(ngoEntries));
+    console.log('ngoEntries:', JSON.stringify(ngoEntries), normalizedCategory ? `category: ${normalizedCategory}` : 'all categories');
 
     let totalAssigned = 0;
     let totalConverted = 0;
@@ -1782,16 +1956,32 @@ export const distributeNewData = async (req, res) => {
       try {
       const batchId = crypto.randomUUID();
       console.log(`[${ngoName}] === Processing NGO: ${ngoName} (id=${ngoId}) ===`);
-      // Step 1: Create donor_profiles from new_data
-      const PROCESS_BATCH = 10000;
-      const { data: importedRows, error: irErr } = await db
-        .from('new_data')
-        .select('name, mobile_number, category, amount')
-        .eq('ngo', ngoName)
-        .not('mobile_number', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(PROCESS_BATCH);
-      console.log(`[${ngoName}] importedRows count:`, importedRows?.length, 'error:', irErr);
+      // Step 1: Create donor_profiles from new_data (fetch ALL rows, paginated)
+      const PAGE = 10000;
+      let importedRows = [];
+      let offset = 0;
+      for (;;) {
+        let query = db
+          .from('new_data')
+          .select('name, mobile_number, category, amount, data_category')
+          .eq('ngo', ngoName)
+          .not('mobile_number', 'is', null)
+          .or('status.eq.pending,status.is.null')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false });
+
+        if (normalizedCategory) {
+          query = query.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+        }
+
+        const { data, error } = await query.range(offset, offset + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        importedRows = importedRows.concat(data);
+        if (data.length < PAGE) break;
+        offset += PAGE;
+      }
+      console.log(`[${ngoName}] importedRows count:`, importedRows.length, normalizedCategory ? `(category: ${normalizedCategory})` : '');
 
       let newProfileIds = [];
       let allMobiles = [];
@@ -1831,6 +2021,7 @@ export const distributeNewData = async (req, res) => {
               total_amount: parseFloat(row.amount) || 0,
               donation_count: 1,
               ngo: ngoName,
+              data_category: row.data_category || normalizedCategory || null,
             });
           }
         }
@@ -1917,12 +2108,32 @@ export const distributeNewData = async (req, res) => {
         .not('status', 'eq', 'reassigned');
 
       const assignedSet = new Set(froAsgn ? froAsgn.map(a => a.donor_id) : []);
-      let unassignedIds = allIds.filter(id => !assignedSet.has(id));
-      console.log(`[${ngoName}] alreadyAssigned:`, assignedSet.size, 'unassignedIds:', unassignedIds.length);
-      if (unassignedIds.length === 0) { console.log(`[${ngoName}] SKIP — all already assigned`); continue; }
+      const hasFdStations = selectedStations && selectedStations.some(s => s.startsWith('FD-'));
 
-      // Step 4: Assign stations round-robin to unassigned donors
-      const shuffled = [...unassignedIds];
+      let idsToAssign;
+      if (hasFdStations && assignedSet.size > 0) {
+        // Fresh data FD distribution: reassign ALL donors, mark existing as reassigned
+        const assignedIds = allIds.filter(id => assignedSet.has(id));
+        console.log(`[${ngoName}] Reassigning ${assignedIds.length} existing donors to FD stations`);
+        for (let i = 0; i < assignedIds.length; i += 500) {
+          const batch = assignedIds.slice(i, i + 500);
+          await db.from('fro_assignments')
+            .update({ status: 'reassigned', updated_at: new Date().toISOString() })
+            .in('donor_id', batch)
+            .eq('ngo_id', ngoId)
+            .not('status', 'eq', 'reassigned');
+        }
+        idsToAssign = allIds;
+      } else {
+        // Old station distribution: skip already-assigned donors
+        idsToAssign = allIds.filter(id => !assignedSet.has(id));
+      }
+
+      console.log(`[${ngoName}] alreadyAssigned:`, assignedSet.size, 'idsToAssign:', idsToAssign.length);
+      if (idsToAssign.length === 0) { console.log(`[${ngoName}] SKIP — all already assigned`); continue; }
+
+      // Step 4: Assign stations round-robin to donors
+      const shuffled = [...idsToAssign];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -1981,7 +2192,7 @@ export const distributeNewData = async (req, res) => {
       const perStation = Object.entries(stationCounts)
         .map(([st, cnt]) => `${cnt} → ${st}`)
         .join(', ');
-      messages.push(`Distributed ${Object.keys(donorStationMap).length} donors: ${perStation} (${ngoName})`);
+      messages.push(`Distributed ${Object.keys(donorStationMap).length} donors${normalizedCategory ? ` [Category: ${normalizedCategory}]` : ''}: ${perStation} (${ngoName})`);
       console.log(`[${ngoName}] DONE — ${Object.keys(donorStationMap).length} donors distributed`);
       } catch (err) {
         console.error(`[${ngoName}] distribution error:`, err.message);
@@ -2003,6 +2214,138 @@ export const distributeNewData = async (req, res) => {
     return res.json({ message: finalMessage, count: totalAssigned, converted: totalConverted });
   } catch (error) {
     console.error('distributeNewData ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const cleanupNewData = async (req, res) => {
+  try {
+    let access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    const { ngo_id: filterNgoId, category } = req.body;
+    const normalizedCategory = category ? String(category).trim() : '';
+    if (filterNgoId) {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
+    }
+    if (ngoEntries.length === 0) {
+      return res.json({ message: 'No NGO assigned to your account', deleted: 0 });
+    }
+
+    let totalDeleted = 0;
+    const messages = [];
+
+    for (const { ngoName } of ngoEntries) {
+      // Only delete undistributed records (status is null or pending)
+      let ngoDeleted = 0;
+
+      // Delete where status IS NULL
+      let q1 = db
+        .from('new_data')
+        .delete({ count: 'exact' })
+        .eq('ngo', ngoName)
+        .is('status', null);
+      if (normalizedCategory) {
+        q1 = q1.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+      }
+      const r1 = await q1;
+      if (r1.error) {
+        messages.push(`Error (null) for ${ngoName}: ${r1.error.message}`);
+      } else {
+        ngoDeleted += r1.count || 0;
+      }
+
+      // Delete where status = 'pending'
+      let q2 = db
+        .from('new_data')
+        .delete({ count: 'exact' })
+        .eq('ngo', ngoName)
+        .eq('status', 'pending');
+      if (normalizedCategory) {
+        q2 = q2.or(`data_category.eq.${normalizedCategory},category.eq.${normalizedCategory}`);
+      }
+      const r2 = await q2;
+      if (r2.error) {
+        messages.push(`Error (pending) for ${ngoName}: ${r2.error.message}`);
+      } else {
+        ngoDeleted += r2.count || 0;
+      }
+
+      if (ngoDeleted > 0 || (!r1.error && !r2.error)) {
+        totalDeleted += ngoDeleted;
+        messages.push(`${ngoDeleted} undistributed records deleted (${ngoName})${normalizedCategory ? ` [Category: ${normalizedCategory}]` : ''}`);
+      }
+    }
+
+    return res.json({
+      message: messages.join('; ') || 'No data to cleanup',
+      deleted: totalDeleted,
+    });
+  } catch (error) {
+    console.error('cleanupNewData ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const resetFreshData = async (req, res) => {
+  try {
+    let access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    const { ngo_id: filterNgoId } = req.body;
+    if (filterNgoId) {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
+    }
+    if (ngoEntries.length === 0) {
+      return res.json({ message: 'No NGO assigned to your account', deleted: 0 });
+    }
+
+    let totalDeleted = 0;
+    const messages = [];
+
+    for (const { ngoId, ngoName } of ngoEntries) {
+      let ngoFroDeleted = 0;
+      let ngoDataDeleted = 0;
+
+      // Step 1: Delete fro_assignments on FD stations for this NGO
+      const { count: froCount, error: froErr } = await db
+        .from('fro_assignments')
+        .delete({ count: 'exact' })
+        .eq('ngo_id', ngoId)
+        .like('station', 'FD-%');
+      if (froErr) {
+        messages.push(`FRO error for ${ngoName}: ${froErr.message}`);
+      } else {
+        ngoFroDeleted = froCount || 0;
+      }
+
+      // Step 2: Delete ALL new_data rows for this NGO (distributed + undistributed)
+      const { count: dataCount, error: dataErr } = await db
+        .from('new_data')
+        .delete({ count: 'exact' })
+        .eq('ngo', ngoName);
+      if (dataErr) {
+        messages.push(`Data error for ${ngoName}: ${dataErr.message}`);
+      } else {
+        ngoDataDeleted = dataCount || 0;
+      }
+
+      totalDeleted += ngoFroDeleted + ngoDataDeleted;
+      messages.push(`${ngoName}: ${ngoFroDeleted} FD assignments removed, ${ngoDataDeleted} new_data deleted`);
+    }
+
+    return res.json({
+      message: messages.join('; ') || 'No fresh data to reset',
+      deleted: totalDeleted,
+    });
+  } catch (error) {
+    console.error('resetFreshData ERROR:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -3342,13 +3685,15 @@ export const getFroSummary = async (req, res) => {
 };
 
 const DEFAULT_STATION_NAMES = ['ND-1','ND-2','ND-3','ND-4','ND-5','ND-6','ND-7','ND-8','DH-1','DH-2','DH-3','DH-4','DH-5','DH-6','DH-7','DH-8','DH-9','DH-10','DH-11','DH-12','DH-13','DH-14'];
+const FRESH_STATION_NAMES = Array.from({ length: 23 }, (_, i) => `FD-${i + 1}`);
 const STATION_NAMES = process.env.STATION_NAMES
   ? process.env.STATION_NAMES.split(',').map(s => s.trim())
   : DEFAULT_STATION_NAMES;
 
 export const seedStations = async (req, res) => {
   try {
-    const { ngo_id } = req.body || {};
+    const { ngo_id, fresh } = req.body || {};
+    const stationList = fresh ? FRESH_STATION_NAMES : STATION_NAMES;
 
     let ngoEntries;
     if (ngo_id) {
@@ -3372,7 +3717,7 @@ export const seedStations = async (req, res) => {
     const results = [];
     for (const { ngoId, ngoName } of ngoEntries) {
       let created = 0;
-      for (const station of STATION_NAMES) {
+      for (const station of stationList) {
         const existing = await getStationAssignmentByNgoAndStation(ngoId, station);
         if (!existing) {
           await createStation(ngoId, station, req.user.id);
@@ -3461,12 +3806,15 @@ export const uploadOldData = async (req, res) => {
       return res.status(400).json({ message: 'No NGOs assigned to your account' });
     }
 
+    const bodyDataCategory = req.body.data_category || null;
+
     const normalizedRows = rows.map(row => ({
-      mobile: String(row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || '').trim(),
+      mobile: String(row.moblie || row.Moblie || row.MOBLIE || row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || row['Moblie No'] || row['MOBLIE No'] || '').trim(),
       name: String(row.name || row.Name || row['Donor Name'] || row.donor_name || row.donorname || '').trim(),
       amount: parseFloat(row.amount || row.Amount || row.donation_amount || row.DonationAmount || 0) || 0,
       city: String(row.city || row.City || row.city_name || row.CityName || '').trim(),
       station: String(row.station || row.Station || row.station_name || row.StationName || '').trim().toUpperCase(),
+      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || bodyDataCategory || '').trim() || null,
     })).filter(r => r.mobile && r.station);
 
     const validStations = new Set(STATION_NAMES);
@@ -3497,13 +3845,14 @@ export const uploadOldData = async (req, res) => {
         const updateFields = {};
         if (row.name) updateFields.name = row.name;
         if (row.city) updateFields.city = row.city;
+        if (row.data_category) updateFields.data_category = row.data_category;
         if (Object.keys(updateFields).length > 0) {
           await db.from('donor_profiles').update(updateFields).eq('id', donorId);
         }
       } else {
         const { data: newProfile } = await db
           .from('donor_profiles')
-          .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null }])
+          .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null, data_category: row.data_category || null }])
           .select('id')
           .single();
         if (newProfile) {
@@ -3629,6 +3978,7 @@ export const uploadOldDataForStation = async (req, res) => {
 
     // Filter by selected NGO if provided
     const { ngo_id } = req.body;
+    const bodyDataCategory = req.body.data_category || null;
     if (ngo_id) {
       ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(ngo_id));
     }
@@ -3643,7 +3993,7 @@ export const uploadOldDataForStation = async (req, res) => {
       amount: parseFloat(row['Max of Amt'] || row['Max Amt'] || row.amount || row.Amount || row['Max of amt'] || 0) || 0,
       city: String(row.City || row.city || '').trim(),
       mobile_2: String(row['Max of Mobile no.2'] || row['Mobile 2'] || row['Mobile No 2'] || row.mobile_2 || '').trim(),
-      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || '').trim(),
+      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || '').trim() || bodyDataCategory || null,
       agent_name: String(row['Agent Name'] || row['Agent name'] || row['agent name'] || row.agent_name || row.fro_name || '').trim(),
       raw_data: row,
     })).filter(r => r.mobile);
@@ -3865,6 +4215,1114 @@ export const getDataOverview = async (req, res) => {
     return res.json(result);
   } catch (error) {
     console.error('getDataOverview error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ==================== NEW DASHBOARD APIs ====================
+
+// Combined TL Dashboard Summary
+export const getTLDashboard = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    const origNgoNames = [...ngoNames];
+    const origNgoIds = [...ngoIds];
+
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
+    if (ngoIds.length === 0) return res.json({ 
+      kpis: { total_fros: 0, calling: 0, idle: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0 },
+      funnel: [],
+      hourly: [],
+      top_performers: [],
+      bottom_performers: [],
+      idle_alerts: []
+    });
+
+    // Get all FRO workers
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const workerIds = froWorkers.map(w => w.id);
+
+    const now = new Date();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+
+    // 1. Live status counts (use the detailed query from later)
+    const { data: liveStatus } = await db.from('fro_live_status').select('fro_worker_id, status, today_talk_seconds, today_idle_seconds, updated_at').in('fro_worker_id', workerIds);
+    const calling = (liveStatus || []).filter(s => s.status === 'on_call').length;
+    const idle = (liveStatus || []).filter(s => s.status === 'idle').length;
+    const online = (liveStatus || []).filter(s => s.status === 'online').length;
+    const offline = froWorkers.length - calling - idle - online;
+
+    // 2. Call analytics for today
+    const { data: callLogs } = await db
+      .from('fro_donor_logs')
+      .select('disposition_detail, accounts_status, amount_collected, fro_assignments!inner(ngo_id)')
+      .in('fro_assignments.ngo_id', ngoIds)
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString());
+
+    const connectedStatuses = new Set([
+      'donation_collected', 'promise_to_pay', 'lead_done', 'done',
+      'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated',
+      'pending', 'contacted', 'follow_up', 'scheduled',
+      'email_sent', 'whatsapp_sent', 'csr_inquiry',
+      'wants_80g_details', 'wants_trust_documents'
+    ]);
+    const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+
+    const totalCalls = (callLogs || []).length;
+    const connected = (callLogs || []).filter(l => connectedStatuses.has(l.disposition_detail)).length;
+    const interested = (callLogs || []).filter(l => interestedStatuses.has(l.disposition_detail)).length;
+    const receivedAmount = (callLogs || []).filter(l => l.accounts_status === 'verified').reduce((sum, l) => sum + parseFloat(l.amount_collected || 0), 0);
+
+    // 3. Follow-ups due
+    const { data: followups } = await db
+      .from('fro_assignments')
+      .select('id, next_follow_up')
+      .in('ngo_id', ngoIds)
+      .not('status', 'in', '("reassigned", "donation_collected")')
+      .not('next_follow_up', 'is', null);
+    const followupsDue = (followups || []).filter(f => f.next_follow_up && new Date(f.next_follow_up) <= todayEnd).length;
+
+    // 4. Target achievement
+    const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
+    const { data: targets } = await db.from('fro_targets').select('target_amount, achieved_target').in('ngo_id', ngoIds).eq('month', monthStr);
+    const totalTarget = (targets || []).reduce((sum, t) => sum + parseFloat(t.target_amount || 0), 0);
+    const totalAchieved = (targets || []).reduce((sum, t) => sum + parseFloat(t.achieved_target || 0), 0);
+    const targetPct = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
+
+    // 5. Donation Funnel
+    const { data: funnelAssignments } = await db.from('fro_assignments').select('donor_id').in('ngo_id', ngoIds).neq('status', 'reassigned');
+    const assignedDonorIds = new Set((funnelAssignments || []).map(a => a.donor_id).filter(Boolean));
+    
+    const { data: funnelLogs } = await db
+      .from('fro_donor_logs')
+      .select('donor_id, disposition_detail, accounts_status, fro_assignments!inner(ngo_id)')
+      .in('fro_assignments.ngo_id', ngoIds);
+
+    const calledDonorIds = new Set((funnelLogs || []).map(l => l.donor_id).filter(Boolean));
+    const connectedDonorIds = new Set((funnelLogs || []).filter(l => connectedStatuses.has(l.disposition_detail)).map(l => l.donor_id).filter(Boolean));
+    const interestedDonorIds = new Set((funnelLogs || []).filter(l => interestedStatuses.has(l.disposition_detail)).map(l => l.donor_id).filter(Boolean));
+    const receivedDonorIds = new Set((funnelLogs || []).filter(l => l.accounts_status === 'verified').map(l => l.donor_id).filter(Boolean));
+
+    const funnel = [
+      { stage: 'Assigned', count: assignedDonorIds.size, pct: 100 },
+      { stage: 'Called', count: calledDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((calledDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+      { stage: 'Connected', count: connectedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((connectedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+      { stage: 'Interested', count: interestedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((interestedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+      { stage: 'Received', count: receivedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((receivedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+    ];
+
+    // 6. Hourly Performance
+    const { data: hourlyLogs } = await db
+      .from('fro_donor_logs')
+      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_assignments!inner(ngo_id)')
+      .in('fro_assignments.ngo_id', ngoIds)
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString());
+
+    const hourlyMap = {};
+    for (let h = 9; h <= 20; h++) {
+      const hourStr = `${String(h).padStart(2, '0')}:00-${String(h+1).padStart(2, '0')}:00`;
+      hourlyMap[hourStr] = { hour: hourStr, calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 };
+    }
+
+    for (const l of hourlyLogs || []) {
+      const hour = new Date(l.created_at).getHours();
+      if (hour < 9 || hour > 20) continue;
+      const hourStr = `${String(hour).padStart(2, '0')}:00-${String(hour+1).padStart(2, '0')}:00`;
+      if (!hourlyMap[hourStr]) continue;
+      hourlyMap[hourStr].calls++;
+      if (connectedStatuses.has(l.disposition_detail)) hourlyMap[hourStr].connected++;
+      if (interestedStatuses.has(l.disposition_detail)) hourlyMap[hourStr].interested++;
+      if (l.accounts_status === 'verified') {
+        hourlyMap[hourStr].donations++;
+        hourlyMap[hourStr].amount += parseFloat(l.amount_collected || 0);
+      }
+    }
+    const hourly = Object.values(hourlyMap);
+
+    // 7. FRO Performance for Top/Bottom
+    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
+    
+    const { data: faRows } = await db
+      .from('fro_assignments')
+      .select('status, fro_worker_id')
+      .in('ngo_id', ngoIds)
+      .neq('status', 'reassigned');
+
+    const workerAssignments = {};
+    for (const a of faRows || []) {
+      if (!workerAssignments[a.fro_worker_id]) workerAssignments[a.fro_worker_id] = { connected: 0, total: 0 };
+      workerAssignments[a.fro_worker_id].total++;
+      if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
+    }
+
+    // Live status map for status/idle (use liveStatus from earlier)
+    const liveStatusMap = {};
+    for (const ls of liveStatus || []) {
+      liveStatusMap[ls.fro_worker_id] = ls;
+    }
+
+    // Claim status per FRO
+    const { data: claimLogs } = await db
+      .from('fro_donor_logs')
+      .select('fro_worker_id, accounts_status, fro_assignments!inner(ngo_id)')
+      .in('fro_assignments.ngo_id', ngoIds)
+      .in('fro_worker_id', workerIds);
+    
+    const claimStatusMap = {};
+    for (const log of claimLogs || []) {
+      if (!claimStatusMap[log.fro_worker_id]) {
+        claimStatusMap[log.fro_worker_id] = { pending: 0, verified: 0, rejected: 0 };
+      }
+      if (log.accounts_status === 'pending') claimStatusMap[log.fro_worker_id].pending++;
+      else if (log.accounts_status === 'verified') claimStatusMap[log.fro_worker_id].verified++;
+      else if (log.accounts_status === 'rejected') claimStatusMap[log.fro_worker_id].rejected++;
+    }
+
+    // Actual call counts per FRO (for today, week, and month)
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
+    const { data: callCountLogs } = await db
+      .from('fro_donor_logs')
+      .select('fro_worker_id, created_at, disposition_detail, fro_assignments!inner(ngo_id)')
+      .in('fro_assignments.ngo_id', ngoIds)
+      .in('fro_worker_id', workerIds)
+      .gte('created_at', monthStart)
+      .lte('created_at', monthEnd);
+    
+    const callCounts = {};
+    for (const log of callCountLogs || []) {
+      if (!callCounts[log.fro_worker_id]) {
+        callCounts[log.fro_worker_id] = {
+          month: 0, today: 0, week: 0,
+          monthConnected: 0, todayConnected: 0, weekConnected: 0,
+          monthInterested: 0, todayInterested: 0, weekInterested: 0,
+          connectedStatuses_month: {},
+          connectedStatuses_today: {},
+          connectedStatuses_week: {},
+        };
+      }
+      callCounts[log.fro_worker_id].month++;
+      const isToday = new Date(log.created_at) >= todayStart && new Date(log.created_at) <= todayEnd;
+      const isWeek = new Date(log.created_at) >= weekStart && new Date(log.created_at) <= todayEnd;
+      if (isToday) callCounts[log.fro_worker_id].today++;
+      if (isWeek) callCounts[log.fro_worker_id].week++;
+      if (connectedStatuses.has(log.disposition_detail)) {
+        const ds = log.disposition_detail;
+        callCounts[log.fro_worker_id].monthConnected++;
+        callCounts[log.fro_worker_id].connectedStatuses_month[ds] = (callCounts[log.fro_worker_id].connectedStatuses_month[ds] || 0) + 1;
+        if (isToday) {
+          callCounts[log.fro_worker_id].todayConnected++;
+          callCounts[log.fro_worker_id].connectedStatuses_today[ds] = (callCounts[log.fro_worker_id].connectedStatuses_today[ds] || 0) + 1;
+        }
+        if (isWeek) {
+          callCounts[log.fro_worker_id].weekConnected++;
+          callCounts[log.fro_worker_id].connectedStatuses_week[ds] = (callCounts[log.fro_worker_id].connectedStatuses_week[ds] || 0) + 1;
+        }
+      }
+      if (interestedStatuses.has(log.disposition_detail)) {
+        callCounts[log.fro_worker_id].monthInterested++;
+        if (isToday) callCounts[log.fro_worker_id].todayInterested++;
+        if (isWeek) callCounts[log.fro_worker_id].weekInterested++;
+      }
+    }
+
+    // Station info per FRO
+    const { data: froStationData } = await db
+      .from('fro_station_assignments')
+      .select('fro_worker_id, station')
+      .in('ngo_id', ngoIds);
+    const froStationMap = {};
+    for (const row of froStationData || []) {
+      if (row.fro_worker_id && row.station) {
+        if (!froStationMap[row.fro_worker_id]) froStationMap[row.fro_worker_id] = [];
+        if (!froStationMap[row.fro_worker_id].includes(row.station)) {
+          froStationMap[row.fro_worker_id].push(row.station);
+        }
+      }
+    }
+
+    const performance = froWorkers.map(w => {
+      const bs = batchStats;
+      const coll = bs.monthCollection[w.id] || 0;
+      const leads = (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0);
+      const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
+      const conversion = wa.total > 0 ? Math.round((wa.connected / wa.total) * 1000) / 10 : 0;
+      const target = (targets || []).find(t => t.fro_worker_id === w.id);
+      const targetAmt = target ? parseFloat(target.target_amount) : 0;
+      const achievedAmt = target ? parseFloat(target.achieved_target || 0) : coll;
+      const targetPct = targetAmt > 0 ? Math.round((achievedAmt / targetAmt) * 100) : 0;
+
+      const ls = liveStatusMap[w.id] || {};
+      const claims = claimStatusMap[w.id] || { pending: 0, verified: 0, rejected: 0 };
+      const idleMinutes = ls.updated_at ? Math.floor((now - new Date(ls.updated_at)) / 60000) : 0;
+
+      return {
+        fro_id: w.id,
+        fro_name: w.name || w.login_id || 'Unknown',
+        fro_login_id: w.login_id || '',
+        calls: callCounts[w.id]?.month || 0,
+        calls_today: callCounts[w.id]?.today || 0,
+        calls_week: callCounts[w.id]?.week || 0,
+        connected: callCounts[w.id]?.monthConnected || 0,
+        connected_today: callCounts[w.id]?.todayConnected || 0,
+        connected_week: callCounts[w.id]?.weekConnected || 0,
+        interested: callCounts[w.id]?.monthInterested || 0,
+        interested_today: callCounts[w.id]?.todayInterested || 0,
+        interested_week: callCounts[w.id]?.weekInterested || 0,
+        connectedStatuses: callCounts[w.id]?.connectedStatuses_month || {},
+        connectedStatuses_today: callCounts[w.id]?.connectedStatuses_today || {},
+        connectedStatuses_week: callCounts[w.id]?.connectedStatuses_week || {},
+        connectedStatuses_month: callCounts[w.id]?.connectedStatuses_month || {},
+        stations: froStationMap[w.id] || [],
+        receivedDonors: leads,
+        receivedAmount: coll,
+        receivedAmount_today: bs.todayCollection[w.id] || 0,
+        receivedAmount_week: bs.weekCollection[w.id] || 0,
+        targetPct: targetPct,
+        target_amount: targetAmt,
+        target_pct: targetPct,
+        status: ls.status || 'offline',
+        idleMinutes: idleMinutes,
+        claims_pending: claims.pending,
+        claims_verified: claims.verified,
+        claims_rejected: claims.rejected,
+        data_connected: wa.connected,
+        data_total: wa.total,
+        conversion_pct: conversion,
+        collection_amount: coll,
+        collection_amount_today: bs.todayCollection[w.id] || 0,
+        collection_amount_week: bs.weekCollection[w.id] || 0,
+        lead_done_count: leads,
+      };
+    });
+
+    const topByAmount = [...performance].sort((a, b) => b.collection_amount - a.collection_amount).slice(0, 5);
+    const topByDonors = [...performance].sort((a, b) => b.lead_done_count - a.lead_done_count).slice(0, 5);
+    const topByConv = [...performance].filter(p => p.data_total > 0).sort((a, b) => b.conversion_pct - a.conversion_pct).slice(0, 5);
+    const bottomByTarget = [...performance].filter(p => p.target_amount > 0).sort((a, b) => a.target_pct - b.target_pct).slice(0, 5);
+
+    // 8. Idle Alerts (15 min no activity)
+    const { data: idleFros } = await db
+      .from('fro_live_status')
+      .select('fro_worker_id, status, updated_at, today_talk_seconds, today_idle_seconds')
+      .in('fro_worker_id', workerIds)
+      .in('status', ['online', 'idle']);
+    
+    const idleAlerts = (idleFros || [])
+      .filter(f => {
+        const lastUpdate = new Date(f.updated_at);
+        return (now - lastUpdate) > 15 * 60 * 1000;
+      })
+      .map(f => {
+        const fro = froWorkers.find(w => w.id === f.fro_worker_id);
+        const idleMinutes = Math.floor((now - new Date(f.updated_at)) / 60000);
+        return {
+          fro_id: f.fro_worker_id,
+          fro_name: fro?.name || 'Unknown',
+          idle_minutes: idleMinutes,
+          last_activity: f.updated_at,
+          status: f.status,
+        };
+      });
+
+    return res.json({
+      kpis: {
+        total_fros: froWorkers.length,
+        calling,
+        idle,
+        offline,
+        total_calls: totalCalls,
+        connected,
+        interested,
+        received_amount: receivedAmount,
+        followups_due: followupsDue,
+        target_pct: targetPct,
+      },
+      funnel,
+      hourly,
+      performance,  // Add full performance array for telecaller table
+      top_performers: {
+        amount: topByAmount,
+        donors: topByDonors,
+        conversion: topByConv,
+      },
+      bottom_performers: {
+        target: bottomByTarget,
+      },
+      idle_alerts: idleAlerts,
+    });
+  } catch (error) {
+    console.error('getTLDashboard error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Donation Funnel
+export const getDonationFunnel = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
+    if (ngoIds.length === 0) return res.json([]);
+
+    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+
+    const allFunnel = [];
+    for (const ngoId of ngoIds) {
+      const { data: assignments } = await db.from('fro_assignments').select('donor_id').eq('ngo_id', ngoId).neq('status', 'reassigned');
+      const assignedDonorIds = new Set((assignments || []).map(a => a.donor_id).filter(Boolean));
+      
+      const { data: logs } = await db.from('fro_donor_logs').select('donor_id, disposition_detail, accounts_status, fro_assignments!inner(ngo_id)').eq('fro_assignments.ngo_id', ngoId);
+      
+      const calledDonorIds = new Set((logs || []).map(l => l.donor_id).filter(Boolean));
+      const connectedDonorIds = new Set((logs || []).filter(l => connectedStatuses.has(l.disposition_detail)).map(l => l.donor_id).filter(Boolean));
+      const interestedDonorIds = new Set((logs || []).filter(l => interestedStatuses.has(l.disposition_detail)).map(l => l.donor_id).filter(Boolean));
+      const receivedDonorIds = new Set((logs || []).filter(l => l.accounts_status === 'verified').map(l => l.donor_id).filter(Boolean));
+
+      allFunnel.push({
+        ngo_id: ngoId,
+        stages: [
+          { stage: 'Assigned', count: assignedDonorIds.size, pct: 100 },
+          { stage: 'Called', count: calledDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((calledDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+          { stage: 'Connected', count: connectedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((connectedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+          { stage: 'Interested', count: interestedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((interestedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+          { stage: 'Received', count: receivedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((receivedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+        ],
+      });
+    }
+
+    return res.json(allFunnel);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Hourly Performance
+export const getHourlyPerformance = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId, date } = req.query;
+    const targetDate = date ? new Date(date) : new Date();
+    const todayStart = new Date(targetDate); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(targetDate); todayEnd.setHours(23, 59, 59, 999);
+
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
+    if (ngoIds.length === 0) return res.json([]);
+
+    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+
+    const { data: logs } = await db
+      .from('fro_donor_logs')
+      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_assignments!inner(ngo_id)')
+      .in('fro_assignments.ngo_id', ngoIds)
+      .gte('created_at', todayStart.toISOString())
+      .lte('created_at', todayEnd.toISOString());
+
+    const hourlyMap = {};
+    for (let h = 9; h <= 20; h++) {
+      const hourStr = `${String(h).padStart(2, '0')}:00-${String(h+1).padStart(2, '0')}:00`;
+      hourlyMap[hourStr] = { hour: hourStr, calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 };
+    }
+
+    for (const l of logs || []) {
+      const hour = new Date(l.created_at).getHours();
+      if (hour < 9 || hour > 20) continue;
+      const hourStr = `${String(hour).padStart(2, '0')}:00-${String(hour+1).padStart(2, '0')}:00`;
+      if (!hourlyMap[hourStr]) continue;
+      hourlyMap[hourStr].calls++;
+      if (connectedStatuses.has(l.disposition_detail)) hourlyMap[hourStr].connected++;
+      if (interestedStatuses.has(l.disposition_detail)) hourlyMap[hourStr].interested++;
+      if (l.accounts_status === 'verified') {
+        hourlyMap[hourStr].donations++;
+        hourlyMap[hourStr].amount += parseFloat(l.amount_collected || 0);
+      }
+    }
+
+    return res.json(Object.values(hourlyMap));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Follow-ups
+export const getFollowups = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId, bucket } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
+    if (ngoIds.length === 0) return res.json([]);
+
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const tomorrowStr = new Date(now.getTime() + 24*60*60*1000).toISOString().slice(0, 10);
+
+    let query = db
+      .from('fro_assignments')
+      .select(`
+        id, next_follow_up, fro_worker_id, donor_id,
+        workers!fro_assignments_fro_worker_id_fkey(name),
+        donor_profiles!inner(name, mobile_number)
+      `)
+      .in('ngo_id', ngoIds)
+      .not('status', 'in', '("reassigned", "donation_collected")')
+      .not('next_follow_up', 'is', null)
+      .order('next_follow_up', { ascending: true });
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const followups = (data || []).map(f => {
+      let bucket = 'future';
+      if (f.next_follow_up < todayStr) bucket = 'overdue';
+      else if (f.next_follow_up === todayStr) bucket = 'today';
+      else if (f.next_follow_up === tomorrowStr) bucket = 'tomorrow';
+      
+      return {
+        assignment_id: f.id,
+        telecaller: f.workers?.name || 'Unknown',
+        donor_name: f.donor_profiles?.name || 'Unknown',
+        mobile: f.donor_profiles?.mobile_number || '',
+        expected_amount: 0, // Would need additional query
+        followup_date: f.next_follow_up,
+        bucket,
+      };
+    });
+
+    if (bucket) {
+      return res.json(followups.filter(f => f.bucket === bucket));
+    }
+    return res.json(followups);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const reassignFollowup = async (req, res) => {
+  try {
+    const { assignmentId } = req.params;
+    const { new_fro_worker_id, new_followup_date } = req.body;
+    
+    const ngoIds = await getUserNgoIds(req.user);
+    const { data: existing } = await db.from('fro_assignments').select('ngo_id').eq('id', assignmentId).maybeSingle();
+    if (!existing || !ngoIds.includes(existing.ngo_id)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const updates = {};
+    if (new_fro_worker_id) updates.fro_worker_id = new_fro_worker_id;
+    if (new_followup_date) updates.next_follow_up = new_followup_date;
+    
+    const { error } = await db.from('fro_assignments').update(updates).eq('id', assignmentId);
+    if (error) throw error;
+
+    return res.json({ message: 'Follow-up reassigned successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateFollowupDate = async (req, res) => {
+  try {
+    const { assignmentId } = req.params;
+    const { followup_date } = req.body;
+    
+    const ngoIds = await getUserNgoIds(req.user);
+    const { data: existing } = await db.from('fro_assignments').select('ngo_id').eq('id', assignmentId).maybeSingle();
+    if (!existing || !ngoIds.includes(existing.ngo_id)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { error } = await db.from('fro_assignments').update({ next_follow_up: followup_date }).eq('id', assignmentId);
+    if (error) throw error;
+
+    return res.json({ message: 'Follow-up date updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Idle Alerts
+export const getIdleAlerts = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoIds.length === 0 && req.user.ngo_id) {
+      ngoIds.push(req.user.ngo_id);
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+    }
+
+    if (ngoIds.length === 0) return res.json([]);
+
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const workerIds = froWorkers.map(w => w.id);
+
+    const now = new Date();
+    const { data: idleFros } = await db
+      .from('fro_live_status')
+      .select('fro_worker_id, status, updated_at, today_talk_seconds, today_idle_seconds')
+      .in('fro_worker_id', workerIds)
+      .in('status', ['online', 'idle']);
+    
+    const idleAlerts = (idleFros || [])
+      .filter(f => (now - new Date(f.updated_at)) > 15 * 60 * 1000)
+      .map(f => {
+        const fro = froWorkers.find(w => w.id === f.fro_worker_id);
+        return {
+          fro_id: f.fro_worker_id,
+          fro_name: fro?.name || 'Unknown',
+          idle_minutes: Math.floor((now - new Date(f.updated_at)) / 60000),
+          last_activity: f.updated_at,
+          status: f.status,
+        };
+      });
+
+    return res.json(idleAlerts);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Top/Bottom Performers
+export const getTopPerformers = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
+    if (ngoIds.length === 0) return res.json({ amount: [], donors: [], conversion: [] });
+
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const workerIds = froWorkers.map(w => w.id);
+
+    const monthStr = new Date().toISOString().slice(0, 7) + '-01';
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
+    
+    const { data: faRows } = await db
+      .from('fro_assignments')
+      .select('status, fro_worker_id')
+      .in('ngo_id', ngoIds)
+      .neq('status', 'reassigned');
+
+    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const workerAssignments = {};
+    for (const a of faRows || []) {
+      if (!workerAssignments[a.fro_worker_id]) workerAssignments[a.fro_worker_id] = { connected: 0, total: 0 };
+      workerAssignments[a.fro_worker_id].total++;
+      if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
+    }
+
+    const { data: targets } = await db.from('fro_targets').select('fro_worker_id, target_amount, achieved_target').in('ngo_id', ngoIds).eq('month', monthStr);
+
+    const performance = froWorkers.map(w => {
+      const bs = batchStats;
+      const coll = bs.monthCollection[w.id] || 0;
+      const leads = bs.monthCollection[w.id] ? (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0) : 0;
+      const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
+      const conversion = wa.total > 0 ? Math.round((wa.connected / wa.total) * 1000) / 10 : 0;
+      const target = (targets || []).find(t => t.fro_worker_id === w.id);
+      const targetAmt = target ? parseFloat(target.target_amount) : 0;
+      const achievedAmt = target ? parseFloat(target.achieved_target || 0) : coll;
+      const targetPct = targetAmt > 0 ? Math.round((achievedAmt / targetAmt) * 100) : 0;
+      
+      return {
+        fro_id: w.id,
+        fro_name: w.name || w.login_id || 'Unknown',
+        collection_amount: coll,
+        lead_done_count: leads,
+        data_connected: wa.connected,
+        data_total: wa.total,
+        conversion_pct: conversion,
+        target_amount: targetAmt,
+        target_pct: targetPct,
+      };
+    }).filter(p => p.collection_amount > 0 || p.lead_done_count > 0 || p.data_total > 0);
+
+    const topByAmount = [...performance].sort((a, b) => b.collection_amount - a.collection_amount).slice(0, 5);
+    const topByDonors = [...performance].sort((a, b) => b.lead_done_count - a.lead_done_count).slice(0, 5);
+    const topByConv = [...performance].filter(p => p.data_total > 0).sort((a, b) => b.conversion_pct - a.conversion_pct).slice(0, 5);
+
+    return res.json({
+      amount: topByAmount,
+      donors: topByDonors,
+      conversion: topByConv,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getBottomPerformers = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoIds.length === 0 && req.user.ngo_id) {
+      ngoIds.push(req.user.ngo_id);
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+    }
+
+    if (ngoIds.length === 0) return res.json({ target: [] });
+
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const workerIds = froWorkers.map(w => w.id);
+
+    const monthStr = new Date().toISOString().slice(0, 7) + '-01';
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
+    
+    const { data: faRows } = await db
+      .from('fro_assignments')
+      .select('status, fro_worker_id')
+      .in('ngo_id', ngoIds)
+      .neq('status', 'reassigned');
+
+    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const workerAssignments = {};
+    for (const a of faRows || []) {
+      if (!workerAssignments[a.fro_worker_id]) workerAssignments[a.fro_worker_id] = { connected: 0, total: 0 };
+      workerAssignments[a.fro_worker_id].total++;
+      if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
+    }
+
+    const { data: targets } = await db.from('fro_targets').select('fro_worker_id, target_amount, achieved_target').in('ngo_id', ngoIds).eq('month', monthStr);
+
+    const performance = froWorkers.map(w => {
+      const bs = batchStats;
+      const coll = bs.monthCollection[w.id] || 0;
+      const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
+      const target = (targets || []).find(t => t.fro_worker_id === w.id);
+      const targetAmt = target ? parseFloat(target.target_amount) : 0;
+      const achievedAmt = target ? parseFloat(target.achieved_target || 0) : coll;
+      const targetPct = targetAmt > 0 ? Math.round((achievedAmt / targetAmt) * 100) : 0;
+      
+      return {
+        fro_id: w.id,
+        fro_name: w.name || w.login_id || 'Unknown',
+        collection_amount: coll,
+        target_pct: targetPct,
+      };
+    }).filter(p => p.target_amount > 0);
+
+    const bottomByTarget = [...performance].sort((a, b) => a.target_pct - b.target_pct).slice(0, 5);
+
+    return res.json({ target: bottomByTarget });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Assigned Data - Station Performance
+export const getAssignedData = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId, period, from, to } = req.query;
+    let targetNgoIds = filterNgoId && filterNgoId !== 'all' ? [filterNgoId] : ngoIds;
+    if (targetNgoIds.length === 0) return res.json({ summary: {}, stations: [] });
+
+    const now = new Date();
+    let startDate, endDate;
+    if (period === 'today') {
+      startDate = new Date(); startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(); endDate.setHours(23, 59, 59, 999);
+    } else if (period === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (from && to) {
+      startDate = new Date(from);
+      endDate = new Date(to);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    }
+
+    const startISO = startDate.toISOString();
+    const endISO = endDate.toISOString();
+
+    // Get station stats with dispositions
+    const { data: stationStats } = await db.rpc('get_station_disposition_stats', {
+      p_ngo_id: targetNgoIds[0],
+      p_from: startISO,
+      p_to: endISO,
+    });
+
+    // Get station assignments for FRO/NGO info
+    const { data: stationAssigns } = await db
+      .from('fro_station_assignments')
+      .select('station, ngo_id, fro_worker_id, workers!left(name)')
+      .in('ngo_id', targetNgoIds);
+
+    // Get NGO names
+    const { data: ngos } = await db.from('ngos').select('id, name').in('id', targetNgoIds);
+    const ngoMap = Object.fromEntries((ngos || []).map(n => [n.id, n.name]));
+
+    // Get donor counts per station
+    const { data: donorCounts } = await db
+      .from('fro_assignments')
+      .select('donor_id, station, ngo_id, fro_worker_id')
+      .in('ngo_id', targetNgoIds)
+      .not('station', 'is', null)
+      .not('status', 'eq', 'reassigned');
+
+    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const nonConnectedStatuses = new Set(['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail']);
+    const leadDoneStatuses = new Set(['donation_collected', 'lead_done', 'done']);
+
+    const stationMap = {};
+    for (const row of stationStats || []) {
+      const station = row.station || 'Unassigned';
+      if (!stationMap[station]) {
+        stationMap[station] = { station, donors: 0, connected: 0, non_connected: 0, lead_done: 0, ngos: [], fro_name: null };
+      }
+      const status = row.status;
+      const count = parseInt(row.count, 10);
+      stationMap[station].donors += count;
+      if (connectedStatuses.has(status)) stationMap[station].connected += count;
+      if (nonConnectedStatuses.has(status)) stationMap[station].non_connected += count;
+      if (leadDoneStatuses.has(status)) stationMap[station].lead_done += count;
+    }
+
+    // Add NGO and FRO info
+    for (const sa of stationAssigns || []) {
+      if (stationMap[sa.station]) {
+        if (!stationMap[sa.station].ngos.includes(sa.ngo_id)) {
+          stationMap[sa.station].ngos.push(sa.ngo_id);
+        }
+        if (sa.fro_worker_id && !stationMap[sa.station].fro_name) {
+          stationMap[sa.station].fro_name = sa.workers?.name || 'Unknown';
+        }
+      }
+    }
+
+    // Add stations that only exist in assignments but not in stats
+    for (const dc of donorCounts || []) {
+      if (!stationMap[dc.station]) {
+        stationMap[dc.station] = { station: dc.station, donors: 0, connected: 0, non_connected: 0, lead_done: 0, ngos: [], fro_name: null };
+      }
+      if (!stationMap[dc.station].ngos.includes(dc.ngo_id)) {
+        stationMap[dc.station].ngos.push(dc.ngo_id);
+      }
+    }
+
+    const result = Object.values(stationMap).map(s => ({
+      station: s.station,
+      donors: s.donors,
+      connected: s.connected,
+      non_connected: s.non_connected,
+      lead_done: s.lead_done,
+      ngos: s.ngos.map(id => ({ id, name: ngoMap[id] })),
+      fro_name: s.fro_name,
+    }));
+
+    // Summary
+    const summary = {
+      total_stations: result.length,
+      total_donors: result.reduce((sum, s) => sum + s.donors, 0),
+      total_connected: result.reduce((sum, s) => sum + s.connected, 0),
+      total_non_connected: result.reduce((sum, s) => sum + s.non_connected, 0),
+      total_lead_done: result.reduce((sum, s) => sum + s.lead_done, 0),
+    };
+
+    return res.json({ summary, stations: result });
+  } catch (error) {
+    console.error('getAssignedData error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Restore wrong cross-FRO assignments: find fro_assignments where station IS NULL
+// and the donor has another assignment with station IS NOT NULL for the same ngo_id.
+export const restoreWrongAssignments = async (req, res) => {
+  try {
+    // Find all assignments with station NULL (manually created, potentially wrong)
+    const { data: nullStationAsns } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, fro_worker_id, ngo_id, station, status')
+      .is('station', null)
+      .not('status', 'eq', 'reassigned');
+
+    if (!nullStationAsns || nullStationAsns.length === 0) {
+      return res.json({ restored: 0, details: [] });
+    }
+
+    const details = [];
+    let restoredCount = 0;
+
+    for (const asn of nullStationAsns) {
+      // Check if this donor has another assignment with station for the same ngo_id
+      const { data: correctAsns } = await db
+        .from('fro_assignments')
+        .select('id, fro_worker_id, station')
+        .eq('donor_id', asn.donor_id)
+        .eq('ngo_id', asn.ngo_id)
+        .not('id', 'eq', asn.id)
+        .not('status', 'eq', 'reassigned')
+        .not('station', 'is', null);
+
+      if (correctAsns && correctAsns.length > 0) {
+        // This is a wrong assignment — delete it and its fro_donor_logs
+        const { data: logs } = await db
+          .from('fro_donor_logs')
+          .select('id, amount_collected')
+          .eq('assignment_id', asn.id);
+
+        // Delete fro_donor_logs first
+        if (logs && logs.length > 0) {
+          await db.from('fro_donor_logs').delete().eq('assignment_id', asn.id);
+        }
+
+        // Delete the wrong assignment
+        await db.from('fro_assignments').delete().eq('id', asn.id);
+
+        restoredCount++;
+        details.push({
+          assignment_id: asn.id,
+          donor_id: asn.donor_id,
+          fro_worker_id: asn.fro_worker_id,
+          ngo_id: asn.ngo_id,
+          logs_deleted: logs?.length || 0,
+          correct_assignment_id: correctAsns[0]?.id,
+        });
+      }
+    }
+
+    return res.json({ restored: restoredCount, details });
+  } catch (error) {
+    console.error('restoreWrongAssignments error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// FRO-level Hourly Performance
+export const getFroHourlyPerformance = async (req, res) => {
+  try {
+    const { ngo_id, from, to } = req.query;
+    const ngoIds = await getUserNgoIds(req.user);
+    const effectiveNgoId = ngo_id || (ngoIds.length === 1 ? ngoIds[0] : null);
+
+    let fromDate, toDate;
+    if (from) {
+      fromDate = from.includes('T') ? from : `${from}T00:00:00.000Z`;
+    } else {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      fromDate = d.toISOString();
+    }
+    if (to) {
+      toDate = to.includes('T') ? to : `${to}T23:59:59.999Z`;
+    } else {
+      toDate = new Date().toISOString();
+    }
+
+    let logQuery = db
+      .from('fro_donor_logs')
+      .select('created_at, disposition_detail, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id)')
+      .gte('created_at', fromDate)
+      .lte('created_at', toDate);
+
+    if (effectiveNgoId) {
+      logQuery = logQuery.eq('fro_assignments.ngo_id', effectiveNgoId);
+    } else if (ngoIds.length > 0) {
+      logQuery = logQuery.in('fro_assignments.ngo_id', ngoIds);
+    }
+
+    const { data: logs, error } = await logQuery;
+    if (error) throw error;
+
+    const connectedStatuses = new Set([
+      'donation_collected', 'promise_to_pay', 'lead_done', 'done',
+      'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated',
+      'pending', 'contacted', 'follow_up', 'scheduled',
+      'email_sent', 'whatsapp_sent', 'csr_inquiry',
+      'wants_80g_details', 'wants_trust_documents'
+    ]);
+    const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+
+    // Build FRO-hourly map
+    const froHourlyMap = {};
+    for (const l of logs || []) {
+      const wid = l.fro_worker_id;
+      if (!wid) continue;
+      const wname = l.workers?.name || 'Unknown';
+      const wlogin = l.workers?.login_id || '';
+      const hour = new Date(l.created_at).getHours();
+      if (hour < 9 || hour > 20) continue;
+      const hourStr = `${String(hour).padStart(2, '0')}:00-${String(hour+1).padStart(2, '0')}:00`;
+
+      const key = `${wid}|${hourStr}`;
+      if (!froHourlyMap[key]) {
+        froHourlyMap[key] = {
+          fro_worker_id: wid,
+          fro_name: wname,
+          fro_login_id: wlogin,
+          hour: hourStr,
+          calls: 0,
+          connected: 0,
+          interested: 0,
+          donations: 0,
+          amount: 0,
+        };
+      }
+      froHourlyMap[key].calls++;
+      if (connectedStatuses.has(l.disposition_detail)) froHourlyMap[key].connected++;
+      if (interestedStatuses.has(l.disposition_detail)) froHourlyMap[key].interested++;
+      if (l.accounts_status === 'verified') {
+        froHourlyMap[key].donations++;
+        froHourlyMap[key].amount += parseFloat(l.amount_collected || 0);
+      }
+    }
+
+    // Ensure all active FROs are represented across working hours
+    const targetNgos = effectiveNgoId ? [effectiveNgoId] : ngoIds;
+    const allWorkers = (await Promise.all(targetNgos.map(nId => getFroWorkersByNgo(nId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+
+    const allHours = Array.from({ length: 12 }, (_, i) => 
+      `${String(9+i).padStart(2, '0')}:00-${String(10+i).padStart(2, '0')}:00`
+    );
+
+    for (const w of froWorkers) {
+      for (const h of allHours) {
+        const key = `${w.id}|${h}`;
+        if (!froHourlyMap[key]) {
+          froHourlyMap[key] = {
+            fro_worker_id: w.id,
+            fro_name: w.name || w.login_id || 'Unknown',
+            fro_login_id: w.login_id || '',
+            hour: h,
+            calls: 0,
+            connected: 0,
+            interested: 0,
+            donations: 0,
+            amount: 0,
+          };
+        }
+      }
+    }
+
+    const result = Object.values(froHourlyMap)
+      .sort((a, b) => {
+        if (a.fro_name !== b.fro_name) return a.fro_name.localeCompare(b.fro_name);
+        return a.hour.localeCompare(b.hour);
+      });
+
+    return res.json(result);
+  } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };

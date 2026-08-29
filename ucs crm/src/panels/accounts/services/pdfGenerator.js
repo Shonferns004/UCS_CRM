@@ -270,33 +270,12 @@ export async function generateReceiptPDF(element, opts = {}) {
   const printableH = pdfH - 2 * margin
   const pixelsPerMm = canvas.width / printableW
   const fullRenderedHeight = canvas.height / pixelsPerMm
-  const onePageOverflowTolerance = 12
 
-  if (fullRenderedHeight <= printableH + onePageOverflowTolerance) {
-    const scaleToFit = Math.min(1, printableH / fullRenderedHeight)
-    const renderedW = printableW * scaleToFit
-    const renderedH = fullRenderedHeight * scaleToFit
-    const x = margin + (printableW - renderedW) / 2
-    pdf.addImage(canvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', x, margin, renderedW, renderedH)
-    return pdf
-  }
-
-  const pageSliceHeight = Math.floor(printableH * pixelsPerMm)
-
-  for (let offsetY = 0, page = 0; offsetY < canvas.height; offsetY += pageSliceHeight, page++) {
-    const sliceHeight = Math.min(pageSliceHeight, canvas.height - offsetY)
-    const pageCanvas = document.createElement('canvas')
-    pageCanvas.width = canvas.width
-    pageCanvas.height = sliceHeight
-    pageCanvas.getContext('2d').drawImage(
-      canvas,
-      0, offsetY, canvas.width, sliceHeight,
-      0, 0, canvas.width, sliceHeight,
-    )
-    if (page > 0) pdf.addPage()
-    const renderedHeight = sliceHeight / pixelsPerMm
-    pdf.addImage(pageCanvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', margin, margin, printableW, renderedHeight)
-  }
+  const scaleToFit = Math.min(1, printableH / fullRenderedHeight)
+  const renderedW = printableW * scaleToFit
+  const renderedH = fullRenderedHeight * scaleToFit
+  const x = margin + (printableW - renderedW) / 2
+  pdf.addImage(canvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', x, margin, renderedW, renderedH)
   return pdf
 }
 

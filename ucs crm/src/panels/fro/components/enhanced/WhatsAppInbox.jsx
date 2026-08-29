@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts } from '../../api/whatsappEnhanced'
 import { useRealtime } from '../../../../hooks/useRealtime'
+import { useIsMobile } from '../../../../hooks/useIsMobile'
 import ConversationList from './ConversationList'
 import { MessageList } from './MessageBubble'
 import MessageComposer from './MessageComposer'
@@ -44,8 +45,10 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const messagesContainerRef = useRef(null)
   const lastScrolledConversationRef = useRef(null)
   const handledRouteTargetRef = useRef('')
+  const isMobile = useIsMobile()
 
   const [activeConv, setActiveConv] = useState(null)
+  const [showChat, setShowChat] = useState(false)
   const [activeTab, setActiveTab] = useState(activeProject || searchParams.get('project') || 'all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewConv, setShowNewConv] = useState(false)
@@ -194,10 +197,11 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
+    if (isMobile) setShowChat(true)
     setMediaFile(null)
     try { await markRead(conv.id, agentToken) } catch (e) { console.error('Error:', e.message); }
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [queryClient, agentToken])
+  }, [queryClient, agentToken, isMobile])
 
   const handleSend = useCallback(async (text) => {
     if (!activeConv) return
@@ -254,7 +258,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   return (
     <div style={{ display: 'flex', height, border: compact ? 'none' : '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
       {/* Sidebar */}
-      <div style={{ width: 280, borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+      <div style={{ width: isMobile ? '100%' : 280, borderRight: isMobile ? 'none' : '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0, ...(isMobile && showChat ? { display: 'none' } : {}) }}>
         <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search conversations..."
@@ -270,10 +274,13 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       </div>
 
       {/* Main chat area */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, ...(isMobile && !showChat ? { display: 'none' } : {}), ...(isMobile ? { width: '100%' } : {}) }}>
         {activeConv ? (
           <>
             <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb', display: 'flex', alignItems: 'center', gap: 10 }}>
+              {isMobile && (
+                <button onClick={() => setShowChat(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6b7280', padding: 0, lineHeight: 1 }}>←</button>
+              )}
               <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                 {activeName.charAt(0).toUpperCase()}
               </div>

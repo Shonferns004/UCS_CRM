@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
-import { computePaidDays } from '../utils/salaryDays.js';
+import { computePaidDays, getISTToday } from '../utils/salaryDays.js';
 
 export const getSalariesByWorker = async (workerId) => {
   const { data, error } = await db
@@ -17,10 +17,21 @@ export const getActiveSalaryByWorker = async (workerId) => {
     .from('salary_history')
     .select('*')
     .eq('worker_id', workerId)
+    .is('to_month', null)
     .order('from_month', { ascending: false })
     .limit(1);
   if (error) throw error;
   return data && data.length > 0 ? data[0] : null;
+};
+
+export const getSalaryById = async (id) => {
+  const { data, error } = await db
+    .from('salary_history')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error) throw error;
+  return data;
 };
 
 export const createSalary = async (salaryData) => {
@@ -59,6 +70,7 @@ export const getAllWorkersSalarySummary = async () => {
 
   const latest = {};
   for (const s of salaries) {
+    if (s.to_month) continue;
     if (!latest[s.worker_id]) latest[s.worker_id] = s;
   }
 
@@ -109,6 +121,7 @@ export const getPayrollData = async (month, extended = false) => {
 
   const latestSalary = {};
   for (const s of salaries) {
+    if (s.to_month) continue;
     if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
   }
 
@@ -396,6 +409,304 @@ export const getPresentDaysByMonth = async (month) => {
 
   rows.sort((a, b) => a.name.localeCompare(b.name));
   return { month: startDate, days_in_month: daysInMonth, total_workers: rows.length, rows };
+};
+
+export const getPagarExportData = async (month) => {
+  const p = String(month || '').split('-');
+  if (p.length !== 2) throw new Error('month must be YYYY-MM');
+  const year = parseInt(p[0], 10);
+  const monthIdx = parseInt(p[1], 10) - 1;
+  if (!year || monthIdx < 0 || monthIdx > 11) throw new Error('month must be YYYY-MM');
+  const pad = n => String(n).padStart(2, '0');
+  const monthStr = `${year}-${pad(monthIdx + 1)}`;
+  const startDate = `${monthStr}-01`;
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const endDate = `${monthStr}-${pad(daysInMonth)}`;
+
+  // Determine viewingToday: for current month use today's IST day; for past months use full month
+  const ist = getISTToday();
+  const isCurrentMonth = (year === ist.year && monthIdx === ist.month);
+  const viewingToday = isCurrentMonth ? ist.day : daysInMonth + 1;
+
+  // 1. Workers with basic info
+  const { data: workers, error: wErr } = await db
+    .from('workers')
+    .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name');
+  if (wErr) throw wErr;
+
+  // 2. Latest salary per worker
+  const { data: salaries, error: sErr } = await db
+    .from('salary_history')
+    .select('*')
+    .order('from_month', { ascending: false });
+  if (sErr) throw sErr;
+  const latestSalary = {};
+  for (const s of salaries) {
+    if (s.to_month) continue;
+    if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
+  }
+
+  // 3. Targets for month — manual fro_monthly_targets (latest per worker) wins over auto incentive_targets
+  // fro_monthly_targets stores month as first-of-month (YYYY-MM-01), matching our startDate
+  // Exclude target_amount = 0 (phantom rows created by achieved_target/incentive upserts)
+  const { data: manualTargets, error: mtErr } = await db
+    .from('fro_monthly_targets')
+    .select('fro_worker_id, target_amount, created_at')
+    .eq('month', startDate)
+    .gt('target_amount', 0)
+    .order('created_at', { ascending: false });
+  if (mtErr) throw mtErr;
+  
+  // Take latest created_at row per worker (mirrors getTargetByWorker in froTargetModel.js)
+  const manualTargetByWorker = {};
+  for (const t of manualTargets || []) {
+    if (!manualTargetByWorker[t.fro_worker_id]) {
+      manualTargetByWorker[t.fro_worker_id] = parseFloat(t.target_amount);
+    }
+  }
+
+  // Fallback: auto-generated incentive_targets
+  const { data: autoTargets, error: atErr } = await db
+    .from('incentive_targets')
+    .select('worker_id, target_amount, month')
+    .gte('month', startDate)
+    .lte('month', endDate)
+    .gt('target_amount', 0)
+    .order('month', { ascending: false });
+  if (atErr) throw atErr;
+  
+  const targetByWorker = { ...manualTargetByWorker };
+  for (const t of autoTargets) {
+    if (!targetByWorker[t.worker_id]) {
+      targetByWorker[t.worker_id] = parseFloat(t.target_amount);
+    }
+  }
+
+  // 4. Attendance data (reuse getPresentDaysByMonth logic)
+  const { data: attRecords, error: aErr } = await db
+    .from('attendance')
+    .select('worker_id, status, date, late_minutes')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  if (aErr) throw aErr;
+
+  const { data: holidays, error: hErr } = await db
+    .from('holidays')
+    .select('date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
+
+  const attByWorker = {};
+  for (const r of attRecords) {
+    if (!attByWorker[r.worker_id]) attByWorker[r.worker_id] = [];
+    attByWorker[r.worker_id].push(r);
+  }
+
+  // 5. Station assignments
+  const { data: stations, error: stErr } = await db
+    .from('fro_station_assignments')
+    .select('fro_worker_id, station');
+  if (stErr) throw stErr;
+  const stationsByWorker = {};
+  for (const s of stations || []) {
+    if (!stationsByWorker[s.fro_worker_id]) stationsByWorker[s.fro_worker_id] = [];
+    stationsByWorker[s.fro_worker_id].push(s.station);
+  }
+
+  // 6. Collections with NGO split + per-day amounts
+  // Use same dedup logic as getDailyCollectionByWorker
+  const { data: collLogs, error: collErr } = await db
+    .from('fro_donor_logs')
+    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, upi_transaction_id, remark, fro_worker_id, fro_assignments!inner(ngo_id)')
+    .or(
+      `and(action.eq.donation,created_at.gte.${startDate},created_at.lte.${endDate}),` +
+      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${startDate},verified_at.lte.${endDate}),` +
+      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${startDate},created_at.lte.${endDate})`
+    );
+  if (collErr) throw collErr;
+
+  const paymentDiscriminant = (d) => {
+    if (d.upi_transaction_id && String(d.upi_transaction_id).trim()) return `upi:${d.upi_transaction_id}`;
+    if (d.remark && String(d.remark).trim()) return `remark:${String(d.remark).trim()}`;
+    return `none`;
+  };
+
+  const logCollectionDate = (d) => {
+    if (d.transaction_datetime) return String(d.transaction_datetime).slice(0, 10);
+    if (d.verified_at) return String(d.verified_at).slice(0, 10);
+    if (d.created_at) return String(d.created_at).slice(0, 10);
+    return null;
+  };
+
+  const inRange = (dateStr) => dateStr && dateStr >= startDate && dateStr <= endDate;
+
+  const collectionByWorker = {};
+  const dailyByWorker = {};
+  const NgoByWorker = {};
+  const seen = new Set();
+
+  for (const d of collLogs || []) {
+    const amount = parseFloat(d.amount_collected || 0);
+    if (amount <= 0) continue;
+    const wid = d.fro_worker_id;
+    const ngoId = d.fro_assignments?.ngo_id;
+    if (!wid || !ngoId) continue;
+    const date = logCollectionDate(d);
+    if (!inRange(date)) continue;
+    const day = parseInt(date.slice(8, 10), 10);
+    if (!day) continue;
+    const dedupKey = `${d.donor_id}|${amount}|${day}|${ngoId}|${paymentDiscriminant(d)}`;
+    const seenKey = `seen_${wid}_${dedupKey}`;
+    if (seen.has(seenKey)) continue;
+    seen.add(seenKey);
+
+    if (!collectionByWorker[wid]) collectionByWorker[wid] = 0;
+    collectionByWorker[wid] += amount;
+
+    if (!dailyByWorker[wid]) dailyByWorker[wid] = {};
+    dailyByWorker[wid][day] = (dailyByWorker[wid][day] || 0) + amount;
+
+    if (!NgoByWorker[wid]) NgoByWorker[wid] = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
+    let ngoName = 'Other';
+    if (ngoId === 'afa30741-54f8-4ea9-a449-b3ae625351dc') ngoName = 'AFLF';
+    else if (ngoId === '598954e3-6716-4e83-adc8-323d622facf0') ngoName = 'BSCT';
+    else if (ngoId === '472ff76f-67f7-42d1-8224-806c6041b33f') ngoName = 'MANN';
+    NgoByWorker[wid][ngoName] = (NgoByWorker[wid][ngoName] || 0) + amount;
+  }
+
+  // Merge manual daily_achievements (manual wins for that day's total)
+  const { data: manualAch, error: maErr } = await db
+    .from('daily_achievements')
+    .select('worker_id, amount, date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  if (!maErr && manualAch) {
+    for (const m of manualAch) {
+      const wid = m.worker_id;
+      const day = parseInt(m.date.slice(8, 10), 10);
+      const amount = parseFloat(m.amount || 0);
+      if (!day || amount <= 0) continue;
+      if (!dailyByWorker[wid]) dailyByWorker[wid] = {};
+      dailyByWorker[wid][day] = amount; // manual wins
+    }
+  }
+
+  // 7. Active loans for advance deduction
+  const { data: loans, error: lnErr } = await db
+    .from('worker_loans')
+    .select('worker_id, monthly_deduction')
+    .in('status', ['approved', 'active'])
+    .gt('remaining_amount', 0);
+  if (lnErr) throw lnErr;
+  const loanByWorker = {};
+  for (const l of loans || []) {
+    const ded = parseFloat(l.monthly_deduction || 0);
+    if (ded > 0) loanByWorker[l.worker_id] = ded;
+  }
+
+  // 8. Compute per worker
+  const rows = [];
+  for (const w of workers) {
+    const sal = latestSalary[w.id];
+    const salary = sal ? parseFloat(sal.salary) : 0;
+    if (salary <= 0) continue; // skip workers without salary
+
+    const workerAtt = attByWorker[w.id] || [];
+    const attResult = computePaidDays({
+      year,
+      month: monthIdx,
+      daysInMonth,
+      records: workerAtt,
+      createdAt: w.created_at || '',
+      holidayDates,
+      viewingToday,
+    });
+
+    const target = targetByWorker[w.id] || 0;
+    const achieved = collectionByWorker[w.id] || 0;
+    const perDay = salary / daysInMonth;
+    const netPresentDays = attResult.totalDueDays;
+    const grossPresentDays = attResult.paidDays;
+    const trainingSundayDed = attResult.joiningDeduction + attResult.lateDeductionDays;
+
+    const monthlyIncentive = (target > 0 && achieved >= target)
+      ? Math.round((achieved - target) * 0.1)
+      : 0;
+
+    const monthsEmployed = getMonthsEmployed(w.created_at, new Date(year, monthIdx + 1, 0));
+    const isNewJoiner = monthsEmployed !== null && monthsEmployed <= 3;
+
+    let totalAKI = 0;
+    const daily = dailyByWorker[w.id] || {};
+    for (let d = 1; d <= daysInMonth; d++) {
+      const amount = daily[d] || 0;
+      if (amount > 0) {
+        const dayName = getDayName(`${year}-${pad(monthIdx + 1)}-${pad(d)}`);
+        totalAKI += calculateAKI(amount, dayName);
+      }
+    }
+    const akiPayout = (target > 0 && achieved >= target)
+      ? (isNewJoiner ? Math.round(totalAKI) : Math.round(totalAKI / 2))
+      : 0;
+
+    const advanceDeduction = loanByWorker[w.id] || 0;
+
+    const monthSalary = Math.round(perDay * netPresentDays);
+    const grossPayable = monthSalary + monthlyIncentive + akiPayout;
+    const netPayable = grossPayable - advanceDeduction;
+
+    const stationStr = (stationsByWorker[w.id] || []).join(' / ');
+
+    const ngo = NgoByWorker[w.id] || { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
+    const totalAchieved = achieved; // sum of all NGOs
+
+    rows.push({
+      id: w.id,
+      name: w.name,
+      status: (w.employment_status || '').toUpperCase(),
+      department: w.department || '',
+      account_holder_name: w.account_holder_name || '',
+      account_holder_relation: w.father_husband_name || '', // blank or father name
+      bank_name: w.bank_name || '',
+      account_number: w.account_number || '',
+      station: stationStr,
+      doj: w.created_at ? String(w.created_at).slice(0, 10) : '',
+      salary,
+      target,
+      achieved: totalAchieved,
+      achieved_bsct: ngo.BSCT || 0,
+      achieved_aflf: ngo.AFLF || 0,
+      achieved_mann: ngo.MANN || 0,
+      gross_present_days: grossPresentDays,
+      training_sunday_ded: trainingSundayDed,
+      net_present_days: netPresentDays,
+      month_salary: monthSalary,
+      monthly_incentive: monthlyIncentive,
+      total_aki: Math.round(totalAKI),
+      aki_payout: akiPayout,
+      gross_payable: grossPayable,
+      advance_deduction: advanceDeduction,
+      net_payable: netPayable,
+      daily: daily, // { day: amount }
+      days_in_month: daysInMonth,
+      start_date: startDate,
+    });
+  }
+
+  // Sort: Active FROs first, then other departments, then Absconded/Inactive
+  const deptOrder = { 'FRO': 0, 'Digital': 1, 'Admin': 2, 'NGO Admin': 3, 'Event Manager': 4, 'Housekeeping': 5, 'HR': 6, 'HR-Recruiter': 7 };
+  rows.sort((a, b) => {
+    const aActive = a.status === 'ACTIVE';
+    const bActive = b.status === 'ACTIVE';
+    if (aActive !== bActive) return bActive ? 1 : -1;
+    const aDept = deptOrder[a.department] ?? 99;
+    const bDept = deptOrder[b.department] ?? 99;
+    if (aDept !== bDept) return aDept - bDept;
+    return a.name.localeCompare(b.name);
+  });
+
+  return { month: monthStr, days_in_month: daysInMonth, rows };
 };
 
 // Mirrors normalizeName() in the salary frontend so Excel names ("Nazreen

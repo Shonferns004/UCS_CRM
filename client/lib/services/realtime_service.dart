@@ -62,8 +62,12 @@ class RealtimeService extends ChangeNotifier {
       if (event == null) return;
       final row = payload['new'] ?? payload['old'];
       if (row is Map && !_isAdmin) {
-        final rowWorkerId = row['worker_id'];
-        if (rowWorkerId != null && rowWorkerId.toString() != workerId) return;
+        if (event == RealtimeEvent.codes) {
+          // impersonation_codes use created_by, not worker_id — let all workers through
+        } else {
+          final rowWorkerId = row['worker_id'];
+          if (rowWorkerId != null && rowWorkerId.toString() != workerId) return;
+        }
       }
       _lastEvent = event;
       notifyListeners();

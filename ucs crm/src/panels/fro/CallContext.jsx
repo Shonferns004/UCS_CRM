@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react'
 import { api } from './api/auth'
+import { useActivityTracking } from './hooks/useActivityTracking'
+import { istDateString } from './utils/time'
 
 const CallContext = createContext()
 
@@ -11,7 +13,7 @@ function loadStats(userId) {
     const raw = localStorage.getItem(STATS_KEY)
     if (!raw) return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
     const data = JSON.parse(raw)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = istDateString()
     if (data.date === today && data.userId === userId) {
       return {
         calls: data.calls || 0,
@@ -29,7 +31,7 @@ function loadStats(userId) {
 function saveStats(userId, stats) {
   try {
     localStorage.setItem(STATS_KEY, JSON.stringify({
-      date: new Date().toISOString().slice(0, 10),
+      date: istDateString(),
       userId,
       calls: stats.calls,
       totalSeconds: stats.totalSeconds,
@@ -85,6 +87,24 @@ export function CallProvider({ children, userId }) {
       }),
     }).catch((err) => { console.error('Error:', err.message); })
   }, [activeCall, onBreak, todayStats])
+
+  // Auto idle tracking & heartbeat
+  const { isIdle, lastActivity, resetIdleTimer } = useActivityTracking(userId, {
+    idleThreshold: 15 * 60 * 1000, // 15 minutes
+    heartbeatInterval: 30 * 1000,  // 30 seconds
+    onIdle: () => {
+      // Update local stats to reflect idle
+      setTodayStats(prev => ({ ...prev, idleSeconds: prev.idleSeconds + 1 }));
+      syncAllStats();
+    },
+    onActive: () => {
+      // User became active again
+      syncAllStats();
+    },
+    onHeartbeat: ({ status, isIdle }) => {
+      // Heartbeat sent to backend
+    },
+  });
 
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return

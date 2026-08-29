@@ -9,17 +9,24 @@ function normalizePhone(phone) {
   return raw;
 }
 
-export async function getFroConversations(froWorkerId) {
+export async function getFroConversations(froWorkerId, restrictPairs = null) {
   const { data: assignments, error: assignErr } = await db
     .from('fro_assignments')
-    .select('donor_id, fro_worker_id, donor_profiles!inner(mobile_number)')
+    .select('donor_id, fro_worker_id, station, ngo_id, donor_profiles!inner(mobile_number)')
     .eq('fro_worker_id', froWorkerId)
     .not('status', 'eq', 'reassigned');
 
   if (assignErr) throw assignErr;
-  if (!assignments || assignments.length === 0) return [];
+  let scoped = assignments || [];
+  // Station-scoped work-as: only donors whose assignment sits on a claimed
+  // (ngo_id, station) pair are visible.
+  if (restrictPairs && restrictPairs.length > 0) {
+    const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
+    scoped = scoped.filter(a => allowed.has(`${a.ngo_id ?? ''}|${String(a.station ?? '').trim()}`));
+  }
+  if (scoped.length === 0) return [];
 
-  const donorPhones = assignments
+  const donorPhones = scoped
     .map(a => a.donor_profiles?.mobile_number)
     .filter(Boolean);
 

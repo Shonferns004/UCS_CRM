@@ -6,6 +6,8 @@ import { useCall } from '../CallContext';
 import { toast } from '../../../components/Toast';
 import { extractTransactionData } from '../utils/ocr';
 import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+import { istDateString, istDateTimeToIso } from '../utils/time';
 
 const PROJECTS = [
   'Mission Annapurna', 'Mission Vidhya', 'Mission Aurat', 'Mission Bezubaan',
@@ -35,6 +37,7 @@ const isThisMonth = (dateStr) => {
 };
 
 export default function DispositionModal({ donorId, ngoId, donorName, donorMobile, scheduledAt: origScheduledAt, onClose, onDone, onSnooze }) {
+  const isMobile = useIsMobile();
   const [profile, setProfile] = useState(null);
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -124,12 +127,10 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         notes: notes || null,
         ngo_id: ngoId,
       };
-      if (SCHEDULE_DATE_TYPES.has(selected)) logPayload.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
+      if (SCHEDULE_DATE_TYPES.has(selected)) logPayload.scheduled_at = istDateTimeToIso(scheduledDate, scheduledTime);
       if (SCHEDULE_TIME_TYPES.has(selected)) {
-        const target = new Date();
-        const [h, m] = callbackTime.split(':');
-        target.setHours(+h, +m, 0, 0);
-        logPayload.scheduled_at = target.toISOString();
+        const todayIst = istDateString();
+        logPayload.scheduled_at = istDateTimeToIso(todayIst, callbackTime);
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
@@ -197,7 +198,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }} onClick={() => { if (!selected || window.confirm('Discard unsaved disposition?')) onClose(); }}>
-      <div style={{ background: '#fff', borderRadius: 12, width: 1000, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 24px)' : 1000, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontSize: 13, fontWeight: 700 }}>{donorName}</span>
           <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => { if (!selected || window.confirm('Discard unsaved disposition?')) onClose(); }}>close</span>
@@ -216,14 +217,14 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
           </div>
         )}
 
-        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
           {loading ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
               <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Loading donor details...</div>
             </div>
           ) : (
             <>
-              <div className="detail-left" style={{ width: '30%', padding: 12, borderRight: '1px solid var(--line)', overflowY: 'auto' }}>
+              <div className="detail-left" style={{ width: isMobile ? '100%' : '30%', padding: 12, borderRight: isMobile ? 'none' : '1px solid var(--line)', overflowY: 'auto', borderBottom: isMobile ? '1px solid var(--line)' : 'none', maxHeight: isMobile ? '30vh' : undefined }}>
                 <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)' }}>
                   <div className="detail-avatar">{initials(profile?.name || donorName)}</div>
                   <div className="detail-name">{profile?.name || donorName}</div>
@@ -259,7 +260,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                 </div>
               </div>
 
-              <div style={{ width: '40%', padding: 12, borderRight: '1px solid var(--line)', overflowY: 'auto' }}>
+              <div style={{ width: isMobile ? '100%' : '40%', padding: 12, borderRight: isMobile ? 'none' : '1px solid var(--line)', overflowY: 'auto', borderBottom: isMobile ? '1px solid var(--line)' : 'none', flex: isMobile ? 1 : undefined }}>
                 <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
                   <div className="detail-card-head">Connection Status</div>
                   <div className="detail-card-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -412,7 +413,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                 </div>
               </div>
 
-              <div className="detail-right" style={{ width: '30%', padding: 12, overflowY: 'auto' }}>
+              <div className="detail-right" style={{ width: isMobile ? '100%' : '30%', padding: 12, overflowY: 'auto', maxHeight: isMobile ? '25vh' : undefined }}>
                 <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
                   <div className="detail-card-head">
                     <span>CRM Timeline</span>

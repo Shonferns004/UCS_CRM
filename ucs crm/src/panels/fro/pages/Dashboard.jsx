@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
 import { getMyTarget } from '../api/target'
@@ -6,6 +6,9 @@ import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
 import { cacheGet, cacheSet } from '../../../utils/cache'
 import { useCall } from '../CallContext'
+import { api } from '../api/auth'
+import { useIsMobile } from '../../../hooks/useIsMobile'
+import { formatIstTime } from '../utils/time'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
 
@@ -108,6 +111,7 @@ const CACHE_KEY = 'fro_dashboard'
 export default function Dashboard() {
   const cached = cacheGet(CACHE_KEY)
   const { todayStats } = useCall()
+  const isMobile = useIsMobile()
   const [dashData, setDashData] = useState(cached?.dash || null)
   const [targetData, setTargetData] = useState(cached?.target || null)
   const [loading, setLoading] = useState(!cached)
@@ -123,6 +127,10 @@ export default function Dashboard() {
   const [showCollections, setShowCollections] = useState(false)
   const [collectionsData, setCollectionsData] = useState(null)
   const [collectionsLoading, setCollectionsLoading] = useState(false)
+  const [selectedCollectionNgo, setSelectedCollectionNgo] = useState('all')
+  const [collectionSearch, setCollectionSearch] = useState('')
+  const [collectionsByNgo, setCollectionsByNgo] = useState({})
+  const [ngoMap, setNgoMap] = useState({})
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -203,15 +211,52 @@ export default function Dashboard() {
     }
   }
 
-  const openCollections = async () => {
+  const openCollections = async (ngoId) => {
     setShowCollections(true)
     setCollectionsLoading(true)
+    if (ngoId !== undefined) setSelectedCollectionNgo(String(ngoId))
     try {
       const res = await getMyCollections()
-      setCollectionsData(res || { collections: [], month: '' })
+      let collectionsByNgo = res?.collections || { all: [] }
+      let ngoMap = res?.ngoMap || {}
+      
+      // Handle both API response formats:
+      // New format: { all: [...], ngoId1: [...], ngoId2: [...] }
+      // Old format: flat array [...]
+      if (Array.isArray(collectionsByNgo)) {
+        const allCollections = collectionsByNgo
+        // Build NGO map from collections if not provided
+        if (Object.keys(ngoMap).length === 0) {
+          const ngoIds = new Set()
+          for (const c of allCollections) {
+            if (c.ngo_id) ngoIds.add(c.ngo_id)
+          }
+          if (ngoIds.size > 0) {
+            const { data: ngos } = await api(`/ngo-admin/ngos`)
+            const allNgos = ngos || []
+            for (const nid of ngoIds) {
+              const ngo = allNgos.find(n => n.id === nid)
+              if (ngo) ngoMap[nid] = ngo.name
+            }
+          }
+        }
+        // Group by NGO
+        const byNgo = {}
+        for (const c of allCollections) {
+          const ngoId = c.ngo_id || null
+          if (!byNgo[ngoId]) byNgo[ngoId] = []
+          byNgo[ngoId].push(c)
+        }
+        collectionsByNgo = { all: allCollections, ...byNgo }
+      }
+      
+      setCollectionsByNgo(collectionsByNgo)
+      setNgoMap(ngoMap)
+      setSelectedCollectionNgo('all')
     } catch (err) {
       console.error('Error:', err.message)
-      setCollectionsData({ collections: [], month: '' })
+      setCollectionsByNgo({ all: [] })
+      setNgoMap({})
     } finally {
       setCollectionsLoading(false)
     }
@@ -262,6 +307,7 @@ export default function Dashboard() {
   const totalAKI = ts.incentive?.totalCollectionAKI != null ? ts.incentive.totalCollectionAKI : akiPerDay.reduce((s, r) => s + (r.aki || 0), 0)
   const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
   const displayCollected = collected
+  const collectedByNgo = ts.collected_by_ngo || []
   const remaining = Math.max(0, target - displayCollected)
   const progress = target > 0 ? Math.min(100, (displayCollected / target) * 100) : 0
 
@@ -278,6 +324,12 @@ export default function Dashboard() {
     { name: 'Collected', amount: displayCollected, fill: '#34d399' },
     { name: 'Remaining', amount: remaining, fill: '#f87171' },
   ] : []
+
+  const cq = collectionSearch.trim().toLowerCase()
+  const visibleCollections = (collectionsByNgo[selectedCollectionNgo] || []).filter(c => !cq ||
+    (c.donor_name || '').toLowerCase().includes(cq) ||
+    String(c.donor_mobile || '').includes(cq) ||
+    String(c.receipt_no || '').includes(cq))
 
   return (
     <div>
@@ -335,6 +387,15 @@ export default function Dashboard() {
           </div>
           {achieved_target != null && (
             <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 500 }}>Admin target: ₹{Number(achieved_target).toLocaleString('en-IN')}</div>
+          )}
+          {collectedByNgo.length > 1 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+              {collectedByNgo.map(item => (
+                <span key={item.ngo_id} style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: item.ngo_id === 'others' ? '#fef3c7' : '#f0fdf4', color: item.ngo_id === 'others' ? '#92400e' : '#166534', border: `1px solid ${item.ngo_id === 'others' ? '#fde68a' : '#bbf7d0'}` }}>
+                  {item.ngo_name}: ₹{Number(item.amount).toLocaleString('en-IN')}
+                </span>
+              ))}
+            </div>
           )}
           <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
             View collections →
@@ -623,7 +684,7 @@ export default function Dashboard() {
       {showReactivatedModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
           onClick={() => setShowReactivatedModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
+          <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
@@ -663,8 +724,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-        <div className="card" style={{ marginBottom: 0, flex: 1 }}>
+      <div className="fro-flex-row" style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: isMobile ? 'wrap' : undefined }}>
+        <div className="card" style={{ marginBottom: 0, flex: 1, minWidth: isMobile ? '100%' : undefined }}>
           <div className="card-head"><h3>Lead Stats — {monthStr}</h3></div>
           <div className="card-pad">
             {leadStats ? (
@@ -700,7 +761,7 @@ export default function Dashboard() {
                     border: '1px solid ' + (fu.is_overdue ? '#fecaca' : '#bbf7d0'),
                   }}>
                     <span style={{ fontSize:10, fontWeight:600, color:'var(--ink-soft)', minWidth:50 }}>
-                      {new Date(fu.scheduled_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}
+                      {formatIstTime(fu.scheduled_at)}
                     </span>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:11, fontWeight:600 }}>{fu.donor_name}</div>
@@ -729,8 +790,8 @@ export default function Dashboard() {
       </div>
 
       {barData.length > 0 && (
-      <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-          <div className="card" style={{ marginBottom: 0, flex: 7 }}>
+      <div className="fro-flex-row" style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: isMobile ? 'wrap' : undefined }}>
+          <div className="card" style={{ marginBottom: 0, flex: isMobile ? 1 : 7, minWidth: isMobile ? '100%' : undefined }}>
             <div className="card-head"><h3>Target vs Collection</h3></div>
             <div className="card-pad" style={{ width:'100%', height:220 }}>
               <ResponsiveContainer>
@@ -778,28 +839,61 @@ export default function Dashboard() {
 
       {showCollections && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
-          onClick={() => setShowCollections(false)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
+          onClick={() => { setShowCollections(false); setCollectionSearch('') }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
-                  {collectionsLoading ? 'Loading…' : `${collectionsData?.month || ''} · ${collectionsData?.collections?.length || 0} collection${collectionsData?.collections?.length === 1 ? '' : 's'}`}
+                  {collectionsLoading ? 'Loading…' : `${(collectionsByNgo[selectedCollectionNgo] || []).length} collections`}
                 </div>
+                <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all'); setCollectionSearch('') }}
+                  style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
+                  ×
+                </button>
               </div>
-              <button onClick={() => setShowCollections(false)}
-                style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
-                ×
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {/* NGO Tabs */}
+                <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+                  {['all', ...Object.keys(ngoMap)].map(ngoId => (
+                    <button
+                      key={ngoId}
+                      onClick={() => setSelectedCollectionNgo(ngoId)}
+                      style={{
+                        padding: '4px 10px', borderRadius: 4, border: 'none',
+                        fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                        background: selectedCollectionNgo === ngoId ? 'var(--sage)' : 'transparent',
+                        color: selectedCollectionNgo === ngoId ? '#fff' : 'var(--ink-soft)',
+                      }}
+                    >
+                      {ngoId === 'all' ? 'All' : ngoMap[ngoId]}
+                      <span style={{ marginLeft: 4, opacity: 0.7 }}>
+                        ({collectionsByNgo[ngoId]?.length || 0})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => { setShowCollections(false); setCollectionSearch('') }} style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>×</button>
+              </div>
+            </div>
+            <div style={{ padding: '8px 18px 0' }}>
+              <input
+                value={collectionSearch}
+                onChange={e => setCollectionSearch(e.target.value)}
+                placeholder="Search donor, mobile or receipt #"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', outline: 'none' }}
+              />
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
               {collectionsLoading ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
-              ) : (collectionsData?.collections || []).length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collections this month</div>
+              ) : visibleCollections.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>
+                  {collectionSearch.trim() ? 'No matching collections' : 'No collections this month'}
+                </div>
               ) : (
-                (collectionsData?.collections || []).map(c => (
+                visibleCollections.map(c => (
                   <div key={c.id} style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
                     background: 'var(--bg)', border: '1px solid var(--line)',
@@ -808,16 +902,19 @@ export default function Dashboard() {
                       {c.donor_name?.charAt(0) || '?'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</span>
+                        {c.ngo_name && (
+                          <span style={{ fontSize: 8, fontWeight: 700, color: '#6d28d9', background: '#ede9fe', border: '1px solid #ddd6fe', padding: '1px 5px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>{c.ngo_name}</span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{c.donor_mobile || '—'}</div>
-                      {c.is_work_as && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3, fontSize: 8.5, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', padding: '1px 6px', borderRadius: 999 }}>
-                          from another FRO's donor
-                        </span>
-                      )}
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(c.amount_collected)}</div>
+                      {c.receipt_no && (
+                        <div style={{ fontSize: 9, fontWeight: 600, color: '#7c3aed' }}>#{c.receipt_no}</div>
+                      )}
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{fmtStamp(c.collected_at)}</div>
                     </div>
                   </div>
@@ -830,7 +927,7 @@ export default function Dashboard() {
 
       {showMonthlyModal && monthlyDonors.length > 0 && (
         <div style={{ position:'fixed', inset:0, zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => { localStorage.setItem('monthly_donors_dismissed', monthStr); setShowMonthlyModal(false); }}>
-          <div style={{ background:'#fff', borderRadius:12, width:480, maxHeight:'70vh', display:'flex', flexDirection:'column', boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background:'#fff', borderRadius:12, width: isMobile ? 'calc(100vw - 32px)' : 480, maxHeight:'70vh', display:'flex', flexDirection:'column', boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <div>
                 <div style={{ fontSize:14, fontWeight:700 }}>Monthly Recurring Donors</div>
@@ -916,7 +1013,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
         <RecentNotices limit={5} containerStyle={{ marginTop: 0 }} />
         <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

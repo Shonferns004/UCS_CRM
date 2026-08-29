@@ -14,7 +14,7 @@ const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
 
 router.post('/apply', authenticate, apply);
 router.get('/my', authenticate, myLeaves);
-router.get('/', adminOrHrOrHo, listAll);
+router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), listAll);
 router.get('/pending', adminOrHrOrHo, listPending);
 router.put('/:id/status', adminOrHrOrHo, updateStatus);
 

@@ -19,7 +19,7 @@ export default function Toast({ message, type, visible, onClose }) {
   )
 
   return (
-    <div style={{ position:'fixed', top:20, right:220, zIndex:2000 }}>
+    <div style={{ position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)', zIndex:9999 }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 16px', borderRadius:10, boxShadow:'0 4px 20px rgba(0,0,0,.15)', color:'#fff', fontSize:13, fontWeight:500, background:bg }}>
         {icon}
         <span>{message}</span>

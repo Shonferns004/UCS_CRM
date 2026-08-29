@@ -1,16 +1,24 @@
-import { createImpersonationCode, listImpersonationCodes } from '../models/impersonationCodeModel.js';
+import { createImpersonationCode, listImpersonationCodes, listAllImpersonationCodes } from '../models/impersonationCodeModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
+import { getWorkerById } from '../models/workerModel.js';
 
 const CODE_TTL_MINUTES = 5;
 
 export const generateCode = async (req, res) => {
   try {
-    const ngoId = req.user.ngo_id || null;
+    let ngoId = req.user.ngo_id || null;
+    if (req.user.impersonation && req.user.imposter_id) {
+      const imposter = await getWorkerById(String(req.user.imposter_id));
+      if (imposter?.ngo_id) ngoId = imposter.ngo_id;
+    } else if (!ngoId && req.user.id) {
+      const worker = await getWorkerById(String(req.user.id));
+      if (worker?.ngo_id) ngoId = worker.ngo_id;
+    }
 
     let code = null;
     for (let attempt = 0; attempt < 10; attempt++) {
       const candidate = String(Math.floor(1000 + Math.random() * 9000));
-      const existing = await listImpersonationCodes(ngoId, 99999);
+      const existing = await listImpersonationCodes(99999);
       const dup = existing.some(
         (c) => c.code === candidate && !c.is_used && new Date(c.expires_at).getTime() > Date.now()
       );
@@ -48,9 +56,23 @@ export const generateCode = async (req, res) => {
 
 export const listCodes = async (req, res) => {
   try {
-    const codes = await listImpersonationCodes(req.user.ngo_id || null, 50);
+    const codes = await listImpersonationCodes(50);
     return res.json({ codes });
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listAllCodesDebug = async (req, res) => {
+  if (req.user.role !== 'super_admin' && req.user.role !== 'master' && req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+  try {
+    const codes = await listAllImpersonationCodes();
+    console.log('listAllImpersonationCodes returned', codes.length, 'codes');
+    return res.json({ codes, total: codes.length });
+  } catch (error) {
+    console.error('listAllCodesDebug error:', error);
     return res.status(500).json({ message: error.message });
   }
 };

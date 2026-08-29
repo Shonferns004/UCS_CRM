@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { listImpersonationCodes } from '../api/auth';
+import { getUser } from '../../../api/auth';
+import { API_BASE } from '../../../lib/apiBase';
 
 const CODE_TTL_MINUTES = 5;
 
@@ -19,27 +21,68 @@ const fmtTime = (iso) => {
 export default function Codes() {
   const [codes, setCodes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  const fetchCodes = async () => {
+    setLoading(true);
+    try {
+      if (showAll) {
+        const token = localStorage.getItem('ucs_token');
+        console.log('Fetching all codes, token:', token ? 'present' : 'missing');
+        const res = await fetch(`${API_BASE}/impersonation-codes/all`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        console.log('Response status:', res.status);
+        const data = await res.json();
+        console.log('Response data:', data);
+        setCodes(data?.codes || []);
+      } else {
+        const r = await listImpersonationCodes();
+        setCodes(r?.codes || []);
+      }
+    } catch (err) {
+      console.error('Error:', err.message);
+      setCodes([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setLoading(true);
-    listImpersonationCodes()
-      .then(r => setCodes(r?.codes || []))
-      .catch((err) => { console.error('Error:', err.message); })
-      .finally(() => setLoading(false));
-  }, []);
+    const user = getUser('ucs');
+    const isPrivileged = user?.role === 'super_admin' || user?.role === 'master' || user?.role === 'admin';
+    setIsSuperAdmin(isPrivileged);
+    fetchCodes();
+  }, [showAll]);
 
   return (
     <div>
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-        <h3 style={{ margin: '0 0 4px' }}>Work-as FRO codes</h3>
-        <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-          FROs generate a single-use 4-digit code from their app when switching to work as another FRO. Codes expire after {CODE_TTL_MINUTES} minutes and are logged here with the FRO who created them.
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: '0 0 4px' }}>Acting FRO codes</h3>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
+              FROs generate a single-use 4-digit code from their app when switching Acting FRO. Codes expire after {CODE_TTL_MINUTES} minutes and are logged here with the FRO who created them.
+            </div>
+          </div>
+          {isSuperAdmin && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={e => setShowAll(e.target.checked)}
+                style={{ accentColor: 'var(--sage)' }}
+              />
+              <span>Show all codes (all NGOs)</span>
+            </label>
+          )}
         </div>
       </div>
 
       <div className="card">
         <div className="card-head">
-          <h3>Code log</h3>
+          <h3>Code log {showAll ? '(All NGOs)' : '(Current NGO)'}</h3>
         </div>
         {loading ? (
           <div style={{ padding: 20, fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>Loading…</div>
@@ -56,6 +99,9 @@ export default function Codes() {
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Created</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Expires</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Used</th>
+                  {showAll && (
+                    <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>NGO ID</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -71,6 +117,9 @@ export default function Codes() {
                       <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{fmtTime(c.created_at)}</td>
                       <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{fmtTime(c.expires_at)}</td>
                       <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{fmtTime(c.used_at)}</td>
+                      {showAll && (
+                        <td style={{ padding: '10px 16px', fontSize: 10, color: 'var(--ink-soft, #64748b)', fontFamily: 'monospace' }}>{c.ngo_id || '—'}</td>
+                      )}
                     </tr>
                   );
                 })}

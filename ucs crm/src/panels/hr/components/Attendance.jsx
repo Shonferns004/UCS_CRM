@@ -2,9 +2,9 @@ import { Fragment, useEffect, useState } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
 import * as XLSX from 'xlsx-js-style';
+import { API_BASE } from '../../../lib/apiBase';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
-const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
 
 function fmtTime(iso) {
   if (!iso) return <span className="time-cell dim">&mdash;</span>;

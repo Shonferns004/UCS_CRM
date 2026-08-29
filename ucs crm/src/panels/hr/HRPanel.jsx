@@ -24,6 +24,7 @@ import Loans from './components/Loans'
 import Tickets from './components/Tickets'
 import Quizzes from './components/Quizzes'
 import SettingsPage from './components/Settings'
+import NgoSalary from './components/NgoSalary'
 import { fetchTicketCount } from './store'
 import ToastContainer from '../../components/Toast'
 
@@ -39,6 +40,7 @@ const NAV = [
   { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
   { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
+  { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
 ]
 
@@ -253,6 +255,7 @@ export default function HRPanel() {
         <Route path="holidays" element={<Holidays />} />
         <Route path="qr" element={<GenerateQR />} />
         <Route path="loans" element={<Loans />} />
+        <Route path="ngo" element={<NgoSalary />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="settings" element={<SettingsRoute />} />
         <Route path="*" element={<Navigate to="overview" replace />} />

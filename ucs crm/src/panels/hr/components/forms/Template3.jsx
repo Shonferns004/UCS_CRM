@@ -1,4 +1,4 @@
-export default function Template4({ personal }) {
+export default function Template4({ personal, ngoHeading, ngoAddress, ngoTagline }) {
   return (
     <div className="print-page">
       <style>{`
@@ -12,9 +12,9 @@ export default function Template4({ personal }) {
         .t4 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:10pt;line-height:1.3}
       `}</style>
       <div className="t4">
-        <h1>Being Sevak Charitable Trust</h1>
+        <h1>{ngoHeading || 'Being Sevak Charitable Trust'}</h1>
         <div className="red"></div>
-        <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div className="sub">{ngoTagline || 'Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G'}</div>
 
         <div className="sec">8. Trust Assets &amp; Resources</div>
         <p>All assets, equipment, documents, electronic devices, identification cards, communication tools, and other property belonging to the Trust are provided solely for the Trust's work. Volunteers shall exercise due care while using such resources and shall not use them for personal or unauthorized activities. Any loss, theft, damage, or misuse resulting from negligence or misconduct may be reviewed by the Trust. Upon completion or conclusion of the volunteer association, all Trust property must be returned immediately in good condition.</p>
@@ -50,8 +50,7 @@ export default function Template4({ personal }) {
         <p>The Trust may issue a Volunteer Appreciation Certificate or Letter of Gratitude to volunteers who have successfully completed their period of service with satisfactory involvement and conduct, subject to the applicable guidelines and approval of the Trust management.</p>
 
         <div className="footer">
-          Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
-          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+          {(ngoAddress || "Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.\nContact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org").split('\n').map((line, i, arr) => <span key={i}>{line}{i < arr.length - 1 && <br />}</span>)}
         </div>
       </div>
     </div>

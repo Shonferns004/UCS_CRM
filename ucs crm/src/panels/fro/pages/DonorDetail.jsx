@@ -4,6 +4,7 @@ import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 import { extractTransactionData } from '../utils/ocr';
 import { toast } from '../../../components/Toast';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { NOT_CONNECTED, CONNECTED, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 
 const isThisMonth = (dateStr) => {
@@ -19,6 +20,7 @@ const isCollectionLog = (log) =>
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
 export default function DonorDetail({ assignmentId, donor, onBack, hideHeader }) {
+  const isMobile = useIsMobile()
   const savingRef = useRef(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -247,7 +249,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
       <div className="card">
         <div className="card-head"><h3>Contact Information</h3></div>
         <div className="card-pad">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, fontSize: 13 }}>
             <div><strong>Name:</strong> {d.donor_name || '—'}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <strong>Phone:</strong> {d.donor_mobile || '—'}

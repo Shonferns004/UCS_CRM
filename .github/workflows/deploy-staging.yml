@@ -1,0 +1,120 @@
+name: Deploy to Staging
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: deploy-staging-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy Backend to Staging EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /home/ec2-user/app
+            git remote set-url origin https://github.com/priyankshahdev-alt/UCS_CRM.git
+            git fetch origin
+            git reset --hard origin/${{ github.event.pull_request.head.ref || 'master' }}
+            if git diff HEAD@{1} --name-only 2>/dev/null | grep -qE 'backend/(package.json|package-lock.json)'; then
+              cd backend && npm ci && cd ..
+            fi
+
+            cd backend
+            node -e "require('@aws-sdk/client-s3'); require('pg')" || { echo "ERROR: node_modules broken"; exit 1; }
+            cd ..
+
+            pm2 restart backend-staging --update-env
+
+      - name: Wait for backend to start
+        run: sleep 10
+
+      - name: Health Check
+        run: |
+          for i in 1 2 3; do
+            STATUS=$(curl -sf "http://${{ secrets.STAGING_HOST }}/api/health" || echo "FAIL")
+            if echo "$STATUS" | grep -q '"status":"ok"'; then
+              echo "Staging backend is healthy"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "Staging health check failed after 3 attempts"
+          exit 1
+
+      - name: Build Frontend for Staging
+        run: |
+          cd "ucs crm"
+          npm ci
+          npm run build
+        env:
+          VITE_API_URL: http://${{ secrets.STAGING_HOST }}/api
+          VITE_SOCKET_URL: http://${{ secrets.STAGING_HOST }}
+          VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
+          VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
+
+      - name: Deploy Frontend to Staging EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: "ucs crm/dist/*"
+          target: /var/www/staging-crm
+          strip_components: 2
+
+      - name: Comment on PR
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## ✅ Staging Deployed
+
+            | Component | Status |
+            |-----------|--------|
+            | Backend | ✅ Deployed + Health Check Passed |
+            | Frontend | ✅ Deployed |
+
+            **Staging URL:** http://${{ secrets.STAGING_HOST }}
+            **API URL:** http://${{ secrets.STAGING_HOST }}/api
+
+            _Last updated: ${new Date().toISOString()}_`;
+
+            // Find and update existing comment or create new one
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(c => c.body.includes('Staging Deployed'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

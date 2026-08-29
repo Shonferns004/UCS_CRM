@@ -1,16 +1,37 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
-import { apiGet, apiPost, apiDelete } from '../api/auth';
+import * as JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+import { Download, FileSpreadsheet, Pencil, Trash2 } from 'lucide-react';
+import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
-import { generateReceiptPDF } from '../services/pdfGenerator';
+import useAccessCode from '../components/AccessGate';
+import { generateReceiptPDF, formatReceiptDate } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
+import { API_BASE as apiBase } from '../../../lib/apiBase';
 
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
+
+const WA_TPL = {
+  bsct: { metaTemplate: 'bsct_receipt', metaLang: 'en' },
+  mann: { metaTemplate: 'mann_receipt', metaLang: 'en' },
+  aflf: { metaTemplate: 'ashray_receipt', metaLang: 'en' },
+};
+function getWaSettings(project) {
+  const d = WA_TPL[project] || WA_TPL.bsct;
+  try {
+    const o = JSON.parse(localStorage.getItem('receipt_template_settings') || '{}')[project];
+    return o ? { metaTemplate: o.metaTemplate || d.metaTemplate, metaLang: o.metaLang || d.metaLang } : d;
+  } catch { return d; }
+}
+
+const EXCEL_HEADER = ["Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Agent Name","MOP","Received Bank","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -28,6 +49,11 @@ const IMPORT_FIELDS = {
   payment_id: ['paymentid', 'paymentidno', 'transactionid', 'transactionno', 'utr', ''],
   bank_name: ['bankname', 'donorbankname', 'receivedbank', 'receivedbankname'],
   agent_name: ['fsename', 'agentname', 'agent', 'fro'],
+  caller_name: ['callername', 'caller'],
+  mobile_2: ['mobileno2', 'mobile2', 'mobilno2', 'mobilno2tel'],
+  address_2: ['address2', 'address 2'],
+  station: ['station'],
+  account_of: ['accountof', 'account of'],
 };
 
 const normalizeImportHeader = (value) => String(value || '').replace(/^\uFEFF/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -52,7 +78,12 @@ function fmtTime12(t) {
   return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
 }
 
-function prepareImportRows(rows) {
+export function prepareImportRows(rows) {
+  const cleanNA = v => {
+    const s = String(v || '').trim();
+    if (!s || /^n\/?a$/i.test(s)) return '';
+    return s;
+  };
   return rows.map(row => {
     const fields = Object.fromEntries(Object.keys(row).map(key => [normalizeImportHeader(key), row[key]]));
     const result = { ...row };
@@ -60,7 +91,7 @@ function prepareImportRows(rows) {
       const value = aliases.map(alias => fields[alias]).find(value => value !== undefined && value !== null && String(value).trim() !== '');
       result[field] = field === 'receipt_date' ? formatImportDate(value)
         : field === 'receipt_time' ? formatImportTime(value)
-        : (value == null ? '' : String(value).trim());
+        : cleanNA(value);
     }
     return result;
   }).filter(row => row.receipt_no || row.donor_name || row.amount);
@@ -70,12 +101,21 @@ function getTemplateId(projectId) {
   return DB_TO_TEMPLATE[projectId] || 'beingsevak';
 }
 
+// Treats placeholder junk ("NA", "N/A", "NA, NA", "null", "-", ...) as blank
+const isNaJunk = v => {
+  const s = String(v ?? '').trim();
+  if (!s) return true;
+  const token = String.raw`(?:n\.?\s*a\.?|n/a|null|none|nil|not\s*available|-+)`;
+  return new RegExp(`^${token}(?:\\s*,\\s*${token})*$`, 'i').test(s);
+};
+const notNa = v => (isNaJunk(v) ? '' : String(v).trim());
+
 function buildDonor(r, lead) {
   return {
     'Receipt No.': r.receipt_no || '',
     'Receipt Date': r.receipt_date || '',
     'Donor Name': r.donor_name || '',
-    'Address 1': r.address || '',
+    'Address 1': notNa(r.address),
     'PAN No.': r.pan_number || '',
     'Email ID': lead?.donor_email || r.email || '',
     'Amount': r.amount || 0,
@@ -83,7 +123,7 @@ function buildDonor(r, lead) {
     'Payment ID No.': lead?.upi_transaction_id || r.payment_id || '',
     'Donor Bank Name': lead?.payment_from || r.bank_name || '',
     'Account Of': 'Corpus',
-    'City': lead?.donor_city || '',
+    'City': notNa(lead?.donor_city),
     'State': '',
     'Pincode': '',
   };
@@ -107,7 +147,9 @@ export default function ReceiptHistory() {
   const [donorDetail, setDonorDetail] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [receiptTab, setReceiptTab] = useState('donors');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -115,12 +157,22 @@ export default function ReceiptHistory() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
   const [uploadMode, setUploadMode] = useState('receipts');
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [namesImporting, setNamesImporting] = useState(false);
   const [namesResult, setNamesResult] = useState(null);
   const [namesUploadProgress, setNamesUploadProgress] = useState(0);
   const [ngoId, setNgoId] = useState('');
   const [ngoOptions, setNgoOptions] = useState([]);
   const [page, setPage] = useState(1);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [receiptNgo, setReceiptNgo] = useState('');
+  const [suspenseMode, setSuspenseMode] = useState(false);
+  const [todayDownloading, setTodayDownloading] = useState(false);
+  const [excelDownloading, setExcelDownloading] = useState(false);
+  const [historyForDownload, setHistoryForDownload] = useState(null);
+  const [dlWindow, setDlWindow] = useState(0);
+  const DL_BATCH = 8;
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -130,21 +182,31 @@ export default function ReceiptHistory() {
   const [cleanMode, setCleanMode] = useState('all');
   const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [suspenseByNgo, setSuspenseByNgo] = useState(null);
-  const [suspenseLoading, setSuspenseLoading] = useState(false);
+  const [goBackLoading, setGoBackLoading] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [froWorkers, setFroWorkers] = useState([]);
+  const [editSources, setEditSources] = useState([]);
+  const [confirmFroChange, setConfirmFroChange] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
+  const access = useAccessCode();
 
   const load = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams();
     params.set('page', String(page));
     params.set('limit', '100');
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (receiptTab === 'donors') params.set('link', 'donors');
-    if (receiptTab === 'suspense') params.set('link', 'suspense');
-    if (receiptTab === 'others') params.set('link', 'others');
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+    if (receiptNgo) params.set('project', receiptNgo);
+    if (suspenseMode) params.set('suspense', '1');
+    if (fromDate) params.set('from_date', fromDate);
+    if (toDate) params.set('to_date', toDate);
+    if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) params.set('min_amount', String(minAmount));
+    if (maxAmount !== '' && !Number.isNaN(parseFloat(maxAmount))) params.set('max_amount', String(maxAmount));
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -153,7 +215,12 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, searchQuery, receiptTab]);
+  }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, minAmount, maxAmount]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   const runImport = useCallback(async (rows, ngoIdForImport) => {
     if (!rows || rows.length === 0) return;
@@ -188,7 +255,6 @@ export default function ReceiptHistory() {
       setUploadProgress(100);
       setUploadStatus('');
 
-      const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
       const rootUrl = apiBase.replace(/\/api\/?$/, '');
       const parts = [`${totalImported} receipts imported`];
       if (totalUpgraded > 0) parts.push(`${totalUpgraded} suspense receipts credited from re-upload`);
@@ -317,18 +383,15 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  const fetchSuspenseByNgo = async () => {
-    setSuspenseLoading(true);
-    try {
-      const data = await apiGet('/accounts/receipts/suspense-by-ngo');
-      setSuspenseByNgo(Array.isArray(data) ? data : []);
-    } catch (err) { alert('Failed to fetch suspense: ' + err.message); }
-    finally { setSuspenseLoading(false); }
-  };
-
-  useEffect(() => { setPage(1); }, [searchQuery, receiptTab]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, minAmount, maxAmount]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener('ucs:receipts-refresh', h);
+    return () => window.removeEventListener('ucs:receipts-refresh', h);
+  }, [load]);
 
   useEffect(() => {
     apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {});
@@ -395,12 +458,15 @@ export default function ReceiptHistory() {
         const pdf = await generateReceiptPDF(el, { scale: 1, jpegQuality: 0.7 });
         pdfBase64 = pdf.output('datauristring').split(',')[1];
       }
+      const waTpl = getWaSettings(preview.receipt.project_id);
       await apiPost('/whatsapp/send-direct', {
         to: formatted,
         pdfBase64,
         receiptNo: preview.receipt.receipt_no,
         donorName: preview.receipt.donor_name,
         amount: preview.receipt.amount,
+        templateName: waTpl.metaTemplate,
+        templateLang: waTpl.metaLang,
         project: preview.receipt.project_id,
       });
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch (e) { console.error('Error:', e.message); }
@@ -415,290 +481,429 @@ export default function ReceiptHistory() {
     if (savedDetail) { setDonorDetail(savedDetail); setSavedDetail(null); }
   };
 
+  const handleGoBack = async () => {
+    if (!preview?.receipt?.id || goBackLoading) return;
+    if (!window.confirm('This receipt will be returned to Bank Audit. Continue?')) return;
+    setGoBackLoading(true);
+    try {
+      await apiPost(`/accounts/receipts/${preview.receipt.id}/undo`);
+      setPreview(null);
+      loadHistory();
+    } catch (err) {
+      alert('Failed: ' + err.message);
+    } finally {
+      setGoBackLoading(false);
+    }
+  };
+
+  const handleEditReceipt = async (r) => {
+    setEditingReceipt(r);
+    setEditForm({
+      donor_name: r.donor_name || '',
+      amount: r.amount || '',
+      donor_mobile: r.donor_mobile || '',
+      mobile_2: r.mobile_2 || '',
+      address: r.address || '',
+      address_2: r.address_2 || '',
+      pan_number: r.pan_number || '',
+      email: r.email || '',
+      agent_name: r.agent_name || '',
+      mode: r.mode || '',
+      payment_id: r.payment_id || '',
+      receipt_date: r.receipt_date || '',
+      receipt_time: r.receipt_time || '',
+      received_bank: r.received_bank || '',
+    });
+    setConfirmFroChange(false);
+    try {
+      const [workers, srcs] = await Promise.all([
+        apiGet('/accounts/receipts/fro-workers'),
+        apiGet('/accounts/bank-audit/sources'),
+      ]);
+      setFroWorkers(Array.isArray(workers) ? workers : []);
+      setEditSources(Array.isArray(srcs) ? srcs : []);
+    } catch (err) {
+      console.error('Failed to load edit data:', err.message);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingReceipt) return;
+    const oldFro = (editingReceipt.agent_name || '').trim();
+    const newFro = (editForm.agent_name || '').trim();
+    if (oldFro !== newFro && newFro !== '' && !confirmFroChange) {
+      setConfirmFroChange(true);
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await apiPatch(`/accounts/receipts/${editingReceipt.id}`, editForm);
+      setEditingReceipt(null);
+      setConfirmFroChange(false);
+      load();
+    } catch (err) {
+      alert('Failed to update receipt: ' + err.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDeleteReceipt = async (r) => {
+    if (!window.confirm(`Delete receipt ${r.receipt_no || '(no number)'} for ${currency(r.amount)}? The bank audit entry will return to the audit queue.`)) return;
+    setDeletingId(r.id);
+    try {
+      await apiPost(`/accounts/receipts/${r.id}/undo`);
+      load();
+    } catch (err) {
+      alert('Failed to delete receipt: ' + err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const mostRecentPerNgo = useMemo(() => {
+    const map = {};
+    for (const r of receipts) {
+      const ngo = r.project_id || 'unknown';
+      if (!map[ngo]) map[ngo] = r.id;
+    }
+    return map;
+  }, [receipts]);
+
+  const buildFilterParams = (extra = {}) => {
+    const p = new URLSearchParams();
+    if (debouncedSearch.trim()) p.set('search', debouncedSearch.trim());
+    if (receiptNgo) p.set('project', receiptNgo);
+    if (suspenseMode) p.set('suspense', '1');
+    if (fromDate) p.set('from_date', fromDate);
+    if (toDate) p.set('to_date', toDate);
+    if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) p.set('min_amount', String(minAmount));
+    if (maxAmount !== '' && !Number.isNaN(parseFloat(maxAmount))) p.set('max_amount', String(maxAmount));
+    for (const [k, v] of Object.entries(extra)) p.set(k, v);
+    return p;
+  };
+
+  const fetchAllFiltered = async () => {
+    const all = [];
+    let page = 1;
+    for (;;) {
+      const p = buildFilterParams({ page: String(page), limit: '100' });
+      const res = await apiGet(`/accounts/receipts?${p.toString()}`);
+      const data = res?.data || [];
+      all.push(...data);
+      const total = Number(res?.total) || 0;
+      if (all.length >= total || data.length === 0 || page >= 200) break;
+      page++;
+    }
+    return all;
+  };
+
+  const handleDownloadReceipts = async () => {
+    if (!(await access.open())) return;
+    setTodayDownloading(true);
+    try {
+      const all = await fetchAllFiltered();
+      if (all.length === 0) { alert('No receipts match the current filter'); setTodayDownloading(false); return; }
+      setHistoryForDownload(all);
+    } catch (err) {
+      alert('Failed to fetch: ' + err.message);
+      setTodayDownloading(false);
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    if (!(await access.open())) return;
+    setExcelDownloading(true);
+    try {
+      const all = await fetchAllFiltered();
+      if (!all.length) { alert('No receipts to export'); return; }
+      const fmtDate = (d) => {
+        if (!d) return 'NA';
+        const formatted = formatReceiptDate(d);
+        return formatted === '\u2014' ? 'NA' : formatted;
+      };
+      const fmtTime12 = (t) => {
+        if (!t) return 'NA';
+        const s = String(t);
+        const parts = s.split(':');
+        if (parts.length < 2) return s;
+        let h = parseInt(parts[0], 10);
+        const m = parts[1];
+        const ap = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return `${h}:${m} ${ap}`;
+      };
+      const toRow = (r, isSuspense) => ({
+        'Transaction Date': fmtDate(r.receipt_date),
+        'Caller Name': r.audit_payer_name || 'NA',
+        'Receipt Name': r.donor_name || 'NA',
+        'Mobile no.': r.donor_mobile || 'NA',
+        'Mobil No. 2 / Tel ': notNa(r.mobile_2) || 'NA',
+        'Address-1 ': notNa(r.address),
+        'Address-2 ': notNa(r.address_2),
+        'Pan. No. ': r.pan_number || 'NA',
+        'Mail Id ': r.email || 'NA',
+        'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || 'NA'),
+        'MOP': r.mode || 'NA',
+        'Received Bank': r.received_bank || 'NA',
+        'Payment ID No. ': r.payment_id || 'NA',
+        'Amt': r.amount || 0,
+        'Receipt No.': r.receipt_no || 'NA',
+        'Receipt Date ': fmtDate(r.receipt_date),
+        'Time': fmtTime12(r.receipt_time),
+        'Account of': r.account_of || 'Corpus',
+      });
+      const YELLOW_BG = { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } } };
+      const HEADER_FILL = { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } } };
+      const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      const buildSheet = async (ws, rows) => {
+        ws.addRow(EXCEL_HEADER);
+        const headerRow = ws.getRow(1);
+        headerRow.eachCell(c => { c.fill = HEADER_FILL.fill; c.font = HEADER_FONT; c.alignment = { horizontal: 'center' }; });
+        for (const { row, isSuspense } of rows) {
+          const dataRow = EXCEL_HEADER.map(h => row[h] ?? '');
+          const addedRow = ws.addRow(dataRow);
+          if (isSuspense) { addedRow.eachCell(c => { c.fill = YELLOW_BG.fill; }); }
+        }
+        EXCEL_HEADER.forEach((_, i) => { ws.getColumn(i + 1).width = 18; });
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
+      };
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      const isSuspenseEntry = r => !r.receipt_no || (!r.donor_mobile && (!r.agent_name || r.agent_name === 'Suspense'));
+      const groups = {
+        beingsevak: all.filter(r => r.project_id === 'bsct'),
+        ashray: all.filter(r => r.project_id === 'aflf'),
+        manncare: all.filter(r => r.project_id === 'mann'),
+      };
+      const ws1 = wb.addWorksheet('BeingSevak');
+      await buildSheet(ws1, groups.beingsevak.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));
+      const ws2 = wb.addWorksheet('Ashray');
+      await buildSheet(ws2, groups.ashray.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));
+      const ws3 = wb.addWorksheet('MannCare');
+      await buildSheet(ws3, groups.manncare.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    } finally {
+      setExcelDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!historyForDownload || historyForDownload.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const ngoFolder = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' };
+      const zip = new JSZip();
+      const total = historyForDownload.length;
+      setDlWindow(0);
+
+      const processBatch = async (start) => {
+        await new Promise(res => setTimeout(res, 60));
+        const els = document.querySelectorAll('[data-dl-history]');
+        const map = {};
+        els.forEach(el => map[Number(el.getAttribute('data-dl-idx'))] = el);
+        const batch = [];
+        for (let i = start; i < Math.min(start + DL_BATCH, total); i++) {
+          const el = map[i];
+          if (!el) continue;
+          const r = historyForDownload[i];
+          const ngo = r.project_id || 'bsct';
+          const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
+          const receiptNo = r.receipt_no || 'NA';
+          const filename = ngo === 'mann'
+            ? `MannCare_${receiptNo}.pdf`
+            : `${ngoFolder[ngo]}_Receipt_${receiptNo}_${donorName}.pdf`;
+          batch.push({ el, ngo, filename });
+        }
+        await Promise.all(batch.map(async ({ el, ngo, filename }) => {
+          try {
+            const pdf = await generateReceiptPDF(el);
+            zip.folder(ngoFolder[ngo] || 'Other').file(filename, pdf.output('arraybuffer'));
+          } catch (e) { console.error('PDF gen failed:', e.message); }
+        }));
+      };
+
+      for (let start = 0; start < total && !cancelled; start += DL_BATCH) {
+        setDlWindow(start);
+        await processBatch(start);
+      }
+
+      if (!cancelled) {
+        setDlWindow(0);
+        const content = await zip.generateAsync({ type: 'blob' });
+        saveAs(content, `Receipts_${new Date().toISOString().slice(0,10)}.zip`);
+        alert(`Downloaded ${total} receipts`);
+      }
+      setHistoryForDownload(null);
+      setTodayDownloading(false);
+    })();
+    return () => { cancelled = true };
+  }, [historyForDownload]);
+
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{uploadMode === 'names' ? 'Upload Names' : uploadMode === 'reupload' ? 'Reupload Receipts' : 'Upload Receipts'}</span>
-              <div style={{ display: 'flex', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
-                <button onClick={() => setUploadMode('receipts')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'receipts' ? '#5B6B4E' : '#fff', color: uploadMode === 'receipts' ? '#fff' : '#374151', fontWeight: 600 }}>Receipts</button>
-                <button onClick={() => setUploadMode('names')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'names' ? '#5B6B4E' : '#fff', color: uploadMode === 'names' ? '#fff' : '#374151', fontWeight: 600 }}>Names</button>
-                <button onClick={() => setUploadMode('reupload')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'reupload' ? '#5B6B4E' : '#fff', color: uploadMode === 'reupload' ? '#fff' : '#374151', fontWeight: 600 }}>Reupload</button>
-              </div>
-            </div>
-            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', flexShrink: 0 }}>NGO</label>
-            <select
-              value={ngoId}
-              onChange={e => setNgoId(e.target.value)}
-              style={{ flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff', color: '#111827' }}
-            >
-              <option value="">Select NGO for this upload...</option>
-              {ngoOptions.map(n => (
-                <option key={n.id} value={n.id}>{n.name}</option>
-              ))}
-            </select>
-          </div>
-          {uploadMode === 'names' ? (
-            <div
-              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleNamesFile(f) }}
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onClick={() => namesFileRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragOver ? '#2563eb' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
-                cursor: 'pointer', background: dragOver ? '#eff6ff' : '#f9fafb', transition: 'all .2s',
-              }}
-            >
-              <input ref={namesFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleNamesFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
-              {namesImporting ? (
-                <div style={{ padding: '8px 0' }}>
-                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>Updating donor names...</span>
-                  </div>
-                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${namesUploadProgress}%`, height: '100%', background: '#2563eb', borderRadius: 3, transition: 'width .3s ease' }} />
-                  </div>
-                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{namesUploadProgress}%</p>
-                </div>
-              ) : (
-                <>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
-                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file to fix donor names</p>
-                  <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name or Donor Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
-                </>
-              )}
-            </div>
-          ) : (
-            <div
-              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onClick={() => fileRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
-                cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
-              }}
-            >
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
-              {importing ? (
-                <div style={{ padding: '8px 0' }}>
-                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>{uploadStatus || 'Importing...'}</span>
-                  </div>
-                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#5B6B4E', borderRadius: 3, transition: 'width .3s ease' }} />
-                  </div>
-                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{uploadProgress}%</p>
-                </div>
-              ) : (
-                <>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
-                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file here</p>
-                  <p style={{ fontSize: 10, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
-                </>
-              )}
-            </div>
-          )}
-          {deleting && (
-            <div style={{ marginTop: 8, padding: '6px 0' }}>
-              <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>{deleteStatus}</span>
-              </div>
-              <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ width: `${deleteProgress}%`, height: '100%', background: '#dc2626', borderRadius: 3, transition: 'width .3s ease' }} />
-              </div>
-              {deleteProgress > 0 && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{deleteProgress}%</p>}
-            </div>
-          )}
-          {importResult && (
-            <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <span>{importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}</span>
-              {(importResult.failedCount > 0 && importResult.failedFile) && (
-                <a href={importResult.failedFile} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: 11, color: '#dc2626', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Download failed rows
-                </a>
-              )}
-            </div>
-          )}
-          {namesResult && (
-            <div style={{ fontSize: 12, color: '#2563eb', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <span>{namesResult.message}</span>
-            </div>
-          )}
-          <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Expected columns</summary>
-            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', justifyContent: 'center' }}>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donor Name</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt No</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}> Amt </span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt Date</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Time</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mobile No.</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>MOP</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mail Id</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Payment Id No.</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Received Bank</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Pan No</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Address-1</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Project Supported</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donors Bank Name</span>
-            </div>
-            {uploadMode === 'names' && (
-              <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name / Donor Name</p>
-            )}
-          </details>
-        </div>
-      </div>
-      {loading ? (
-        <div className="stats-grid receipt-history-stats">
-          {[1,2,3].map(i => (
-            <div key={i} className="stat-card receipt-history-stat-card" style={{ padding: 20 }}>
-              <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4, marginBottom: 8 }} />
-              <div className="sk" style={{ width: '60%', height: 22, borderRadius: 4 }} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="stats-grid receipt-history-stats">
-          {statsByProject.map(group => (
-            <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-                {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
-              </div>
-              <div style={{ width: '100%' }}>
-                <StatRow label="Total Receipts" value={group.count} color="#5B6B4E" />
-                <StatRow label="Total Donors" value={group.donors} color="#8b5cf6" />
-                <StatRow label="Total Amount" value={currency(group.total_amount)} color="#16a34a" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ marginTop: 12 }}>
-        <button
-          onClick={fetchSuspenseByNgo}
-          disabled={suspenseLoading}
-          style={{
-            padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db',
-            background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            display: 'inline-flex', alignItems: 'center', gap: 8, color: '#5B6B4E',
-            opacity: suspenseLoading ? 0.6 : 1, transition: 'all .15s',
-          }}
-          onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
-          onMouseOut={e => e.currentTarget.style.background = '#fff'}
-        >
-          {suspenseLoading ? (
-            <div style={{ width: 14, height: 14, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          )}
-          Find Suspense by NGO
-        </button>
-        {suspenseByNgo && (
-          <span onClick={() => setSuspenseByNgo(null)} style={{ fontSize: 11, color: '#9ca3af', marginLeft: 10, cursor: 'pointer', userSelect:'none' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'-2px',marginRight:2}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            clear
-          </span>
-        )}
-      </div>
-      {suspenseByNgo && suspenseByNgo.length > 0 && (
-        <div className="stats-grid receipt-history-stats" style={{ marginTop: 10 }}>
-          {suspenseByNgo.map(group => (
-            <div key={group.project_id} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '16px 16px', borderLeft: '3px solid #B5603A' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#B5603A', textAlign: 'center', paddingBottom: 8 }}>
-                {PROJECT_LABELS[group.project_id] || group.project_id}
-              </div>
-              <div style={{ width: '100%' }}>
-                <StatRow label="Suspense Receipts" value={group.count} color="#B5603A" />
-                <StatRow label="Suspense Amount" value={currency(group.total_amount)} color="#dc2626" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {suspenseByNgo && suspenseByNgo.length === 0 && (
-        <div style={{ marginTop: 8, fontSize: 12, color: '#059669', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          No suspense receipts found!
-        </div>
-      )}
-
       <div className="card" style={{ marginTop: 16 }}>
-        <div className="filter-bar">
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className={`btn btn-sm${receiptTab === 'donors' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('donors')}>
-              Donors
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Receipt History</h3>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--ink-soft)' }}>{total} total receipts</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={handleDownloadExcel}
+              disabled={excelDownloading}
+              style={{
+                padding: '7px 14px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: excelDownloading ? 0.6 : 1,
+              }}>
+              <FileSpreadsheet size={14} strokeWidth={2.5} />
+              {excelDownloading ? 'Exporting...' : 'Download Excel'}
             </button>
-            <button className={`btn btn-sm${receiptTab === 'suspense' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('suspense')}>
-              Suspense
-            </button>
-            <button className={`btn btn-sm${receiptTab === 'others' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('others')}>
-              Others
+            <button
+              onClick={handleDownloadReceipts}
+              disabled={todayDownloading}
+              style={{
+                padding: '7px 14px', borderRadius: 8, border: 'none', background: '#5B6B4E', color: '#fff',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: todayDownloading ? 0.6 : 1,
+              }}>
+              <Download size={14} strokeWidth={2.5} />
+              {todayDownloading ? 'Zipping...' : 'Download Receipts'}
             </button>
           </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn btn-sm" onClick={() => { setSuspenseMode(s => !s); setPage(1) }}
+            style={{ background: suspenseMode ? '#dc2626' : '#f3f4f6', color: suspenseMode ? '#fff' : '#374151', border: 'none', fontWeight: 600, borderRadius: 6 }}>
+            Suspense
+          </button>
+          <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
+          <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
+          <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
+          <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
+          <select value={receiptNgo} onChange={e => { setReceiptNgo(e.target.value); setPage(1) }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff' }}>
+            <option value="">All NGOs</option>
+            <option value="bsct">Being Sevak</option>
+            <option value="mann">Mann Care</option>
+            <option value="aflf">Ashray</option>
+            <option value="library">Library</option>
+            <option value="pg">PG</option>
+          </select>
+          <input type="number" min="0" placeholder="Min &#8377;" value={minAmount} onChange={e => setMinAmount(e.target.value)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 80 }} />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>&ndash;</span>
+          <input type="number" min="0" placeholder="Max &#8377;" value={maxAmount} onChange={e => setMaxAmount(e.target.value)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 80 }} />
+          <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
           <input
             className="search-input"
-            placeholder="Search by receipt no or donor name..."
+            placeholder="Search name, mobile, PAN, email, UTR, receipt no..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
+            style={{ flex: 1, minWidth: 200, maxWidth: 300 }}
           />
           <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
         </div>
         <div className="table-wrap">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {loading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <div className="sk" style={{ width: 32, height: 32, borderRadius: '50%' }} />
-                  <div className="sk" style={{ flex: 1, height: 14, borderRadius: 4 }} />
-                </div>
-              ))
-            ) : receipts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'suspense' ? 'No suspense receipts — all clear!' : receiptTab === 'others' ? 'No other receipts found.' : 'No linked donors yet.'}
-              </div>
-            ) : (
-              uniqueDonors.map(r => {
-                const rMobile = (r.donor_mobile || '').replace(/\D/g, '');
-                const key = rMobile || (r.donor_name || '').toLowerCase().trim();
-                const info = donorMap[key] || { receipts: [], count: 0, total: 0 };
-                const initial = (r.donor_name || '?')[0].toUpperCase();
-                return (
-                  <div key={r.id} onClick={() => {
-                    const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
-                    setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: info.receipts });
-                  }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', transition: 'background .12s' }}
-                    onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#5B6B4E', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{initial}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.donor_name || '\u2014'}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>{info.count} receipt{info.count !== 1 ? 's' : ''}</div>
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>{currency(info.total)}</div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+          <table className="donors-table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th>Donor Name</th>
+                <th>Receipt No.</th>
+                <th>NGO</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Amount</th>
+                <th>No. of Donations</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i}>
+                    <td><div className="sk" style={{ width: '55%', height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: '45%', height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 60, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 45, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 40, height: 12, borderRadius: 3 }} /></td>
+                  </tr>
+                ))
+              ) : receipts.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                    {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
+                  </td>
+                </tr>
+              ) : (
+                receipts.map((r, i) => {
+                  const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
+                  const key = rMobileClean || (r.donor_name || '').toLowerCase().trim();
+                  const info = donorMap[key] || { count: 1, total: 0 };
+                  const dateStr = r.receipt_date ? formatReceiptDate(r.receipt_date) : '\u2014';
+                  return (
+                    <tr key={r.id || i} className="clickable-row" onClick={() => {
+                      setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: [r] });
+                    }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{(r.donor_name || '?')[0].toUpperCase()}</div>
+                          <strong>{r.donor_name || '\u2014'}</strong>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.receipt_no || '\u2014'}</td>
+                      <td style={{ fontSize: 12 }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#f3f4f6' }}>{PROJECT_LABELS[r.project_id] || r.project_id || '\u2014'}</span></td>
+                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateStr}</td>
+                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
+                      <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
+                      <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
+                      <td style={{ display: 'flex', gap: 2 }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEditReceipt(r); }}
+                          title="Edit receipt"
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
+                          onMouseOut={e => e.currentTarget.style.background = 'none'}
+                        >
+                          <Pencil size={14} strokeWidth={2} />
+                        </button>
+                        {mostRecentPerNgo[r.project_id || 'unknown'] === r.id && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteReceipt(r); }}
+                            disabled={deletingId === r.id}
+                            title="Delete receipt (returns to audit)"
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: deletingId === r.id ? '#d1d5db' : '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            onMouseOver={e => { if (deletingId !== r.id) e.currentTarget.style.background = '#fef2f2'; }}
+                            onMouseOut={e => e.currentTarget.style.background = 'none'}
+                          >
+                            {deletingId === r.id ? (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                            ) : (
+                              <Trash2 size={14} strokeWidth={2} />
+                            )}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
           {!loading && totalPages > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
@@ -715,10 +920,17 @@ export default function ReceiptHistory() {
         </div>
       </div>
 
-      {preview && (
+      {historyForDownload && historyForDownload.slice(dlWindow, dlWindow + DL_BATCH).map((r, i) => {
+        const ngo = r.project_id || 'bsct';
+        const Comp = TEMPLATES[getTemplateId(ngo)];
+        const idx = dlWindow + i;
+        return <div key={idx} data-dl-history data-dl-idx={idx} style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
+      })}
+
+      {preview && createPortal(
         <>
-          <div className="modal-overlay" onClick={closePreview} />
-          <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto' }}>
+          <div className="modal-overlay" onClick={closePreview} style={{ zIndex: 9999 }} />
+          <div className="modal" style={{ maxWidth: 600, width: '85%', maxHeight: '85vh', overflow: 'auto', zIndex: 10000 }}>
             <div className="modal-header">
               <h3>Receipt — {preview.receipt.receipt_no}</h3>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -727,6 +939,14 @@ export default function ReceiptHistory() {
                     {waResult.message}
                   </span>
                 )}
+                <button onClick={handleGoBack} disabled={goBackLoading} title="Return to Bank Audit"
+                  style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {goBackLoading ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                  )}
+                </button>
                 <button onClick={handleDownload} disabled={downloading} title="Download PDF"
                   style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {downloading ? (
@@ -750,12 +970,17 @@ export default function ReceiptHistory() {
               </div>
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
-              <div data-receipt-preview data-receipt-print>
+              <div
+                data-receipt-preview
+                data-receipt-print
+                style={{ zoom: Math.min(1, 540 / ({ beingsevak: 900, ashray: 794, manncar: 1000 }[preview.templateId] || 900)) }}
+              >
                 {React.createElement(preview.Comp, { donor: buildDonor(preview.receipt, preview.lead), index: 0, project: preview.templateId })}
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       {donorDetail && (
@@ -789,7 +1014,7 @@ export default function ReceiptHistory() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: '#374151' }}>{r.receipt_no}</span>
-                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? formatReceiptDate(r.receipt_date) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
                       {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
@@ -812,6 +1037,155 @@ export default function ReceiptHistory() {
             </div>
           </div>
         </>
+      )}
+
+      {editingReceipt && createPortal(
+        <>
+          <div className="modal-overlay" onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }} style={{ zIndex: 9999 }} />
+          <div className="modal" style={{ maxWidth: 520, width: '90%', maxHeight: '85vh', overflow: 'auto', zIndex: 10000 }}>
+            <div className="modal-header">
+              <h3>Edit Receipt — {editingReceipt.receipt_no}</h3>
+              <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              {editingReceipt.verify_type === 'cross_fro' && (
+                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Cross-FRO Receipt</div>
+                  <div>Credit went to <strong>{froWorkers.find(w => w.id === editingReceipt.verify_fro_worker_id)?.name || 'the verifier'}</strong>, not <strong>{editingReceipt.agent_name || 'the owner'}</strong>. Changing the FRO/Agent will update the receipt but credit stays with the verifier.</div>
+                </div>
+              )}
+              {confirmFroChange && (
+                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
+                  <strong>FRO Change Detected</strong><br />
+                  Credit of {currency(editingReceipt.amount)} will be reversed from <strong>{editingReceipt.agent_name || '—'}</strong> and applied to <strong>{editForm.agent_name}</strong>.
+                </div>
+              )}
+              {(editingReceipt.received_bank || editingReceipt.audit_payer_name) && (
+                <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#3730a3' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>Linked bank-audit entry</div>
+                  {editingReceipt.received_bank && <div>Source (Received Bank): <strong>{editingReceipt.received_bank}</strong></div>}
+                  {editingReceipt.audit_payer_name && <div>Payer as per audit: <strong>{editingReceipt.audit_payer_name}</strong></div>}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  { label: 'Donor Name', key: 'donor_name', colSpan: 2 },
+                  { label: 'Amount', key: 'amount', colSpan: 2, type: 'number' },
+                  { label: 'Mobile', key: 'donor_mobile' },
+                  { label: 'Mobile 2', key: 'mobile_2' },
+                  { label: 'Address', key: 'address', colSpan: 2, type: 'textarea' },
+                  { label: 'Address 2', key: 'address_2', colSpan: 2, type: 'textarea' },
+                  { label: 'PAN Number', key: 'pan_number' },
+                  { label: 'Email', key: 'email' },
+                  { label: 'FRO / Agent', key: 'agent_name', type: 'select' },
+                  { label: 'Mode of Payment', key: 'mode', type: 'mop' },
+                  { label: 'Payment ID', key: 'payment_id' },
+                  { label: 'Received Bank', key: 'received_bank', type: 'sources' },
+                  { label: 'Receipt Date', key: 'receipt_date', type: 'date' },
+                  { label: 'Receipt Time', key: 'receipt_time', type: 'time' },
+                ].map(({ label, key, colSpan, type }) => (
+                  <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {label}
+                    {type === 'select' ? (
+                      <select
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                      >
+                        <option value="">Not assigned</option>
+                        {froWorkers.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                      </select>
+                    ) : type === 'sources' ? (
+                      <select
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                      >
+                        <option value="">—</option>
+                        {editSources.map(s => (
+                          <option key={s.id} value={s.name}>
+                            {s.name}
+                            {(s.kind || 'bank') === 'mop' ? ' (MOP)' : ''}
+                            {s.is_active === false ? ' (inactive)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : type === 'mop' ? (
+                      (() => {
+                        const dbMops = editSources.filter(s => s.kind === 'mop' && s.is_active !== false).map(s => s.name).filter(Boolean);
+                        const modeList = [...new Set([...dbMops, 'UPI', 'Cash', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'])];
+                        const cur = editForm[key] || '';
+                        return (
+                          <select
+                            value={cur}
+                            onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                            style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                          >
+                            <option value="">—</option>
+                            {modeList.map(m => <option key={m} value={m}>{m}</option>)}
+                            {cur && !modeList.includes(cur) && <option value={cur}>{cur} (current)</option>}
+                          </select>
+                        );
+                      })()
+                    ) : type === 'textarea' ? (
+                      <textarea
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        rows={2}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, resize: 'vertical' }}
+                      />
+                    ) : type === 'date' ? (
+                      <input
+                        type="date"
+                        value={editForm[key] ? String(editForm[key]).slice(0, 10) : ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    ) : type === 'time' ? (
+                      <input
+                        type="text"
+                        placeholder="HH:MM"
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    ) : type === 'number' ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    ) : (
+                      <input
+                        type={key === 'email' ? 'email' : 'text'}
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+                <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleSaveEdit} disabled={editSaving}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: confirmFroChange ? '#f59e0b' : '#059669', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: editSaving ? 0.6 : 1 }}>
+                  {editSaving ? 'Saving...' : confirmFroChange ? 'Confirm & Save' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
       )}
 
       {showCleanModal && (
@@ -879,6 +1253,8 @@ export default function ReceiptHistory() {
       )}
 
       <style>{`
+        .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
+        .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
         .modal-overlay {
           position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
           animation: fadeIn .15s ease;
@@ -909,6 +1285,8 @@ export default function ReceiptHistory() {
           [data-receipt-print] [data-pdf-width="794"] { zoom: 0.85; }
         }
       `}</style>
+
+      {access.modal}
     </div>
   );
 }

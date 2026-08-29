@@ -2,8 +2,10 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, voidReceipt, deleteReceiptSafely, bulkDeleteReceipts, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
+import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
+import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -37,6 +39,7 @@ export const getLeadList = async (req, res) => {
       `)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
+      .not('fro_worker_id', 'is', null)
       .order('created_at', { ascending: false });
 
     if (status) {
@@ -78,7 +81,7 @@ export const getLeadList = async (req, res) => {
 
       const { data: matchedEntries, error: matchErr } = await db
         .from('bank_audit_entries')
-        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2, mode, source_id, bank_audit_sources(name)')
         .in('matched_lead_log_id', logIds)
         .in('match_status', ['matched', 'confirmed']);
       if (!matchErr) {
@@ -108,7 +111,7 @@ export const getLeadList = async (req, res) => {
             return match.payment_time ? `${datePart}T${match.payment_time}+05:30` : `${datePart}T00:00:00+05:30`;
           })()
         : null;
-      const matchMode = (match?.payment_id || match?.check_id) ? (match.payment_id ? 'UPI' : 'Cheque') : null;
+      const matchMode = match?.mode || ((match?.payment_id || match?.check_id) ? (match.payment_id ? 'UPI' : 'Cheque') : null);
       return {
       log_id: r.id,
       amount: r.amount_collected,
@@ -139,12 +142,20 @@ export const getLeadList = async (req, res) => {
       upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || receiptMap[r.id]?.payment_id || null),
       transaction_datetime: matchTxn || r.transaction_datetime || null,
       payment_from: (match && match.payer_name) ? match.payer_name : (r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null),
+      audit_source: match?.bank_audit_sources?.name || entrySourceMap[receiptMap[r.id]?.id] || null,
+      audit_entry_id: match?.id ?? null,
+      audit_mop: match?.mode || null,
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
-      agent_name: r.fro_assignments?.workers?.name || 'Unknown',
-      agent_login: r.fro_assignments?.workers?.login_id || '',
-      claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Unknown',
+      // The credited worker is fro_donor_logs.fro_worker_id — when an acting
+      // FRO "works as" another FRO and claims a lead, that is the acting FRO,
+      // while the assignment stays with the owner. Resolve the agent from the
+      // credited worker first so the Lead Verification list shows the acting
+      // FRO, falling back to the assignment owner.
+      agent_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
+      agent_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
+      claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
       received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
@@ -175,15 +186,16 @@ export const verifyLead = async (req, res) => {
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), workers!left(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.accounts_status !== 'pending') {
       return res.status(400).json({ message: `This lead has already been ${log.accounts_status || 'processed'}` });
@@ -194,6 +206,15 @@ export const verifyLead = async (req, res) => {
     if (!assignmentId || !donorProfile) {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
+
+    // Credit rule for the receipt's agent_name (drives FRO collection totals):
+    // while impersonating (Acting FRO), credit goes to the real operator
+    // (imposter_name) — same as Audit Manual Verify; otherwise to the FRO who
+    // owns the lead's assignment. Without this the receipt is created with a
+    // NULL agent_name and never shows in anyone's collection.
+    const agentStamp = (req.user?.impersonation && req.user.imposter_name)
+      ? req.user.imposter_name
+      : (log.fro_assignments?.workers?.name || null);
 
     // The NGO a lead is assigned under is the per-lead truth for which project
     // (and therefore which receipt-number sequence) its money belongs to. The
@@ -314,6 +335,7 @@ export const verifyLead = async (req, res) => {
         email: donorProfile?.email || null,
         bank_name: donorProfile?.donors_bank_name || null,
         mode: payment_mode || null,
+        agent_name: agentStamp,
         purpose: 'General Donation',
         generated_by: req.user.id,
         donor_id: donorId,
@@ -348,6 +370,7 @@ export const verifyLead = async (req, res) => {
         bank_payer_name: existing.bank_payer_name || oldPayerName || null,
         bank_name: donorProfile?.donors_bank_name || null,
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
+        agent_name: (!existing.agent_name || existing.agent_name === 'Suspense') ? (agentStamp || existing.agent_name) : existing.agent_name,
       };
       if (!existing.receipt_no) {
         existing.receipt_no = await getNextReceiptNo(existing.project_id || project);
@@ -480,6 +503,197 @@ export const verifyLead = async (req, res) => {
   }
 };
 
+// ─── Done Lead ─────────────────────────────────────────────
+// Simplified verify for leads where the receipt already exists (e.g. receipt_sent
+// flow: Accounts created the receipt, FRO claimed, now Accounts just closes out).
+
+export const doneLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    const { data: logs, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), workers!left(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .eq('id', logId)
+      .limit(1);
+    if (logError || !logs || logs.length === 0) return res.status(404).json({ message: 'Log entry not found' });
+    const log = logs[0];
+    if (log.accounts_status !== 'pending') {
+      return res.status(400).json({ message: `This lead has already been ${log.accounts_status || 'processed'}` });
+    }
+
+    const assignment = log.fro_assignments;
+    const donorProfile = assignment?.donor_profiles;
+    const donorId = assignment?.donor_id;
+    if (!assignment?.id || !donorProfile) return res.status(400).json({ message: 'Associated assignment/donor not found' });
+
+    const existing = await findReceiptByLogId(logId);
+    if (!existing?.receipt_no) {
+      return res.status(400).json({ message: 'No receipt found for this lead — use Verify instead' });
+    }
+
+    const amount = Number(log.amount_collected || 0);
+    const now = new Date().toISOString();
+
+    const result = await db.transaction(async ({ from }) => {
+      // Mark the lead verified.
+      await from('fro_donor_logs').update({
+        accounts_status: 'verified',
+        verified_at: now,
+        verified_by: req.user.id,
+      }).eq('id', logId);
+
+      // Update assignment.
+      await from('fro_assignments').update({
+        status: 'donation_collected',
+        last_contacted_at: now,
+      }).eq('id', assignment.id);
+
+      // Credit donor totals.
+      const { data: donorRow } = await from('donor_profiles')
+        .select('total_amount, donation_count, last_donation_date')
+        .eq('id', donorId)
+        .single();
+      const date = now.slice(0, 10);
+      await from('donor_profiles').update({
+        total_amount: Math.round(((donorRow?.total_amount || 0) + amount) * 100) / 100,
+        donation_count: (donorRow?.donation_count || 0) + 1,
+        last_donation_date: !donorRow?.last_donation_date || date > donorRow.last_donation_date ? date : donorRow.last_donation_date,
+        updated_at: now,
+      }).eq('id', donorId);
+
+      // Mark any linked bank_audit_entries as verified.
+      try {
+        await from('bank_audit_entries').update({
+          status: 'verified',
+          matched_at: now,
+          updated_at: now,
+        }).eq('receipt_id', existing.id);
+      } catch (err) { console.error('Failed to mark bank audit entry verified:', err.message); }
+
+      return { receipt_no: existing.receipt_no };
+    });
+
+    // Notify the FRO.
+    const froWorkerId = log.fro_worker_id;
+    const froName = log.fro_assignments?.workers?.name || 'An FRO';
+    if (froWorkerId) {
+      try {
+        const notifTitle = 'Lead Completed';
+        const notifBody = `Lead for ${donorProfile.name || 'donor'} (₹${amount.toLocaleString('en-IN')}) completed. Receipt: ${result.receipt_no}`;
+        let fcmLogged = false;
+        try {
+          const pushResult = await sendPushNotification(froWorkerId, notifTitle, notifBody, 'lead_verified', parseInt(logId));
+          fcmLogged = !!pushResult;
+        } catch (err) { console.error('FCM send error:', err.message); }
+        if (!fcmLogged) {
+          await db.from('notification_log').insert({
+            worker_id: froWorkerId,
+            type: 'lead_verified',
+            title: notifTitle,
+            body: notifBody,
+            fro_donor_log_id: String(logId),
+            sent_at: now,
+          });
+        }
+      } catch (err) { console.error('Failed to create done notification:', err.message); }
+    }
+
+    return res.json({ message: 'Lead completed', receipt_no: result.receipt_no });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Quick Verify (Priyank Shah default) ────────────────────
+// When a lead has no FRO agent, accounts can quickly verify it under the
+// default agent name "Priyank Shah" without filling donor details.
+
+export const quickVerifyLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { donor_name, donor_mobile, donor_pan, donor_address, donor_city, donor_email, project } = req.body;
+
+    const { data: logs, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .eq('id', logId)
+      .limit(1);
+
+    if (logError || !logs || logs.length === 0) return res.status(404).json({ message: 'Lead not found' });
+    const log = logs[0];
+    if (log.accounts_status !== 'pending') return res.status(400).json({ message: `Lead is already ${log.accounts_status}` });
+
+    const assignmentId = log.fro_assignments?.id;
+    const donorProfile = log.fro_assignments?.donor_profiles;
+    if (!assignmentId) return res.status(400).json({ message: 'No assignment found' });
+
+    let resolvedProject = project || donorProfile?.project_supported || 'bsct';
+    try { resolvedProject = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || resolvedProject; } catch {}
+
+    const finalDonorName = donor_name || 'Priyank Shah';
+
+    const existing = await findReceiptByLogId(logId);
+    let receipt = existing || null;
+
+    if (!existing) {
+      const receiptNo = await getNextReceiptNo(resolvedProject);
+      receipt = await createReceipt({
+        log_id: parseInt(logId),
+        receipt_no: receiptNo,
+        project_id: resolvedProject,
+        donor_name: finalDonorName,
+        donor_mobile: donor_mobile || donorProfile?.mobile_number || null,
+        amount: log.amount_collected || 0,
+        pan_number: donor_pan || donorProfile?.pan_number || null,
+        address: donor_address || donorProfile?.address_1 || null,
+        email: donor_email || donorProfile?.email || null,
+        bank_name: donorProfile?.donors_bank_name || null,
+        mode: log.payment_mode || null,
+        purpose: 'General Donation',
+        agent_name: 'Priyank Shah',
+        generated_by: req.user.id,
+        donor_id: log.fro_assignments?.donor_id || null,
+        receipt_date: log.transaction_datetime || new Date().toISOString(),
+      });
+    } else {
+      await db.from('receipts').update({
+        donor_name: finalDonorName,
+        agent_name: 'Priyank Shah',
+        donor_mobile: donor_mobile || existing.donor_mobile || null,
+      }).eq('id', existing.id);
+    }
+
+    const now = new Date().toISOString();
+    await db.from('fro_donor_logs').update({
+      accounts_status: 'verified',
+      verified_at: now,
+      verified_by: req.user.id,
+    }).eq('id', logId);
+
+    await db.from('fro_assignments').update({
+      status: 'donation_collected',
+      last_contacted_at: now,
+    }).eq('id', assignmentId);
+
+    const donorId = log.fro_assignments?.donor_id;
+    if (donorId) {
+      try {
+        const { data: donor } = await db.from('donor_profiles').select('total_amount, donation_count').eq('id', donorId).single();
+        await db.from('donor_profiles').update({
+          total_amount: (donor?.total_amount || 0) + (log.amount_collected || 0),
+          donation_count: (donor?.donation_count || 0) + 1,
+          updated_at: now,
+        }).eq('id', donorId);
+      } catch (err) { console.error('Failed to update donor totals:', err.message); }
+    }
+
+    return res.json({ message: 'Lead verified under Priyank Shah', receipt });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Suspense ─────────────────────────────────────────────
 
 export const getSuspenseList = async (req, res) => {
@@ -581,15 +795,16 @@ export const rejectLead = async (req, res) => {
       return res.status(400).json({ message: 'Rejection reason is required' });
     }
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, station, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.accounts_status !== 'pending') {
       return res.status(400).json({ message: `This lead has already been ${log.accounts_status || 'processed'}` });
@@ -629,6 +844,35 @@ export const rejectLead = async (req, res) => {
     try {
       await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
     } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
+
+    // Fully revert the linked bank audit entry so the money leaves the matched
+    // state and re-enters the unclaimed suspense pool: clear the claim match
+    // (matched_lead_log_id / match_status / match_no / matched_by/at) and the
+    // claim-linked donor fields, and set status back to unverified. Without
+    // this the entry keeps an orange "MATCHED" line and is excluded from the
+    // FRO suspense pool (which filters matched_lead_log_id IS NULL), so the
+    // rejected money can never be claimed again. The entry keeps its
+    // receipt_id so the receipt (number intact) returns to the pool too.
+    try {
+      await db.from('bank_audit_entries').update({
+        status: 'unverified',
+        matched_lead_log_id: null,
+        match_status: null,
+        match_source: null,
+        match_no: null,
+        matched_by: null,
+        matched_at: null,
+        donor_id: null,
+        donor_mobile: null,
+        donor_email: null,
+        donor_pan: null,
+        donor_address_1: null,
+        donor_address_2: null,
+        donor_city: null,
+        donor_pin_code: null,
+        updated_at: new Date().toISOString(),
+      }).eq('matched_lead_log_id', logId);
+    } catch (err) { console.error('Failed to revert bank audit entry on lead rejection:', err.message); }
 
     if (log.fro_assignments?.donor_id) {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
@@ -737,15 +981,16 @@ export const goBackLead = async (req, res) => {
     const { logId } = req.params;
     const { reason } = req.body || {};
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
       return res.status(400).json({ message: 'Only lead verification entries can be sent back' });
@@ -788,9 +1033,11 @@ export const goBackLead = async (req, res) => {
     // way the receipt number is cancelled so it can be reused.
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
-      const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
+      const { data: entry } = await db.from('bank_audit_entries').select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
-        const { error: eErr } = await db.from('bank_audit_entries').update({
+        // Keep the entry↔lead match so go-back restores the pre-verification
+        // state; only downgrade confirmed → matched so Accounts can re-confirm.
+        const entryPatch = {
           status: 'unverified',
           donor_id: null,
           donor_mobile: null,
@@ -800,29 +1047,19 @@ export const goBackLead = async (req, res) => {
           donor_address_2: null,
           donor_city: null,
           donor_pin_code: null,
-          matched_lead_log_id: null,
-          match_status: null,
-          match_score: null,
-          matched_at: null,
           receipt_id: null,
           receipt_no: null,
           updated_at: new Date().toISOString(),
-        }).eq('id', entry.id);
+        };
+        if (entry.match_status && entry.match_status !== 'matched') entryPatch.match_status = 'matched';
+        const { error: eErr } = await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
       }
 
-      if (receipt.purpose === 'General Donation' && !entry) {
-        try { await db.from('receipts').delete().eq('id', receipt.id); }
-        catch (err) { console.error('Failed to delete verification receipt on go-back:', err.message); }
-      } else {
-        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
-        catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
-      }
-
-      // Free the cancelled number(s) so the next receipt continues from the
-      // last live number instead of skipping over them.
-      try { await cancelReceiptNo(receipt.project_id); }
-      catch (err) { console.error('Failed to cancel receipt number on go-back:', err.message); }
+      // Void the receipt instead of deleting it or erasing its number — the
+      // receipt number stays in the book (no gap) and the receipt stops counting.
+      try { await voidReceipt(receipt.id, 'Lead sent back to FRO'); }
+      catch (err) { console.error('Failed to void receipt on go-back:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -890,15 +1127,16 @@ export const undoLeadVerification = async (req, res) => {
   try {
     const { logId } = req.params;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, donor_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
       return res.status(400).json({ message: 'Only lead verification entries can be undone' });
@@ -948,12 +1186,14 @@ export const undoLeadVerification = async (req, res) => {
     // Cancel the receipt: a verification-only receipt is deleted outright; a
     // receipt tied to bank money is released back to the pool. Either way the
     // number is freed so the next verification reuses it. The linked bank audit
-    // entry is sent back to Bank Audit (unverified, unlinked).
+    // entry is sent back to Bank Audit (unverified, receipt-unlinked, match kept).
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
-      const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
+      const { data: entry } = await db.from('bank_audit_entries').select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
-        const { error: eErr } = await db.from('bank_audit_entries').update({
+        // Keep the entry↔lead match so undo restores the pre-verification
+        // state; only downgrade confirmed → matched so Accounts can re-confirm.
+        const entryPatch = {
           status: 'unverified',
           donor_id: null,
           donor_mobile: null,
@@ -963,26 +1203,22 @@ export const undoLeadVerification = async (req, res) => {
           donor_address_2: null,
           donor_city: null,
           donor_pin_code: null,
-          matched_lead_log_id: null,
-          match_status: null,
-          match_score: null,
-          matched_at: null,
           receipt_id: null,
           receipt_no: null,
           updated_at: new Date().toISOString(),
-        }).eq('id', entry.id);
+        };
+        if (entry.match_status && entry.match_status !== 'matched') entryPatch.match_status = 'matched';
+        const { error: eErr } = await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
       }
 
-      if (receipt.purpose === 'General Donation' && !entry && !receipt.sent) {
-        try { await db.from('receipts').delete().eq('id', receipt.id); }
-        catch (err) { console.error('Failed to delete receipt on undo:', err.message); }
+      if ((receipt.purpose === 'General Donation' || entry) && !receipt.sent) {
+        try { await voidReceipt(receipt.id, 'Lead verification undone'); }
+        catch (err) { console.error('Failed to void receipt on undo:', err.message); }
       } else {
-        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
-        catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
+        try { await voidReceipt(receipt.id, 'Lead verification undone'); }
+        catch (err) { console.error('Failed to void receipt on undo:', err.message); }
       }
-      try { await cancelReceiptNo(receipt.project_id); }
-      catch (err) { console.error('Failed to cancel receipt number on undo:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -1007,19 +1243,114 @@ export const undoLeadVerification = async (req, res) => {
   }
 };
 
+// Universal receipt go-back: works for ANY receipt (with or without log_id,
+// from manual verify, bank audit, lead verification, CSV import, etc.).
+export const undoReceipt = async (req, res) => {
+  try {
+    const { receiptId } = req.params;
+    const { data: receipt, error: rErr } = await db
+      .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+    if (rErr) throw rErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    const donorId = receipt.donor_id;
+    const logId = receipt.log_id;
+    const projectId = receipt.project_id;
+
+    // 1. Revert linked bank_audit_entry if any. The entry↔lead match survives
+    // (downgraded confirmed → matched) so go-back restores the pre-verification
+    // state and Accounts can re-confirm without re-matching.
+    const { data: entry } = await db.from('bank_audit_entries')
+      .select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
+    if (entry) {
+      const entryPatch = {
+        // agent_name (the claiming FRO's stamp) is kept: go-back restores the
+        // pre-verification state, it must not anonymise the claimant.
+        status: 'unverified', donor_id: null,
+        donor_mobile: null, donor_email: null, donor_pan: null,
+        donor_address_1: null, donor_address_2: null, donor_city: null, donor_pin_code: null,
+        receipt_id: null, receipt_no: null, updated_at: new Date().toISOString(),
+      };
+      if (entry.match_status && entry.match_status !== 'matched') entryPatch.match_status = 'matched';
+      await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
+    }
+
+    // 2. Revert fro_donor_log if linked.
+    if (logId) {
+      try {
+        const { data: log } = await db.from('fro_donor_logs')
+          .select('id, action, disposition_detail, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(id, status, donor_id, ngo_id)')
+          .eq('id', logId).maybeSingle();
+        if (log) {
+          // Revert the log to pending.
+          await db.from('fro_donor_logs').update({
+            accounts_status: 'pending', verified_at: null, verified_by: null,
+          }).eq('id', logId);
+          // Reopen assignment if it was donation_collected.
+          const asgn = log.fro_assignments;
+          if (asgn?.id && asgn.status === 'donation_collected') {
+            await db.from('fro_assignments').update({
+              status: 'pending', last_contacted_at: new Date().toISOString(),
+            }).eq('id', asgn.id);
+          }
+          // Reverse donor totals.
+          if (asgn?.donor_id && log.accounts_status === 'verified') {
+            try {
+              const { data: donor } = await db.from('donor_profiles')
+                .select('total_amount, donation_count').eq('id', asgn.donor_id).single();
+              const amt = Number(log.amount_collected || 0);
+              await db.from('donor_profiles').update({
+                total_amount: Math.max(0, (donor?.total_amount || 0) - amt),
+                donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+                updated_at: new Date().toISOString(),
+              }).eq('id', asgn.donor_id);
+            } catch (e) { console.error('donor totals revert failed:', e.message); }
+          }
+          // Clean up child references.
+          try { await db.from('notification_log').delete().in('fro_donor_log_id', [logId]); } catch (_) {}
+          try { await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', [logId]); } catch (_) {}
+        }
+      } catch (e) { console.error('fro_donor_log revert failed:', e.message); }
+    }
+
+    // 3. Reverse donor totals from the receipt itself (if no log but has donor_id).
+    if (donorId && !logId) {
+      try {
+        const { data: donor } = await db.from('donor_profiles')
+          .select('total_amount, donation_count').eq('id', donorId).single();
+        const amt = Number(receipt.amount || 0);
+        await db.from('donor_profiles').update({
+          total_amount: Math.max(0, (donor?.total_amount || 0) - amt),
+          donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+          updated_at: new Date().toISOString(),
+        }).eq('id', donorId);
+      } catch (e) { console.error('donor totals revert (receipt-level) failed:', e.message); }
+    }
+
+    // 4. Void the receipt (or delete only if it is the latest number, so the
+    // counter steps back with no gap).
+    await deleteReceiptSafely(receipt.id, 'Receipt undone');
+
+    return res.json({ message: 'Receipt undone — returned to Bank Audit', receipt_id: receipt.id });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteLead = async (req, res) => {
   try {
     const { logId } = req.params;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('id, action, disposition_detail, accounts_status, fro_worker_id, fro_assignments!inner(id, status, donor_id, fro_worker_id)')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
       return res.status(400).json({ message: 'Only lead verification entries can be deleted' });
@@ -1028,8 +1359,6 @@ export const deleteLead = async (req, res) => {
     if (log.accounts_status !== 'pending') {
       return res.status(400).json({ message: `Only pending leads can be deleted (this one is ${log.accounts_status || 'processed'})` });
     }
-
-    const assignmentId = log.fro_assignments?.id;
 
     // Release any suspense-claim receipt linked to this lead back to the pool
     // (also required to satisfy the receipts->fro_donor_logs FK before deleting).
@@ -1046,11 +1375,12 @@ export const deleteLead = async (req, res) => {
       .eq('id', logId);
     if (delError) throw delError;
 
-    // Revert the assignment so the FRO can rework this lead
+    // Delete the orphaned assignment
+    const assignmentId = log.fro_assignments?.id;
     if (assignmentId) {
       const { error: asgnError } = await db
         .from('fro_assignments')
-        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+        .delete()
         .eq('id', assignmentId);
       if (asgnError) throw asgnError;
     }
@@ -1076,6 +1406,11 @@ export const deleteAllPendingLeads = async (req, res) => {
     const assignmentIds = [...new Set((logs || []).map(l => l.assignment_id).filter(Boolean))];
 
     if (ids.length > 0) {
+      // Release any linked receipts to satisfy FK before deleting logs
+      try {
+        await db.from('receipts').update({ log_id: null, donor_id: null }).in('log_id', ids);
+      } catch (e) { console.warn('Failed to release receipts on bulk delete:', e.message); }
+
       const { error: delError } = await db
         .from('fro_donor_logs')
         .delete()
@@ -1083,12 +1418,12 @@ export const deleteAllPendingLeads = async (req, res) => {
       if (delError) throw delError;
     }
 
+    // Delete orphaned assignments
     if (assignmentIds.length > 0) {
       const { error: asgnError } = await db
         .from('fro_assignments')
-        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
-        .in('id', assignmentIds)
-        .eq('status', 'lead_done');
+        .delete()
+        .in('id', assignmentIds);
       if (asgnError) throw asgnError;
     }
 
@@ -1125,15 +1460,16 @@ export const patchLeadField = async (req, res) => {
     const isDonorField = field in DONOR_FIELD_MAP;
 
     if (isDonorField) {
-      const { data: log, error: logError } = await db
+      const { data: logs, error: logError } = await db
         .from('fro_donor_logs')
         .select('id, fro_assignments!inner(donor_id)')
         .eq('id', logId)
-        .single();
+        .limit(1);
 
-      if (logError || !log) {
+      if (logError || !logs || logs.length === 0) {
         return res.status(404).json({ message: 'Log entry not found' });
       }
+      const log = logs[0];
 
       const donorId = log.fro_assignments?.donor_id;
       if (!donorId) {
@@ -1189,10 +1525,10 @@ export const generateReceipt = async (req, res) => {
       return res.json({ receipt: existing, message: 'Receipt already exists' });
     }
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
-        id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
+        id, fro_worker_id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
@@ -1203,10 +1539,25 @@ export const generateReceipt = async (req, res) => {
         )
       `)
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
+    }
+    const log = logs[0];
+
+    // Stamp the receipt with whoever actually collected: the log's credited
+    // worker (the acting FRO during Work As). Falls back to the assignment
+    // owner only when they are the same person.
+    let agentName = null;
+    const creditId = log.fro_worker_id;
+    if (creditId) {
+      if (String(creditId) === String(log.fro_assignments?.fro_worker_id)) {
+        agentName = log.fro_assignments?.workers?.name || null;
+      } else {
+        const { data: cw } = await db.from('workers').select('name').eq('id', creditId).maybeSingle();
+        agentName = cw?.name || null;
+      }
     }
 
     const donorProfile = log.fro_assignments?.donor_profiles;
@@ -1232,6 +1583,7 @@ export const generateReceipt = async (req, res) => {
       bank_name: donorProfile?.donors_bank_name || null,
       mode: mode || null,
       purpose: purpose || 'General Donation',
+      agent_name: agentName,
       generated_by: req.user.id,
       donor_id: donorId,
       receipt_date: log.transaction_datetime || log.verified_at || new Date().toISOString(),
@@ -1266,15 +1618,21 @@ export const getReceiptList = async (req, res) => {
       ? 'suspense'
       : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors'
       : (req.query.link === 'others' ? 'others' : ''));
-    const isSuspense = link === 'suspense';
+    const isSuspense = link === 'suspense' || req.query.suspense === '1';
+    const filterMonth = parseInt(req.query.filter_month, 10) || 0;
+    const filterYear  = parseInt(req.query.filter_year, 10) || 0;
 
-    // Cheap per-NGO aggregates + project options (unfiltered).
+    // Cheap per-NGO aggregates + project options. Kept in sync with the visible
+    // list below (receipt_no IS NOT NULL) so the cards always equal the sum of
+    // the rows actually shown — suspense/unnumbered receipts are counted on the
+    // bank-audit side instead of silently inflating a project's total here.
     const statsRes = await db._pool.query(
       `SELECT project_id,
               count(*)::int AS count,
               COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
               count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
        FROM receipts
+       WHERE receipt_no IS NOT NULL
        GROUP BY project_id
        ORDER BY count(*) DESC`
     );
@@ -1282,11 +1640,53 @@ export const getReceiptList = async (req, res) => {
       `SELECT project_id, count(*)::int AS n FROM receipts GROUP BY project_id ORDER BY n DESC`
     );
 
+    // Month-scoped stats (honours from_date / to_date if provided).
+    const monthFrom = (req.query.from_date || '').trim();
+    const monthTo = (req.query.to_date || '').trim();
+    let monthStatsByProject = statsRes.rows;
+    if (monthFrom || monthTo) {
+      const mw = []; const mp = [];
+      if (monthFrom) { mp.push(monthFrom); mw.push(`receipt_date >= ($${mp.length}::date AT TIME ZONE 'Asia/Kolkata')`); }
+      if (monthTo)   { mp.push(monthTo);   mw.push(`receipt_date < (($${mp.length}::date + 1) AT TIME ZONE 'Asia/Kolkata')`); }
+      const mRes = await db._pool.query(
+        `SELECT project_id,
+                count(*)::int AS count,
+                COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
+                count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
+         FROM receipts WHERE receipt_no IS NOT NULL AND (${mw.join(' AND ')})
+         GROUP BY project_id ORDER BY count(*) DESC`, mp
+      );
+      monthStatsByProject = mRes.rows;
+    }
+
+    // Today stats (IST) per project — use selected date if provided, else today.
+    const todayDateParam = (monthFrom || monthTo) || null;
+    const todayRes = todayDateParam
+      ? await db._pool.query(
+          `SELECT project_id,
+                  count(*)::int AS count,
+                  COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+           FROM receipts
+           WHERE receipt_no IS NOT NULL AND receipt_date = $1::date
+           GROUP BY project_id`,
+          [todayDateParam]
+        )
+      : await db._pool.query(
+          `SELECT project_id,
+                  count(*)::int AS count,
+                  COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+           FROM receipts
+           WHERE receipt_no IS NOT NULL AND receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+           GROUP BY project_id`
+        );
+
     const where = [];
     const params = [];
     if (search) {
       params.push(`%${search}%`);
-      where.push(`(donor_name ILIKE $${params.length} OR receipt_no ILIKE $${params.length})`);
+      where.push(`(receipt_no ILIKE $${params.length} OR donor_name ILIKE $${params.length} OR donor_mobile ILIKE $${params.length}
+        OR mobile_2 ILIKE $${params.length} OR pan_number ILIKE $${params.length} OR email ILIKE $${params.length}
+        OR payment_id ILIKE $${params.length} OR agent_name ILIKE $${params.length})`);
     }
     if (project) {
       params.push(project);
@@ -1294,14 +1694,21 @@ export const getReceiptList = async (req, res) => {
     }
     if (link === 'donors') where.push('donor_id IS NOT NULL');
     if (isSuspense) {
-      const now = new Date();
-      const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
-      const y = ist.getUTCFullYear();
-      const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
-      params.push(`${y}-${m}-01`);
+      let y, m;
+      if (filterMonth && filterYear) {
+        y = filterYear;
+        m = filterMonth;
+      } else {
+        const now = new Date();
+        const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
+        y = ist.getUTCFullYear();
+        m = ist.getUTCMonth() + 1;
+      }
+      const mStr = String(m).padStart(2, '0');
+      params.push(`${y}-${mStr}-01`);
       where.push(`receipt_date >= $${params.length}`);
-      const lastDay = new Date(Date.UTC(y, ist.getUTCMonth() + 1, 0)).getUTCDate();
-      params.push(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      params.push(`${y}-${mStr}-${String(lastDay).padStart(2, '0')}`);
       where.push(`receipt_date <= $${params.length}`);
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))`);
@@ -1310,17 +1717,110 @@ export const getReceiptList = async (req, res) => {
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
+    if (!isSuspense) {
+      where.push('receipt_no IS NOT NULL');
+    }
+
+    const period = (req.query.period || '').trim();
+    const fromDate = (req.query.from_date || '').trim();
+    const toDate = (req.query.to_date || '').trim();
+    if (period === 'today') {
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'yesterday') {
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date = ((now() - INTERVAL '1 day') AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'week') {
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date >= ((now() - INTERVAL '7 days') AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'month') {
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'year') {
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date >= date_trunc('year', now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+    }
+    if (fromDate) { params.push(fromDate); where.push(`receipt_date >= ($${params.length}::date AT TIME ZONE 'Asia/Kolkata')`); }
+    if (toDate) { params.push(toDate); where.push(`receipt_date < (($${params.length}::date + 1) AT TIME ZONE 'Asia/Kolkata')`); }
+    const minAmount = parseFloat(req.query.min_amount);
+    if (Number.isFinite(minAmount)) { params.push(minAmount); where.push(`amount >= $${params.length}`); }
+    const maxAmount = parseFloat(req.query.max_amount);
+    if (Number.isFinite(maxAmount)) { params.push(maxAmount); where.push(`amount <= $${params.length}`); }
+
+    const hasDateFilter = !!period || !!fromDate || !!toDate;
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
 
+    // Ascending by receipt number when searching, otherwise highest receipt number first.
+    const orderSql = search
+      ? 'ORDER BY receipt_no ASC, receipt_date ASC'
+      : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
+
+    if (hasDateFilter) {
+      const rowsRes = await db._pool.query(
+        `SELECT id, log_id, receipt_no, project_id, donor_name,
+                COALESCE(receipts.donor_mobile,
+                  (SELECT b.donor_mobile FROM bank_audit_entries b
+                   WHERE b.receipt_id = receipts.id AND b.donor_mobile IS NOT NULL AND b.donor_mobile <> ''
+                   ORDER BY b.id LIMIT 1)
+                ) AS donor_mobile,
+                amount,
+                receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
+                donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
+                sent, sent_at, voided_at, void_reason, created_at,
+                (SELECT b.payer_name FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
+                 ORDER BY b.id LIMIT 1) AS audit_payer_name,
+                (SELECT bs.name FROM bank_audit_entries b
+                 JOIN bank_audit_sources bs ON b.source_id = bs.id
+                 WHERE b.receipt_id = receipts.id
+                 ORDER BY b.id LIMIT 1) AS received_bank,
+                (SELECT b.verify_type FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+                 ORDER BY b.id LIMIT 1) AS verify_type,
+                (SELECT b.verify_fro_worker_id FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+                 ORDER BY b.id LIMIT 1) AS verify_fro_worker_id
+         FROM receipts ${whereSql}
+         ${orderSql}`,
+        params
+      );
+      return res.json({
+        data: rowsRes.rows,
+        total: totalRes.rows[0].n,
+        statsByProject: statsRes.rows,
+        monthStatsByProject,
+        todayStats: todayRes.rows,
+        projects: projectsRes.rows.map(p => p.project_id),
+      });
+    }
+
     params.push(limit, (page - 1) * limit);
     const rowsRes = await db._pool.query(
-      `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
-              receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-              donor_id, agent_name, sent, sent_at, created_at
+      `SELECT id, log_id, receipt_no, project_id, donor_name,
+              COALESCE(receipts.donor_mobile,
+                (SELECT b.donor_mobile FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.donor_mobile IS NOT NULL AND b.donor_mobile <> ''
+                 ORDER BY b.id LIMIT 1)
+              ) AS donor_mobile,
+              amount,
+              receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
+              donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
+              sent, sent_at, voided_at, void_reason, created_at,
+              (SELECT b.payer_name FROM bank_audit_entries b
+               WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
+               ORDER BY b.id LIMIT 1) AS audit_payer_name,
+              (SELECT bs.name FROM bank_audit_entries b
+               JOIN bank_audit_sources bs ON b.source_id = bs.id
+               WHERE b.receipt_id = receipts.id
+               ORDER BY b.id LIMIT 1) AS received_bank,
+              (SELECT b.verify_type FROM bank_audit_entries b
+               WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+               ORDER BY b.id LIMIT 1) AS verify_type,
+              (SELECT b.verify_fro_worker_id FROM bank_audit_entries b
+               WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+               ORDER BY b.id LIMIT 1) AS verify_fro_worker_id
        FROM receipts ${whereSql}
-       ORDER BY created_at DESC
+       ${orderSql}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
@@ -1329,6 +1829,8 @@ export const getReceiptList = async (req, res) => {
       data: rowsRes.rows,
       total: totalRes.rows[0].n,
       statsByProject: statsRes.rows,
+      monthStatsByProject,
+      todayStats: todayRes.rows,
       projects: projectsRes.rows.map(p => p.project_id),
     });
   } catch (error) {
@@ -1422,6 +1924,9 @@ export const getPendingReceipts = async (req, res) => {
       .from('receipts')
       .select('*')
       .not('donor_id', 'is', null)
+      .not('receipt_no', 'is', null)
+      .not('receipt_no', 'eq', '')
+      .is('voided_at', null)
       .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
       .order('created_at', { ascending: false });
 
@@ -1470,6 +1975,7 @@ export const getPendingReceipts = async (req, res) => {
         'Account Of': 'Corpus',
         'Mobile No.': r.donor_mobile || donor?.mobile_number || '',
         'City': donor?.city || '',
+        'Agent Name': r.agent_name || '',
         receipt_id: r.id,
         sent: r.sent || false,
         log_id: r.log_id,
@@ -1499,6 +2005,169 @@ export const markReceiptAsSent = async (req, res) => {
     if (error) throw error;
     return res.json({ success: true, data: { receipt_ids: (data || []).map(receipt => receipt.id), updated_count: data?.length || 0 } });
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── WhatsApp send queue: hidden receipts ─────────────────
+// Rows that silently fail the pending-queue checks (getPendingReceipts):
+// no receipt number, no donor link, unverified lead, or stamped already-sent.
+// Surfaced here so nothing disappears without explanation — plus Fix/Delete.
+
+const normalizeMobileKey = (v) => {
+  let n = String(v ?? '').replace(/\D/g, '');
+  if (!n) return '';
+  if (n.length === 12 && n.startsWith('91')) n = n.slice(2);
+  else if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+  return n;
+};
+
+const MOBILE_CANON_SQL = `
+  SELECT id FROM (
+    SELECT id, CASE
+                 WHEN length(digits) = 12 AND left(digits, 2) = '91' THEN substr(digits, 3)
+                 WHEN length(digits) = 11 AND left(digits, 1) = '0' THEN substr(digits, 2)
+                 ELSE digits
+               END AS canon
+    FROM (SELECT id, regexp_replace(mobile_number, '[^0-9]', '', 'g') AS digits
+          FROM donor_profiles WHERE mobile_number IS NOT NULL) t
+  ) u WHERE u.canon = $1 LIMIT 1`;
+
+export const getExcludedReceipts = async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 14, 1), 60);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+    const { rows } = await db._pool.query(
+      `SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount, r.project_id,
+              r.mode, r.agent_name, r.created_at, r.sent, r.sent_at, r.log_id,
+              l.accounts_status AS log_status,
+              array_remove(ARRAY[
+                CASE WHEN COALESCE(r.receipt_no,'') = '' THEN 'no_number' END,
+                CASE WHEN r.donor_id IS NULL THEN 'no_donor' END,
+                CASE WHEN r.sent IS TRUE THEN 'already_sent' END,
+                CASE WHEN r.log_id IS NOT NULL AND COALESCE(l.accounts_status,'') <> 'verified'
+                     THEN 'lead_not_verified' END
+              ], NULL) AS reasons,
+              EXISTS (
+                SELECT 1 FROM receipts d
+                WHERE d.id <> r.id AND d.project_id = r.project_id
+                  AND COALESCE(d.receipt_no,'') <> ''
+                  AND regexp_replace(COALESCE(d.donor_mobile,''),'[^0-9]','','g') <> ''
+                  AND regexp_replace(COALESCE(d.donor_mobile,''),'[^0-9]','','g')
+                    = regexp_replace(COALESCE(r.donor_mobile,''),'[^0-9]','','g')
+                  AND ABS(EXTRACT(EPOCH FROM (d.created_at - r.created_at))) < 172800
+                  AND ABS(COALESCE(d.amount,0) - COALESCE(r.amount,0)) < 0.01
+              ) AS likely_duplicate
+       FROM receipts r
+       LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE r.created_at >= now() - make_interval(days => $1::int)
+         AND r.voided_at IS NULL
+         AND (
+              COALESCE(r.receipt_no,'') = ''
+           OR r.donor_id IS NULL
+           OR (r.log_id IS NOT NULL AND COALESCE(l.accounts_status,'') <> 'verified')
+           OR (r.sent IS TRUE AND r.log_id IS NOT NULL)
+         )
+       ORDER BY r.created_at DESC
+       LIMIT $2`,
+      [days, limit]
+    );
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const fixAndQueueReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const clearSent = req.body?.clear_sent === true;
+    const { data: receipt, error: fetchErr } = await db
+      .from('receipts').select('*').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    const patch = { updated_at: new Date().toISOString() };
+    const actions = [];
+
+    if (!receipt.receipt_no) {
+      patch.receipt_no = await getNextReceiptNo(receipt.project_id);
+      actions.push(`assigned number ${patch.receipt_no}`);
+    }
+
+    if (!receipt.donor_id && receipt.donor_mobile) {
+      const key = normalizeMobileKey(receipt.donor_mobile);
+      if (key.length >= 10) {
+        const { rows: found } = await db._pool.query(MOBILE_CANON_SQL, [key]);
+        let donorId = found[0]?.id || null;
+        if (!donorId) {
+          const ins = await db.from('donor_profiles').insert({
+            name: receipt.donor_name || 'Unknown',
+            mobile_number: key,
+            project_supported: receipt.project_id || null,
+            data_category: 'Send Queue Fix',
+          }).select('id').single();
+          if (ins.error) {
+            if (ins.error.code === '23505' || /duplicate key/i.test(ins.error.message || '')) {
+              const again = await db._pool.query('SELECT id FROM donor_profiles WHERE mobile_number = $1 LIMIT 1', [key]);
+              donorId = again.rows[0]?.id || null;
+              if (!donorId) throw ins.error;
+            } else throw ins.error;
+          } else {
+            donorId = ins.data.id;
+          }
+          actions.push('created donor profile');
+        } else {
+          actions.push('linked existing donor');
+        }
+        patch.donor_id = donorId;
+      }
+    }
+
+    if (clearSent && receipt.sent) {
+      patch.sent = false;
+      patch.sent_at = null;
+      actions.push('cleared sent flag');
+    }
+
+    let updated = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data, error } = await db.from('receipts').update(patch).eq('id', id).select().single();
+      if (!error) { updated = data; break; }
+      const msg = String(error.message || error);
+      const isDup = error.code === '23505' || /duplicate key/i.test(msg);
+      if (!isDup || !patch.receipt_no || attempt === 2) throw error;
+      patch.receipt_no = await getNextReceiptNo(receipt.project_id);
+      if (actions.length > 0) actions[actions.length - 1] = `assigned number ${patch.receipt_no}`;
+    }
+    if (!updated) throw new Error('Failed to update receipt');
+
+    return res.json({ receipt: updated, actions });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteQueueReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: receipt, error: fetchErr } = await db
+      .from('receipts').select('id, log_id, receipt_no, project_id').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+    if (receipt.log_id) {
+      return res.status(400).json({ message: 'This receipt is linked to a lead. Use Go Back / Undo Verification instead.' });
+    }
+    const result = await deleteReceiptSafely(id, 'removed_from_send_queue');
+    const action = result?.deleted ? 'deleted' : result?.gone ? 'already_gone' : 'voided';
+    if (result?.deleted) {
+      try { await cancelReceiptNo(receipt.project_id); } catch (_) {}
+    }
+    return res.json({ success: true, action });
+  } catch (error) {
+    if (error?.code === '23503' || /foreign key/i.test(String(error?.message))) {
+      return res.status(409).json({ message: 'This receipt is referenced by a Bank Audit entry and cannot be removed here.' });
+    }
     return res.status(500).json({ message: error.message });
   }
 };
@@ -1735,6 +2404,14 @@ export const getImportNgoOptions = async (req, res) => {
 export const importReceipts = async (req, res) => {
   try {
     const { receipts, ngo_id } = req.body;
+    const cleanVal = (v) => {
+      const s = String(v || '').trim();
+      if (!s) return null;
+      // Null out placeholder junk: NA, N/A, N.A., nil, null, none, -, NA, NA, ...
+      const token = String.raw`(?:n\.?\s*a\.?|n/a|null|none|nil|not\s*available|-+)`;
+      if (new RegExp(`^${token}(?:\\s*,\\s*${token})*$`, 'i').test(s)) return null;
+      return s;
+    };
     if (!receipts || !Array.isArray(receipts) || receipts.length === 0) {
       return res.status(400).json({ message: 'No receipts data provided' });
     }
@@ -1763,22 +2440,27 @@ export const importReceipts = async (req, res) => {
       return {
         original: r,
         parsed: {
-          receipt_no: (row.receipt_no || row['Receipt No'] || row['Receipt No.'] || '').trim() || null,
+          receipt_no: cleanVal(row.receipt_no || row['Receipt No'] || row['Receipt No.']),
           project_id: projectId,
           donor_name: donorName,
-          donor_mobile: row.donor_mobile || row['Donor Mobile'] || row['Mobile No.'] || null,
+          donor_mobile: cleanVal(row.donor_mobile || row['Donor Mobile'] || row['Mobile No.']),
           amount: parseFloat(rawAmount) || 0,
-          pan_number: row.pan_number || row['PAN No.'] || row['PAN No'] || row['Pan No'] || null,
-          address: row.address || row['Address 1'] || row['Address-1'] || null,
-          mode: row.mode || row['Mode of Payment (MOP)'] || row['MOP'] || null,
-          purpose: row.purpose || row['Purpose'] || 'General Donation',
+          pan_number: cleanVal(row.pan_number || row['PAN No.'] || row['PAN No'] || row['Pan No']),
+          address: cleanVal(row.address || row['Address 1'] || row['Address-1']),
+          mode: cleanVal(row.mode || row['Mode of Payment (MOP)'] || row['MOP']),
+          purpose: cleanVal(row.purpose || row['Purpose']) || 'General Donation',
           receipt_date: normalizeReceiptDate(row.receipt_date || row['Receipt Date'] || row['Transaction Date'] || row.transaction_date),
           receipt_time: normalizeReceiptTime(row.receipt_time || row['Receipt Time'] || row['Time'] || row.time),
           generated_by: row.generated_by || req.user.id,
-          email: row.email || row['Mail Id'] || row['Email ID'] || null,
-          payment_id: row.payment_id || row['Payment Id No.'] || null,
-          bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
-          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || 'Suspense',
+          email: cleanVal(row.email || row['Mail Id'] || row['Email ID']),
+          payment_id: cleanVal(row.payment_id || row['Payment Id No.']),
+          bank_name: cleanVal(row.bank_name || row['Received Bank'] || row['Donors Bank Name']),
+          agent_name: cleanVal(row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name']) || 'Suspense',
+          caller_name: cleanVal(row.caller_name || row['Caller Name']),
+          mobile_2: cleanVal(row.mobile_2 || row['Mobil No. 2 / Tel'] || row['Mobil No. 2 / Tel ']),
+          address_2: cleanVal(row.address_2 || row['Address-2'] || row['Address 2']),
+          station: cleanVal(row.station || row['Station']),
+          account_of: cleanVal(row.account_of || row['Account of']) || 'Corpus',
           sent: true,
           sent_at: new Date().toISOString(),
         },
@@ -1806,7 +2488,7 @@ export const importReceipts = async (req, res) => {
         const batch = incomingNos.slice(i, i + 100);
         const { data: existing } = await db
           .from('receipts')
-          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email')
+          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email, caller_name, mobile_2, address_2, station, account_of')
           .eq('project_id', batchProjectId)
           .in('receipt_no', batch);
         for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r);
@@ -1849,19 +2531,17 @@ export const importReceipts = async (req, res) => {
       if (existing) {
         const fileIsSuspense = isBlankSuspenseValue(parsed.agent_name) && isBlankSuspenseValue(parsed.donor_mobile);
         if (!fileIsSuspense) {
-          const key = `${existing.id}|${parsed.receipt_no}`;
-          if (existing.log_id) {
-            if (!verifySeen.has(key)) {
-              verifySeen.add(key);
-              verifyRows.push({ existing, parsed });
-            }
-          } else if (!existing.donor_id && !bankAudited.has(existing.id)) {
-            if (!upgradeSeen.has(key)) {
+            const key = `${existing.id}|${parsed.receipt_no}`;
+            if (existing.log_id) {
+              if (!verifySeen.has(key)) {
+                verifySeen.add(key);
+                verifyRows.push({ existing, parsed });
+              }
+            } else if (!upgradeSeen.has(key)) {
               upgradeSeen.add(key);
               upgradeRows.push({ existing, parsed });
             }
           }
-        }
         return false; // number already on file — never re-insert (UNIQUE)
       }
       if (seen.has(parsed.receipt_no)) return false;
@@ -1872,6 +2552,22 @@ export const importReceipts = async (req, res) => {
 
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
+
+    // Normalize agent_name to canonical worker names so collection queries
+    // match reliably (handles extra spaces, middle names, etc.)
+    const rawAgentNames = [...new Set(uniqueRows.map(r => r.agent_name).filter(Boolean))];
+    const agentNameMap = new Map();
+    for (const raw of rawAgentNames) {
+      const canonical = await normalizeAgentName(raw);
+      if (canonical !== raw) agentNameMap.set(raw, canonical);
+    }
+    if (agentNameMap.size > 0) {
+      for (const row of uniqueRows) {
+        if (row.agent_name && agentNameMap.has(row.agent_name)) {
+          row.agent_name = agentNameMap.get(row.agent_name);
+        }
+      }
+    }
 
     // Durability safety net: persist the exact rows we intend to insert BEFORE
     // any DB write, so a crash mid-import can never lose the source data.
@@ -2006,6 +2702,11 @@ export const importReceipts = async (req, res) => {
                 payment_id: row.payment_id,
                 bank_name: row.bank_name,
                 agent_name: row.agent_name,
+                caller_name: row.caller_name,
+                mobile_2: row.mobile_2,
+                address_2: row.address_2,
+                station: row.station,
+                account_of: row.account_of,
                 sent: true,
                 sent_at: new Date().toISOString(),
               }).eq('id', existing.id);
@@ -2039,6 +2740,11 @@ export const importReceipts = async (req, res) => {
                 bank_name: row.bank_name || existing.bank_name,
                 agent_name: row.agent_name || existing.agent_name,
                 email: row.email || existing.email,
+                caller_name: row.caller_name || existing.caller_name,
+                mobile_2: row.mobile_2 || existing.mobile_2,
+                address_2: row.address_2 || existing.address_2,
+                station: row.station || existing.station,
+                account_of: row.account_of || existing.account_of,
                 sent: true,
                 sent_at: nowIso,
               }).eq('id', existing.id);
@@ -2255,6 +2961,22 @@ export const importReceipts = async (req, res) => {
             }
             const activeWorkers = workerRows.filter(w => w.is_active !== false);
 
+            // Printed-name variants (extra/missing middle names, spacing) that
+            // fuzzy matching cannot settle are curated in worker_aliases and
+            // loaded once per import.
+            const aliasByNorm = new Map();
+            const aliasWorkerIds = [...new Set(activeWorkers.map(w => w.id))];
+            for (let i = 0; i < aliasWorkerIds.length; i += 500) {
+              const { data: al, error: alerr } = await from('worker_aliases')
+                .select('alias_name, worker_id')
+                .in('worker_id', aliasWorkerIds.slice(i, i + 500));
+              if (alerr) throw new Error(alerr.message);
+              for (const a of (al || [])) {
+                const key = String(a.alias_name || '').trim().toLowerCase();
+                if (key && !aliasByNorm.has(key)) aliasByNorm.set(key, a.worker_id);
+              }
+            }
+
             const { data: stationRows, error: stErr } = await from('fro_station_assignments')
               .select('fro_worker_id, station')
               .eq('ngo_id', ngo_id);
@@ -2266,13 +2988,53 @@ export const importReceipts = async (req, res) => {
               }
             }
 
-            // Fuzzy FRO-name match: exact first, then close name matches.
-            const resolveWorker = (agentName) => {
-              if (!agentName) return null;
-              const an = String(agentName).trim().toLowerCase();
-              const exact = activeWorkers.find(w => String(w.name || '').trim().toLowerCase() === an);
-              if (exact) return exact;
-              return activeWorkers.find(w => nameMatch(agentName, w.name)) || null;
+            // FRO-name match, most-specific tier first. Every tier after the
+            // alias lookup must resolve UNIQUELY — the old first-match-wins
+            // fuzzy credited same-first-name colleagues (two Ravinas, five
+            // Poojas), so anything ambiguous stays uncredited instead.
+            // Tiers: raw exact → normalized exact → curated alias →
+            // "(annotation)" stripped repeat → token-subset unique → fuzzy unique.
+            const normName = (v) => String(v || '')
+              .toLowerCase()
+              .replace(/\s*\(.*?\)\s*/g, ' ')
+              .replace(/[^a-z0-9\s]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const normWorkerNames = activeWorkers.map(w => ({ id: w.id, nn: normName(w.name), toks: normName(w.name).split(' ').filter(Boolean) }));
+            const resolveWorker = (rawAgentName) => {
+              if (!rawAgentName) return null;
+              const anRaw = String(rawAgentName).trim().toLowerCase();
+              const byId = (id) => activeWorkers.find(w => w.id === id) || null;
+              const attempt = (agentName) => {
+                const anNorm = normName(agentName);
+                if (!anNorm) return null;
+                const rawExact = activeWorkers.find(w => String(w.name || '').trim().toLowerCase() === anRaw);
+                if (rawExact) return rawExact.id;
+                const normExact = normWorkerNames.find(w => w.nn === anNorm);
+                if (normExact) return normExact.id;
+                const aliasId = aliasByNorm.get(anNorm);
+                if (aliasId && activeWorkers.some(w => w.id === aliasId)) return aliasId;
+                const toks = anNorm.split(' ').filter(Boolean);
+                let hit = null;
+                if (toks.length >= 2) {
+                  let subsetHits = 0;
+                  for (const w of normWorkerNames) {
+                    if (toks.every(t => w.toks.includes(t))) { subsetHits++; hit = w.id; }
+                  }
+                  if (subsetHits === 1) return hit;
+                  if (subsetHits > 1) return null;
+                }
+                let fuzzyHits = 0;
+                hit = null;
+                for (const w of activeWorkers) {
+                  if (!nameMatch(agentName, w.name)) continue;
+                  fuzzyHits++;
+                  if (fuzzyHits > 1) return null;
+                  hit = w.id;
+                }
+                return fuzzyHits === 1 ? hit : null;
+              };
+              return byId(attempt(rawAgentName)) || byId(attempt(String(rawAgentName).replace(/\s*\(.*?\)\s*/g, ' ')));
             };
 
             // Pre-load the donors' existing assignments for this NGO so money can
@@ -2370,7 +3132,15 @@ export const importReceipts = async (req, res) => {
                 assignmentsByDonor.set(donorId, assignment);
               }
 
-              const froWorkerId = assignment.fro_worker_id;
+              // Credit the FRO actually named on the receipt. Reusing an existing
+              // assignment only settles (and closes) the donor relationship — it
+              // must not move the money to whoever owns the assignment today,
+              // otherwise receipts collected by one FRO land in another FRO's
+              // collection list after a batch/reassignment (e.g. Deepali's
+              // receipts showing in Mahima's BSCT tab).
+              const froWorkerId = worker.id !== assignment.fro_worker_id
+                ? worker.id
+                : assignment.fro_worker_id;
               if (!froWorkerId) continue;
 
               const amount = parseFloat(r.amount || 0);
@@ -2714,10 +3484,11 @@ const cleanupDayAutoCredits = async (from, to) => {
 const clearReceiptsByDate = async (from, to) => {
   let deleted = 0, deletedLogs = 0;
   const affected = new Set();
+  const affectedProjects = new Set();
   while (true) {
     const { data: rows } = await db
       .from('receipts')
-      .select('id, log_id, donor_id')
+      .select('id, log_id, donor_id, project_id')
       .neq('id', 0)
       .gte('receipt_date', from)
       .lte('receipt_date', to)
@@ -2725,15 +3496,30 @@ const clearReceiptsByDate = async (from, to) => {
     const batchRows = rows || [];
     if (batchRows.length === 0) break;
     const ids = batchRows.map(r => r.id);
-    const { data: delRows } = await db
-      .from('receipts')
-      .delete()
-      .in('id', ids)
-      .select('id, log_id, donor_id');
-    const rowsOut = delRows || [];
-    deleted += rowsOut.length;
-    for (const r of rowsOut) if (r.donor_id) affected.add(r.donor_id);
+    // Reset linked bank_audit_entries BEFORE deleting (FK ON DELETE SET NULL
+    // only clears receipt_id; receipt_no and status must be explicitly reset)
+    if (ids.length > 0) {
+      await db
+        .from('bank_audit_entries')
+        .update({
+          receipt_id: null, receipt_no: null, status: 'unverified',
+          match_status: null, match_source: null, match_score: null,
+          matched_lead_log_id: null, matched_by: null, matched_at: null,
+          donor_id: null, agent_name: null,
+        })
+        .in('receipt_id', ids);
+    }
+    const rowsOut = batchRows;
+    deleted += await bulkDeleteReceipts(ids);
+    for (const r of rowsOut) {
+      if (r.donor_id) affected.add(r.donor_id);
+      if (r.project_id) affectedProjects.add(r.project_id);
+    }
     deletedLogs += await deleteLinkedLogs(rowsOut.map(r => r.log_id).filter(Boolean));
+  }
+  // Reset receipt number counters so next receipt continues from last live number
+  for (const projectId of affectedProjects) {
+    try { await cancelReceiptNo(projectId); } catch (e) { /* ignore */ }
   }
   const cleanedAutoCredits = await cleanupDayAutoCredits(from, to);
   const recomputed = await recomputeDonorTotals([...affected]);
@@ -2826,10 +3612,15 @@ export const getReceiptByMobile = async (req, res) => {
       return res.status(400).json({ message: 'A valid mobile number is required' });
     }
     const { rows } = await db._pool.query(
-      `SELECT donor_name, address, pan_number, donor_mobile, donor_id, receipt_no, receipt_date
-       FROM receipts
-       WHERE right(regexp_replace(donor_mobile, '[^0-9]', '', 'g'), 10) = $1
-       ORDER BY receipt_date DESC NULLS LAST, id DESC
+      `SELECT r.donor_name, r.address, r.pan_number, r.donor_mobile, r.donor_id, r.receipt_no, r.receipt_date,
+              r.email,
+              COALESCE(dp.address_2, '') AS address_2,
+              COALESCE(dp.city, '') AS city,
+              COALESCE(dp.pin_code, '') AS pin_code
+       FROM receipts r
+       LEFT JOIN donor_profiles dp ON dp.id = r.donor_id
+       WHERE right(regexp_replace(r.donor_mobile, '[^0-9]', '', 'g'), 10) = $1
+       ORDER BY r.receipt_date DESC NULLS LAST, r.id DESC
        LIMIT 1`,
       [mobile]
     );
@@ -2864,23 +3655,16 @@ export const clearReceipts = async (req, res) => {
         .select('id, log_id')
         .neq('id', 0)
         .limit(batch);
-      const batchIds = (ids || []).map(r => r.id);
-      if (batchIds.length > 0) {
-        const { data: rows } = await db
-          .from('receipts')
-          .delete()
-          .in('id', batchIds)
-          .select('id, log_id');
-        deleted = rows?.length || 0;
-        deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
-      }
+      const rows = ids || [];
+      const batchIds = rows.map(r => r.id);
+      deleted = await bulkDeleteReceipts(batchIds);
+      deletedLogs = await deleteLinkedLogs(rows.map(r => r.log_id).filter(Boolean));
     } else {
       const { data: rows } = await db
         .from('receipts')
-        .delete()
-        .neq('id', 0)
-        .select('id, log_id');
-      deleted = rows?.length || 0;
+        .select('id, log_id')
+        .neq('id', 0);
+      deleted = await bulkDeleteReceipts((rows || []).map(r => r.id));
       remaining = 0;
       deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
     }
@@ -2895,7 +3679,8 @@ export const getReceiptCount = async (req, res) => {
   try {
     const { count } = await db
       .from('receipts')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .is('voided_at', null);
     return res.json({ count: count || 0 });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2944,9 +3729,27 @@ export const getSuspenseByNgo = async (req, res) => {
   }
 };
 
+export const quickSearchDonors = async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) return res.json([]);
+    const query = q.trim();
+    const { data, error } = await db
+      .from('donor_profiles')
+      .select('id,name,mobile_number,address_1,address_2,city,pin_code,pan_number,email')
+      .or(`name.ilike.%${query}%,mobile_number.ilike.%${query}%`)
+      .order('last_donation_date', { ascending: false, nullsFirst: false })
+      .limit(8);
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorsList = async (req, res) => {
   try {
-    const { search, page = '1', limit = '50', ngo } = req.query;
+    const { search, page = '1', limit = '50', ngo, missing_station } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100000, Math.max(1, parseInt(limit) || 50));
     const from = (pageNum - 1) * limitNum;
@@ -2959,6 +3762,22 @@ export const getDonorsList = async (req, res) => {
     if (search) {
       const q = search.trim();
       query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+
+    // "Missing station" narrowing: donors with at least one live assignment
+    // that HAS an agent but NO station — the rows this page can repair.
+    if (missing_station === 'true' || missing_station === '1') {
+      const { data: msRows, error: msErr } = await db
+        .from('fro_assignments')
+        .select('donor_id, fro_worker_id, station')
+        .not('status', 'eq', 'reassigned');
+      if (msErr) throw msErr;
+      const missingIds = [...new Set((msRows || [])
+        .filter(a => a.fro_worker_id && !(a.station && String(a.station).trim() !== ''))
+        .map(a => a.donor_id)
+        .filter(Boolean))];
+      if (missingIds.length === 0) return res.json({ data: [], total: 0, page: pageNum, limit: limitNum });
+      query = query.in('id', missingIds);
     }
 
     let ngoRow = null;
@@ -3000,7 +3819,7 @@ export const getDonorsList = async (req, res) => {
     if (donorIds.length > 0) {
       const { data: assignments } = await db
         .from('fro_assignments')
-        .select('donor_id, fro_worker_id, station, ngo_id')
+        .select('id, donor_id, fro_worker_id, station, ngo_id')
         .in('donor_id', donorIds)
         .not('status', 'eq', 'reassigned');
 
@@ -3041,7 +3860,7 @@ export const getDonorsList = async (req, res) => {
         if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
 
         if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
-        donorAssignmentList[a.donor_id].push({ name, station: a.station || '' });
+        donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, worker_id: a.fro_worker_id, name, station: a.station || '' });
       }
 
       for (const d of data || []) {
@@ -3083,7 +3902,7 @@ export const exportDonors = async (req, res) => {
 
     const donorIds = donors.map(d => d.id).filter(Boolean);
 
-    // Chunked assignment fetch to avoid the Postgres parameter limit on large donor sets.
+    // Chunked assignment fetch
     const latestByDonor = new Map();
     const ASSIGN_BATCH = 1000;
     for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
@@ -3120,18 +3939,89 @@ export const exportDonors = async (req, res) => {
       for (const n of ngos || []) ngoMap[n.id] = n.name;
     }
 
+    // Fetch receipt details per donor by donor_id (chunked)
+    const receiptsByDonor = new Map();
+    const RECEIPT_BATCH = 500;
+    for (let i = 0; i < donorIds.length; i += RECEIPT_BATCH) {
+      const chunk = donorIds.slice(i, i + RECEIPT_BATCH);
+      const { data: recs } = await db
+        .from('receipts')
+        .select('donor_id, receipt_no, amount, receipt_date, mode, payment_id, project_id, bank_name')
+        .in('donor_id', chunk)
+        .order('receipt_date', { ascending: false });
+      for (const r of recs || []) {
+        if (!receiptsByDonor.has(r.donor_id)) receiptsByDonor.set(r.donor_id, []);
+        receiptsByDonor.get(r.donor_id).push(r);
+      }
+    }
+
+    // Second pass: catch receipts with donor_id = NULL matched by mobile or name
+    const mobileToDonorId = new Map();
+    const nameToDonorId = new Map();
+    for (const d of donors) {
+      const mob = String(d.mobile_number || '').trim();
+      if (mob) mobileToDonorId.set(mob, d.id);
+      const nm = String(d.name || '').trim().toLowerCase();
+      if (nm) nameToDonorId.set(nm, d.id);
+    }
+
+    // Build WHERE: donor_id IS NULL AND (mobile or name matches)
+    const mobileList = [...mobileToDonorId.keys()].filter(Boolean);
+    const orConditions = [];
+    if (mobileList.length > 0) {
+      orConditions.push(`donor_mobile IN (${mobileList.map((_, i) => `$${i + 1}`).join(',')})`);
+    }
+    if (mobileList.length === 0) {
+      // No mobiles to match — skip second pass
+    } else {
+      const mobileParams = [...mobileList];
+      const whereNull = `donor_id IS NULL AND (${orConditions.join(' OR ')})`;
+      try {
+        const sql = `SELECT donor_id, donor_name, donor_mobile, receipt_no, amount, receipt_date, "mode", payment_id, project_id
+                     FROM receipts WHERE ${whereNull} ORDER BY receipt_date DESC`;
+        const { rows: unmatched } = await db._pool.query(sql, mobileParams);
+        for (const r of unmatched || []) {
+          const matchedMob = String(r.donor_mobile || '').trim();
+          const matchedId = mobileToDonorId.get(matchedMob);
+          if (matchedId) {
+            if (!receiptsByDonor.has(matchedId)) receiptsByDonor.set(matchedId, []);
+            receiptsByDonor.get(matchedId).push(r);
+          }
+        }
+      } catch (err) {
+        console.error('Export donors: unmatched receipt pass failed:', err.message);
+      }
+
+      // Also catch receipts with donor_id set but pointing to a donor not in the list
+      // These are receipts where donor_id exists but we didn't fetch them (shouldn't happen but safety)
+    }
+
     const rows = donors.map(d => {
       const a = latestByDonor.get(d.id);
+      const recs = receiptsByDonor.get(d.id) || [];
+      const receiptNos = recs.map(r => r.receipt_no).filter(Boolean).join(', ');
+      const totalReceiptAmount = recs.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+      const receivedBanks = [...new Set(recs.map(r => r.bank_name).filter(Boolean))].join(', ');
       return {
         'Donor Name': d.name || d.bank_donor_name || d.agent_donor_name || '',
         'Mobile': d.mobile_number || '',
+        'Email': d.email || '',
+        'PAN': d.pan_number || '',
+        'Address': d.address_1 || '',
+        'Address 2': d.address_2 || '',
         'City': d.city || '',
+        'Pin Code': d.pin_code || '',
         'NGO': a?.ngo_id ? (ngoMap[a.ngo_id] || d.ngo || '') : (d.ngo || ''),
         'Assigned To': a?.fro_worker_id ? (workerMap[a.fro_worker_id] || '') : '',
+        'Station': a?.station || d.station || '',
+        'Project': d.project_supported || '',
         'Total Amount': d.total_amount != null ? Number(d.total_amount) : 0,
         'Donations': d.donation_count != null ? Number(d.donation_count) : 0,
         'Last Donation': d.last_donation_date || '',
-        'New Station': a?.station || d.station || 'suspense',
+        'Receipt Numbers': receiptNos,
+        'Receipt Count': recs.length,
+        'Total Receipt Amount': totalReceiptAmount,
+        'Received Bank': receivedBanks,
       };
     });
 
@@ -3162,33 +4052,41 @@ export const getDonorDetail = async (req, res) => {
     let assigned_agent = null;
     let assignment_station = null;
     let assignment_ngo = null;
+    let assignments = [];
     try {
-      const { data: assignments } = await db
+      const { data: assignmentRows } = await db
         .from('fro_assignments')
-        .select('fro_worker_id, station, ngo_id')
+        .select('id, fro_worker_id, station, ngo_id, status')
         .eq('donor_id', id)
         .not('status', 'eq', 'reassigned')
         .order('assigned_at', { ascending: false });
 
-      if (assignments && assignments.length > 0) {
+      const workerIds = [...new Set((assignmentRows || []).map(a => a.fro_worker_id).filter(Boolean))];
+      const ngoIds = [...new Set((assignmentRows || []).map(a => a.ngo_id).filter(Boolean))];
+      const workerMap = {};
+      const ngoMap = {};
+      if (workerIds.length > 0) {
+        const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
+        for (const worker of workers || []) workerMap[worker.id] = worker.name;
+      }
+      if (ngoIds.length > 0) {
+        const { data: ngos } = await db.from('ngos').select('id, name').in('id', ngoIds);
+        for (const ngo of ngos || []) ngoMap[ngo.id] = ngo.name;
+      }
+      assignments = (assignmentRows || []).map(a => ({
+        id: a.id,
+        worker_id: a.fro_worker_id,
+        worker_name: workerMap[a.fro_worker_id] || null,
+        station: a.station || '',
+        ngo_id: a.ngo_id,
+        ngo_name: ngoMap[a.ngo_id] || null,
+        status: a.status,
+      }));
+      if (assignments.length > 0) {
         const a = assignments[0];
-        if (a.fro_worker_id) {
-          const { data: worker } = await db
-            .from('workers')
-            .select('name')
-            .eq('id', a.fro_worker_id)
-            .maybeSingle();
-          assigned_agent = worker?.name || null;
-        }
+        assigned_agent = a.worker_name;
         assignment_station = a.station || null;
-        if (a.ngo_id) {
-          const { data: ngo } = await db
-            .from('ngos')
-            .select('name')
-            .eq('id', a.ngo_id)
-            .maybeSingle();
-          assignment_ngo = ngo?.name || null;
-        }
+        assignment_ngo = a.ngo_name;
       }
     } catch (assignErr) {
       console.error('getDonorDetail: failed to load assignment:', assignErr.message);
@@ -3202,7 +4100,95 @@ export const getDonorDetail = async (req, res) => {
       assigned_agent,
       assignment_station,
       assignment_ngo,
+      assignments,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Permanently remove a donor and operational FRO data as one transaction.
+// Financial receipts remain in place but are detached from the deleted profile.
+export const deleteDonor = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const result = await db.transaction(async (tx) => {
+      const { data: donor, error: donorErr } = await tx.from('donor_profiles').select('id, name, mobile_number').eq('id', donorId).maybeSingle();
+      if (donorErr) throw donorErr;
+      if (!donor) return null;
+
+      const { data: assignments, error: assignmentErr } = await tx
+        .from('fro_assignments').select('id').eq('donor_id', donorId);
+      if (assignmentErr) throw assignmentErr;
+      const assignmentIds = (assignments || []).map(a => a.id).filter(Boolean);
+
+      // Clear both direct and log-linked receipt references before deleting logs/profile.
+      const { error: receiptErr } = await tx.from('receipts').update({ donor_id: null }).eq('donor_id', donorId);
+      if (receiptErr) throw receiptErr;
+
+      let logsDeleted = 0;
+      if (assignmentIds.length > 0) {
+        const { data: logs, error: logFetchErr } = await tx.from('fro_donor_logs').select('id').in('assignment_id', assignmentIds);
+        if (logFetchErr) throw logFetchErr;
+        const logIds = (logs || []).map(l => l.id).filter(Boolean);
+        if (logIds.length > 0) {
+          const { error: linkedReceiptErr } = await tx.from('receipts').update({ donor_id: null, log_id: null }).in('log_id', logIds);
+          if (linkedReceiptErr) throw linkedReceiptErr;
+          const { error: logDeleteErr } = await tx.from('fro_donor_logs').delete().in('id', logIds);
+          if (logDeleteErr) throw logDeleteErr;
+          logsDeleted = logIds.length;
+        }
+        const { error: scheduleErr } = await tx.from('fro_scheduled_contacts').delete().in('assignment_id', assignmentIds);
+        if (scheduleErr) throw scheduleErr;
+        const { error: assignmentDeleteErr } = await tx.from('fro_assignments').delete().in('id', assignmentIds);
+        if (assignmentDeleteErr) throw assignmentDeleteErr;
+      }
+
+      const { error: profileErr } = await tx.from('donor_profiles').delete().eq('id', donorId);
+      if (profileErr) throw profileErr;
+      return { donor, assignments_deleted: assignmentIds.length, logs_deleted: logsDeleted };
+    });
+
+    if (!result) return res.status(404).json({ message: 'Donor not found' });
+    return res.json({ deleted: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ message: `Donor deletion failed: ${error.message}` });
+  }
+};
+
+export const createDonorAssignment = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const { fro_worker_id: workerId, ngo_id: ngoId, station } = req.body || {};
+    const cleanStation = String(station || '').trim();
+    if (!workerId || !ngoId || !cleanStation) return res.status(400).json({ message: 'Agent, NGO, and station are required' });
+
+    const { data: donor, error: donorErr } = await db.from('donor_profiles').select('id').eq('id', donorId).maybeSingle();
+    if (donorErr) throw donorErr;
+    if (!donor) return res.status(404).json({ message: 'Donor not found' });
+
+    const { data: worker, error: workerErr } = await db.from('workers')
+      .select('id, name').eq('id', workerId).eq('department', 'FRO').eq('employment_status', 'active').maybeSingle();
+    if (workerErr) throw workerErr;
+    if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
+
+    const { data: existing, error: existingErr } = await db.from('fro_assignments')
+      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).not('status', 'eq', 'reassigned').maybeSingle();
+    if (existingErr) throw existingErr;
+    if (existing) return res.status(409).json({ message: 'This donor already has an active assignment for this NGO; replace that assignment instead' });
+
+    const now = new Date().toISOString();
+    const { data: assignment, error: insertErr } = await db.from('fro_assignments').insert({
+      donor_id: donorId,
+      fro_worker_id: worker.id,
+      ngo_id: ngoId,
+      station: cleanStation,
+      assigned_by: req.user?.id || null,
+      status: 'pending',
+      assigned_at: now,
+    }).select().single();
+    if (insertErr) throw insertErr;
+    return res.status(201).json({ assignment, agent_name: worker.name, message: `Assigned to ${worker.name} · ${cleanStation}` });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -3232,6 +4218,13 @@ const EDITABLE_DONOR_FIELDS = {
   agent_name: 'agent_name',
   mop: 'mop',
   birth_date: 'birth_date',
+  state: 'state',
+  aadhaar_number: 'aadhaar_number',
+  anniversary: 'anniversary',
+  preferred_language: 'preferred_language',
+  donor_type: 'donor_type',
+  donation_frequency: 'donation_frequency',
+  account_of: 'account_of',
 };
 
 export const updateDonor = async (req, res) => {
@@ -3276,6 +4269,1180 @@ export const updateDonor = async (req, res) => {
     if (updateErr) throw updateErr;
 
     return res.json({ donor, message: 'Donor updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Station options for repair dropdowns: real stations from the registry
+// (fro_station_assignments) as (station, ngo_id) pairs, optionally narrowed to
+// one NGO. Exact strings matter — queue visibility matches on them.
+export const getStationOptions = async (req, res) => {
+  try {
+    const { ngo_id } = req.query;
+    let q = db.from('fro_station_assignments').select('station, ngo_id').order('station', { ascending: true });
+    if (ngo_id) q = q.eq('ngo_id', ngo_id);
+    const { data, error } = await q;
+    if (error) throw error;
+    const seen = new Set();
+    const options = [];
+    for (const s of data || []) {
+      if (!s.station) continue;
+      const key = `${s.ngo_id ?? ''}|${s.station}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({ station: s.station, ngo_id: s.ngo_id });
+    }
+    return res.json({ options });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Repair endpoint: set station ONLY on assignments that have an agent but no
+// station. Server-side mirrors of the UI rules so crafted requests can't
+// overwrite healthy assignments or invent agents.
+export const updateAssignmentStations = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const updates = Array.isArray(req.body?.assignments) ? req.body.assignments : null;
+    if (!updates || updates.length === 0) {
+      return res.status(400).json({ message: 'No assignments provided' });
+    }
+
+    const ids = updates.map(u => u.id).filter(v => v != null);
+    if (ids.length !== updates.length) {
+      return res.status(400).json({ message: 'Each assignment needs an id' });
+    }
+
+    const { data: rows, error: fErr } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, station, fro_worker_id')
+      .eq('donor_id', donorId)
+      .in('id', ids);
+    if (fErr) throw fErr;
+
+    const planned = [];
+    for (const u of updates) {
+      const row = (rows || []).find(r => String(r.id) === String(u.id));
+      if (!row) return res.status(404).json({ message: `Assignment ${u.id} does not belong to this donor` });
+      if (!row.fro_worker_id) return res.status(400).json({ message: `Assignment ${u.id} has no agent` });
+      if (row.station && String(row.station).trim() !== '') {
+        return res.status(400).json({ message: `Assignment ${u.id} already has a station (${row.station})` });
+      }
+      const st = String(u.station ?? '').trim();
+      if (!st) return res.status(400).json({ message: 'Station is required' });
+      planned.push({ id: row.id, station: st });
+    }
+
+    for (const p of planned) {
+      const { error } = await db
+        .from('fro_assignments')
+        .update({ station: p.station })
+        .eq('id', p.id);
+      if (error) throw error;
+    }
+
+    return res.json({ updated: planned.length, assignments: planned, message: 'Station assigned' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Remove an agent assignment entirely: hard-deletes the fro_assignments row
+// and its fro_donor_logs (same cascade as restoreWrongAssignments). The donor
+// becomes fully unassigned for that NGO and re-enters the unclaimed pool.
+export const deleteAssignment = async (req, res) => {
+  try {
+    const { id: donorId, assignmentId } = req.params;
+
+    const { data: row, error: fErr } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, fro_worker_id, ngo_id, station')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (fErr) throw fErr;
+    if (!row) return res.status(404).json({ message: 'Assignment not found' });
+    if (String(row.donor_id) !== String(donorId)) {
+      return res.status(400).json({ message: 'Assignment does not belong to this donor' });
+    }
+
+    const { data: logs } = await db
+      .from('fro_donor_logs')
+      .select('id')
+      .eq('assignment_id', row.id);
+    if (logs && logs.length > 0) {
+      await db.from('fro_donor_logs').delete().eq('assignment_id', row.id);
+    }
+    const { error: scheduleErr } = await db.from('fro_scheduled_contacts').delete().eq('assignment_id', row.id);
+    if (scheduleErr) throw scheduleErr;
+    await db.from('fro_assignments').delete().eq('id', row.id);
+
+    return res.json({
+      deleted: true,
+      assignment_id: row.id,
+      donor_id: row.donor_id,
+      logs_deleted: logs?.length || 0,
+      message: 'Agent removed',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Replace an assignment in one step: pick a new agent AND/OR station. The old
+// row is soft-deleted (status='reassigned') for audit trail and a fresh
+// pending assignment is inserted — mirrors reassignStationDonors semantics.
+// The donor goes straight to the new agent; never touches the pool.
+export const replaceAssignment = async (req, res) => {
+  try {
+    const { id: donorId, assignmentId } = req.params;
+    const workerId = req.body?.fro_worker_id;
+    const station = String(req.body?.station ?? '').trim();
+    if (!workerId) return res.status(400).json({ message: 'Agent is required' });
+    if (!station) return res.status(400).json({ message: 'Station is required' });
+
+    const { data: row, error: fErr } = await db
+      .from('fro_assignments')
+      .select('*')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (fErr) throw fErr;
+    if (!row) return res.status(404).json({ message: 'Assignment not found' });
+    if (String(row.donor_id) !== String(donorId)) {
+      return res.status(400).json({ message: 'Assignment does not belong to this donor' });
+    }
+
+    const { data: worker, error: wErr } = await db
+      .from('workers')
+      .select('id, name')
+      .eq('id', workerId)
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active')
+      .maybeSingle();
+    if (wErr) throw wErr;
+    if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
+
+    const now = new Date().toISOString();
+
+    // Soft-delete the old row so history stays queryable.
+    const { error: upErr } = await db
+      .from('fro_assignments')
+      .update({ status: 'reassigned', updated_at: now })
+      .eq('id', row.id);
+    if (upErr) throw upErr;
+
+    const { data: created, error: insErr } = await db
+      .from('fro_assignments')
+      .insert({
+        donor_id: row.donor_id,
+        fro_worker_id: worker.id,
+        ngo_id: row.ngo_id,
+        station,
+        batch_id: row.batch_id || null,
+        batch_type: row.batch_type || null,
+        assigned_by: req.user?.id || null,
+        status: 'pending',
+        assigned_at: now,
+      })
+      .select()
+      .single();
+    if (insErr) throw insErr;
+
+    return res.json({
+      replaced: true,
+      old_assignment_id: row.id,
+      assignment: created,
+      agent_name: worker.name,
+      message: `Reassigned to ${worker.name} · ${station}`,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Address Import ───────────────────────────────────────
+// Excel-driven donor address update: match by normalized mobile number,
+// fill ONLY blank fields (never overwrite existing data), skip unknown numbers.
+
+const normalizeMobile = (v) => {
+  let n = String(v ?? '').replace(/\D/g, '');
+  if (!n) return '';
+  if (n.length === 12 && n.startsWith('91')) n = n.slice(2);
+  else if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+  return n;
+};
+
+export const importDonorAddresses = async (req, res) => {
+  try {
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No rows provided' });
+    }
+
+    const { data: donors, error: fetchErr } = await db
+      .from('donor_profiles')
+      .select('id, mobile_number, name, address_1, address_2, pan_number, email');
+    if (fetchErr) throw fetchErr;
+
+    const byMobile = new Map();
+    for (const d of (donors || [])) {
+      const key = normalizeMobile(d.mobile_number);
+      if (key && !byMobile.has(key)) byMobile.set(key, d);
+    }
+
+    const results = [];
+    const updates = [];
+    const inserts = [];
+    const seen = new Set();
+    const summary = { total: rows.length, updated: 0, created: 0, matchedNoChange: 0, notFound: 0, skippedNoMobile: 0, duplicatesInFile: 0 };
+
+    rows.forEach((r, i) => {
+      const rowNo = i + 2; // +1 header, +1 for 1-based
+      const mobile = normalizeMobile(r.mobile_number);
+      if (!mobile || mobile.length < 10) {
+        summary.skippedNoMobile++;
+        results.push({ row: rowNo, mobile: r.mobile_number || '', status: 'no_mobile' });
+        return;
+      }
+      if (seen.has(mobile)) {
+        summary.duplicatesInFile++;
+        results.push({ row: rowNo, mobile, status: 'duplicate' });
+        return;
+      }
+      seen.add(mobile);
+
+      const existing = byMobile.get(mobile);
+      if (!existing) {
+        // Unknown number — create a new donor profile so FRO claim / audit
+        // manual verification can find this address later.
+        const payload = { mobile_number: mobile };
+        let hasData = false;
+        for (const field of ['name', 'address_1', 'address_2', 'pan_number', 'email']) {
+          const val = String(r[field] ?? '').trim();
+          if (!val) continue;
+          payload[field] = val;
+          hasData = true;
+        }
+        inserts.push(payload);
+        summary.created++;
+        results.push({ row: rowNo, mobile, status: hasData ? 'created' : 'created_no_data' });
+        return;
+      }
+
+      const payload = {};
+      let hasFill = false;
+      const naJunk = (s) => {
+        const token = String.raw`(?:n\.?\s*a\.?|n/a|null|none|nil|not\s*available|-+)`;
+        return new RegExp(`^${token}(?:\\s*,\\s*${token})*$`, 'i').test(s);
+      };
+      for (const field of ['name', 'address_1', 'address_2', 'pan_number', 'email']) {
+        const val = String(r[field] ?? '').trim();
+        if (!val || naJunk(val)) continue;
+        const cur = String(existing[field] ?? '').trim();
+        if (!cur) { payload[field] = val; hasFill = true; }
+      }
+
+      if (!hasFill) {
+        summary.matchedNoChange++;
+        results.push({ row: rowNo, mobile, status: 'complete' });
+        return;
+      }
+
+      summary.updated++;
+      updates.push({ id: existing.id, payload });
+      results.push({ row: rowNo, mobile, status: 'updated' });
+    });
+
+    if (updates.length > 0) {
+      const jsonPayload = JSON.stringify(updates.map(u => ({ id: u.id, payload: u.payload })));
+      const { rowCount } = await db._pool.query(
+        `UPDATE donor_profiles AS d SET
+           name       = COALESCE(NULLIF(d.name, ''),       NULLIF(v.payload->>'name', ''),       d.name),
+           address_1  = COALESCE(NULLIF(d.address_1, ''),  NULLIF(v.payload->>'address_1', ''),  d.address_1),
+           address_2  = COALESCE(NULLIF(d.address_2, ''),  NULLIF(v.payload->>'address_2', ''),  d.address_2),
+           pan_number = COALESCE(NULLIF(d.pan_number, ''), NULLIF(v.payload->>'pan_number', ''), d.pan_number),
+           email      = COALESCE(NULLIF(d.email, ''),      NULLIF(v.payload->>'email', ''),      d.email),
+           updated_at = now()
+         FROM jsonb_to_recordset($1::jsonb) AS v(id int, payload jsonb)
+         WHERE d.id = v.id`,
+        [jsonPayload]
+      );
+      summary.updated = rowCount ?? updates.length;
+    }
+
+    // New numbers: insert as fresh donor profiles. ignoreDuplicates keeps the
+    // import safe if a profile with the same mobile was created concurrently.
+    for (let i = 0; i < inserts.length; i += 500) {
+      const chunk = inserts.slice(i, i + 500);
+      const { data: createdRows, error: insErr } = await db
+        .from('donor_profiles')
+        .upsert(chunk, { onConflict: 'mobile_number', ignoreDuplicates: true })
+        .select('id');
+      if (insErr) throw insErr;
+      summary.created = (summary.created ?? 0) - chunk.length + (createdRows?.length ?? 0);
+    }
+
+    return res.json({ summary, results });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Receipt Edit ─────────────────────────────────────────
+
+export const getFroWorkersList = async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('workers')
+      .select('id, name')
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active')
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateReceipt = async (req, res) => {
+  try {
+    const { receiptId } = req.params;
+    const updates = req.body;
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No fields provided to update' });
+    }
+
+    const { data: receipt, error: rErr } = await db
+      .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+    if (rErr) throw rErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    // Fields that can be edited on the receipt row
+    const RECEIPT_EDITABLE = [
+      'donor_name', 'donor_mobile', 'amount', 'address', 'address_2', 'pan_number',
+      'email', 'mobile_2', 'station', 'account_of', 'mode', 'agent_name',
+      'project_id', 'caller_name', 'bank_name', 'payment_id', 'receipt_date', 'receipt_time',
+    ];
+    const receiptPatch = {};
+    for (const field of RECEIPT_EDITABLE) {
+      if (field in updates) {
+        receiptPatch[field] = (updates[field] === '' || updates[field] === null) ? null : updates[field];
+      }
+    }
+
+    if ('amount' in receiptPatch) {
+      const parsed = parseFloat(receiptPatch.amount);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        return res.status(400).json({ message: 'Invalid amount' });
+      }
+      receiptPatch.amount = Math.round(parsed * 100) / 100;
+    }
+
+    const oldAmount = Number(receipt.amount || 0);
+    const newAmount = 'amount' in receiptPatch ? Number(receiptPatch.amount || 0) : oldAmount;
+    const amountDelta = newAmount - oldAmount;
+
+    // Normalize agent_name on edit too
+    if (receiptPatch.agent_name && receiptPatch.agent_name !== 'Suspense') {
+      const canonical = await normalizeAgentName(receiptPatch.agent_name);
+      if (canonical) receiptPatch.agent_name = canonical;
+    }
+
+    // Detect FRO change
+    const oldAgentName = (receipt.agent_name || '').trim();
+    const newAgentName = (receiptPatch.agent_name ?? receipt.agent_name ?? '').trim();
+    const froChanged = oldAgentName !== newAgentName && newAgentName !== '';
+
+    if (froChanged) {
+      // Find old FRO worker
+      const { data: oldWorker } = await db
+        .from('workers').select('id, name').eq('name', oldAgentName).maybeSingle();
+
+      // Find new FRO worker
+      const { data: newWorker } = await db
+        .from('workers').select('id, name').eq('name', newAgentName).maybeSingle();
+      if (!newWorker) {
+        return res.status(400).json({ message: `FRO worker "${newAgentName}" not found` });
+      }
+
+      const amount = Number(receipt.amount || 0);
+
+      // If there's a fro_donor_log linked, handle the assignment transfer
+      if (receipt.log_id) {
+        const { data: log } = await db
+          .from('fro_donor_logs')
+          .select('id, fro_worker_id, fro_assignments!inner(id, fro_worker_id, donor_id, ngo_id)')
+          .eq('id', receipt.log_id)
+          .maybeSingle();
+
+        if (log) {
+          const assignment = log.fro_assignments;
+
+          // Detect cross-FRO receipt: verify_type = 'cross_fro' on the linked bank_audit_entry
+          let isCrossFro = false;
+          try {
+            const { data: linkedEntry } = await db
+              .from('bank_audit_entries')
+              .select('verify_type')
+              .eq('receipt_id', receiptId)
+              .maybeSingle();
+            isCrossFro = linkedEntry?.verify_type === 'cross_fro';
+          } catch (_) {}
+
+          // Reverse credit from old FRO's donor profile
+          if (assignment?.donor_id && amount > 0) {
+            try {
+              const { data: donor } = await db
+                .from('donor_profiles')
+                .select('total_amount, donation_count')
+                .eq('id', assignment.donor_id)
+                .single();
+              await db.from('donor_profiles').update({
+                total_amount: Math.max(0, (donor?.total_amount || 0) - amount),
+                donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+                updated_at: new Date().toISOString(),
+              }).eq('id', assignment.donor_id);
+            } catch (err) {
+              console.error('Failed to reverse donor totals on receipt edit:', err.message);
+            }
+          }
+
+          // Update fro_donor_log FRO (credit always moves)
+          await db.from('fro_donor_logs').update({
+            fro_worker_id: newWorker.id,
+          }).eq('id', log.id);
+
+          // For cross-FRO receipts: do NOT transfer the assignment — the donor stays
+          // under their original FRO. Only credit moves via the log update above.
+          if (!isCrossFro && assignment?.id) {
+            await db.from('fro_assignments').update({
+              fro_worker_id: newWorker.id,
+            }).eq('id', assignment.id);
+          }
+
+          // Credit to new FRO's donor profile
+          if (assignment?.donor_id && amount > 0) {
+            try {
+              const { data: donor } = await db
+                .from('donor_profiles')
+                .select('total_amount, donation_count')
+                .eq('id', assignment.donor_id)
+                .single();
+              await db.from('donor_profiles').update({
+                total_amount: Math.round(((donor?.total_amount || 0) + amount) * 100) / 100,
+                donation_count: (donor?.donation_count || 0) + 1,
+                updated_at: new Date().toISOString(),
+              }).eq('id', assignment.donor_id);
+            } catch (err) {
+              console.error('Failed to credit new FRO donor totals on receipt edit:', err.message);
+            }
+          }
+        }
+      } else if (receipt.donor_id && amount > 0) {
+        // No log_id but has donor_id — reverse and re-credit directly
+        try {
+          const { data: donor } = await db
+            .from('donor_profiles')
+            .select('total_amount, donation_count')
+            .eq('id', receipt.donor_id)
+            .single();
+          // Reverse old
+          await db.from('donor_profiles').update({
+            total_amount: Math.max(0, (donor?.total_amount || 0) - amount),
+            donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+            updated_at: new Date().toISOString(),
+          }).eq('id', receipt.donor_id);
+          // Credit new (same donor_id since no assignment转移)
+          await db.from('donor_profiles').update({
+            total_amount: Math.round(((donor?.total_amount || 0) - amount + amount) * 100) / 100,
+            donation_count: (donor?.donation_count || 0), // net zero since same profile
+            updated_at: new Date().toISOString(),
+          }).eq('id', receipt.donor_id);
+        } catch (err) {
+          console.error('Failed to handle no-log FRO change on receipt edit:', err.message);
+        }
+      }
+    }
+
+    // ── Amount change ripple: keep FRO log credit + donor totals in sync ──
+    if (Math.abs(amountDelta) > 0.0001) {
+      if (receipt.log_id) {
+        try {
+          await db.from('fro_donor_logs').update({ amount_collected: newAmount }).eq('id', receipt.log_id);
+        } catch (err) {
+          console.error('Failed to sync fro_donor_log amount on receipt edit:', err.message);
+        }
+      }
+      let amountTargetDonorId = receipt.donor_id || null;
+      if (receipt.log_id) {
+        try {
+          const { data: log } = await db
+            .from('fro_donor_logs')
+            .select('fro_assignments!inner(donor_id)')
+            .eq('id', receipt.log_id)
+            .maybeSingle();
+          const assignment = Array.isArray(log?.fro_assignments) ? log.fro_assignments[0] : log?.fro_assignments;
+          if (assignment?.donor_id) amountTargetDonorId = assignment.donor_id;
+        } catch (err) {
+          console.error('Failed to resolve donor for amount edit:', err.message);
+        }
+      }
+      if (amountTargetDonorId) {
+        try {
+          const { data: donor } = await db
+            .from('donor_profiles')
+            .select('total_amount')
+            .eq('id', amountTargetDonorId)
+            .single();
+          await db.from('donor_profiles').update({
+            total_amount: Math.round(((donor?.total_amount || 0) + amountDelta) * 100) / 100,
+            updated_at: new Date().toISOString(),
+          }).eq('id', amountTargetDonorId);
+        } catch (err) {
+          console.error('Failed to adjust donor totals on amount edit:', err.message);
+        }
+      }
+    }
+
+    // Update the receipt
+    const { data: updated, error: updErr } = await db
+      .from('receipts')
+      .update(receiptPatch)
+      .eq('id', receiptId)
+      .select()
+      .single();
+    if (updErr) throw updErr;
+
+    // Update linked bank_audit_entry
+    try {
+      const { data: entry } = await db
+        .from('bank_audit_entries')
+        .select('id')
+        .eq('receipt_id', receiptId)
+        .maybeSingle();
+      if (entry) {
+        const entryPatch = { updated_at: new Date().toISOString() };
+        // payer_name (bank statement name) is immutable here — same rule as
+        // Manual Verify. Receipt/profile name edits never rewrite it.
+        if ('donor_mobile' in receiptPatch) entryPatch.donor_mobile = receiptPatch.donor_mobile;
+        if ('pan_number' in receiptPatch) entryPatch.donor_pan = receiptPatch.pan_number;
+        if ('address' in receiptPatch) entryPatch.donor_address_1 = receiptPatch.address;
+        if ('address_2' in receiptPatch) entryPatch.donor_address_2 = receiptPatch.address_2;
+        if ('email' in receiptPatch) entryPatch.donor_email = receiptPatch.email;
+        if ('agent_name' in receiptPatch) entryPatch.agent_name = receiptPatch.agent_name;
+        if ('bank_name' in receiptPatch) entryPatch.bank_name = receiptPatch.bank_name;
+        if ('mode' in receiptPatch) entryPatch.mode = receiptPatch.mode;
+        if ('payment_id' in receiptPatch) entryPatch.payment_id = receiptPatch.payment_id;
+        if ('amount' in receiptPatch) entryPatch.amount = receiptPatch.amount;
+        if ('receipt_date' in receiptPatch) entryPatch.transaction_date = receiptPatch.receipt_date;
+        if ('receipt_time' in receiptPatch) entryPatch.payment_time = receiptPatch.receipt_time;
+        if (updates.received_bank) {
+          const { data: src } = await db.from('bank_audit_sources').select('id').ilike('name', updates.received_bank).maybeSingle();
+          if (src) entryPatch.source_id = src.id;
+        }
+        await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
+      }
+    } catch (err) {
+      console.error('Failed to update linked bank audit entry:', err.message);
+    }
+
+    // Update donor_profiles
+    // Unlinked receipt being edited: attach the profile that owns this mobile
+    // number (exact 10-digit match) so the rename lands on the master record.
+    let linkDonorId = receipt.donor_id || null;
+    if (!linkDonorId) {
+      const rawMob = String(receiptPatch.donor_mobile ?? receipt.donor_mobile ?? '').replace(/\D/g, '');
+      if (rawMob.length >= 10) {
+        const { data: profByMobile } = await db
+          .from('donor_profiles').select('id').eq('mobile_number', rawMob.slice(-10)).maybeSingle();
+        if (profByMobile) {
+          linkDonorId = profByMobile.id;
+          await db.from('receipts').update({ donor_id: linkDonorId }).eq('id', receiptId);
+        }
+      }
+    }
+    if (linkDonorId) {
+      try {
+        const dpPatch = { updated_at: new Date().toISOString() };
+        // Never blank the master name: an emptied field on the modal must not
+        // null out donor_profiles.name.
+        if ('donor_name' in receiptPatch && String(receiptPatch.donor_name || '').trim() === '') {
+          delete receiptPatch.donor_name;
+        }
+        const dpMap = {
+          donor_name: 'name', donor_mobile: 'mobile_number', pan_number: 'pan_number',
+          address: 'address_1', address_2: 'address_2', email: 'email',
+          mobile_2: 'mobile_2', station: 'station',
+        };
+        for (const [rField, dpField] of Object.entries(dpMap)) {
+          if (rField in receiptPatch) dpPatch[dpField] = receiptPatch[rField];
+        }
+        if (Object.keys(dpPatch).length > 1) {
+          await db.from('donor_profiles').update(dpPatch).eq('id', linkDonorId);
+        }
+      } catch (err) {
+        console.error('Failed to update donor profile on receipt edit:', err.message);
+      }
+    }
+
+    return res.json({ receipt: updated, message: 'Receipt updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const TARGETS_SETTING_KEY = 'accounts_report_targets';
+
+// Compute working days from month start -> today for a given NGO.
+// Working days = Mon-Sat days minus that NGO's holidays, PLUS one extra Sunday
+// (the last Sunday of the month) once it has arrived (<= today).
+export function computeReportWorkingDays({ month, today, ngoId, holidayDates }) {
+  const [y, m] = month.split('-').map(Number);
+  const todayT = today || new Date();
+  const todayISO = `${todayT.getFullYear()}-${String(todayT.getMonth() + 1).padStart(2, '0')}-${String(todayT.getDate()).padStart(2, '0')}`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const holiday = new Set((holidayDates || []).map((d) => String(d).slice(0, 10)));
+
+  // last Sunday of the month
+  let lastSunday = null;
+  for (let d = lastDay; d >= 1; d--) {
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow === 0) { lastSunday = d; break; }
+  }
+  const lastSundayISO = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(lastSunday).padStart(2, '0')}`;
+
+  let count = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    const iso = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (iso > todayISO) break; // only count days up to today
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow === 0) continue; // every Sunday off by default
+    if (holiday.has(iso)) continue;
+    count++;
+  }
+  // add the last Sunday of the month once it is <= today
+  if (lastSundayISO <= todayISO && !holiday.has(lastSundayISO)) count++;
+
+  return { count, lastSundayISO };
+}
+
+// GET /accounts/report-targets
+export const getReportTargets = async (req, res) => {
+  try {
+    const raw = await getSetting(TARGETS_SETTING_KEY);
+    const parsed = raw ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : null;
+    return res.json({
+      month: parsed?.month || new Date().toISOString().slice(0, 7),
+      overall: Number(parsed?.overall) || 0,
+      byNgo: parsed?.byNgo || {},
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// PUT /accounts/report-targets
+export const putReportTargets = async (req, res) => {
+  try {
+    const { month, overall, byNgo } = req.body;
+    const payload = {
+      month: month || new Date().toISOString().slice(0, 7),
+      overall: Number(overall) || 0,
+      byNgo: byNgo || {},
+    };
+    await upsertSetting(TARGETS_SETTING_KEY, JSON.stringify(payload));
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /accounts/report-data?month=YYYY-MM
+export const getReportData = async (req, res) => {
+  try {
+    const requestedDate = (req.query.date || '').trim(); // YYYY-MM-DD (Day mode)
+    let dayMode = false;
+    let rangeMode = false;
+    let day = '';
+    const requestedFrom = (req.query.from || '').trim(); // YYYY-MM-DD
+    const requestedTo = (req.query.to || '').trim();
+    let requestedMonth = (req.query.month || '').trim();
+    if (requestedDate) {
+      dayMode = true;
+      day = requestedDate.slice(0, 10);
+      requestedMonth = day.slice(0, 7);
+    }
+    if (!dayMode && requestedFrom && requestedTo) {
+      rangeMode = true;
+      requestedMonth = String(requestedFrom).slice(0, 7);
+    }
+    if (!requestedMonth || !/^\d{4}-\d{2}$/.test(requestedMonth)) requestedMonth = new Date().toISOString().slice(0, 7);
+    let [y, m] = requestedMonth.split('-').map(Number);
+    if (!y || !m) {
+      y = new Date().getFullYear();
+      m = new Date().getMonth() + 1;
+    }
+    const month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
+    const today = new Date();
+
+    let dateFrom;
+    let dateTo;
+    if (rangeMode) {
+      dateFrom = String(requestedFrom).slice(0, 10);
+      dateTo = String(requestedTo).slice(0, 10);
+      if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+    } else if (dayMode) {
+      dateFrom = day;
+      dateTo = day;
+    } else {
+      const lastDay = new Date(y, m, 0).getDate();
+      dateFrom = `${month}-01`;
+      dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    const targetsRaw = await getSetting(TARGETS_SETTING_KEY);
+    let savedTargets = null;
+    if (targetsRaw) { try { savedTargets = JSON.parse(targetsRaw); } catch { savedTargets = null; } }
+    const savedOverall = savedTargets && savedTargets.month === month ? (Number(savedTargets.overall) || 0) : 0;
+    const savedByNgo = (savedTargets && savedTargets.month === month && savedTargets.byNgo) ? savedTargets.byNgo : {};
+
+    // NGOs: ngos.id is a UUID; the canonical report key is the lowercase code
+    // (bsct/aflf/mann) which is what bank_audit_entries.project_id uses.
+    const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+    if (naErr) throw naErr;
+    const slugOf = (n) => {
+      if (!n) return null;
+      const code = String(n.code || '').trim().toLowerCase();
+      if (code) return code;
+      const name = String(n.name || '').trim().toLowerCase();
+      return name;
+    };
+    const uuidToSlug = {};
+    const ngoList = [];
+    const seen = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      uuidToSlug[n.id] = slug;
+      if (slug && !seen[slug] && ['bsct', 'aflf', 'mann'].includes(slug)) {
+        seen[slug] = true;
+        ngoList.push({ id: slug, name: n.name });
+      }
+    }
+    const ngoIds = ngoList.map((x) => x.id);
+    if (ngoIds.length === 0) {
+      for (const [slug, name] of [['bsct', 'BSCT'], ['aflf', 'AFLF'], ['mann', 'MANN']]) {
+        ngoList.push({ id: slug, name });
+        ngoIds.push(slug);
+      }
+    }
+
+    // Holiday per NGO (holidays.ngo_id is a UUID -> map via ngos)
+    const { data: holidays, error: hErr } = await db.from('holidays').select('ngo_id, date').eq('type', 'holiday');
+    if (hErr) throw hErr;
+    const holidayByNgo = {};
+    for (const n of ngoIds) holidayByNgo[n] = [];
+    for (const h of holidays || []) {
+      const slug = uuidToSlug[h.ngo_id];
+      if (slug && holidayByNgo[slug]) holidayByNgo[slug].push(String(h.date).slice(0, 10));
+    }
+
+    const lastDay = new Date(y, m, 0).getDate();
+
+    // NGO collection totals AND the per-payment-source split both come from the
+    // RECEIPTS table (matching the Receipts page exactly). The payment source is
+    // the receipt's `mode`; its subtotals sum to the full receipts collection.
+    const receiptTotalByNgo = {};
+    for (const n of ngoIds) receiptTotalByNgo[n] = { count: 0, total: 0 };
+    const { data: monthReceipts, error: rErr } = await db
+      .from('receipts')
+      .select('project_id, amount, mode')
+      .not('receipt_no', 'is', null)
+      .gte('receipt_date', dateFrom)
+      .lte('receipt_date', dateTo);
+    if (rErr) throw rErr;
+
+    const MODE_LABELS = {
+      upi: 'UPI', pum: 'PUM', 'icici bank': 'ICICI Bank', 'icici': 'ICICI Bank',
+      'google pay': 'Google Pay', 'googlepay': 'Google Pay', razorpay: 'Razorpay',
+      'razor pay': 'Razorpay', paytm: 'Paytm', freecharge: 'Freecharge',
+      cheque: 'Cheque', online: 'Online', 'saraswat bank': 'Saraswat Bank',
+    };
+    const makeModeLabel = (m) => {
+      const raw = String(m || '').trim();
+      if (!raw) return 'Unknown';
+      const key = raw.toLowerCase();
+      if (MODE_LABELS[key]) return MODE_LABELS[key];
+      return raw.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    };
+
+    const sourceOrder = [];
+    const sourceSet = {};
+    const byNgo = {};
+    for (const n of ngoIds) byNgo[n] = { sources: {} };
+    for (const r of monthReceipts || []) {
+      const ngo = r.project_id && receiptTotalByNgo[r.project_id] ? r.project_id : null;
+      if (!ngo) continue;
+      receiptTotalByNgo[ngo].total += Number(r.amount || 0);
+      receiptTotalByNgo[ngo].count += 1;
+      const label = makeModeLabel(r.mode);
+      const key = label.toLowerCase();
+      if (!sourceSet[key]) { sourceSet[key] = true; sourceOrder.push(label); }
+      byNgo[ngo].sources[label] = (byNgo[ngo].sources[label] || 0) + Number(r.amount || 0);
+    }
+
+    // Build per-NGO output rows
+    const ngoRows = [];
+    for (const n of ngoIds) {
+      const sourceTotal = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
+      const total = receiptTotalByNgo[n].total;
+      const receiptCount = receiptTotalByNgo[n].count;
+      const ngoTarget = Number(savedByNgo[n]) || 0;
+      let workingDaysSoFar;
+      let daysElapsed;
+      if (dayMode) {
+        // Single-day view: 1 working day if the chosen day is a working day
+        const hset = new Set((holidayByNgo[n] || []).map((d) => String(d).slice(0, 10)));
+        const dt = new Date(`${day}T00:00:00Z`);
+        const dow = dt.getUTCDay();
+        const isLastSunday = (() => {
+          const lastD = new Date(y, m, 0).getDate();
+          for (let d = lastD; d >= 1; d--) if (new Date(y, m - 1, d).getDay() === 0) return d;
+          return null;
+        })();
+        const isSunday = dow === 0;
+        const countedSunday = isSunday && Number(day.slice(8, 10)) === isLastSunday;
+        const isWorkDay = (!isSunday || countedSunday) && !hset.has(day);
+        workingDaysSoFar = isWorkDay ? 1 : 0;
+        daysElapsed = 1;
+      } else if (rangeMode) {
+        // Custom From–To period: working days and elapsed days are counted across
+        // the whole range (capped at today for partial/future ranges).
+        const hset = new Set((holidayByNgo[n] || []).map((d) => String(d).slice(0, 10)));
+        const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        const end = new Date(dateTo + 'T00:00:00Z');
+        const cap = todayISO < dateTo ? new Date(todayISO + 'T00:00:00Z') : end;
+        let elapsed = 0;
+        let wd = 0;
+        for (let x = new Date(dateFrom + 'T00:00:00Z'); x <= cap; x.setUTCDate(x.getUTCDate() + 1)) {
+          elapsed++;
+          const iso = x.toISOString().slice(0, 10);
+          const dow = x.getUTCDay();
+          if (dow === 0) continue;
+          if (hset.has(iso)) continue;
+          wd++;
+        }
+        daysElapsed = elapsed;
+        workingDaysSoFar = wd;
+      } else {
+        const { count } = computeReportWorkingDays({ month, today, ngoId: n, holidayDates: holidayByNgo[n] });
+        workingDaysSoFar = count;
+        const [cy, cm] = [today.getFullYear(), today.getMonth() + 1];
+        if (cy === y && cm === m) daysElapsed = today.getDate();
+        else if (cy > y || (cy === y && cm > m)) daysElapsed = lastDay; // past months = full month
+        else daysElapsed = 0; // future months
+      }
+      const targetDaily = workingDaysSoFar > 0 ? ngoTarget / workingDaysSoFar : 0;
+      const actualAvg = daysElapsed > 0 ? total / daysElapsed : 0;
+      ngoRows.push({
+        id: n,
+        name: (ngoList.find((g) => g.id === n) || {}).name || n,
+        total,
+        receiptCount,
+        sourceTotal,
+        daysElapsed,
+        workingDaysSoFar,
+        targetDaily,
+        actualAvg,
+        diff: actualAvg - targetDaily,
+        monthlyTarget: ngoTarget,
+      });
+    }
+
+    return res.json({
+      month,
+      mode: dayMode ? 'day' : (rangeMode ? 'range' : 'month'),
+      day: dayMode ? day : null,
+      from: rangeMode ? dateFrom : null,
+      to: rangeMode ? dateTo : null,
+      ngos: ngoList,
+      sourceOrder,
+      byNgo,
+      rows: ngoRows,
+      overallTarget: savedOverall,
+      byNgoTargets: savedByNgo,
+      holidayByNgo,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /accounts/report-agent-team  ->  { agents, teams, ngos, grandTotal, grandCount }
+// Agent-wise = per-FRO collection (mirrors the NGO-admin /collections/fro-wise report);
+// Team-wise  = same receipts grouped by workers.team (UFS1-UFS4). Both use the same
+// month / day / from-to range and NGO (bsct/aflf/mann) scope as /report-data, and count
+// each receipt once across the whole run so agent totals always sum to team totals.
+const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+export const getAgentTeamCollections = async (req, res) => {
+  try {
+    const requestedDate = (req.query.date || '').trim();
+    const requestedFrom = (req.query.from || '').trim();
+    const requestedTo = (req.query.to || '').trim();
+    let requestedMonth = (req.query.month || '').trim();
+    let dayMode = false;
+    let rangeMode = false;
+    let day = '';
+    if (requestedDate) {
+      dayMode = true;
+      day = requestedDate.slice(0, 10);
+      requestedMonth = day.slice(0, 7);
+    }
+    if (!dayMode && requestedFrom && requestedTo) {
+      rangeMode = true;
+      requestedMonth = String(requestedFrom).slice(0, 7);
+    }
+    if (!requestedMonth || !/^\d{4}-\d{2}$/.test(requestedMonth)) requestedMonth = new Date().toISOString().slice(0, 7);
+    const [y, m] = requestedMonth.split('-').map(Number);
+    const month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
+
+    let dateFrom;
+    let dateTo;
+    if (rangeMode) {
+      dateFrom = String(requestedFrom).slice(0, 10);
+      dateTo = String(requestedTo).slice(0, 10);
+      if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+    } else if (dayMode) {
+      dateFrom = day;
+      dateTo = day;
+    } else {
+      const lastDay = new Date(y, m, 0).getDate();
+      dateFrom = `${month}-01`;
+      dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+    if (naErr) throw naErr;
+    const slugOf = (n) => {
+      if (!n) return null;
+      const code = String(n.code || '').trim().toLowerCase();
+      if (code) return code;
+      const name = String(n.name || '').trim().toLowerCase();
+      return name;
+    };
+    const ngoList = [];
+    const seen = {};
+    const uuidToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      uuidToSlug[String(n.id).toLowerCase()] = slug;
+      if (slug && !seen[slug] && ['bsct', 'aflf', 'mann'].includes(slug)) {
+        seen[slug] = true;
+        ngoList.push({ id: slug, name: n.name });
+      }
+    }
+    const ngoIds = ngoList.map((x) => x.id);
+    if (ngoIds.length === 0) {
+      for (const [slug, name] of [['bsct', 'BSCT'], ['aflf', 'AFLF'], ['mann', 'MANN']]) {
+        ngoList.push({ id: slug, name });
+        ngoIds.push(slug);
+      }
+    }
+    const slugSet = new Set(ngoIds);
+    const nameNormToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      if (!slug || !slugSet.has(slug)) continue;
+      const nn = normKey(n.name);
+      if (nn) nameNormToSlug[nn] = slug;
+      if (nn.includes('sevak') || nn.includes('beingsevak')) nameNormToSlug['bsct'] = slug;
+      if (nn.includes('ashray')) nameNormToSlug['aflf'] = slug;
+      if (nn.includes('mann')) nameNormToSlug['mann'] = slug;
+    }
+    // Resolve a receipt's project_id (slug / ngo uuid / name) to a report NGO slug.
+    const resolveNgo = (pid) => {
+      if (!pid) return null;
+      const low = String(pid).toLowerCase().trim();
+      if (slugSet.has(low)) return low;
+      if (uuidToSlug[low] && slugSet.has(uuidToSlug[low])) return uuidToSlug[low];
+      const nn = normKey(pid);
+      if (nameNormToSlug[nn]) return nameNormToSlug[nn];
+      return null;
+    };
+
+    const { data: receipts, error: rErr } = await db
+      .from('receipts')
+      .select('id, project_id, amount, agent_name, receipt_no, donor_id, payment_id, receipt_date')
+      .not('receipt_no', 'is', null)
+      .gte('receipt_date', dateFrom)
+      .lte('receipt_date', dateTo);
+    if (rErr) throw rErr;
+
+    const { data: froWorkers, error: fwErr } = await db
+      .from('workers')
+      .select('id, name, team')
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active');
+    if (fwErr) throw fwErr;
+    const workerList = (froWorkers || []).filter((w) => w.id);
+    const workerByKey = {};
+    for (const w of workerList) {
+      const k = normKey(w.name);
+      if (k && !workerByKey[k]) workerByKey[k] = w;
+    }
+
+    const byNgo = (ngoIds) => {
+      const o = {};
+      for (const n of ngoIds) o[n] = 0;
+      return o;
+    };
+    const agents = {};
+    for (const w of workerList) {
+      agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    }
+    agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+
+    const seenReceipts = new Set();
+    for (const r of receipts || []) {
+      const amount = parseFloat(r.amount || 0);
+      if (!(amount > 0)) continue;
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${String(r.receipt_date || '').slice(0, 10)}|${r.payment_id || ''}`;
+      if (seenReceipts.has(dedupKey)) continue;
+      seenReceipts.add(dedupKey);
+
+      const ngo = resolveNgo(r.project_id);
+      if (!ngo) continue;
+
+      let agent = agents.__unassigned;
+      const rawAgent = String(r.agent_name || '').trim();
+      if (rawAgent) {
+        const canonical = await normalizeAgentName(rawAgent);
+        const found = workerByKey[normKey(canonical)];
+        if (found) agent = agents[found.id];
+      }
+
+      agent.byNgo[ngo] = (agent.byNgo[ngo] || 0) + amount;
+      agent.total += amount;
+      agent.count += 1;
+    }
+
+    const agentRows = workerList
+      .map((w) => agents[w.id])
+      .concat(agents.__unassigned)
+      .filter((a) => a)
+      .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));
+
+    // Team-wise rollup from the same agent data.
+    const teamMap = {};
+    for (const a of agentRows) {
+      const team = a.team && String(a.team).trim() !== '' ? String(a.team).trim().toUpperCase() : null;
+      if (!team) continue;
+      if (!teamMap[team]) teamMap[team] = { team, members: 0, byNgo: byNgo(ngoIds), total: 0, count: 0, memberNames: [] };
+      teamMap[team].members += 1;
+      teamMap[team].memberNames.push(a.name);
+      for (const n of ngoIds) teamMap[team].byNgo[n] += a.byNgo[n] || 0;
+      teamMap[team].total += a.total;
+      teamMap[team].count += a.count;
+    }
+    const unassignedAgents = agentRows.filter((a) => !(a.team && String(a.team).trim() !== '') && a.id != null);
+    let teams = Object.values(teamMap)
+      .map((t) => ({ ...t, memberNames: undefined }))
+      .sort((a, b) => b.total - a.total || String(a.team).localeCompare(String(b.team)));
+    if (unassignedAgents.length > 0) {
+      const u = { team: 'No Team', members: unassignedAgents.length, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+      for (const a of unassignedAgents) {
+        for (const n of ngoIds) u.byNgo[n] += a.byNgo[n] || 0;
+        u.total += a.total;
+        u.count += a.count;
+      }
+      teams = teams.concat(u);
+    }
+
+    const grandTotal = agentRows.reduce((s, a) => s + a.total, 0);
+    const grandCount = agentRows.reduce((s, a) => s + a.count, 0);
+
+    return res.json({
+      month,
+      mode: dayMode ? 'day' : (rangeMode ? 'range' : 'month'),
+      day: dayMode ? day : null,
+      from: rangeMode ? dateFrom : null,
+      to: rangeMode ? dateTo : null,
+      ngos: ngoList,
+      agents: agentRows,
+      teams,
+      grandTotal,
+      grandCount,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Per-user 4-digit access code gating downloads & the locked Reports/status pages.
+// Each accounts user has their own code, stored in the settings table under a key
+// derived from their id. Only accounts / super_admin can reach these routes
+// (enforced at the router), and super_admin has no code.
+const accessCodeKey = (userId) => `accounts_access_code_${userId}`;
+
+const codeToStr = (v) => String(v ?? '').trim();
+
+// GET /accounts/access-code/status -> { set: boolean }
+export const getAccessCodeStatus = async (req, res) => {
+  try {
+    if (!req.user || req.user.id == null) return res.json({ set: false });
+    const raw = await getSetting(accessCodeKey(req.user.id));
+    return res.json({ set: Boolean(raw) });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/access-code  { code } -> create if none exists
+export const createAccessCode = async (req, res) => {
+  try {
+    if (!req.user || req.user.id == null) return res.status(400).json({ message: 'Not authenticated.' });
+    const existing = await getSetting(accessCodeKey(req.user.id));
+    if (existing) return res.status(409).json({ message: 'Access code already set.' });
+    const code = codeToStr(req.body?.code);
+    if (!/^\d{4}$/.test(code)) return res.status(400).json({ message: 'Code must be exactly 4 digits.' });
+    await upsertSetting(accessCodeKey(req.user.id), code);
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/access-code/verify  { code } -> { ok }
+export const verifyAccessCode = async (req, res) => {
+  try {
+    if (!req.user || req.user.id == null) return res.json({ ok: false, message: 'Not authenticated.' });
+    const code = codeToStr(req.body?.code);
+    const stored = await getSetting(accessCodeKey(req.user.id));
+    if (!stored) return res.json({ ok: false, message: 'No access code set yet.' });
+    return res.json({ ok: stored === code });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /accounts/access-code/change  { currentCode, newCode } -> change own code
+// Requires the current code so only the owner can rotate it, mirroring the
+// password-change flow.
+export const changeAccessCode = async (req, res) => {
+  try {
+    if (!req.user || req.user.id == null) return res.status(400).json({ message: 'Not authenticated.' });
+    const currentCode = codeToStr(req.body?.currentCode);
+    const newCode = codeToStr(req.body?.newCode);
+    if (!/^\d{4}$/.test(newCode)) return res.status(400).json({ message: 'New code must be exactly 4 digits.' });
+    const key = accessCodeKey(req.user.id);
+    const stored = await getSetting(key);
+    if (!stored) return res.status(404).json({ message: 'No access code set yet. Create one first.' });
+    if (stored !== currentCode) return res.status(401).json({ message: 'Current access code is incorrect.' });
+    await upsertSetting(key, newCode);
+    return res.json({ ok: true, message: 'Access code changed successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

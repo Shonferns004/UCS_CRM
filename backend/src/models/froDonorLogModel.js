@@ -77,37 +77,113 @@ export function inRange(date, start, end) {
   return dk >= dayKey(start) && dk <= dayKey(end);
 }
 
-export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
-  const { data, error } = await db
-    .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
-    .eq('fro_worker_id', workerId)
-    .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+// Discriminates genuinely distinct payments that share donor + amount + day + NGO
+// (e.g. a donor paying the same amount twice in one day) from duplicate copies of
+// the SAME payment (a donation log plus its verified lead_done copy), which always
+// carry the same payment reference.
+export function paymentDiscriminant(d) {
+  const ref = String(d.upi_transaction_id || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
+  if (ref) return `U${ref}`;
+  const rm = /receipt\s+([A-Za-z0-9]+)/i.exec(String(d.remark || ''));
+  if (rm) return `R${rm[1]}`;
+  return 'X';
+}
+
+export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedNgoIds) => {
+  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
+  if (!worker?.name) return {};
+  const workerName = worker.name.trim();
+
+  const monthStartDay = String(monthStart).slice(0, 10);
+  const monthEndDay = String(monthEnd).slice(0, 10);
+  const { data: receipts, error } = await db
+    .from('receipts')
+    .select('id, donor_id, amount, project_id, receipt_date, receipt_no, agent_name, payment_id')
+    .ilike('agent_name', workerName)
+    .gte('receipt_date', monthStartDay)
+    .lte('receipt_date', monthEndDay);
   if (error) throw error;
 
+  const { data: ngos } = await db.from('ngos').select('id, name');
+  const projToNgoId = {};
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+  for (const n of ngos || []) {
+    const nn = norm(n.name);
+    projToNgoId[nn] = n.id;
+    if (nn.includes('beingsevak') || nn.includes('sevak')) projToNgoId['bsct'] = n.id;
+    if (nn.includes('ashray')) projToNgoId['aflf'] = n.id;
+    if (nn.includes('mann')) projToNgoId['mann'] = n.id;
+  }
+
+  const byNgo = {};
+  const seen = new Set();
+  for (const r of receipts || []) {
+    const amount = parseFloat(r.amount || 0);
+    if (amount <= 0) continue;
+    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    const projectNorm = norm(r.project_id);
+    const ngoId = projToNgoId[projectNorm] || r.project_id || 'others';
+    const key = (allowedNgoIds && allowedNgoIds.length > 0 && allowedNgoIds.includes(ngoId)) ? ngoId : (ngoId || 'others');
+    byNgo[key] = (byNgo[key] || 0) + amount;
+  }
+  return byNgo;
+};
+
+export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
+  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
+  if (!worker?.name) return 0;
+  const workerName = worker.name.trim();
+
+  const monthStartDay = String(monthStart).slice(0, 10);
+  const monthEndDay = String(monthEnd).slice(0, 10);
+  const { data: receipts, error } = await db
+    .from('receipts')
+    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name')
+    .ilike('agent_name', workerName)
+    .gte('receipt_date', monthStartDay)
+    .lte('receipt_date', monthEndDay);
+  if (error) throw error;
+
+  const seen = new Set();
   let total = 0;
-  for (const d of data || []) {
-    if (!inRange(logCollectionDate(d), monthStart, monthEnd)) continue;
-    total += parseFloat(d.amount_collected || 0);
+  for (const r of receipts || []) {
+    const amount = parseFloat(r.amount || 0);
+    if (amount <= 0) continue;
+    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    total += amount;
   }
   return total;
 };
 
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
-  const { data, error } = await db
-    .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
-    .eq('fro_worker_id', workerId)
-    .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+  const { data: worker } = await db.from('workers').select('name').eq('id', workerId).maybeSingle();
+  if (!worker?.name) return {};
+  const workerName = worker.name.trim();
+
+  const monthStartDay = String(monthStart).slice(0, 10);
+  const monthEndDay = String(monthEnd).slice(0, 10);
+  const { data: receipts, error } = await db
+    .from('receipts')
+    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name')
+    .ilike('agent_name', workerName)
+    .gte('receipt_date', monthStartDay)
+    .lte('receipt_date', monthEndDay);
   if (error) throw error;
 
+  const seen = new Set();
   const byDay = {};
-  for (const d of data || []) {
-    const amount = parseFloat(d.amount_collected || 0);
+  for (const r of receipts || []) {
+    const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
-    const date = logCollectionDate(d);
-    if (!inRange(date, monthStart, monthEnd)) continue;
-    const day = dayKey(date);
+    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
+    if (!day) continue;
+    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
     byDay[day] = (byDay[day] || 0) + amount;
   }
   return byDay;
@@ -119,77 +195,77 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     for (const id of workerIds) zero[id] = 0;
     const zeroV = {};
     for (const id of workerIds) zeroV[id] = { amount: 0, count: 0 };
-    return { monthCollection: zero, todayCollection: zero, verifiedMonth: zeroV, unverifiedMonth: zeroV, verifiedToday: zeroV, unverifiedToday: zeroV };
+    return { monthCollection: zero, todayCollection: zero, weekCollection: zero, verifiedMonth: zeroV, unverifiedMonth: zeroV, verifiedToday: zeroV, unverifiedToday: zeroV };
   }
 
-  let query = db
-    .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id, fro_assignments!inner(fro_worker_id, ngo_id)')
-    .in('fro_worker_id', workerIds);
+  const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
+  const workerNames = (workers || []).filter(w => w.name).map(w => ({ id: w.id, name: w.name.trim() }));
 
-  if (ngoIds && ngoIds.length > 0) {
-    query = query.in('fro_assignments.ngo_id', ngoIds);
+  const monthStartDay = String(monthStart).slice(0, 10);
+  const monthEndDay = String(monthEnd).slice(0, 10);
+  const todayStartDay = String(todayStart).slice(0, 10);
+  const todayEndDay = String(todayEnd).slice(0, 10);
+
+  const { data: ngos } = await db.from('ngos').select('id, name');
+  const projToNgoId = {};
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+  for (const n of ngos || []) {
+    const nn = norm(n.name);
+    projToNgoId[nn] = n.id;
+    if (nn.includes('beingsevak') || nn.includes('sevak')) projToNgoId['bsct'] = n.id;
+    if (nn.includes('ashray')) projToNgoId['aflf'] = n.id;
+    if (nn.includes('mann')) projToNgoId['mann'] = n.id;
   }
-
-  const { data, error } = await query.or(
-    COLLECTION_DATE_OR(monthStart, monthEnd) +
-    `,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
-  );
-  if (error) throw error;
 
   const init = () => ({ amount: 0, count: 0 });
   const monthCollection = {}; for (const id of workerIds) monthCollection[id] = 0;
   const todayCollection = {}; for (const id of workerIds) todayCollection[id] = 0;
+  const weekCollection = {}; for (const id of workerIds) weekCollection[id] = 0;
   const verifiedMonth = {}; for (const id of workerIds) verifiedMonth[id] = init();
   const unverifiedMonth = {}; for (const id of workerIds) unverifiedMonth[id] = init();
   const verifiedToday = {}; for (const id of workerIds) verifiedToday[id] = init();
   const unverifiedToday = {}; for (const id of workerIds) unverifiedToday[id] = init();
 
-  for (const d of data || []) {
-    const wId = d.fro_worker_id;
-    if (!wId || !(wId in monthCollection)) continue;
-    const amount = parseFloat(d.amount_collected || 0);
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6); weekEnd.setHours(23, 59, 59, 999);
+  const weekStartDay = weekStart.toISOString().slice(0, 10);
+  const weekEndDay = weekEnd.toISOString().slice(0, 10);
 
-    const isDonation = d.action === 'donation';
-    const isDoneDirect = d.action === 'disposition' && d.disposition_detail === 'done';
-    const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
-    const isPendingLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'pending';
+  for (const w of workerNames) {
+    const { data: receipts } = await db
+      .from('receipts')
+      .select('id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name')
+      .ilike('agent_name', w.name)
+      .gte('receipt_date', monthStartDay)
+      .lte('receipt_date', monthEndDay);
+    if (!receipts || receipts.length === 0) continue;
 
-    const collectDate = logCollectionDate(d);
+    const seen = new Set();
+    for (const r of receipts) {
+      const amount = parseFloat(r.amount || 0);
+      if (amount <= 0) continue;
+      const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
+      if (!day) continue;
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
 
-    if ((isDonation || isDoneDirect) && inRange(collectDate, monthStart, monthEnd)) {
-      monthCollection[wId] += amount;
-    }
-    if (isVerifiedLead && inRange(collectDate, monthStart, monthEnd)) {
-      monthCollection[wId] += amount;
-    }
+      if (day >= monthStartDay && day <= monthEndDay) monthCollection[w.id] += amount;
+      if (day >= weekStartDay && day <= weekEndDay) weekCollection[w.id] += amount;
+      if (day >= todayStartDay && day <= todayEndDay) todayCollection[w.id] += amount;
 
-    if ((isDonation || isDoneDirect) && inRange(collectDate, todayStart, todayEnd)) {
-      todayCollection[wId] += amount;
-    }
-    if (isVerifiedLead && inRange(collectDate, todayStart, todayEnd)) {
-      todayCollection[wId] += amount;
-    }
-
-    if (isVerifiedLead && inRange(collectDate, monthStart, monthEnd)) {
-      verifiedMonth[wId].amount += amount;
-      verifiedMonth[wId].count++;
-    }
-    if (isPendingLead && d.created_at >= monthStart && d.created_at <= monthEnd) {
-      unverifiedMonth[wId].amount += amount;
-      unverifiedMonth[wId].count++;
-    }
-    if (isVerifiedLead && inRange(collectDate, todayStart, todayEnd)) {
-      verifiedToday[wId].amount += amount;
-      verifiedToday[wId].count++;
-    }
-    if (isPendingLead && d.created_at >= todayStart && d.created_at <= todayEnd) {
-      unverifiedToday[wId].amount += amount;
-      unverifiedToday[wId].count++;
+      if (day >= monthStartDay && day <= monthEndDay) {
+        verifiedMonth[w.id].amount += amount;
+        verifiedMonth[w.id].count++;
+      }
+      if (day >= todayStartDay && day <= todayEndDay) {
+        verifiedToday[w.id].amount += amount;
+        verifiedToday[w.id].count++;
+      }
     }
   }
 
-  return { monthCollection, todayCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
+  return { monthCollection, todayCollection, weekCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
 };
 
 export const findLogsByDonorAndWorker = async (donorId, workerId) => {

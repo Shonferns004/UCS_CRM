@@ -91,6 +91,24 @@ export const getExistingMobiles = async (mobiles) => {
   return existing;
 };
 
+export const getExistingMobilesGlobal = async (mobiles) => {
+  const existing = new Set();
+  if (!mobiles || mobiles.length === 0) return existing;
+  const BATCH = 1000;
+  for (let i = 0; i < mobiles.length; i += BATCH) {
+    const chunk = mobiles.slice(i, i + BATCH);
+    const [newDataRes, profileRes] = await Promise.all([
+      db.from('new_data').select('mobile_number').in('mobile_number', chunk),
+      db.from('donor_profiles').select('mobile_number').in('mobile_number', chunk),
+    ]);
+    if (newDataRes.error) throw newDataRes.error;
+    if (profileRes.error) throw profileRes.error;
+    for (const r of newDataRes.data || []) existing.add(r.mobile_number);
+    for (const r of profileRes.data || []) existing.add(r.mobile_number);
+  }
+  return existing;
+};
+
 export const getBatchById = async (batchId) => {
   const { data, error } = await db
     .from('new_data')

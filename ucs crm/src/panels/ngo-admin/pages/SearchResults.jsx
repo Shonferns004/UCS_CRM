@@ -141,7 +141,11 @@ export default function SearchResults() {
                           onMouseLeave={e => e.currentTarget.style.background = ''}>
                           <td style={{ padding: '6px 8px', fontWeight: 600 }}>{s.station || 'Unknown'}</td>
                           <td style={{ padding: '6px 8px' }}>{s.workers?.name || 'No FRO assigned'}</td>
-                          <td style={{ padding: '6px 8px' }}>{s.donor_count || 0}</td>
+                          <td style={{ padding: '6px 8px' }}>
+                            {typeof s.donor_count === 'object' && s.donor_count !== null
+                              ? Object.values(s.donor_count).reduce((sum, v) => sum + (Number(v) || 0), 0)
+                              : (s.donor_count || 0)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

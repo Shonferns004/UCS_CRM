@@ -87,6 +87,30 @@ export const deleteStationAssignment = async (id) => {
   if (error) throw error;
 };
 
+export const ensureStationsExist = async (ngoId, stationNames, assignedBy) => {
+  if (!stationNames || stationNames.length === 0) return [];
+  const { data: existing } = await db
+    .from('fro_station_assignments')
+    .select('station')
+    .eq('ngo_id', ngoId)
+    .in('station', stationNames);
+  const existingSet = new Set((existing || []).map(s => s.station));
+  const missing = stationNames.filter(s => !existingSet.has(s));
+  if (missing.length === 0) return [];
+
+  const rows = missing.map(station => ({
+    ngo_id: ngoId,
+    station,
+    assigned_by: assignedBy || null,
+  }));
+  const { data, error } = await db
+    .from('fro_station_assignments')
+    .insert(rows)
+    .select();
+  if (error) throw error;
+  return data || [];
+};
+
 export const getStationAssignmentByNgoAndStation = async (ngoId, station) => {
   const { data, error } = await db
     .from('fro_station_assignments')

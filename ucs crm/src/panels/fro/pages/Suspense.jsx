@@ -2,16 +2,26 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Inbox, Search, ChevronRight, Phone } from 'lucide-react';
 import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile, searchSuspenseDonors } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { SkeletonTable } from '../../../components/Skeleton';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
 const fieldStyle = { width: '100%', padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' };
 
+function fmtTime12(t) {
+  if (!t) return '';
+  const [h, m] = String(t).split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return String(t);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
+}
+
 const CLAIM_BADGES = {
   pending: { text: 'Claimed · Pending', color: '#b45309', bg: '#fef3c7' },
   verified: { text: 'Claim Verified', color: '#166534', bg: '#dcfce7' },
   rejected: { text: 'Claim Rejected', color: '#b91c1c', bg: '#fee2e2' },
+  receipt_sent: { text: 'Receipt Sent · Awaiting FRO', color: '#0369a1', bg: '#e0f2fe' },
 };
 
 const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
@@ -20,6 +30,7 @@ const NGO_SHORT = { bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF' };
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function FroSuspense() {
+  const isMobile = useIsMobile()
   const [month, setMonth] = useState('');
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -218,7 +229,7 @@ export default function FroSuspense() {
             placeholder="Search name or mobile…"
             style={{
               padding: '7px 12px 7px 30px', border: '1px solid var(--line)', borderRadius: 999, background: 'var(--card-bg)',
-              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 210, color: 'var(--ink)',
+              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: isMobile ? '100%' : 210, color: 'var(--ink)',
             }}
           />
         </div>
@@ -243,8 +254,8 @@ export default function FroSuspense() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {list.map(r => {
-              const badge = CLAIM_BADGES[r.my_claim_status];
-              const claimable = !r.my_claim_status;
+              const badge = r.waiting_receipt_no ? { text: 'Waiting for receipt number', color: '#6b7280', bg: '#f3f4f6' } : r.kind === 'receipt_sent' ? CLAIM_BADGES.receipt_sent : r.my_claim_status ? CLAIM_BADGES[r.my_claim_status] : r.kind === 'no_receipt' ? { text: 'Unclaimed', color: '#b45309', bg: '#fef3c7' } : null;
+              const claimable = !r.waiting_receipt_no && (!r.my_claim_status || r.kind === 'receipt_sent');
               return (
                 <div key={r.id} onClick={() => claimable && openClaimModal(r)}
                   onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
@@ -271,7 +282,7 @@ export default function FroSuspense() {
                       <span>{r.donor_mobile || '\u2014'}</span>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      {r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${r.receipt_time}` : ''}
+                      {r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}
                       <span style={{ color: 'var(--line)', margin: '0 3px' }}>•</span>
                       {NGO_SHORT[r.project_id] || NGO_LABELS[r.project_id] || r.project_id}
                     </div>
@@ -300,7 +311,7 @@ export default function FroSuspense() {
 
       {showClaimModal && claimReceipt && (
         <div onClick={() => { if (!claiming && !claimSuccess) setShowClaimModal(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 16, width: 480, maxWidth: '100%', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.2)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#fff', borderRadius: 16, width: isMobile ? 'calc(100vw - 32px)' : 480, maxWidth: '100%', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.2)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg, #f8fafc 0%, #fff 100%)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -335,7 +346,7 @@ export default function FroSuspense() {
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#78350f', marginBottom: 4 }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#92400e' }}>
                       <span>{claimReceipt.receipt_date || '—'}</span>
-                      {claimReceipt.receipt_time && <span>· {claimReceipt.receipt_time}</span>}
+                      {claimReceipt.receipt_time && <span>· {fmtTime12(claimReceipt.receipt_time)}</span>}
                       <span style={{ marginLeft: 'auto', fontSize: 18, fontWeight: 800, color: '#78350f' }}>{currency(claimReceipt.amount)}</span>
                     </div>
                   </div>
@@ -421,8 +432,7 @@ export default function FroSuspense() {
                           <input value={claimDMobile} onChange={e => setClaimDMobile(e.target.value)} placeholder="Mobile number" style={{ ...fieldStyle, flex: 1 }} />
                         </div>
                         <div style={{ display: 'flex', gap: 10 }}>
-                          <input value={claimDCity} onChange={e => setClaimDCity(e.target.value)} placeholder="City" style={{ ...fieldStyle, flex: 1 }} />
-                          <input value={claimDPan} onChange={e => setClaimDPan(e.target.value)} placeholder="PAN (ABCDE1234F)" style={{ ...fieldStyle, flex: 1 }} />
+                          <input value={claimDPan} onChange={e => setClaimDPan(e.target.value)} placeholder="PAN (ABCDE1234F)" style={fieldStyle} />
                         </div>
                         <input value={claimDAddress} onChange={e => setClaimDAddress(e.target.value)} placeholder="Address" style={fieldStyle} />
                         <input value={claimDEmail} onChange={e => setClaimDEmail(e.target.value)} placeholder="Email" style={fieldStyle} />

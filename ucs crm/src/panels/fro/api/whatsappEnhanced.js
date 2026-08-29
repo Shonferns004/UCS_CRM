@@ -1,10 +1,10 @@
 import { api } from './auth'
+import { API_BASE } from '../../../lib/apiBase'
 
 function agentApi(path, options = {}, agentToken) {
   if (agentToken) {
     const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), Authorization: `Bearer ${agentToken}` }
-    const base = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
-    return fetch(`${base}${path}`, { ...options, headers }).then(async r => {
+    return fetch(`${API_BASE}${path}`, { ...options, headers }).then(async r => {
       const payload = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(payload.error || payload.message || r.statusText)
       return payload
@@ -81,8 +81,7 @@ export async function uploadMedia(file, agentToken) {
   const formData = new FormData()
   formData.append('file', file)
   if (agentToken) {
-    const base = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
-    const res = await fetch(`${base}/fro/whatsapp/upload-media`, {
+    const res = await fetch(`${API_BASE}/fro/whatsapp/upload-media`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${agentToken}` },
       body: formData,

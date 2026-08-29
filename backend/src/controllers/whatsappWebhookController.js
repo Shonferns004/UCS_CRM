@@ -1,11 +1,15 @@
 import db from '../config/db.js';
 import { getAccountByPhoneNumberId } from '../models/whatsappAccountModel.js';
+import { handleInboundForAi } from '../services/aiReplyService.js';
+import { applyRouting } from '../services/routingService.js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
 
 export function verifyWhatsAppWebhook(req, res) {
-  const { mode, verify_token, challenge } = req.query;
-  if (mode === 'subscribe' && verify_token === VERIFY_TOKEN) {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     res.status(200).send(challenge);
   } else {
     res.status(403).send('Forbidden');
@@ -44,6 +48,11 @@ export async function whatsappWebhookEntry(req, res) {
         else if (message.type === 'audio') bodyText = '[Audio]';
         else if (message.type === 'document') bodyText = message.document?.caption || '[Document]';
         else if (message.type === 'sticker') bodyText = '[Sticker]';
+        else if (message.type === 'button') bodyText = `[Button: ${message.button?.text || message.button?.payload || ''}]`;
+        else if (message.type === 'interactive') {
+          const reply = message.interactive?.button_reply || message.interactive?.list_reply;
+          bodyText = reply ? `[Reply: ${reply.title}]` : '[Interactive]';
+        }
 
         let { data: contact } = await db
           .from('contacts')
@@ -158,6 +167,21 @@ export async function whatsappWebhookEntry(req, res) {
             last_inbound_at: new Date().toISOString(),
           })
           .eq('id', activeConversation.id);
+
+        const routingProject = accountProject !== 'unknown' ? accountProject : (contact.project || 'bsct');
+        if (!activeConversation.assigned_agent_id) {
+          await applyRouting(activeConversation.id, bodyText, routingProject);
+          if (bodyText && !bodyText.startsWith('[')) {
+            const { data: refreshed } = await db
+              .from('conversations')
+              .select('*')
+              .eq('id', activeConversation.id)
+              .single();
+            if (refreshed) activeConversation = refreshed;
+          }
+        }
+
+        await handleInboundForAi({ conversation: activeConversation, contact, inboundMessage: newMessage });
       }
     }
 
@@ -173,6 +197,15 @@ export async function whatsappWebhookEntry(req, res) {
         await db
           .from('messages')
           .update(update)
+          .eq('wa_message_id', status.id);
+
+        await db
+          .from('whatsapp_broadcast_recipients')
+          .update({
+            status: status.status,
+            failure_reason: update.failure_reason || null,
+            status_updated_at: new Date().toISOString(),
+          })
           .eq('wa_message_id', status.id);
       }
     }

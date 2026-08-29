@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
-import { api } from '../../../api/auth';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
+import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -9,7 +9,10 @@ import { TimePicker } from '../components/TimePicker';
 import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
-import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, DISPOSITION_ORDER, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
+import { API_BASE } from '../../../lib/apiBase';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
+import { istDateString, istDateTimeToIso } from '../utils/time';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -31,54 +34,65 @@ const isCollectionLog = (log) =>
   log.disposition_detail === 'done' ||
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
-const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
-const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : (DISPOSITION_ORDER[s] ?? 99) + 1);
-function filterAndSortDonors(list) {
-  return list
-    .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)
-    .sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
+const RETRYABLE_NOT_CONNECTED = new Set([
+  'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
+]);
+const HIDDEN_STATUSES = new Set([
+  'lead_done', 'donation_collected', 'done',
+  'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
+  'wrong_number', 'invalid_number', 'rejected',
+  'temporary_network_issue', 'incoming_out',
+  'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
+  'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
+  'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
+]);
+function isNewDonor(d) {
+  return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
+}
+function filterDonors(list) {
+  return list.filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month);
 }
 
-const PAGE_SIZE = 200;
+function filterAndSortDonors(list) {
+  return filterDonors(list).sort((a, b) => {
+      const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
+      const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
+      // tier: 0 = new workable, 1 = old workable, 2 = retryable tail
+      const aNew = isNewDonor(a);
+      const bNew = isNewDonor(b);
+      const tierA = aRetry ? 2 : (aNew ? 0 : 1);
+      const tierB = bRetry ? 2 : (bNew ? 0 : 1);
+      if (tierA !== tierB) return tierA - tierB;
+      const ta = a.assigned_at ? new Date(a.assigned_at).getTime() : 0;
+      const tb = b.assigned_at ? new Date(b.assigned_at).getTime() : 0;
+      return ta - tb;
+    });
+}
 
 function normalizeDonorResponse(r) {
   if (Array.isArray(r)) return { donors: r, total: r.length };
   return { donors: r?.donors || [], total: r?.total ?? (r?.donors?.length || 0) };
 }
 
-const donorRowKey = (d) => {
-  if (d == null) return `n:${Math.random()}`;
-  if (d.assignment_id != null) return `a:${d.assignment_id}`;
-  return `d:${d.donor_id}-${d.ngo_id}`;
-};
-
-function dedupConcat(existing, incoming) {
-  const seen = new Set(existing.map(donorRowKey));
-  const merged = existing.slice();
-  for (const d of incoming || []) {
-    const k = donorRowKey(d);
-    if (!seen.has(k)) {
-      seen.add(k);
-      merged.push(d);
+function findNextDonorIndex(donors, currentId) {
+  const idx = donors.findIndex(d => d.id === currentId);
+  if (idx >= 0) {
+    for (let i = idx + 1; i < donors.length; i++) {
+      if (donors[i].id !== currentId) return i;
     }
   }
-  return merged;
-}
-
-function mergeDonorPages(existing, incoming) {
-  return filterAndSortDonors(dedupConcat(existing, incoming));
-}
-
-function listsEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (donorRowKey(a[i]) !== donorRowKey(b[i])) return false;
+  for (let i = 0; i < donors.length; i++) {
+    if (donors[i].id !== currentId) return i;
   }
-  return true;
+  return -1;
 }
 
 function applyDonorPatch(list, donorId, ngoId, patch) {
-  return filterAndSortDonors(list.map(d =>
+  // Preserve the current queue order while applying the patch — only filter out
+  // hidden/done donors, do NOT re-sort. Re-sorting here would move a just-fired
+  // disposition (e.g. ringing -> retryable tail) to the end of the list, making
+  // the next-lead cursor jump to a random "#N" instead of advancing #1 -> #2 -> #3.
+  return filterDonors(list.map(d =>
     d.id === donorId && d.ngo_id === ngoId ? { ...d, ...patch } : d
   ));
 }
@@ -114,7 +128,7 @@ function DonationDoneStamp({ donor }) {
           </div>
           <div style={{ marginTop: 12 }}>
             <span style={{ display: 'inline-block', border: '2px solid #fff', borderRadius: 999, padding: '3px 16px', fontSize: 10, fontWeight: 800, letterSpacing: .8 }}>
-              {donor.has_verified_donation_current_month ? '✓ VERIFIED' : '⏳ PENDING VERIFICATION'}
+              {donor.has_verified_donation_current_month ? 'âœ“ VERIFIED' : 'â³ PENDING VERIFICATION'}
             </span>
           </div>
         </div>
@@ -141,45 +155,12 @@ function useTomorrowStr() {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
-const workedDonorKey = (d) => `${d.id}:${d.ngo_id}`;
-const workedTodayKey = () => {
-  const d = new Date();
-  return `fro_worked_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-const loadWorkedToday = () => {
-  try { return new Set(JSON.parse(sessionStorage.getItem(workedTodayKey()) || '[]')); } catch { return new Set(); }
-};
-const persistWorkedToday = (set) => {
-  try { sessionStorage.setItem(workedTodayKey(), JSON.stringify([...set])); } catch {}
-};
-
-function findNextDonorIndex(donors, currentId, workedToday = null) {
-  const isWorked = (d) => workedToday && workedToday.has(workedDonorKey(d));
-  // Priority 1: scheduled/callback leads (pinned to the top of the stack)
-  for (let i = 0; i < donors.length; i++) {
-    if (SCHEDULE_TYPES.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
-  }
-  // Priority 2: pending (no disposition yet) — not-attempted first, skip current
-  for (let i = 0; i < donors.length; i++) {
-    if (donors[i].status === 'pending' && donors[i].id !== currentId && !isWorked(donors[i])) return i;
-  }
-  // Priority 3: not connected (not yet worked today), skip current
-  for (let i = 0; i < donors.length; i++) {
-    if (NOT_CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
-  }
-  // Priority 4: connected (not yet worked today), skip current
-  for (let i = 0; i < donors.length; i++) {
-    if (CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
-  }
-  return 0;
-}
-
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function MyDonors() {
+  const isMobile = useIsMobile()
   const [donors, setDonors] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [dataTab, setDataTab] = useState('new');
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
@@ -225,6 +206,16 @@ export default function MyDonors() {
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
   const pendingSelectRef = useRef(null);
+  const manualTabSwitchRef = useRef(false);
+  const autoFallbackToOldRef = useRef(false);
+  const autoFallbackAttemptedRef = useRef(false);
+  // Suppresses realtime-triggered reloads right after the FRO saves a
+  // disposition. Logging a lead often causes the backend to INSERT/UPDATE a
+  // fro_assignments row (findOrCreateAssignment), whose realtime event would
+  // otherwise refetch + re-sort the list and snap the position indicator to a
+  // "random" number. We let the local list update be authoritative for a short
+  // window so the cursor advances sequentially (#1 -> #2 -> #3).
+  const suppressRealtimeUntilRef = useRef(0);
   const [stations, setStations] = useState([]);
   const VIEW_STATE_KEY = 'mydonors_view_state';
   const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
@@ -248,46 +239,47 @@ export default function MyDonors() {
         if (cancelled) return;
         const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
         const sortedDonors = filterAndSortDonors(loaded);
-        // Auto-fallback: if the New tab has no data, show Old data instead
-        if (tab === 'new' && sortedDonors.length === 0) {
-          setDataTab('old');
-          setSelected(null);
-          return;
+        // Auto-fallback: if current tab is empty, try the other tab (new<->old) once.
+        // Prevents bounce loop when both tabs are empty.
+        if (sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
+          if (tab === 'new') {
+            autoFallbackToOldRef.current = true;
+            autoFallbackAttemptedRef.current = true;
+            setDataTab('old');
+            setSelected(null);
+            return;
+          }
+          if (tab === 'old') {
+            autoFallbackAttemptedRef.current = true;
+            setDataTab('new');
+            setSelected(null);
+            return;
+          }
+        }
+        // Reset fallback flags when data found or manual switch
+        if (sortedDonors.length > 0) {
+          autoFallbackToOldRef.current = false;
+          autoFallbackAttemptedRef.current = false;
+        } else if (autoFallbackToOldRef.current && tab === 'old') {
+          // Both tabs empty after new->old fallback; keep flag to show combined empty message
+        } else if (tab === 'old' && autoFallbackAttemptedRef.current) {
+          // Both empty after old->new fallback; flag already true, stay on current
+        } else {
+          autoFallbackToOldRef.current = false;
         }
         setDonors(sortedDonors);
         setTotal(rTotal);
-        nextOffsetRef.current = loaded.length;
         setMessage(null);
         let restored = false;
 
-        // Apply pending selection from Search All navigation (highest priority)
         if (pendingSelectRef.current) {
           const { donorId } = pendingSelectRef.current;
           pendingSelectRef.current = null;
-          let accumulated = sortedDonors;
-          let filteredList = sortedDonors;
-          let found = filteredList.findIndex(d => d.id === donorId);
-          if (found < 0) {
-            for (let guard = 0; guard < 100; guard++) {
-              if (accumulated.length >= rTotal) break;
-              const moreR = await getMyDonors(null, null, { ...stationOpts(tab, selectedStation), offset: accumulated.length });
-              const { donors: more, total: moreTotal } = normalizeDonorResponse(moreR);
-              if (more.length === 0) break;
-              accumulated = dedupConcat(accumulated, more);
-              filteredList = filterAndSortDonors(accumulated);
-              if (moreTotal) setTotal(moreTotal);
-              found = filteredList.findIndex(d => d.id === donorId);
-              if (found >= 0) break;
-            }
-          }
+          const found = sortedDonors.findIndex(d => d.id === donorId);
           if (found >= 0) {
-            setDonors(filteredList);
-            nextOffsetRef.current = accumulated.length;
             setIndex(found);
             restored = true;
           } else {
-            setDonors(filteredList);
-            nextOffsetRef.current = accumulated.length;
             setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
           }
         }
@@ -329,7 +321,11 @@ export default function MyDonors() {
       } catch (err) {
         if (!cancelled) setMessage({ type: 'error', text: err.message });
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          // allow next auto-fallback after one manual switch cycle completes
+          setTimeout(() => { manualTabSwitchRef.current = false; }, 100);
+        }
       }
     };
 
@@ -375,17 +371,31 @@ export default function MyDonors() {
     getMyStations().then(s => {
       const arr = Array.isArray(s) ? s : [];
       setStations(arr);
+      // Acting FRO: default to claimed station (e.g. DH-1) not saved FD-1/all
+      if (isImpersonating()) {
+        try {
+          const u = getUser('ucs');
+          const act = Array.isArray(u?.act_stations) ? u.act_stations : [];
+          if (act.length > 0) {
+            const allowed = new Set(act.map(p => String(p.station ?? '').trim()));
+            const cur = String(selectedStation ?? '').trim();
+            if (!allowed.has(cur)) {
+              setSelectedStation(String(act[0].station ?? '').trim() || (arr[0]?.station || 'all'));
+            }
+          }
+        } catch {}
+      }
       if (!savedView?.selectedNgo) {
         const ngoMap = {};
         arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
         const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
-        if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+        if (ngoList.length === 1) setSelectedNgo(ngoList[0].ngo_id);
       }
     }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stationOpts = (tab, station) => {
-    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old', limit: PAGE_SIZE, offset: 0 };
+    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
     if (station && station !== 'all') opts.station = station;
     if (selectedNgo) opts.ngoId = selectedNgo;
     return opts;
@@ -398,15 +408,11 @@ export default function MyDonors() {
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
       const fresh = filterAndSortDonors(loaded);
-      nextOffsetRef.current = loaded.length;
-      const prev = donorsRef.current;
-      const tail = prev.slice(PAGE_SIZE);
-      const merged = filterAndSortDonors(dedupConcat(fresh, tail));
       if (currentId != null) {
-        const newIdx = merged.findIndex(d => d.id === currentId && d.ngo_id === currentNgo);
+        const newIdx = fresh.findIndex(d => d.id === currentId && d.ngo_id === currentNgo);
         if (newIdx >= 0 && indexRef.current !== newIdx) setIndex(newIdx);
       }
-      if (!listsEqual(prev, merged)) setDonors(merged);
+      setDonors(fresh);
       setTotal(rTotal);
     }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation, selectedNgo]);
@@ -416,72 +422,18 @@ export default function MyDonors() {
     debounceReloadRef.current = setTimeout(() => reloadDonors(), 2000);
   }, [reloadDonors]);
 
-  const loadMore = async () => {
-    if (loadingMore || donors.length >= (total || donors.length)) return;
-    setLoadingMore(true);
-    try {
-      const start = nextOffsetRef.current;
-      const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset: start });
-      const { donors: more, total: rTotal } = normalizeDonorResponse(r);
-      if (more.length === 0) {
-        setTotal(donors.length);
-        return;
-      }
-      nextOffsetRef.current = start + more.length;
-      setDonors(prev => mergeDonorPages(prev, more));
-      setTotal(rTotal);
-    } catch (err) {
-      console.error('loadMore error:', err.message);
-      setMessage({ type: 'error', text: 'Failed to load more donors: ' + err.message });
-    } finally {
-      setLoadingMore(false);
-    }
-  };
-
-  const nextOffsetRef = useRef(0);
   const donorsRef = useRef(donors);
   const indexRef = useRef(index);
   donorsRef.current = donors;
   indexRef.current = index;
   const savingRef = useRef(false);
-  const workedTodayRef = useRef(loadWorkedToday());
-  const markWorkedToday = (d) => {
-    if (!d) return;
-    workedTodayRef.current.add(workedDonorKey(d));
-    persistWorkedToday(workedTodayRef.current);
-  };
-  const loadMoreRef = useRef(null);
-  loadMoreRef.current = loadMore;
-
-  useEffect(() => {
-    if (!loadingMore && donors.length > 0 && donors.length < (total || donors.length) && index >= donors.length - 25) {
-      loadMoreRef.current();
-    }
-  }, [index, donors.length, total, loadingMore]);
 
   const jumpToDonor = async (donorId, ngoId) => {
-    let accumulated = donors;
-    let filteredList = donors;
-    let offset = nextOffsetRef.current;
-    for (let guard = 0; guard < 100; guard++) {
-      if (offset >= (total || offset)) break;
-      const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset });
-      const { donors: more, total: rTotal } = normalizeDonorResponse(r);
-      if (more.length === 0) break;
-      accumulated = dedupConcat(accumulated, more);
-      filteredList = filterAndSortDonors(accumulated);
-      offset = accumulated.length;
-      setTotal(rTotal);
-      const found = filteredList.findIndex(d => d.id === donorId && (!ngoId || d.ngo_id === ngoId));
-      if (found >= 0) {
-        setDonors(filteredList);
-        nextOffsetRef.current = accumulated.length;
-        setIndex(found);
-        return true;
-      }
+    const found = donors.findIndex(d => d.id === donorId && (!ngoId || d.ngo_id === ngoId));
+    if (found >= 0) {
+      setIndex(found);
+      return true;
     }
-    setDonors(filteredList);
-    nextOffsetRef.current = accumulated.length;
     return false;
   };
 
@@ -497,7 +449,10 @@ export default function MyDonors() {
 
   useRealtime('fro_assignments', {
     event: 'INSERT',
-    onInsert: (row) => { if (isInsertInCurrentView(row)) debouncedReload(); },
+    onInsert: (row) => {
+      if (Date.now() < suppressRealtimeUntilRef.current) return;
+      if (isInsertInCurrentView(row)) debouncedReload();
+    },
   });
 
   const saveProgress = useCallback((tab, donorId, donorIndex) => {
@@ -516,6 +471,9 @@ export default function MyDonors() {
   const stationKey = selectedStation !== 'all' ? selectedStation : 'all';
 
   const switchTab = (tab) => {
+    manualTabSwitchRef.current = true;
+    autoFallbackAttemptedRef.current = false;
+    autoFallbackToOldRef.current = false;
     if (donor) {
       saveProgress(dataTab, donor.id, index);
       localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
@@ -544,7 +502,7 @@ export default function MyDonors() {
           if (p.dataTab === 'new') { body.new_donor_id = p.donor.id; body.new_donor_index = p.index; }
           else { body.old_donor_id = p.donor.id; body.old_donor_index = p.index; }
           navigator.sendBeacon && navigator.sendBeacon(
-            (import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/progress',
+            API_BASE + '/fro/progress',
             JSON.stringify(body)
           );
         } catch (e) { /* silent */ }
@@ -703,19 +661,14 @@ export default function MyDonors() {
         notes: `Donation recorded (${donor.donor_type})`,
         ngo_id: donor.ngo_id,
       });
-      markWorkedToday(donor);
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
       setMessage({ type: 'success', text: 'Donation recorded' });
       const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: 'donation_collected', is_new: false });
       setDonors(newDonors);
-      const advance = () => {
-        const nextIdx = findNextDonorIndex(newDonors, donor.id, workedTodayRef.current);
-        setIndex(nextIdx);
-        const nextDonor = newDonors[nextIdx];
-        if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
-      };
+      // Backend-authoritative next donor.
+      const advance = () => goToBackendNext(donor);
       if (resumeTo) {
         const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
         setResumeTo(null);
@@ -884,6 +837,41 @@ export default function MyDonors() {
     return () => { cancelled = true; };
   }, [donor?.id]);
 
+  // Backend-authoritative "next donor": the controlled queue endpoint picks the
+  // next donor (order, dedup, current position all live server-side) so the
+  // front-end never skips or re-orders a lead on its own. Falls back to the
+  // local list so the flow can never dead-end if the queue call fails.
+  const goToBackendNext = useCallback(async (priorDonor) => {
+    try {
+      const cur = await getQueueCurrent(stationOpts(dataTab, selectedStation));
+      if (!cur || cur.done || !cur?.donor) {
+        setMessage({ type: 'success', text: 'All caught up — every lead here is dispositioned. New leads appear automatically.' });
+        return;
+      }
+      const n = cur.donor;
+      const list = donorsRef.current;
+      const found = list.findIndex(d => d.id === n.donor_id && d.ngo_id === n.ngo_id);
+      if (found >= 0) {
+        setIndex(found);
+        saveProgress(dataTab, n.donor_id, found);
+      } else {
+        // Backend chose a donor not in the loaded local list (e.g. another
+        // station/tab view) — render it directly as the current card.
+        if (priorDonor) setReturnToDonor({ id: priorDonor.id, ngo_id: priorDonor.ngo_id, idx: indexRef.current });
+        setExternalDonor(n);
+      }
+    } catch (err) {
+      // Local fallback (proven path) — never dead-end the FRO.
+      const nextIdx = findNextDonorIndex(donorsRef.current, priorDonor?.id);
+      if (nextIdx >= 0 && donorsRef.current[nextIdx]) {
+        setIndex(nextIdx);
+        saveProgress(dataTab, donorsRef.current[nextIdx].id, nextIdx);
+      } else {
+        setMessage({ type: 'success', text: 'All caught up — every lead here is dispositioned. New leads appear automatically.' });
+      }
+    }
+  }, [dataTab, selectedStation, selectedNgo]);
+
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
@@ -901,12 +889,10 @@ export default function MyDonors() {
         notes: notes || null,
         ngo_id: donor.ngo_id,
       };
-      if (SCHEDULE_DATE_TYPES.has(selected)) logData.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
+      if (SCHEDULE_DATE_TYPES.has(selected)) logData.scheduled_at = istDateTimeToIso(scheduledDate, scheduledTime);
       if (SCHEDULE_TIME_TYPES.has(selected)) {
-        const target = new Date();
-        const [h, m] = callbackTime.split(':');
-        target.setHours(+h, +m, 0, 0);
-        logData.scheduled_at = target.toISOString();
+        const todayIst = istDateString();
+        logData.scheduled_at = istDateTimeToIso(todayIst, callbackTime);
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
@@ -927,10 +913,22 @@ export default function MyDonors() {
       }
       await addDonorLog(donor.id, logData);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
-      markWorkedToday(donor);
 
-      const newStatus = DISP_TO_STATUS[selected] || selected;
-      const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: newStatus, is_new: false });
+      // Suppress realtime-triggered reloads for a short window so the INSERT
+      // produced by this log's findOrCreateAssignment doesn't refetch/re-sort
+      // the list and snap the "#N of M" position to a random value.
+      suppressRealtimeUntilRef.current = Date.now() + 10000;
+      if (debounceReloadRef.current) { clearTimeout(debounceReloadRef.current); debounceReloadRef.current = null; }
+
+      // DND donors disappear from the queue immediately — the backend keeps
+      // them hidden until the next month (see getMyDonors dnd filter).
+      // Not-connected dispositions now vanish permanently too (latest-ever
+      // rule in getMyDonors), so drop them locally as well: the just-worked
+      // lead must never linger on screen.
+      const removeLocally = !RETRYABLE_NOT_CONNECTED.has(selected);
+      const newDonors = removeLocally
+        ? filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)))
+        : applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: DISP_TO_STATUS[selected] || selected, is_new: false });
       setDonors(newDonors);
 
       if (returnToDonor) {
@@ -943,12 +941,9 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const advance = () => {
-          const nextIdx = findNextDonorIndex(newDonors, donor.id, workedTodayRef.current);
-          setIndex(nextIdx);
-          const nextDonor = newDonors[nextIdx];
-          if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
-        };
+        // Controlled advance: the BACKEND chooses the next donor (order, dedup,
+        // position all server-side) — the FRO only ever picks the disposition.
+        const advance = () => goToBackendNext(donor);
         if (resumeTo) {
           const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
           setResumeTo(null);
@@ -986,7 +981,7 @@ export default function MyDonors() {
       setShowSearchDropdown(true);
       return;
     }
-    // No match in the loaded page(s) — search the full backend stack (covers
+    // No match in the loaded page(s) â€” search the full backend stack (covers
     // donors beyond the loaded window, e.g. a donor at position 800+).
     backendSearchTimerRef.current = setTimeout(async () => {
       setSearchingAll(true);
@@ -1014,6 +1009,19 @@ export default function MyDonors() {
     const donorId = r?.id || r?.donor_id;
     const curDonor = donors[index];
     const actualIdx = donors.findIndex(d => d.id === donorId);
+    const makeExternal = (extra = {}) => {
+      if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
+      setExternalDonor({
+        id: donorId,
+        ngo_id: r?.ngo_id ?? extra.ngo_id,
+        donor_name: r?.donor_name || r?.name || null,
+        donor_mobile: r?.donor_mobile || r?.mobile_number || null,
+        status: r?.status || 'pending',
+        is_new: r?.batch_type === 'new_data',
+        hidden: true,
+        ...extra,
+      });
+    };
     if (actualIdx >= 0) {
       setReturnToDonor(curDonor ? { id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index } : null);
       setIndex(actualIdx);
@@ -1024,19 +1032,13 @@ export default function MyDonors() {
       const targetStation = validStation ? r.station : 'all';
       const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
       if (r.has_donated_current_month) {
-        setExternalDonor({
-          ...r,
-          id: donorId,
-          status: r.status || 'donation_collected',
-          has_donated_current_month: true,
-          has_verified_donation_current_month: !!r.has_verified_donation_current_month,
-        });
+        makeExternal({ has_donated_current_month: true, has_verified_donation_current_month: !!r.has_verified_donation_current_month, status: r.status || 'donation_collected' });
         setMessage({ type: 'success', text: 'This donor already donated this month.' });
       } else if (!needsReload) {
-        if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
         const found = await jumpToDonor(donorId, r.ngo_id);
         if (!found) {
-          setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+          makeExternal({ ngo_id: r?.ngo_id ?? targetNgo, station: r?.station || targetStation, batch_type: r?.batch_type || (targetTab === 'old' ? 'old_data' : 'new_data'), status: r?.status || 'pending' });
+          setMessage({ type: 'info', text: 'This donor was already disposed — opened it here for your reference.' });
         }
       } else {
         if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
@@ -1047,7 +1049,8 @@ export default function MyDonors() {
         if (targetTab !== dataTab) switchTab(targetTab);
       }
     } else {
-      setMessage({ type: 'error', text: 'Donor not in current list. Try navigating to the correct view.' });
+      makeExternal();
+      setMessage({ type: 'info', text: 'Donor opened for reference.' });
     }
     setSearchQuery('');
     setSearchResults([]);
@@ -1111,12 +1114,11 @@ export default function MyDonors() {
         return;
       }
     }
-    const nextIdx = findNextDonorIndex(donors, donor.id, workedTodayRef.current);
-    if (nextIdx === index || !donors[nextIdx]) {
+    const nextIdx = findNextDonorIndex(donors, donor.id);
+    if (nextIdx < 0 || nextIdx === index || !donors[nextIdx]) {
       setMessage({ type: 'error', text: 'No more donors' });
       return;
     }
-    markWorkedToday(donor);
     if (donor && nextIdx < index) setResumeTo({ id: donor.id, ngo_id: donor.ngo_id });
     setIndex(nextIdx);
     saveProgress(dataTab, donors[nextIdx].id, nextIdx);
@@ -1139,11 +1141,17 @@ export default function MyDonors() {
     return (
       <div className="bento-grid">
         <div className="bento-col-12">
+          {message && (
+            <div className={`detail-message ${message.type}`} style={{ marginBottom: 8 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
+              {message.text}
+            </div>
+          )}
           <div className="bento-card fro-empty-state">
             <div className="fro-empty-icon">
               <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'var(--sage)', opacity: .5 }}>{dataTab === 'new' ? 'fiber_new' : 'history'}</span>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : 'old'} data assigned</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : 'old'} data allotted</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5 }}>
               {stations.length === 0
                 ? 'You are not assigned to any station yet. Ask your NGO admin to assign you to a station.'
@@ -1151,7 +1159,11 @@ export default function MyDonors() {
                   ? 'New data will appear here once distributed to your station.'
                   : 'Old data will appear here once uploaded to your station.')}
             </div>
-            {dataTab === 'new' ? (
+            {(autoFallbackToOldRef.current || autoFallbackAttemptedRef.current) && donors.length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
+                No new or old data is currently available at your station. Contact your admin if you expect data here.
+              </div>
+            ) : dataTab === 'new' ? (
               <button onClick={() => switchTab('old')} className="fro-empty-switch">
                 <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
                 Try Old Data tab
@@ -1194,7 +1206,7 @@ export default function MyDonors() {
 
   return (<>
     <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div className="detail-split" style={{ flex: 1, minHeight: 0 }}>
+      <div className="detail-split">
         {/* LEFT PANEL — merged profile + details */}
         <div className="detail-left" style={{ padding: 12 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -1263,9 +1275,9 @@ export default function MyDonors() {
               </div>
               <div className="detail-field-row">
                 <div className="fld">
-                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>saving…</span>}</label>
+                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>savingâ€¦</span>}</label>
                   <select value={donor.donor_type || ''} onChange={handleDonorTypeChange} disabled={donorTypeSaving}>
-                    <option value="">— Select —</option>
+                    <option value="">â€” Select â€”</option>
                     <option value="monthly">Monthly</option>
                     <option value="quarterly">Quarterly</option>
                     <option value="half_yearly">Half-Yearly</option>
@@ -1297,7 +1309,7 @@ export default function MyDonors() {
                           </div>
                           <div className="detail-field-row" style={{ marginBottom: 4 }}>
                             <div className="fld">
-                              <label>Amount (₹)</label>
+                              <label>Amount (â‚¹)</label>
                               <input type="number" min="0" placeholder="e.g. 5000"
                                 value={donationAmt} onChange={e => setDonationAmt(e.target.value)}
                                 style={{ width: '100%', boxSizing: 'border-box' }} />
@@ -1344,9 +1356,9 @@ export default function MyDonors() {
                       <>
                         {donations.slice(0, 6).map((d, i) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, fontSize: 10, padding: '2px 0', borderBottom: '1px dashed var(--line)' }}>
-                            <span style={{ flexShrink: 0 }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</span>
-                            <span style={{ fontWeight: 600, marginLeft: 'auto' }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</span>
-                            <span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`} style={{ fontSize: 8, padding: '1px 6px' }}>{d.status || '—'}</span>
+                            <span style={{ flexShrink: 0 }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'â€”'}</span>
+                            <span style={{ fontWeight: 600, marginLeft: 'auto' }}>â‚¹{Number(d.amount || 0).toLocaleString('en-IN')}</span>
+                            <span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`} style={{ fontSize: 8, padding: '1px 6px' }}>{d.status || 'â€”'}</span>
                           </div>
                         ))}
                         <button onClick={openDonationModal}
@@ -1402,9 +1414,9 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* MIDDLE PANEL — Status (55%) */}
-        <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
-          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
+        {/* MIDDLE PANEL â€” Tabs / Filters */}
+        <div className="fro-mid-tabs">
+          {/* NGO Tabs â€” only shown when FRO is assigned to multiple NGOs */}
           {(() => {
             const ngoMap = {};
             stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
@@ -1412,6 +1424,11 @@ export default function MyDonors() {
             if (ngoList.length <= 1) return null;
             return (
               <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+                <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(null); setSelectedStation('all'); }}
+                  className={`fro-tab-btn ${!selectedNgo ? 'fro-tab-active-new' : ''}`}
+                  style={{ fontSize: 10 }}>
+                  All
+                </button>
                 {ngoList.map(n => (
                   <button key={n.ngo_id} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(n.ngo_id); setSelectedStation('all'); }}
                     className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
@@ -1424,8 +1441,9 @@ export default function MyDonors() {
           })()}
           {/* Station Tabs */}
           {(() => {
-            const filteredStations = stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station);
-            if (filteredStations.length <= 1) return null;
+            const allAssignedStations = [...new Set(stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station))];
+            const filteredStations = allAssignedStations;
+            if (filteredStations.length === 0) return null;
             return (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
               <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
@@ -1492,7 +1510,7 @@ export default function MyDonors() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#111827' }}>{r.donor_name || 'Unknown'}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{r.donor_mobile || ''}{r.ngo_name ? ` · ${r.ngo_name}` : ''}{r.status ? ` · ${r.status.replace(/_/g, ' ')}` : ''}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{r.donor_mobile || ''}{r.ngo_name ? ` Â· ${r.ngo_name}` : ''}{r.status ? ` Â· ${r.status.replace(/_/g, ' ')}` : ''}</div>
                     </div>
                     <span className={`pill ${STATUS_PILL_MAP[r.status] || 'pill-gray'}`} style={{ fontSize: 8, padding: '1px 5px' }}>{r.status ? r.status.replace(/_/g, ' ') : ''}</span>
                   </div>
@@ -1508,6 +1526,8 @@ export default function MyDonors() {
             </div>
           )}
 
+          </div>
+          <div className="fro-mid-connection">
           {/* Connection Status card */}
           <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
             {donor.has_donated_current_month ? (
@@ -1581,7 +1601,7 @@ export default function MyDonors() {
                     <div className="fld">
                       <label>Project</label>
                       <select value={projectName} onChange={e => setProjectName(e.target.value)}>
-                        <option value="">— Select Project —</option>
+                        <option value="">â€” Select Project â€”</option>
                         {PROJECTS.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
                     </div>
@@ -1616,7 +1636,7 @@ export default function MyDonors() {
                   </div>
                   <div className="detail-field-row">
                     <div className="fld">
-                      <label>UPI Transaction ID {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)',marginLeft:4}}>OCR…</span>}</label>
+                      <label>UPI Transaction ID {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)',marginLeft:4}}>OCRâ€¦</span>}</label>
                       <input type="text" value={upiTransactionId} onChange={e => setUpiTransactionId(e.target.value)} placeholder="Auto-detected from screenshot" />
                     </div>
                     <div className="fld">
@@ -1647,7 +1667,7 @@ export default function MyDonors() {
                         if (v.length === 0) {
                           setPanError('');
                         } else if (!PAN_REGEX.test(v) && v.length === 10) {
-                          setPanError('Invalid PAN — use format: ABCDE1234F');
+                          setPanError('Invalid PAN â€” use format: ABCDE1234F');
                         } else if (v.length > 0 && v.length < 10) {
                           setPanError('PAN must be 10 characters');
                         } else {
@@ -1690,13 +1710,13 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* RIGHT PANEL — Timeline (20%) */}
+        {/* RIGHT PANEL â€” Timeline (20%) */}
         <div className="detail-right" style={{ padding: '12px 12px 12px 0' }}>
           {/* Timeline card */}
           <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
             <div className="detail-card-head">
               <span>CRM Timeline</span>
-              {totalCollected > 0 && <span style={{ color: 'var(--sage)', fontSize: 10 }}>₹{totalCollected.toLocaleString('en-IN')}</span>}
+              {totalCollected > 0 && <span style={{ color: 'var(--sage)', fontSize: 10 }}>â‚¹{totalCollected.toLocaleString('en-IN')}</span>}
             </div>
             <div className="detail-card-scroll">
               {detailLoading ? (
@@ -1721,7 +1741,7 @@ export default function MyDonors() {
                             <span className="tl-time">{formatTime(logDate(log))}</span>
                           </div>
                           {isThisMonth(logDate(log)) && (log.remark || log.notes) && <div className="tl-note">{log.remark || log.notes}</div>}
-                          {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
+                          {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>â‚¹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
                           {isCollectionLog(log) && log.fro_worker_name && (
                             <div className="tl-note" style={{ color: 'var(--ink-soft)', fontSize: 9 }}>Collected by {log.fro_worker_name}</div>
                           )}
@@ -1813,9 +1833,9 @@ export default function MyDonors() {
     {/* Donation Modal */}
     {showDonationModal && (
       <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }} onClick={() => setShowDonationModal(false)}>
-        <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>Donations — {donor.donor_name}</span>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Donations â€” {donor.donor_name}</span>
             <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => setShowDonationModal(false)}>close</span>
           </div>
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1828,7 +1848,7 @@ export default function MyDonors() {
             ))}
             <select value={donationFilter.startsWith('year_') ? donationFilter : ''} onChange={e => handleDonationFilterChange(e.target.value)}
               style={{ padding: '4px 8px', border: `1px solid ${donationFilter.startsWith('year_') ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 6, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
-              <option value="">Year…</option>
+              <option value="">Yearâ€¦</option>
               {allYears.map(y => <option key={y} value={`year_${y}`}>{y}</option>)}
             </select>
           </div>
@@ -1855,10 +1875,10 @@ export default function MyDonors() {
                 <tbody>
                   {visibleDonations.map((d, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '—'}</td>
-                      <td style={{ padding: '5px 6px', fontWeight: 600 }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ padding: '5px 6px' }}>{d.mode || '—'}</td>
-                      <td style={{ padding: '5px 6px' }}><span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`}>{d.status || '—'}</span></td>
+                      <td style={{ padding: '5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : 'â€”'}</td>
+                      <td style={{ padding: '5px 6px', fontWeight: 600 }}>â‚¹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '5px 6px' }}>{d.mode || 'â€”'}</td>
+                      <td style={{ padding: '5px 6px' }}><span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`}>{d.status || 'â€”'}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1866,7 +1886,7 @@ export default function MyDonors() {
             )}
           </div>
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
-            Total: ₹{Math.round(visibleDonations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
+            Total: â‚¹{Math.round(visibleDonations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
           </div>
         </div>
       </div>

@@ -1,5 +1,77 @@
 import { createNgo, getAllNgos, getNgoById, updateNgo, deleteNgo } from '../models/ngoModel.js';
 import { getAllUsers } from '../models/userModel.js';
+import db from '../config/db.js';
+
+export const getNgoSummary = async (req, res) => {
+  try {
+    const ngos = await getAllNgos();
+    const monthFirst = () => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    };
+
+    const { data: people, error: pErr } = await db
+      .from('worker_people_allocations')
+      .select('worker_id, ngo_id, allocation_percentage');
+    if (pErr) throw pErr;
+
+    const { data: workers, error: wErr } = await db
+      .from('workers')
+      .select('id, ngo_id')
+      .eq('is_active', true);
+    if (wErr) throw wErr;
+
+    const { data: salary, error: sErr } = await db
+      .from('salary_allocations')
+      .select('ngo_id, allocation_amount')
+      .eq('salary_month', monthFirst());
+    if (sErr) throw sErr;
+
+    const countBy = (rows, field) => {
+      const m = {};
+      for (const r of rows || []) m[r[field]] = (m[r[field]] || 0) + 1;
+      return m;
+    };
+    const amtBy = (rows, field) => {
+      const m = {};
+      for (const r of rows || []) m[r[field]] = (m[r[field]] || 0) + (parseFloat(r.allocation_amount) || 0);
+      return m;
+    };
+    const pctBy = (rows, field) => {
+      const m = {};
+      for (const r of rows || []) m[r[field]] = (m[r[field]] || 0) + (parseFloat(r.allocation_percentage) || 0);
+      return m;
+    };
+
+    const peopleCount = countBy(people, 'ngo_id');
+    const salaryCount = countBy(salary, 'ngo_id');
+    const salaryAmt = amtBy(salary, 'ngo_id');
+    const peoplePct = pctBy(people, 'ngo_id');
+
+    // Volunteers = distinct active workers linked to the NGO, either via their
+    // primary ngo_id (set automatically when the member is added) or via a
+    // manual people-allocation row.
+    const volSets = {};
+    const addVol = (ngoId, workerId) => {
+      if (ngoId == null || workerId == null) return;
+      (volSets[ngoId] = volSets[ngoId] || new Set()).add(workerId);
+    };
+    for (const w of workers || []) addVol(w.ngo_id, w.id);
+    for (const p of people || []) addVol(p.ngo_id, p.worker_id);
+
+    return res.json(
+      ngos.map((ngo) => ({
+        ...ngo,
+        volunteers: volSets[ngo.id] ? volSets[ngo.id].size : (peopleCount[ngo.id] || 0),
+        allocation_percentage: Math.round((peoplePct[ngo.id] || 0) * 100) / 100,
+        salary_employees: salaryCount[ngo.id] || 0,
+        salary_amount: Math.round((salaryAmt[ngo.id] || 0) * 100) / 100,
+      }))
+    );
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 export const addNgo = async (req, res) => {
   try {

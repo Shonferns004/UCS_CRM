@@ -2,6 +2,7 @@ import { createContext, useContext, useCallback, useState, useMemo, useEffect, u
 import { useUcs } from '../../store'
 import { api } from '../../api/auth'
 import { useRealtime } from '../../hooks/useRealtime'
+import { API_BASE as apiBase } from '../../lib/apiBase'
 
 const RecContext = createContext(null)
 export const useRec = () => useContext(RecContext)
@@ -202,7 +203,7 @@ export function RecProvider({ children }) {
       phone: l.phone || '—',
       email: l.email || profile.email || '—',
       role: getJobRole(l),
-      stage: getLeadStage(l) || STATUS_TO_STAGE[l.status] || 'Contacted',
+      stage: STATUS_TO_STAGE[l.status] || getLeadStage(l) || 'Contacted',
       status: l.status || '',
       score: 0,
       source: l.source || '—',
@@ -298,7 +299,6 @@ export function RecProvider({ children }) {
     } catch (e) {
       const leadId = String(id).trim()
       if (!leadId) throw e
-      const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api'
       const res = await fetch(`${apiBase}/db/rows/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

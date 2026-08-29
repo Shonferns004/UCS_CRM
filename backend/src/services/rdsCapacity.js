@@ -33,6 +33,12 @@ function buildClients() {
     return { error: 'RDS_DB_INSTANCE_IDENTIFIER not set and DATABASE_URL host is not an RDS endpoint' };
   }
   const config = { region };
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    config.credentials = {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    };
+  }
   const rds = new RDSClient(config);
   const cloudwatch = new CloudWatchClient(config);
   return { identifier, rds, cloudwatch };

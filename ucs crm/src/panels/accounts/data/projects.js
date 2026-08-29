@@ -17,6 +17,18 @@ export const PROJECTS = {
     shortLabel: 'BeingSevak',
     template: 'beingsevak',
   },
+  library: {
+    id: 'library',
+    label: 'Library',
+    shortLabel: 'Library',
+    template: 'library',
+  },
+  pg: {
+    id: 'pg',
+    label: 'PG',
+    shortLabel: 'PG',
+    template: 'pg',
+  },
 }
 
 export const PROJECT_OPTIONS = Object.values(PROJECTS).map((p) => ({

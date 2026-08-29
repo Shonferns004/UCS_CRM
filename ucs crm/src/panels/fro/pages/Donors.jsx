@@ -3,6 +3,7 @@ import { Users, CheckCircle2, UserX, Smartphone, ChevronRight, Phone, Search, In
 import { getMyDonors, getDonorDetail, getDonorReceipts } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import ReceiptTemplate_MannCar from '../../accounts/components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../../accounts/components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../../accounts/components/ReceiptTemplate_BeingSevak';
@@ -58,6 +59,7 @@ const buildReceiptDonor = (receipt, fallbackName) => ({
 });
 
 export default function Donors() {
+  const isMobile = useIsMobile()
   const [donors, setDonors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -272,7 +274,7 @@ export default function Donors() {
             placeholder="Search name or mobile…"
             style={{
               padding: '7px 12px 7px 30px', border: '1px solid var(--line)', borderRadius: 999, background: 'var(--card-bg)',
-              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 210, color: 'var(--ink)',
+              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: isMobile ? '100%' : 210, color: 'var(--ink)',
             }}
           />
         </div>

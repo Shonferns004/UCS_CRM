@@ -1,12 +1,12 @@
 import { io } from 'socket.io-client'
+import { API_BASE } from './apiBase'
 
 let socket = null
 
 function getBaseUrl() {
   const override = import.meta.env.VITE_SOCKET_URL
   if (override) return override
-  const apiUrl = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api'
-  return apiUrl.replace(/\/api\/?$/, '')
+  return API_BASE.replace(/\/api\/?$/, '')
 }
 
 function getToken() {

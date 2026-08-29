@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useHR, avatarColor, avatarTint, initials, DEPTS } from '../store';
+import { useTeams } from '../../../components/useTeams';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { api } from '../../../api/auth';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
+import { API_BASE } from '../../../lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
 function fmtTime(iso) {
@@ -29,7 +31,9 @@ function Badge({ status }) {
 }
 
 export default function EmployeeDetail({ worker, onBack, onOffboard }) {
-  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans } = useHR();
+  const { teams: teamOptions } = useTeams();
+  const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary, maskSalary } = useSalaryPrivacy();
+  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc } = useHR();
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [ngos, setNgos] = useState([]);
@@ -55,12 +59,26 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [extraSaving, setExtraSaving] = useState(false);
   const [viewingMonthKey, setViewingMonthKey] = useState(null);
   const [currentTarget, setCurrentTarget] = useState(null);
+  const [targetEditing, setTargetEditing] = useState(false);
+  const [targetEditVal, setTargetEditVal] = useState('');
+  const [targetSaving, setTargetSaving] = useState(false);
   const [workerAchs, setWorkerAchs] = useState([]);
   const [incSummary, setIncSummary] = useState(null);
   const [achForm, setAchForm] = useState({});
   const [achSaving, setAchSaving] = useState({});
   const [allocations, setAllocations] = useState([]);
   const [editNgoAllocations, setEditNgoAllocations] = useState([]);
+  const [peopleAllocs, setPeopleAllocs] = useState([]);
+  const [peopleForm, setPeopleForm] = useState([]);
+  const [editingPeople, setEditingPeople] = useState(false);
+  const [peopleSaving, setPeopleSaving] = useState(false);
+  const [salaryAllocMonth, setSalaryAllocMonth] = useState(null);
+  const [salaryAllocs, setSalaryAllocs] = useState([]);
+  const [salarySplitForm, setSalarySplitForm] = useState([]);
+  const [editingSalary, setEditingSalary] = useState(false);
+  const [salarySaving, setSalarySaving] = useState(false);
+  const [generatingSalary, setGeneratingSalary] = useState(false);
+  const [allocMsg, setAllocMsg] = useState('');
   const [sundayBonus, setSundayBonus] = useState(null);
   const [workerLoans, setWorkerLoans] = useState([]);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -102,13 +120,15 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       fetchWorkerSalaries(worker.id).catch(() => []),
       fetchWorkerAllocations(worker.id).catch(() => []),
       fetchWorkerLoans(worker.id).catch(() => []),
-    ]).then(([d, l, s, a, wl]) => {
+      fetchWorkerPeopleAllocations(worker.id).catch(() => []),
+    ]).then(([d, l, s, a, wl, pAllocs]) => {
       if (cancelled) return;
       setData(d);
       setLetters(l || []);
       setSalaries(s || []);
       setAllocations(a || []);
       setWorkerLoans(wl || []);
+      setPeopleAllocs(pAllocs || []);
       setLoading(false);
 
       if (d?.department === 'FRO') {
@@ -129,6 +149,12 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
     fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
     fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); });
+    const nowM = new Date();
+    const curMonth = `${nowM.getFullYear()}-${String(nowM.getMonth() + 1).padStart(2, '0')}-01`;
+    setSalaryAllocMonth(curMonth);
+    fetchWorkerSalaryAlloc(worker.id, curMonth)
+      .then(r => setSalaryAllocs(r?.allocations || []))
+      .catch((err) => { console.error('API error:', err.message); });
     return () => { cancelled = true; };
   }, [worker.id]);
 
@@ -163,6 +189,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       phone: data.phone || '',
       alternate_phone: data.alternate_phone || '',
       department: data.department || '',
+      team: (data.team || ''),
       ngo_id: data.ngo_id || '',
       address: data.address || '',
       city: data.city || '',
@@ -250,7 +277,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   ];
 
   const now = new Date();
-  const defaultMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const istNow = new Date(now.getTime() + IST_OFFSET);
+  const defaultMonthKey = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}`;
   const sortedSalaries = [...salaries].sort((a, b) => (b.from_month || '').localeCompare(a.from_month || ''));
 
   const effectiveMonthKey = viewingMonthKey || defaultMonthKey;
@@ -260,6 +288,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     holidays.filter(h => h.date?.startsWith(monthKey)).map(h => h.date)
   );
   const daysInMonth = new Date(yr, mo, 0).getDate();
+
+  // IST today for current-month cutoff
+  const isCurrentMonth = (yr === istNow.getUTCFullYear() && mo === (istNow.getUTCMonth() + 1));
+  const viewingToday = isCurrentMonth ? istNow.getUTCDate() : daysInMonth + 1;
 
   // Salary covering the viewing month
   const activeSalary = sortedSalaries.find(s =>
@@ -278,8 +310,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const joinCutoff = (data.created_at || '').slice(0, 10);
 
   // Compute absent dates — days with no attendance or explicitly absent
-  const viewingToday = (yr === now.getFullYear() && mo === (now.getMonth() + 1))
-    ? now.getDate() : daysInMonth + 1;
   const absentDates = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -295,10 +325,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   }
   const absentDatesAfterJoin = absentDates.filter(d => !joinedThisMonth || d >= joinCutoff);
 
-  // New-joiner check: ≤ 3 months employed
-  const nowDate = new Date();
-  const monthsEmp = (nowDate.getFullYear() - joinDate.getFullYear()) * 12 + (nowDate.getMonth() - joinDate.getMonth());
-  const monthsEmployed = (nowDate.getDate() >= joinDate.getDate()) ? monthsEmp + 1 : monthsEmp;
+  // New-joiner check: ≤ 3 months employed (IST)
+  const istNowDate = new Date(Date.now() + IST_OFFSET);
+  const monthsEmp = (istNowDate.getUTCFullYear() - joinDate.getFullYear()) * 12 + (istNowDate.getUTCMonth() - joinDate.getMonth());
+  const monthsEmployed = (istNowDate.getUTCDate() >= joinDate.getDate()) ? monthsEmp + 1 : monthsEmp;
 
   const deducted = new Set();
   const deductionNotes = [];
@@ -328,7 +358,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     }
   }
 
-  const availableDays = joinedThisMonth ? (daysInMonth - joinDayNum + 1) : daysInMonth;
+  const availableDays = isCurrentMonth
+    ? Math.min(daysInMonth, viewingToday) - (joinedThisMonth ? joinDayNum - 1 : 0)
+    : joinedThisMonth ? (daysInMonth - joinDayNum + 1) : daysInMonth;
 
   const monSatAbsences = absentDates.filter(d => {
     const dt = new Date(d);
@@ -372,13 +404,17 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     a.status === 'half-day' && (!joinedThisMonth || a.date >= joinCutoff)
   ).length;
   const sundayCount = Array.from({ length: daysInMonth }, (_, i) => {
-    if (joinedThisMonth && i + 1 < joinDayNum) return 0;
-    return new Date(yr, mo - 1, i + 1).getDay() === 0 ? 1 : 0;
+    const d = i + 1;
+    if (joinedThisMonth && d < joinDayNum) return 0;
+    if (isCurrentMonth && d > viewingToday) return 0;
+    return new Date(yr, mo - 1, d).getDay() === 0 ? 1 : 0;
   }).reduce((a, b) => a + b, 0);
   const sundayDates = Array.from({ length: daysInMonth }, (_, i) => {
-    const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+    const d = i + 1;
+    const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     if (joinedThisMonth && dateStr < joinCutoff) return null;
-    return new Date(yr, mo - 1, i + 1).getDay() === 0 ? dateStr : null;
+    if (isCurrentMonth && d > viewingToday) return null;
+    return new Date(yr, mo - 1, d).getDay() === 0 ? dateStr : null;
   }).filter(Boolean);
   const eligibleSundays = sundayDates.filter(d => !deducted.has(d));
   const attendedEligible = eligibleSundays.filter(d =>
@@ -592,6 +628,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         style={{ width:'100%' }} options={DEPTS} />
                     </div>
                   ) : <Field label="Department" value={data.department} />}
+                  {editing ? (
+                    <div className="detail-field">
+                      <span className="detail-label">Team</span>
+                      <Dropdown value={form.team} onChange={setField('team')}
+                        style={{ width:'100%' }}
+                        options={[{value:'',label:'No Team'}, ...teamOptions.map(t => ({ value:t, label:t }))]} />
+                    </div>
+                  ) : <Field label="Team" value={data.team || 'No Team'} />}
                   {editing && form.department === 'NGO Admin' ? (
                     <div className="detail-field" style={{ gridColumn:'1 / -1' }}>
                       <span className="detail-label">NGOs</span>
@@ -818,8 +862,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                     <div style={{ textAlign:'right' }}>
                       <div style={{ fontWeight:700, fontSize:16 }}>
                         {prevSalaryRec.paid_at
-                          ? `₹${parseFloat(prevSalaryRec.salary).toLocaleString('en-IN')}`
-                          : `₹${(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0)).toLocaleString('en-IN')}`
+                          ? formatSalary(prevSalaryRec.salary)
+                          : formatSalary(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0))
                         }
                       </div>
                       <div style={{ fontSize:12, color: prevSalaryRec.paid_at ? 'var(--sage)' : 'var(--danger)' }}>
@@ -838,6 +882,35 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
           {tab === 'salary' && (
             <div>
+              {/* Confidential Salary Access Bar */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                marginBottom: 16, padding: '10px 16px', borderRadius: 8,
+                background: isSalaryUnlocked ? '#f0fdf4' : '#fffbeb',
+                border: `1px solid ${isSalaryUnlocked ? '#bbf7d0' : '#fef08a'}`
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <span style={{ fontSize: 16 }}>{isSalaryUnlocked ? '🔓' : '🔒'}</span>
+                  <div>
+                    <span style={{ fontWeight: 700, color: isSalaryUnlocked ? '#166534' : '#92400e' }}>
+                      {isSalaryUnlocked ? 'Salary Unlocked (Viewing Full Numbers)' : 'Salary Confidential & Hidden (XXX)'}
+                    </span>
+                    <div style={{ fontSize: 11, color: isSalaryUnlocked ? '#15803d' : '#b45309' }}>
+                      {isSalaryUnlocked ? 'You can view and update confidential salary information.' : 'Enter your access code to reveal or update confidential salary figures.'}
+                    </div>
+                  </div>
+                </div>
+                {isSalaryUnlocked ? (
+                  <button className="btn btn-sm btn-outline" onClick={lockSalary} style={{ fontSize: 11, padding: '4px 12px', background: '#fff' }}>
+                    🔒 Hide Salary
+                  </button>
+                ) : (
+                  <button className="btn btn-sm btn-primary" onClick={() => promptUnlock()} style={{ fontSize: 11, padding: '5px 14px', background: 'var(--sage)', color: '#fff', border: 'none', fontWeight: 600 }}>
+                    👁️ View / Update Salary
+                  </button>
+                )}
+              </div>
+
               {prevSalaryRec && (
               <div className="card" style={{ marginBottom:16, padding:'14px 18px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
@@ -848,8 +921,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   <div style={{ textAlign:'right' }}>
                     <div style={{ fontWeight:700, fontSize:16 }}>
                       {prevSalaryRec.paid_at
-                        ? `₹${parseFloat(prevSalaryRec.salary).toLocaleString('en-IN')}`
-                        : `₹${(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0)).toLocaleString('en-IN')}`
+                        ? formatSalary(prevSalaryRec.salary)
+                        : formatSalary(Math.round(prevTotalDue) + parseFloat(prevSalaryRec.extra_amount || 0))
                       }
                     </div>
                     <div style={{ fontSize:12, color: prevSalaryRec.paid_at ? 'var(--sage)' : 'var(--danger)' }}>
@@ -926,7 +999,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           })()}
                         </svg>
                         <div className="salary-visual-main">
-                          <div className="salary-visual-total">₹{(Math.round(totalDue) + parseFloat(activeSalary?.extra_amount || 0) + (sundayBonus?.incentiveAKI || 0) + (sundayBonus?.incentiveMonthly || 0) - loanDeductionTotal).toLocaleString('en-IN')}</div>
+                          <div className="salary-visual-total">{formatSalary(Math.round(totalDue) + parseFloat(activeSalary?.extra_amount || 0) + (sundayBonus?.incentiveAKI || 0) + (sundayBonus?.incentiveMonthly || 0) - loanDeductionTotal)}</div>
                           <div className="salary-visual-label">Total Due</div>
                         </div>
                       </div>
@@ -971,7 +1044,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       {/* Key metrics */}
                       <div className="salary-metrics">
                         <div className="salary-metric">
-                          <div className="salary-metric-num">₹{parseFloat(activeSalary.salary).toLocaleString('en-IN')}</div>
+                          <div className="salary-metric-num">{formatSalary(activeSalary.salary)}</div>
                           <div className="salary-metric-lbl">Monthly Salary</div>
                         </div>
                         <div className="salary-metric">
@@ -1034,48 +1107,53 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               onClick={() => setExtraEditing(false)}>Cancel</button>
                           </>
                         ) : (
-<>
-                             <span style={{ fontWeight:600, fontSize:15 }}>₹{parseFloat(activeSalary?.extra_amount || 0).toLocaleString('en-IN')}</span>
-                             <button className="btn btn-icon btn-sm" title="Add extra amount"
-                               onClick={() => { setExtraEditing(true); setExtraVal(String(parseFloat(activeSalary?.extra_amount || 0))); }}>
-                               <Pencil width={13} />
-                             </button>
-                           </>
-                         )}
-                       </div>
+                          <>
+                            <span style={{ fontWeight:600, fontSize:15 }}>{formatSalary(activeSalary?.extra_amount || 0)}</span>
+                            <button className="btn btn-icon btn-sm" title="Add/Edit extra amount"
+                              onClick={() => {
+                                promptUnlock(() => {
+                                  setExtraEditing(true);
+                                  setExtraVal(String(parseFloat(activeSalary?.extra_amount || 0)));
+                                });
+                              }}>
+                              <Pencil width={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
 
-                       {/* Visual flow */}
+                      {/* Visual flow */}
                       <div style={{ borderTop:'1px solid var(--line)', marginTop:16, paddingTop:16 }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
                         <Box num={availableDays} label={joinedThisMonth ? 'Available\nDays' : 'Days in\nMonth'} color="#5B6B4E" />
                         <Arrow />
-                         <Box num={availableDays - paidDays} label={'Deducted\nDays'} color="#d9534f" />
+                        <Box num={availableDays - paidDays} label={'Deducted\nDays'} color="#d9534f" />
                         <Equals />
                         <Box num={paidDays} label={'Paid\nDays'} color="#5B6B4E" />
                         <Times />
-                        <Box num={'₹' + perDay.toFixed(2)} label={'Per Day\nRate'} color="#4F6472" />
+                        <Box num={isSalaryUnlocked ? ('₹' + perDay.toFixed(2)) : '₹ XXX'} label={'Per Day\nRate'} color="#4F6472" />
                         <Arrow />
                         <Box num={lateDeductionDays > 0 ? '-' + lateDeductionDays : '0'} label={'Late\nDeduction'} color={lateDeductionDays > 0 ? '#e67e22' : '#5B6B4E'} />
                         {joiningDeduction > 0 && <><Arrow /><Box num={'−' + joiningDeduction + 'd'} label={'Join\nDeduction'} color="#8B5CF6" /></>}
-{(() => {
-                           const sb = sundayBonus || {};
-                           const akiAmt = sb.incentiveAKI || 0;
-                           const monthlyAmt = sb.incentiveMonthly || 0;
-                           const baseDue = Math.round(totalDue);
-                           const loanDed = loanDeductionTotal;
-                           const total = baseDue + akiAmt + monthlyAmt - loanDed;
-                           const isFRO = data.department === 'FRO';
+                        {(() => {
+                            const sb = sundayBonus || {};
+                            const akiAmt = sb.incentiveAKI || 0;
+                            const monthlyAmt = sb.incentiveMonthly || 0;
+                            const baseDue = Math.round(totalDue);
+                            const loanDed = loanDeductionTotal;
+                            const total = baseDue + akiAmt + monthlyAmt - loanDed;
+                            const isFRO = data.department === 'FRO';
 
-                           return (
-                             <>
-                               <Box num={'₹' + baseDue.toLocaleString('en-IN')} label={'Salary\\nDue'} color="#5B6B4E" big />
-                               {loanDed > 0 && <><Arrow /><Box num={'−₹' + loanDed.toLocaleString('en-IN')} label={'Loan/\\nAdvance'} color="#e67e22" /></>}
-                               {isFRO && <><Arrow /><Box num={'+₹' + akiAmt.toLocaleString('en-IN')} label={'Incentive\\nAKI'} color={akiAmt > 0 ? '#8B5CF6' : '#ddd'} /></>}
-                               {isFRO && <><Arrow /><Box num={'+₹' + monthlyAmt.toLocaleString('en-IN')} label={'Incentive\\nMonthly'} color={monthlyAmt > 0 ? '#3B82F6' : '#ddd'} /></>}
-                               <Equals />
-                               <Box num={'₹' + total.toLocaleString('en-IN')} label={'Total\\nDue'} color="#16a34a" big />
-                             </>
-                           );
+                            return (
+                              <>
+                                <Box num={formatSalary(baseDue)} label={'Salary\nDue'} color="#5B6B4E" big />
+                                {loanDed > 0 && <><Arrow /><Box num={'−₹' + loanDed.toLocaleString('en-IN')} label={'Loan/\nAdvance'} color="#e67e22" /></>}
+                                {isFRO && <><Arrow /><Box num={'+₹' + akiAmt.toLocaleString('en-IN')} label={'Incentive\nAKI'} color={akiAmt > 0 ? '#8B5CF6' : '#ddd'} /></>}
+                                {isFRO && <><Arrow /><Box num={'+₹' + monthlyAmt.toLocaleString('en-IN')} label={'Incentive\nMonthly'} color={monthlyAmt > 0 ? '#3B82F6' : '#ddd'} /></>}
+                                <Equals />
+                                <Box num={formatSalary(total)} label={'Total\nDue'} color="#16a34a" big />
+                              </>
+                            );
                           })()}
                       </div>
 
@@ -1364,6 +1442,108 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                 </div>
               </div>
 
+              {/* NGO People Allocation */}
+              <div className="card" style={{ marginBottom:16 }}>
+                <div className="card-head">
+                  <h3>NGO Employment Split</h3>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <span className="sub">{peopleAllocs.length} NGO{peopleAllocs.length !== 1 ? 's' : ''} · {Math.round(peopleAllocs.reduce((s,a)=>s+(parseFloat(a.pct)||0),0) || 0)}% allocated</span>
+                    <button className="btn btn-sm" onClick={() => {
+                      setPeopleForm(peopleAllocs.length
+                        ? peopleAllocs.map(a => ({ ngo_id: a.ngo_id, pct: String(a.pct) }))
+                        : ngos.map(n => ({ ngo_id: n.id, pct: '' })));
+                      setEditingPeople(true); setAllocMsg('');
+                    }}>Edit</button>
+                  </div>
+                </div>
+                <div className="card-pad">
+                  {peopleAllocs.length === 0 ? (
+                    <div style={{ color:'var(--ink-soft)', fontSize:13 }}>No NGO employment split set. Assign the employee to one or more NGOs.</div>
+                  ) : (
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, fontVariantNumeric:'tabular-nums' }}>
+                      <tbody>
+                        {peopleAllocs.map(a => {
+                          const name = ngos.find(n => n.id === a.ngo_id)?.name || a.ngo_name || 'Unknown';
+                          const pct = parseFloat(a.pct) || 0;
+                          return (
+                            <tr key={a.id || a.ngo_id}>
+                              <td style={{ padding:'4px 4px', fontWeight:500 }}>{name}</td>
+                              <td style={{ padding:'4px 4px', textAlign:'right', width:110 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:8, justifyContent:'flex-end' }}>
+                                  <div style={{ width:64, height:6, background:'var(--line)', borderRadius:3, overflow:'hidden' }}>
+                                    <div style={{ width:Math.min(100, pct)+'%', height:6, background:'var(--sage)', borderRadius:3 }} />
+                                  </div>
+                                  <span style={{ fontWeight:600, minWidth:36, textAlign:'right' }}>{Math.round(pct)}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* NGO Salary Allocation */}
+              <div className="card" style={{ marginBottom:16 }}>
+                <div className="card-head">
+                  <h3>NGO Salary Allocation</h3>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <span className="sub">{salaryAllocMonth ? salaryAllocMonth.slice(0,7) : ''}</span>
+                    <button className="btn btn-sm" disabled={generatingSalary} onClick={async () => {
+                      setGeneratingSalary(true); setAllocMsg('');
+                      try {
+                        await generateWorkerSalaryAlloc(worker.id, salaryAllocMonth);
+                        const r = await fetchWorkerSalaryAlloc(worker.id, salaryAllocMonth);
+                        setSalaryAllocs(r?.allocations || []);
+                        setAllocMsg('Salary allocation generated from payroll.');
+                      } catch (e) { setAllocMsg('Generate failed: ' + e.message); }
+                      setGeneratingSalary(false);
+                    }}>{generatingSalary ? '…' : 'Generate from Payroll'}</button>
+                    <button className="btn btn-sm" onClick={() => {
+                      promptUnlock(() => {
+                        setSalarySplitForm(salaryAllocs.length
+                          ? salaryAllocs.map(a => ({ ngo_id: a.ngo_id, portion: String(a.salary_portion ?? '') }))
+                          : []);
+                        setEditingSalary(true);
+                        setAllocMsg('');
+                      });
+                    }}>Edit</button>
+                  </div>
+                </div>
+                <div className="card-pad">
+                  {allocMsg && <div style={{ fontSize:12, color:'var(--ink-soft)', marginBottom:8 }}>{allocMsg}</div>}
+                  {salaryAllocs.length === 0 ? (
+                    <div style={{ color:'var(--ink-soft)', fontSize:13 }}>No salary allocation for this month. Click <strong>Generate from Payroll</strong> to seed it from payroll, or edit to set amounts per NGO.</div>
+                  ) : (
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, fontVariantNumeric:'tabular-nums' }}>
+                      <tbody>
+                        {salaryAllocs.map(a => {
+                          const name = ngos.find(n => n.id === a.ngo_id)?.name || a.ngo_name || 'Unknown';
+                          const portion = parseFloat(a.salary_portion) || 0;
+                          const activeSalaryVal = parseFloat(activeSalary?.salary || 0);
+                          const pct = activeSalaryVal > 0 ? (portion / activeSalaryVal) * 100 : 0;
+                          return (
+                            <tr key={a.id || a.ngo_id}>
+                              <td style={{ padding:'4px 4px', fontWeight:500 }}>{name}</td>
+                              <td style={{ padding:'4px 4px', textAlign:'right', width:140 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:8, justifyContent:'flex-end' }}>
+                                  <div style={{ width:64, height:6, background:'var(--line)', borderRadius:3, overflow:'hidden' }}>
+                                    <div style={{ width:Math.min(100, pct)+'%', height:6, background:'var(--sage)', borderRadius:3 }} />
+                                  </div>
+                                  <span style={{ fontWeight:600, minWidth:110, textAlign:'right' }}>{formatSalary(portion)}{activeSalaryVal > 0 && isSalaryUnlocked ? ' · ' + Math.round(pct) + '%' : ''}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
               {/* NGO Allocations Breakdown */}
               {allocations.length > 0 && (
               <div className="card" style={{ marginBottom:16 }}>
@@ -1414,9 +1594,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           return (
                             <tr key={a.id || a.ngo_id}>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontSize:10 }}>{ngoName}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>₹{portion.toLocaleString('en-IN')}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>₹{Math.round(allocPerDay).toLocaleString('en-IN')}</td>
-                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:600, whiteSpace:'nowrap', fontSize:10 }}>₹{Math.round(allocDue).toLocaleString('en-IN')}</td>
+                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(portion)}</td>
+                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(Math.round(allocPerDay))}</td>
+                              <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:600, whiteSpace:'nowrap', fontSize:10 }}>{formatSalary(Math.round(allocDue))}</td>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', color: allocAKI > 0 ? '#f59e0b' : 'var(--ink-soft)', whiteSpace:'nowrap', fontSize:10 }}>
                                 {allocAKI > 0 ? '₹' + allocAKI.toLocaleString('en-IN') : '₹0'}
                               </td>
@@ -1427,7 +1607,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                 {allocSunday > 0 ? '₹' + allocSunday.toLocaleString('en-IN') : '₹0'}
                               </td>
                               <td style={{ padding:'3px 3px', borderBottom:'1px solid var(--line)', textAlign:'right', fontWeight:700, color: allocGrand > Math.round(allocDue) ? '#16a34a' : 'var(--sage)', whiteSpace:'nowrap', fontSize:10 }}>
-                                ₹{allocGrand.toLocaleString('en-IN')}
+                                {formatSalary(allocGrand)}
                               </td>
                             </tr>
                           );
@@ -1456,13 +1636,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                             <tr>
                               <td style={{ padding:'5px 3px', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>Merged Total</td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>
-                                ₹{totalSalaryVal.toLocaleString('en-IN')}
+                                {formatSalary(totalSalaryVal)}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)' }}>
-                                ₹{Math.round(perDay).toLocaleString('en-IN')}
+                                {formatSalary(Math.round(perDay))}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color:'var(--sage)' }}>
-                                ₹{sumDue.toLocaleString('en-IN')}
+                                {formatSalary(sumDue)}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:700, fontSize:10, borderTop:'2px solid var(--line)', color: sumAKI > 0 ? '#f59e0b' : 'var(--ink-soft)' }}>
                                 {sumAKI > 0 ? '₹' + sumAKI.toLocaleString('en-IN') : '₹0'}
@@ -1474,7 +1654,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                 {sumSunday > 0 ? '₹' + sumSunday.toLocaleString('en-IN') : '₹0'}
                               </td>
                               <td style={{ padding:'5px 3px', textAlign:'right', fontWeight:800, fontSize:11, borderTop:'2px solid var(--line)', color:'#16a34a' }}>
-                                ₹{sumGrand.toLocaleString('en-IN')}
+                                {formatSalary(sumGrand)}
                               </td>
                             </tr>
                           </>
@@ -1606,7 +1786,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                               const allocs = salaryNgoCount === 1
                                 ? [{ ngo_id: salaryNgo1, salary_portion: salNum }]
-                                : [{ ngo_id: salaryNgo1, salary_portion: salNum / 2 }, { ngo_id: salaryNgo2, salary_portion: salNum / 2 }];
+                                : [{ ngo_id: salaryNgo1, salary_portion: Math.round(salNum / 2) }, { ngo_id: salaryNgo2, salary_portion: Math.round(salNum / 2) }];
                               await setWorkerAllocations(worker.id, allocs, salNum);
                               setAllocations(allocs);
 
@@ -1656,12 +1836,25 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               setSalaries(p => p.map(x => x.id === latest.id ? { ...x, to_month: prevMonth } : x));
                             }
 
-                            await addWorkerSalary({
+                            const res = await addWorkerSalary({
                               worker_id: worker.id,
                               salary: parseFloat(salaryForm.salary),
                               from_month,
                               to_month: null,
                             });
+                            setSalaries(p => [res.record, ...p]);
+
+                            const oldSalNum = latest ? parseFloat(latest.salary) : 0;
+                            const newSalNum = parseFloat(salaryForm.salary);
+                            if (allocations.length > 0 && oldSalNum > 0) {
+                              const scaledAllocs = allocations.map(a => ({
+                                ngo_id: a.ngo_id,
+                                salary_portion: Math.round(parseFloat(a.salary_portion) * (newSalNum / oldSalNum)),
+                              }));
+                              await setWorkerAllocations(worker.id, scaledAllocs, newSalNum);
+                              setAllocations(scaledAllocs);
+                            }
+
                             setSalaryForm({ salary: '' });
                           } catch (e) { alert(e.message); }
                           finally { setSalarySubmitting(false); }
@@ -1698,7 +1891,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         return (
                           <tr key={s.id}>
                             <td>{i + 1}</td>
-                            <td style={{ fontWeight:600 }}>₹{parseFloat(s.salary).toLocaleString('en-IN')}</td>
+                            <td style={{ fontWeight:600 }}>{formatSalary(s.salary)}</td>
                             <td>{fmtMonth(from)}</td>
                             <td>{to ? fmtMonth(to) : '\u2014 (Current)'}</td>
                             <td>
@@ -1712,11 +1905,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                               <div style={{ display:'flex', gap:4 }}>
                                 <button className="btn btn-icon" title="Delete"
                                   onClick={async () => {
-                                    if (!confirm('Delete this salary record?')) return;
-                                    try {
-                                      await fetch(API_BASE + '/salary/' + s.id, { method:'DELETE', headers:{ Authorization: 'Bearer ' + localStorage.getItem('ucs_token') } });
-                                      setSalaries(p => p.filter(x => x.id !== s.id));
-                                    } catch (e) { alert(e.message); }
+                                    promptUnlock(async () => {
+                                      if (!confirm('Delete this salary record?')) return;
+                                      try {
+                                        await fetch(API_BASE + '/salary/' + s.id, { method:'DELETE', headers:{ Authorization: 'Bearer ' + localStorage.getItem('ucs_token') } });
+                                        setSalaries(p => p.filter(x => x.id !== s.id));
+                                      } catch (e) { alert(e.message); }
+                                    });
                                   }}>
                                   <Trash width={14} />
                                 </button>
@@ -1735,11 +1930,43 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                 <div className="card-head"><h3>FRO Target & Incentives</h3></div>
                 <div className="card-pad">
                   {currentTarget != null ? (
-                    <div style={{ fontSize:22, fontWeight:700, color:'var(--sage)', marginBottom:12 }}>
-                      Monthly Target: ₹{currentTarget.toLocaleString('en-IN')}
+                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                      <div style={{ fontSize:22, fontWeight:700, color:'var(--sage)' }}>
+                        Monthly Target: ₹{currentTarget.toLocaleString('en-IN')}
+                      </div>
+                      {!targetEditing && (
+                        <button className="btn btn-sm btn-outline" onClick={() => { setTargetEditing(true); setTargetEditVal(String(currentTarget)); }} style={{ fontSize:11, padding:'2px 8px' }}>Edit</button>
+                      )}
                     </div>
                   ) : (
-                    <div style={{ fontSize:14, color:'var(--ink-soft)', marginBottom:12 }}>Monthly target not set</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                      <div style={{ fontSize:14, color:'var(--ink-soft)' }}>Monthly target not set</div>
+                      {!targetEditing && (
+                        <button className="btn btn-sm btn-primary" onClick={() => { setTargetEditing(true); setTargetEditVal(''); }} style={{ fontSize:11, padding:'2px 8px' }}>Set Target</button>
+                      )}
+                    </div>
+                  )}
+
+                  {targetEditing && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'#f9fafb', borderRadius:8, border:'1px solid var(--line)' }}>
+                      <span style={{ fontSize:13, fontWeight:600 }}>₹</span>
+                      <input type="number" min="0" value={targetEditVal} onChange={e => setTargetEditVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && targetEditVal) document.getElementById('target-save-btn')?.click(); if (e.key === 'Escape') setTargetEditing(false); }}
+                        autoFocus style={{ flex:1, padding:'4px 8px', fontSize:14, border:'1px solid var(--line)', borderRadius:4, outline:'none' }} />
+                      <button id="target-save-btn" className="btn btn-sm btn-primary" disabled={!targetEditVal || targetSaving} onClick={async () => {
+                        setTargetSaving(true);
+                        try {
+                          const month = `${yr}-${String(mo).padStart(2, '0')}-01`;
+                          await updateWorkerTarget(data.id, month, parseFloat(targetEditVal));
+                          setCurrentTarget(parseFloat(targetEditVal));
+                          setTargetEditing(false);
+                          const s = await fetchIncentiveSummary(data.id, month);
+                          setIncSummary(s?.hasIncentive ? s : null);
+                        } catch (e) { alert(e.message); }
+                        finally { setTargetSaving(false); }
+                      }}>{targetSaving ? '...' : 'Save'}</button>
+                      <button className="btn btn-sm btn-outline" onClick={() => setTargetEditing(false)} style={{ fontSize:11 }}>Cancel</button>
+                    </div>
                   )}
 
                   {incSummary && (
@@ -1758,11 +1985,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                   <div className="salary-metrics" style={{ marginBottom:8 }}>
                     <div className="salary-metric">
-                      <div className="salary-metric-num">₹{(incSummary?.totalAKI || 0).toLocaleString('en-IN')}</div>
+                      <div className="salary-metric-num">{formatSalary(incSummary?.totalAKI || 0)}</div>
                       <div className="salary-metric-lbl">Total AKI</div>
                     </div>
                     <div className="salary-metric">
-                      <div className="salary-metric-num">₹{(incSummary?.monthlyIncentive || 0).toLocaleString('en-IN')}</div>
+                      <div className="salary-metric-num">{formatSalary(incSummary?.monthlyIncentive || 0)}</div>
                       <div className="salary-metric-lbl">Monthly (10%)</div>
                     </div>
                     <div className="salary-metric">
@@ -1919,6 +2146,106 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
         </div>
       </div>
+
+      {editingPeople && (
+        <div className="modal-overlay" onClick={() => setEditingPeople(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="card-pad">
+              <h3 style={{ margin:'0 0 4px' }}>NGO Employment Split</h3>
+              <p style={{ fontSize:12, color:'var(--ink-soft)', margin:'0 0 12px' }}>
+                Assign the % of employment time per NGO. Leave empty NGOs blank. Total must equal 100%.
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
+                {peopleForm.map((p, i) => (
+                  <div key={p.ngo_id || i} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ flex:1, fontSize:13, fontWeight:500 }}>
+                      {ngos.find(n => n.id === p.ngo_id)?.name || 'NGO'}
+                    </span>
+                    <input type="number" min="0" max="100" value={p.pct}
+                      onChange={e => setPeopleForm(f => f.map((x, j) => j === i ? { ...x, pct: e.target.value } : x))}
+                      style={{ width:80, border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 8px', fontSize:13, textAlign:'right' }}
+                      placeholder="%" />
+                    <span style={{ width:20, textAlign:'right', fontSize:12, color:'var(--ink-soft)' }}>%</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, marginBottom:12, color: (() => {
+                const total = peopleForm.reduce((s, x) => s + (parseFloat(x.pct) || 0), 0);
+                return total === 100 ? '#065f46' : total > 100 ? '#991b1b' : 'var(--ink-soft)';
+              })() }}>
+                Total: {peopleForm.reduce((s, x) => s + (parseFloat(x.pct) || 0), 0)}% (must be 100%)
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-primary btn-sm" disabled={peopleSaving || peopleForm.reduce((s, x) => s + (parseFloat(x.pct) || 0), 0) !== 100}
+                  onClick={async () => {
+                    setPeopleSaving(true);
+                    try {
+                      const allocs = peopleForm.filter(x => (parseFloat(x.pct) || 0) > 0)
+                        .map(x => ({ ngo_id: x.ngo_id, pct: parseFloat(x.pct) }));
+                      await saveWorkerPeopleAllocations(worker.id, allocs);
+                      const r = await fetchWorkerPeopleAllocations(worker.id);
+                      setPeopleAllocs(r || []);
+                      setEditingPeople(false);
+                    } catch (e) { setAllocMsg(e.message); }
+                    setPeopleSaving(false);
+                  }}>
+                  {peopleSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingPeople(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingSalary && (
+        <div className="modal-overlay" onClick={() => setEditingSalary(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="card-pad">
+              <h3 style={{ margin:'0 0 4px' }}>NGO Salary Allocation</h3>
+              <p style={{ fontSize:12, color:'var(--ink-soft)', margin:'0 0 12px' }}>
+                Set the ₹ amount each NGO pays towards this employee's salary. Total must equal active salary ({formatSalary(activeSalary?.salary || 0)}).
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
+                {salarySplitForm.map((p, i) => (
+                  <div key={p.ngo_id || i} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ flex:1, fontSize:13, fontWeight:500 }}>
+                      {ngos.find(n => n.id === p.ngo_id)?.name || 'NGO'}
+                    </span>
+                    <span style={{ fontSize:12, color:'var(--ink-soft)' }}>₹</span>
+                    <input type="number" min="0" value={p.portion}
+                      onChange={e => setSalarySplitForm(f => f.map((x, j) => j === i ? { ...x, portion: e.target.value } : x))}
+                      style={{ width:120, border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 8px', fontSize:13, textAlign:'right' }}
+                      placeholder="0" />
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, marginBottom:12, color:'var(--ink-soft)' }}>
+                Total: ₹{salarySplitForm.reduce((s, x) => s + (parseFloat(x.portion) || 0), 0).toLocaleString('en-IN')}
+                {' '}· Active salary: {formatSalary(activeSalary?.salary || 0)}
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-primary btn-sm" disabled={salarySaving}
+                  onClick={async () => {
+                    setSalarySaving(true);
+                    try {
+                      const allocs = salarySplitForm.filter(x => (parseFloat(x.portion) || 0) > 0)
+                        .map(x => ({ ngo_id: x.ngo_id, salary_portion: parseFloat(x.portion) }));
+                      await saveWorkerSalaryAlloc(worker.id, allocs, salaryAllocMonth);
+                      const r = await fetchWorkerSalaryAlloc(worker.id, salaryAllocMonth);
+                      setSalaryAllocs(r?.allocations || []);
+                      setEditingSalary(false);
+                    } catch (e) { setAllocMsg(e.message); }
+                    setSalarySaving(false);
+                  }}>
+                  {salarySaving ? 'Saving...' : 'Save'}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingSalary(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </>
   );

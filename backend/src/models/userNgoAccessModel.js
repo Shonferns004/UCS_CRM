@@ -13,7 +13,7 @@ export const getUserNgoAccess = async (userId) => {
     .select('role')
     .eq('id', userId)
     .maybeSingle();
-  if (user?.role === 'admin' || user?.role === 'super_admin') {
+  if (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'accounts') {
     const { data: allNgos } = await db.from('ngos').select('id, name');
     return (allNgos || []).map(n => ({ ngo_id: n.id, ngo_name: n.name }));
   }
@@ -33,7 +33,9 @@ export const getUserNgoAccess = async (userId) => {
     .select('department, ngo_id')
     .eq('id', userId)
     .maybeSingle();
-  if (wrk && wrk.department?.toLowerCase() === 'ngo admin') {
+
+  const dept = (wrk?.department || '').toLowerCase().trim();
+  if (dept === 'ngo admin') {
     const { data: allocations } = await db
       .from('worker_ngo_allocations')
       .select('ngo_id, ngos(name)')
@@ -45,6 +47,12 @@ export const getUserNgoAccess = async (userId) => {
       const { data: ngo } = await db.from('ngos').select('id, name').eq('id', wrk.ngo_id).single();
       if (ngo) return [{ ngo_id: ngo.id, ngo_name: ngo.name }];
     }
+  }
+
+  // Accounts department workers (login role 'accounts') see all NGOs
+  if (dept === 'admin' || dept === 'account' || dept === 'accounts') {
+    const { data: allNgos } = await db.from('ngos').select('id, name');
+    return (allNgos || []).map(n => ({ ngo_id: n.id, ngo_name: n.name }));
   }
 
   return [];

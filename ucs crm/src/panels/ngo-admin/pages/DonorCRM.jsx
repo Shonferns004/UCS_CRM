@@ -50,6 +50,27 @@ function AddLeadModal({ onClose, onSaved }) {
   const [form, setForm] = useState({ name: '', mobile: '', email: '', address: '', city: '', state: '', pan: '', aadhaar: '', birthday: '', anniversary: '', language: '' })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [lookupDone, setLookupDone] = useState(false)
+
+  const lookupMobile = async (mobile) => {
+    const clean = String(mobile || '').replace(/[^\d]/g, '')
+    if (clean.length < 10 || lookupDone) return
+    setLookupDone(true)
+    try {
+      const results = await api('/accounts/donors/quick-search?q=' + encodeURIComponent(clean), { _prefix: 'ucs' })
+      if (Array.isArray(results) && results.length > 0) {
+        const d = results[0]
+        setForm(prev => ({
+          ...prev,
+          name: prev.name || d.name || '',
+          email: prev.email || d.email || '',
+          address: prev.address || d.address_1 || '',
+          city: prev.city || d.city || '',
+          pan: prev.pan || d.pan_number || '',
+        }))
+      }
+    } catch (_) {}
+  }
 
   const save = async () => {
     if (!form.name || !form.mobile) { setErr('Name and Mobile are required'); return }
@@ -68,7 +89,7 @@ function AddLeadModal({ onClose, onSaved }) {
           {err && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{err}</div>}
           <div className="form-row">
             <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.UserCircle} Name</span><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></label>
-            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.DeviceMobile} Mobile</span><input value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.DeviceMobile} Mobile</span><input value={form.mobile} onChange={e => { const v = e.target.value; setForm({...form, mobile: v}); const clean = v.replace(/[^\d]/g, ''); if (clean.length >= 10) lookupMobile(v); else setLookupDone(false); }} /></label>
           </div>
           <div className="form-row">
             <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.Envelope} Email</span><input value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></label>

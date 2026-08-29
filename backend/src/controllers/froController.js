@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { isPriyankShahAgent, isBlankSuspenseValue, enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
+import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
@@ -20,6 +20,7 @@ import {
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
+  getCollectedByNgo,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
   getVerifiedCollection,
@@ -27,10 +28,13 @@ import {
   getDailyCollectionByWorker,
   COLLECTION_DATE_OR,
   logCollectionDate,
+  paymentDiscriminant,
   inRange,
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
+import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition } from '../models/workQueueModel.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -162,13 +166,26 @@ async function getMyStationNames(workerId) {
   return (stationAssigns || []).map(s => s.station);
 }
 
-async function getMyStationScope(workerId) {
+// Station restriction for impersonated ("work as") sessions: when the token
+// carries act_stations, the operator may only touch those (ngo_id, station)
+// pairs — every data surface funnels through getMyStationScope below.
+export function froActPairs(req) {
+  const u = req?.user;
+  if (!u?.impersonation || !Array.isArray(u.act_stations)) return null;
+  return u.act_stations.length > 0 ? u.act_stations : null;
+}
+
+async function getMyStationScope(workerId, restrictPairs = null) {
   const { data: stationAssigns, error } = await db
     .from('fro_station_assignments')
     .select('station, ngo_id')
     .eq('fro_worker_id', workerId);
   if (error) throw error;
-  const scope = (stationAssigns || []).map(s => ({ station: s.station, ngo_id: s.ngo_id }));
+  let scope = (stationAssigns || []).map(s => ({ station: s.station, ngo_id: s.ngo_id }));
+  if (restrictPairs && restrictPairs.length > 0) {
+    const allowed = new Set(restrictPairs.map(p => `${p?.ngo_id ?? ''}|${String(p?.station ?? '').trim()}`));
+    scope = scope.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station).trim()}`));
+  }
   const stationNames = scope.map(s => s.station);
   const allowedNgoIds = [...new Set(scope.map(s => s.ngo_id).filter(Boolean))];
   return { scope, stationNames, allowedNgoIds };
@@ -195,7 +212,7 @@ function filterByScope(rows, scope, getPair) {
   return (rows || []).filter(r => pairs.has(getPair(r)));
 }
 
-async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
+async function chunkedInQuery(ids, queryFn, chunkSize = 1000) {
   const allData = [];
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
@@ -361,7 +378,7 @@ export const getDashboard = async (req, res) => {
     const workerId = req.user.id;
 
     // Count donors by this FRO's stations (from fro_assignments)
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     let totalDonors = 0;
     let assignedByNgo = {};
     let assignedByStation = {};
@@ -408,8 +425,9 @@ export const getDashboard = async (req, res) => {
     const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
     const monthStr = now.toISOString().slice(0, 7) + '-01';
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
 
-    const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
+    const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
 
     const joinedAt = new Date(worker.created_at);
     const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
@@ -432,10 +450,10 @@ export const getDashboard = async (req, res) => {
     const todayStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
     const todayEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
 
-    const verifiedMonth = await getVerifiedCollection(workerId, monthStart, monthEnd);
-    const unverifiedMonth = await getUnverifiedCollection(workerId, monthStart, monthEnd);
-    const verifiedToday = await getVerifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
-    const unverifiedToday = await getUnverifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
+    const verifiedMonth = await getVerifiedCollection(creditWorkerId, monthStart, monthEnd);
+    const unverifiedMonth = await getUnverifiedCollection(creditWorkerId, monthStart, monthEnd);
+    const verifiedToday = await getVerifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString());
+    const unverifiedToday = await getUnverifiedCollection(creditWorkerId, todayStart.toISOString(), todayEnd.toISOString());
 
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
@@ -521,44 +539,34 @@ export const getDashboard = async (req, res) => {
     const reactivatedToday = [...todayDonorSet].filter(id => !fyBeforeTodayDonors.has(id)).length;
     const reactivatedMonthly = [...monthDonorSet].filter(id => !fyBeforeMonthDonors.has(id)).length;
 
-    // FRO-specific reactivations: donors THIS worker reactivated (donated today/month but no prior donation in FY)
+    // FRO-specific reactivations: donors THIS worker reactivated (donated today/month but no prior donation in FY).
+    // Own-money rule: match on the log's collector only. Cross-FRO verifications reuse
+    // another FRO's assignment, so station-pair scoping used to hide them here.
     let froReactivatedToday = 0, froReactivatedMonthly = 0;
-    if (stationNames.length > 0) {
+    {
       // Get donations by this FRO worker today
-      const { data: froTodayDonors } = await withStationNgoPairs(
-        db
-          .from('fro_donor_logs')
-          .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
-          .in('fro_assignments.station', stationNames)
-          .eq('fro_assignments.fro_worker_id', workerId)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', todayStart.toISOString())
-          .lte('created_at', todayEnd.toISOString()),
-        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-      );
+      const { data: froTodayDonors } = await db
+        .from('fro_donor_logs')
+        .select('donor_id')
+        .eq('fro_worker_id', workerId)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', todayStart.toISOString())
+        .lte('created_at', todayEnd.toISOString());
 
-      const { data: froMonthDonors } = await withStationNgoPairs(
-        db
-          .from('fro_donor_logs')
-          .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
-          .in('fro_assignments.station', stationNames)
-          .eq('fro_assignments.fro_worker_id', workerId)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd),
-        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-      );
+      const { data: froMonthDonors } = await db
+        .from('fro_donor_logs')
+        .select('donor_id')
+        .eq('fro_worker_id', workerId)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', monthStart)
+        .lte('created_at', monthEnd);
 
-      const { data: froFyDonors } = await withStationNgoPairs(
-        db
-          .from('fro_donor_logs')
-          .select('donor_id, created_at, fro_assignments!inner(station, fro_worker_id)')
-          .in('fro_assignments.station', stationNames)
-          .eq('fro_assignments.fro_worker_id', workerId)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', fyStart.toISOString()),
-        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-      );
+      const { data: froFyDonors } = await db
+        .from('fro_donor_logs')
+        .select('donor_id, created_at')
+        .eq('fro_worker_id', workerId)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', fyStart.toISOString());
 
       const todayStr = todayStart.toISOString();
       const fyBeforeTodayDonorsSet = new Set();
@@ -665,12 +673,24 @@ export const getDashboard = async (req, res) => {
   }
 };
 
-// List this month's collections for the "Collected" card modal. For work-as
-// collections (from another FRO's donor) the owning FRO's identity is masked so
-// the operator cannot tell which FRO the donor belonged to.
+// List this month's collections for the "Collected" card modal.
+// Own-money rule: every fro_donor_logs row credited to this worker (fro_worker_id)
+// is THEIR collection, regardless of which (station, ngo) assignment the donor sits
+// in — cross-FRO manual verifies, work-as and receipt auto-credits reuse another
+// FRO's assignment, so filtering by the assignment pair used to hide them here.
+// Rows whose assignment belongs to another FRO, or whose NGO is outside this
+// worker's access, are grouped under the "Others" tab; the rest keep their real
+// NGO tab. For work-as rows the owning FRO's identity is masked so the operator
+// cannot tell which FRO the donor belonged to.
+// Supports optional ?ngo_id= query param to return only that tab's rows.
 export const getMyCollections = async (req, res) => {
   try {
     const workerId = req.user.id;
+    const worker = await getWorkerBySession(req.user);
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
+    const { scope: myScope, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const ngoFilter = (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) ? req.query.ngo_id : null;
+
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
@@ -678,39 +698,95 @@ export const getMyCollections = async (req, res) => {
     const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
 
-    const { data, error } = await db
-      .from('fro_donor_logs')
-      .select(`
-        id, donor_id, amount_collected, action, disposition_detail, accounts_status,
-        created_at, transaction_datetime, verified_at,
-        donor_profiles!inner(id, name, mobile_number),
-        fro_assignments!inner(fro_worker_id, workers!left(id, name))
-      `)
-      .eq('fro_worker_id', workerId)
-      .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+    const creditWorkerName = req.user.impersonation && req.user.imposter_name ? String(req.user.imposter_name).trim() : (worker.name || '').trim();
+    const workerName = creditWorkerName;
+    const monthStartDay = monthStart.slice(0, 10);
+    const monthEndDay = monthEnd.slice(0, 10);
+
+    const { data: receipts, error } = await db
+      .from('receipts')
+      .select('id, donor_id, amount, project_id, receipt_date, receipt_no, agent_name, payment_id, donor_name, donor_mobile, mode')
+      .ilike('agent_name', workerName)
+      .gte('receipt_date', monthStartDay)
+      .lte('receipt_date', monthEndDay);
     if (error) throw error;
 
-    const collections = (data || [])
-      .map((l) => {
-        const amount = parseFloat(l.amount_collected || 0);
-        const collected_at = logCollectionDate(l);
-        const is_work_as = l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId;
-        return {
-          id: l.id,
-          donor_id: l.donor_id,
-          donor_name: l.donor_profiles?.name || 'Unknown',
-          donor_mobile: l.donor_profiles?.mobile_number || '',
-          amount_collected: amount,
-          collected_at,
-          owner_worker_id: is_work_as ? null : (l.fro_assignments?.fro_worker_id ?? null),
-          owner_name: is_work_as ? null : (l.fro_assignments?.workers?.name || null),
-          is_work_as,
-        };
-      })
-      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd))
-      .sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+    const { data: allNgos } = await db.from('ngos').select('id, name');
+    const normProj = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+    const projToNgo = new Map();
+    for (const [canon, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+      const ngoRow = (allNgos || []).find((n) => {
+        const nn = normProj(n.name);
+        return nn === canon || nn.includes(canon) || aliases.some((a) => normProj(a) === nn);
+      });
+      if (!ngoRow) continue;
+      projToNgo.set(normProj(canon), ngoRow);
+      for (const a of aliases) projToNgo.set(normProj(a), ngoRow);
+    }
+    for (const n of allNgos || []) {
+      const k = normProj(n.name);
+      if (k && !projToNgo.has(k)) projToNgo.set(k, n);
+    }
 
-    return res.json({ month: monthStart.slice(0, 7), collections });
+    const ngoMap = {};
+    for (const s of myScope) {
+      if (s.ngo_id && !ngoMap[s.ngo_id]) ngoMap[s.ngo_id] = null;
+    }
+    const ngoIds = Object.keys(ngoMap);
+    if (ngoIds.length > 0) {
+      const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', ngoIds);
+      for (const n of ngoRows || []) ngoMap[n.id] = n.name;
+    }
+
+    const seen = new Set();
+    const collections = [];
+    for (const r of receipts || []) {
+      const amount = parseFloat(r.amount || 0);
+      if (amount <= 0) continue;
+
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      let tabNgoId = null;
+      let tabNgoName = null;
+      if (r.project_id) {
+        const ngoRow = projToNgo.get(normProj(r.project_id)) || null;
+        if (ngoRow) { tabNgoId = ngoRow.id; tabNgoName = ngoRow.name; }
+      }
+      if (!tabNgoId) {
+        tabNgoId = allowedNgoIds[0] || allNgos[0]?.id || null;
+        tabNgoName = allNgos?.find((n) => n.id === tabNgoId)?.name || null;
+      }
+      if (tabNgoId && !Object.prototype.hasOwnProperty.call(ngoMap, tabNgoId)) ngoMap[tabNgoId] = tabNgoName;
+      if (ngoFilter && tabNgoId !== ngoFilter) continue;
+
+      collections.push({
+        id: r.id,
+        donor_id: r.donor_id,
+        donor_name: r.donor_name || 'Unknown',
+        donor_mobile: r.donor_mobile || '',
+        amount_collected: amount,
+        collected_at: r.receipt_date || null,
+        ngo_id: tabNgoId,
+        ngo_name: tabNgoName,
+        receipt_no: r.receipt_no != null ? String(r.receipt_no) : null,
+        owner_worker_id: workerId,
+        owner_name: workerName,
+        is_work_as: false,
+      });
+    }
+
+    collections.sort((a, b) => new Date(b.collected_at || 0) - new Date(a.collected_at || 0));
+
+    const ngos = Object.entries(ngoMap).map(([id, name]) => ({ id, name: name || 'Unknown' }));
+
+    return res.json({
+      month: monthStart.slice(0, 7),
+      collections,
+      ngos,
+      ngoMap,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -737,8 +813,8 @@ const NGO_PROJECT_ALIASES = {
   aflf: ['aflf', 'ashray'],
 };
 
-async function myProjectSet(workerId) {
-  const { allowedNgoIds } = await getMyStationScope(workerId);
+async function myProjectSet(workerId, restrictPairs = null) {
+  const { allowedNgoIds } = await getMyStationScope(workerId, restrictPairs);
   if (allowedNgoIds.length === 0) return [];
   const { data: ngos } = await db.from('ngos').select('id, name').in('id', allowedNgoIds);
   const names = (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
@@ -754,35 +830,66 @@ async function myProjectSet(workerId) {
 export const getSuspenseReceipts = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const projectSet = await myProjectSet(workerId);
-    if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
-    const { month, monthStart, monthEnd } = currentMonthBoundsIST();
+    // Suspense is a shared pool: every FRO sees their assigned NGO AND all
+    // other NGOs' unclaimed receipts here (NGO pills on the frontend filter).
+    const { month } = currentMonthBoundsIST();
 
-    const { data: receipts, error } = await db
-      .from('receipts')
-      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
-      .is('donor_id', null)
-      .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.suspense,agent_name.eq.NA,agent_name.eq.na')
-      .gte('receipt_date', monthStart)
-      .lte('receipt_date', monthEnd)
-      .in('project_id', projectSet)
-      .order('receipt_date', { ascending: false });
-    if (error) throw error;
+    const { data: entries, error: eErr } = await db
+      .from('bank_audit_entries')
+      .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id, agent_name, verify_fro_worker_id')
+      .eq('status', 'unverified')
+      .is('matched_lead_log_id', null);
+    if (eErr) throw eErr;
 
-    // Truly suspense: BOTH the agent name and the donor mobile are missing.
-    const filtered = (receipts || []).filter(r =>
-      !isPriyankShahAgent(r.agent_name)
-      && isBlankSuspenseValue(r.agent_name)
-      && isBlankSuspenseValue(r.donor_mobile)
-    );
+    const receiptLinked = (entries || []).filter(e => e.receipt_id);
+    const receiptIds = [...new Set(receiptLinked.map(e => e.receipt_id))];
+    let receiptMap = {};
+    if (receiptIds.length > 0) {
+      const { data: receipts } = await db
+        .from('receipts')
+          .select('id, log_id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
+        .in('id', receiptIds);
+      for (const r of (receipts || [])) receiptMap[r.id] = r;
+    }
 
-    // Bank-audited suspense is also claimable suspense: Accounts sees it as an
-    // entry in Bank Audit, and FROs must see the same receipt here so they can
-    // claim it. No bank-audit exclusion.
-    const pool = filtered;
+    const pool = receiptLinked.map(e => {
+      const r = receiptMap[e.receipt_id] || {};
+      // Receipt already linked to a lead (credited to an FRO) — skip.
+      if (r.log_id) return null;
+      const hasNo = !e.receipt_no && !r.receipt_no;
+      return {
+        id: e.receipt_id,
+        entry_id: e.id,
+        receipt_no: e.receipt_no || r.receipt_no || null,
+        donor_name: r.donor_name || e.payer_name || null,
+        donor_mobile: r.donor_mobile || null,
+        amount: r.amount || e.amount,
+        receipt_date: r.receipt_date || e.transaction_date,
+        receipt_time: r.receipt_time || e.payment_time,
+        project_id: r.project_id || e.project_id,
+        has_receipt: true,
+        waiting_receipt_no: hasNo,
+      };
+    }).filter(Boolean);
 
-    const poolIds = pool.map(r => r.id);
+    for (const e of entries || []) {
+      if (e.receipt_id) continue;
+      pool.push({
+        id: `entry-${e.id}`,
+        entry_id: e.id,
+        receipt_no: e.receipt_no || null,
+        donor_name: e.payer_name || null,
+        donor_mobile: null,
+        amount: e.amount,
+        receipt_date: e.transaction_date,
+        receipt_time: e.payment_time,
+        project_id: e.project_id,
+        has_receipt: false,
+        waiting_receipt_no: !!e.verify_fro_worker_id,
+      });
+    }
+
+    const poolIds = pool.filter(r => r.has_receipt).map(r => r.id);
     let claims = [];
     if (poolIds.length > 0) {
       const { data: c, error: cErr } = await db
@@ -811,6 +918,9 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_date: r.receipt_date,
       receipt_time: r.receipt_time,
       project_id: r.project_id,
+      kind: r.has_receipt ? 'entry' : 'no_receipt',
+      waiting_receipt_no: r.waiting_receipt_no || false,
+      _bank_audit_entry_id: r.entry_id,
       claim_count: claimCountByReceipt[r.id] || 0,
       my_claim_status: myClaimStatusByReceipt[r.id] || null,
     }));
@@ -834,7 +944,7 @@ export const searchSuspenseDonors = async (req, res) => {
     const { q } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
-    const projectSet = await myProjectSet(workerId);
+    const projectSet = await myProjectSet(workerId, froActPairs(req));
     if (projectSet.length === 0) return res.json([]);
 
     const term = `%${q.trim()}%`;
@@ -956,27 +1066,33 @@ const findClaimAuditEntry = async (receipt, claimUpiId = '') => {
 // the money once (with the claim pill) instead of a separate unlinked entry.
 // Never relinks an entry that is already verified or matched to a different
 // lead; never blocks the claim if the link fails.
-const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId) => {
+const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId, workerName) => {
   if (!entry?.id) return;
   if (entry.status === 'verified') return;
-  if (entry.matched_lead_log_id != null && String(entry.matched_lead_log_id) !== String(logId)) return;
+
+  const alreadyLinkedToDifferentLog = entry.matched_lead_log_id != null && String(entry.matched_lead_log_id) !== String(logId);
 
   const patch = {
-    receipt_id: receiptId,
-    matched_lead_log_id: logId,
-    match_status: 'matched',
-    match_source: 'manual',
-    matched_by: workerId,
-    matched_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    donor_id: donorId || entry.donor_id || null,
+    agent_name: workerName || null,
   };
-  if (!entry.match_no) {
-    try {
-      const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
-      patch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
-    } catch (e) { console.error('Match no allocation failed:', e.message); }
+
+  if (!alreadyLinkedToDifferentLog) {
+    patch.receipt_id = receiptId;
+    patch.matched_lead_log_id = logId;
+    patch.match_status = 'matched';
+    patch.match_source = 'manual';
+    patch.matched_by = workerId;
+    patch.matched_at = new Date().toISOString();
+    patch.donor_id = donorId || entry.donor_id || null;
+    if (!entry.match_no) {
+      try {
+        const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+        patch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
+      } catch (e) { console.error('Match no allocation failed:', e.message); }
+    }
   }
+
   try {
     await db.from('bank_audit_entries').update(patch).eq('id', entry.id);
   } catch (e) {
@@ -987,15 +1103,60 @@ const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId) =
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const receiptId = parseInt(req.params.receiptId, 10);
+    // When working-as another FRO, the collection credit goes to the operator
+    // (imposter) while donor/assignment ownership stays with the impersonated FRO.
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : workerId;
+    const creditWorkerName = req.user.impersonation && req.user.imposter_name ? req.user.imposter_name : req.user.name;
+    const rawId = (req.params.receiptId || '').trim();
     const { donor_id, donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
-    if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
     let donorId = donor_id ? parseInt(donor_id, 10) : null;
     const explicitDonor = donorId !== null;
     let donorName = (donor_name || '').trim();
     if (!donorId && !donorName) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
 
-    const projectSet = await myProjectSet(workerId);
+    const projectSet = await myProjectSet(workerId, froActPairs(req));
+
+    // Handle entry-XXX IDs (bank audit entries without a linked receipt):
+    // auto-create a suspense receipt and link it, then continue the normal
+    // claim flow so the FRO can claim raw bank-audit rows.
+    let receiptId = parseInt(rawId, 10);
+    if (!receiptId && rawId.startsWith('entry-')) {
+      const entryId = parseInt(rawId.slice(6), 10);
+      if (!entryId) return res.status(400).json({ message: 'Invalid entry ID' });
+      const { data: entry, error: eErr } = await db
+        .from('bank_audit_entries')
+        .select('id, amount, transaction_date, payment_time, project_id, payer_name, receipt_no, receipt_id')
+        .eq('id', entryId)
+        .single();
+      if (eErr || !entry) return res.status(404).json({ message: 'Bank audit entry not found' });
+      if (entry.receipt_id) {
+        // Already linked — just continue with that receipt
+        receiptId = entry.receipt_id;
+      } else {
+        // Create a minimal suspense receipt from the entry data
+        const receiptDate = entry.transaction_date || new Date().toISOString().slice(0, 10);
+        const { data: newReceipt, error: crErr } = await db
+          .from('receipts')
+          .insert({
+            project_id: entry.project_id || 'bsct',
+            amount: entry.amount || 0,
+            receipt_date: receiptDate,
+            receipt_time: entry.payment_time || null,
+            donor_name: donorName || entry.payer_name || null,
+            payment_id: entry.payment_id || null,
+            agent_name: creditWorkerName || null,
+          })
+          .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
+          .single();
+        if (crErr || !newReceipt) return res.status(500).json({ message: 'Failed to create receipt from bank entry: ' + (crErr?.message || 'unknown') });
+        // Link the entry to the new receipt
+        try {
+          await db.from('bank_audit_entries').update({ receipt_id: newReceipt.id, receipt_no: entry.receipt_no || null }).eq('id', entryId);
+        } catch (e) { console.error('Failed to link bank entry to new receipt:', e.message); }
+        receiptId = newReceipt.id;
+      }
+    }
+    if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
@@ -1003,10 +1164,19 @@ export const claimSuspenseReceipt = async (req, res) => {
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
-    if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
-    if (receipt.log_id) return res.status(409).json({ message: 'This receipt has already been claimed' });
-    if (projectSet.length > 0 && !projectSet.includes(receipt.project_id)) {
-      return res.status(403).json({ message: 'Receipt does not belong to your NGO' });
+
+    // Detect "receipt_sent" entries: receipt has a donor but no log (no FRO assigned).
+    const isReceiptSent = receipt.donor_id != null && receipt.log_id == null;
+    if (!isReceiptSent) {
+      if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
+      if (receipt.log_id) return res.status(409).json({ message: 'This receipt has already been claimed' });
+    }
+
+    // For receipt_sent entries, pre-fill the donor from the receipt so the FRO
+    // sees the existing donor but can override if the bank name was wrong.
+    if (isReceiptSent && !donorId) {
+      donorId = receipt.donor_id;
+      donorName = receipt.donor_name || donorName;
     }
 
     const { monthStart, month } = currentMonthBoundsIST();
@@ -1067,6 +1237,19 @@ export const claimSuspenseReceipt = async (req, res) => {
         .single();
       if (dErr || !found) return res.status(404).json({ message: 'Donor not found' });
       donorName = found.name;
+      // Update the existing donor profile with any edits the FRO made in the
+      // claim form so Lead Verification shows the latest data.
+      const donorUpdate = {};
+      if (donor_name) donorUpdate.name = donor_name;
+      if (donor_mobile) donorUpdate.mobile_number = donor_mobile;
+      if (donor_city) donorUpdate.city = donor_city;
+      if (donor_email) donorUpdate.email = donor_email;
+      if (donor_pan) donorUpdate.pan_number = donor_pan;
+      if (donor_address) donorUpdate.address_1 = donor_address;
+      if (Object.keys(donorUpdate).length > 0) {
+        donorUpdate.updated_at = new Date().toISOString();
+        await db.from('donor_profiles').update(donorUpdate).eq('id', donorId);
+      }
     } else {
       const { data: existingDonor } = await db
         .from('donor_profiles')
@@ -1077,10 +1260,45 @@ export const claimSuspenseReceipt = async (req, res) => {
         .maybeSingle();
       if (existingDonor) {
         donorId = existingDonor.id;
+      } else if (donor_mobile) {
+        const { data: mobDonor } = await db
+          .from('donor_profiles')
+          .select('id')
+          .eq('mobile_number', donor_mobile)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (mobDonor) {
+          donorId = mobDonor.id;
+        } else {
+          const { data: createdDonor, error: donorErr } = await db
+            .from('donor_profiles')
+            .insert({
+              name: donorName,
+              mobile_number: donor_mobile || `NOCELL-${Date.now()}`,
+              city: donor_city || null,
+              email: donor_email || null,
+              pan_number: donor_pan || null,
+              address_1: donor_address || null,
+              project_supported: receipt.project_id,
+            })
+            .select()
+            .single();
+          if (donorErr) throw donorErr;
+          donorId = createdDonor.id;
+        }
       } else {
         const { data: createdDonor, error: donorErr } = await db
           .from('donor_profiles')
-          .insert({ name: donorName, project_supported: receipt.project_id })
+          .insert({
+            name: donorName,
+            mobile_number: `NOCELL-${Date.now()}-${workerId}`,
+            city: donor_city || null,
+            email: donor_email || null,
+            pan_number: donor_pan || null,
+            address_1: donor_address || null,
+            project_supported: receipt.project_id,
+          })
           .select()
           .single();
         if (donorErr) throw donorErr;
@@ -1109,7 +1327,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     // Only allow claiming for a donor allotted to this FRO's station scope
     // (enforced for donors selected from the FRO's own donor search).
     if (explicitDonor) {
-      const { scope: myScope, stationNames } = await getMyStationScope(workerId);
+      const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
       if (stationNames.length > 0) {
         const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
         const { data: donorAssignments } = await db
@@ -1139,7 +1357,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     const auditEntry = await findClaimAuditEntry(receipt, claimUpiId);
     const auditUpi = auditEntry?.payment_id ? String(auditEntry.payment_id).trim() : null;
     const auditFrom = auditEntry?.payer_name ? String(auditEntry.payer_name).trim() : null;
-    const auditMode = auditEntry?.payment_id ? 'UPI' : (auditEntry?.check_id ? 'Cheque' : 'Bank Transfer');
+    const auditMode = auditEntry?.mode || (auditEntry?.payment_id ? 'UPI' : (auditEntry?.check_id ? 'Cheque' : 'Bank Transfer'));
     const auditTxn = auditEntry?.transaction_date
       ? (() => {
           const d = String(auditEntry.transaction_date);
@@ -1162,52 +1380,8 @@ export const claimSuspenseReceipt = async (req, res) => {
       } catch (e) { console.error('Failed to backfill receipt payment id from audit entry:', e.message); }
     }
 
-    // Dedupe: if this FRO already has an unresolved pending lead_done for the
-    // same donor (e.g. they marked the lead done before, accounts could not
-    // match it because the money was sitting in suspense), attach the claimed
-    // receipt to that existing lead instead of creating a duplicate pending
-    // lead in Lead Verification for the same donor + agent.
-    const { data: existingPendingLead } = await db
-      .from('fro_donor_logs')
-      .select('id')
-      .eq('donor_id', donorId)
-      .eq('fro_worker_id', workerId)
-      .eq('action', 'disposition')
-      .eq('disposition_detail', 'lead_done')
-      .eq('accounts_status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingPendingLead) {
-      const leadUpdates = {};
-      if (finalUpi) leadUpdates.upi_transaction_id = finalUpi;
-      if (finalTxn) leadUpdates.transaction_datetime = finalTxn;
-      if (finalMode) leadUpdates.payment_mode = finalMode;
-      if (finalFrom) leadUpdates.payment_from = finalFrom;
-      if (effectivePan) leadUpdates.pan_number = effectivePan;
-      if (Object.keys(leadUpdates).length > 0) {
-        await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
-      }
-      const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
-      if (updErr) throw updErr;
-      await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
-      await linkClaimAuditEntry(auditEntry, receiptId, existingPendingLead.id, workerId, donorId);
-      try {
-        const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
-        for (const u of (accounts || [])) {
-          await db.from('notification_log').insert({
-            worker_id: u.id,
-            type: 'claim_requested',
-            title: 'Suspense Claim',
-            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${claimedDonorName} — ready to verify.`,
-            sent_at: new Date().toISOString(),
-          });
-        }
-      } catch (e) { console.error('Claim notification error:', e.message); }
-      findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
-      return res.status(201).json({ message: `Claimed for ${claimedDonorName} — added to your existing pending lead`, log_id: existingPendingLead.id });
-    }
+    // Dedup removed: each claimed receipt now creates its own lead in Lead
+    // Verification so accounts sees every payment separately.
 
     // Resolve the receipt's project_id to an ngo_id first — the assignment must
     // match the receipt's NGO, not just any prior assignment for this donor.
@@ -1228,12 +1402,12 @@ export const claimSuspenseReceipt = async (req, res) => {
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .eq('ngo_id', receiptNgoId)
-      .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
+      .neq('status', 'reassigned')
       .maybeSingle();
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
-      const { scope: claimScope } = await getMyStationScope(workerId);
+      const { scope: claimScope } = await getMyStationScope(workerId, froActPairs(req));
       const scopeRow = (claimScope || []).find(s => s.ngo_id === receiptNgoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
@@ -1256,7 +1430,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       .insert({
         assignment_id: assignmentId,
         donor_id: donorId,
-        fro_worker_id: workerId,
+        fro_worker_id: creditWorkerId,
         action: 'disposition',
         disposition_detail: 'lead_done',
         amount_collected: receipt.amount,
@@ -1268,17 +1442,30 @@ export const claimSuspenseReceipt = async (req, res) => {
         payment_from: finalFrom,
         pan_number: effectivePan,
         transaction_datetime: finalTxn,
-        created_by: workerId,
+        created_by: creditWorkerId,
       })
       .select()
       .single();
     if (logErr) throw logErr;
 
-    const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
+    const { error: updErr } = await db.from('receipts').update({ log_id: log.id, agent_name: creditWorkerName }).eq('id', receiptId);
     if (updErr) throw updErr;
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
-    await linkClaimAuditEntry(auditEntry, receiptId, log.id, workerId, donorId);
+    await linkClaimAuditEntry(auditEntry, receiptId, log.id, creditWorkerId, donorId, creditWorkerName);
+
+    // For receipt_sent entries, transition the bank_audit_entry status from
+    // "receipt_sent" → "unverified" and stamp the claiming FRO's name so
+    // Accounts sees it as a normal pending lead.
+    if (isReceiptSent && auditEntry?.id) {
+      try {
+        await db.from('bank_audit_entries').update({
+          status: 'unverified',
+          agent_name: creditWorkerName || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', auditEntry.id);
+      } catch (e) { console.error('Failed to update receipt_sent audit entry:', e.message); }
+    }
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
@@ -1287,7 +1474,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           worker_id: u.id,
           type: 'claim_requested',
           title: 'Suspense Claim',
-          body: `${req.user.name || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} — pending in Lead Verification.`,
+          body: `${creditWorkerName || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} — pending in Lead Verification.`,
           sent_at: new Date().toISOString(),
         });
       }
@@ -1314,7 +1501,7 @@ export const getReactivatedDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
     const period = req.query.period === 'month' ? 'month' : 'today';
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const nowUtc = new Date();
@@ -1380,7 +1567,7 @@ export const getMyDonors = async (req, res) => {
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
 
     let effectiveScope = myScope;
     let effectiveStations = stationNames;
@@ -1398,6 +1585,7 @@ export const getMyDonors = async (req, res) => {
       let query = db
         .from('fro_assignments')
         .select('*, ngos(name)')
+        .eq('fro_worker_id', workerId)
         .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
@@ -1416,75 +1604,30 @@ export const getMyDonors = async (req, res) => {
         query = query.eq('status', statusFilter);
       }
 
-      if (req.query.new_only === 'true') {
-        if (req.query.station) {
-          query = query.eq('batch_type', 'new_data');
-        } else {
-          const batchIds = [];
-          for (const sc of effectiveScope) {
-            try {
-              let batchQ = db
-                .from('fro_assignments')
-                .select('batch_id')
-                .eq('station', sc.station)
-                .eq('batch_type', 'new_data')
-                .not('status', 'eq', 'reassigned')
-                .order('assigned_at', { ascending: false })
-                .limit(1);
-              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-              const { data: lb } = await batchQ.maybeSingle();
-              if (lb?.batch_id) batchIds.push(lb.batch_id);
-            } catch (e) {
-              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-            }
-          }
-          if (batchIds.length > 0) {
-            query = query.in('batch_id', [...new Set(batchIds)]);
-          } else {
-            query = query.eq('batch_type', 'new_data');
-          }
-        }
-      } else if (req.query.old_only === 'true') {
-        if (req.query.station) {
-          query = query.eq('batch_type', 'old_data');
-        } else {
-          const batchIds = [];
-          for (const sc of effectiveScope) {
-            try {
-              let batchQ = db
-                .from('fro_assignments')
-                .select('batch_id')
-                .eq('station', sc.station)
-                .eq('batch_type', 'old_data')
-                .not('status', 'eq', 'reassigned')
-                .order('assigned_at', { ascending: false })
-                .limit(1);
-              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-              const { data: lb } = await batchQ.maybeSingle();
-              if (lb?.batch_id) batchIds.push(lb.batch_id);
-            } catch (e) {
-              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-            }
-          }
-          if (batchIds.length > 0) {
-            query = query.in('batch_id', [...new Set(batchIds)]);
-          } else {
-            query = query.eq('batch_type', 'old_data');
-          }
-        }
-      }
-
-      const { data, error: qErr } = await query;
+      let { data, error: qErr } = await query;
       if (qErr) {
-        console.error('getMyDonors main query error:', qErr);
-        query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
-        query = withStationNgoPairs(query, effectiveScope);
-        if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
-        else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
-        const { data: retry } = await query;
-        data = retry || [];
+        console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
+        try {
+          query = db.from('fro_assignments').select('*, ngos(name)').eq('fro_worker_id', workerId).in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = withStationNgoPairs(query, effectiveScope);
+          const { data: retry, error: retryErr } = await query;
+          if (retryErr) {
+            console.error('getMyDonors retry query also failed for worker', workerId, ':', retryErr.message);
+          }
+          data = retry || [];
+        } catch (retryEx) {
+          console.error('getMyDonors retry exception for worker', workerId, ':', retryEx.message);
+          data = [];
+        }
       }
       assignments = data || [];
+      // Robust new/old filter: handle legacy rows where batch_type is NULL.
+      // New = batch_type new_data OR (null + is_new != false); Old = batch_type old_data OR (null + is_new == false)
+      if (req.query.new_only === 'true') {
+        assignments = assignments.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+      } else if (req.query.old_only === 'true') {
+        assignments = assignments.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+      }
     }
 
     // Fallback: the worker's own assignments. This covers workers who have data
@@ -1511,11 +1654,59 @@ export const getMyDonors = async (req, res) => {
       } else if (statusFilter) {
         byWorkerQ = byWorkerQ.eq('status', statusFilter);
       }
-      if (req.query.new_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'new_data');
-      else if (req.query.old_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'old_data');
-      const { data: byWorker } = await byWorkerQ;
+      const { data: byWorkerRaw } = await byWorkerQ;
+      let byWorker = byWorkerRaw || [];
+      if (req.query.new_only === 'true') {
+        byWorker = byWorker.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+      } else if (req.query.old_only === 'true') {
+        byWorker = byWorker.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+      }
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
+      }
+    }
+
+    // Last-resort fallback so no session dead-ends into a blank screen: serve
+    // the claimable pool (pending, unclaimed rows) when a worker ends up with
+    // nothing — including acting sessions whose claimed stations have no
+    // workable rows right now (e.g. the New batch is exhausted). The pool is
+    // always NGO-partitioned: an acting session is narrowed to the NGOs of its
+    // claimed pairs; everyone else to their token NGO. Only fires for plain
+    // queue requests so filtered views never get surprise rows. Dispositioning
+    // a pooled donor claims it via findOrCreateAssignment.
+    if (!assignments || assignments.length === 0) {
+      const plainQueue = !req.query.status_group && !req.query.status
+        && req.query.verified_only !== 'true'
+        && req.query.active_only !== 'true' && req.query.inactive_only !== 'true';
+      if (plainQueue) {
+        const act = froActPairs(req);
+        let poolQ = db
+          .from('fro_assignments')
+          .select('*, ngos(name)')
+          .is('fro_worker_id', null)
+          .eq('status', 'pending');
+        const claimedNgos = act ? [...new Set(act.map(p => p?.ngo_id).filter(Boolean))] : [];
+        if (claimedNgos.length > 0) {
+          poolQ = poolQ.in('ngo_id', claimedNgos);
+        } else {
+          const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
+          if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
+        }
+        poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
+        try {
+          const { data: poolRowsRaw, error: poolErr } = await poolQ;
+          let poolRows = poolRowsRaw || [];
+          if (!poolErr && poolRows.length > 0) {
+            if (req.query.new_only === 'true') {
+              poolRows = poolRows.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
+            } else if (req.query.old_only === 'true') {
+              poolRows = poolRows.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
+            }
+            if (poolRows.length > 0) assignments = poolRows;
+          }
+        } catch (poolEx) {
+          console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
+        }
       }
     }
 
@@ -1602,7 +1793,11 @@ export const getMyDonors = async (req, res) => {
       seen.add(key);
       const s = scheduleMap[a.id];
       const rawStatus = a.status || 'pending';
-      const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !monthDonatedSet.has(a.id);
+      // Only donation_collected should reset to pending across a donation
+      // period boundary (so a recurring donor reappears to be collected again).
+      // lead_done / done are terminal dispositions — once the FRO closes the
+      // lead they must stay hidden, otherwise disposed leads come back again.
+      const staleDoneStatus = rawStatus === 'donation_collected' && !monthDonatedSet.has(a.id);
       // A donor who has already donated in the current period has nothing left
       // to collect — drop them out of the workable (pending/not-connected) pool
       // so they stop reappearing at the top of the FRO stack. Uses monthDonatedSet
@@ -1643,6 +1838,7 @@ export const getMyDonors = async (req, res) => {
         next_follow_up: a.next_follow_up || null,
         assigned_at: a.assigned_at || null,
         is_new: a.is_new !== false,
+        batch_type: a.batch_type || null,
         next_scheduled_at: s?.scheduled_at || null,
         is_overdue: s ? new Date(s.scheduled_at) < new Date() : false,
         schedule_id: s?.id || null,
@@ -1711,56 +1907,172 @@ export const getMyDonors = async (req, res) => {
     // 2. Not connected (status in NOT_CONNECTED_STATUSES or 'pending')
     // 3. Connected (status in CONNECTED_STATUSES, excluding lead_done)
     // 4. Lead done from previous months (hidden for rest of current month)
+    // 5. Ringing — always sinks to the very end of the queue
 
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+    const nowISO = now.toISOString();
 
-    // Use ALL donor_ids in the station (before dedup) to find hidden lead_done
-    const hiddenLeadDoneIds = new Set();
-    const rejectedLeadDoneIds = new Set();
+    // Retryable not-connected: shown at tail of FIFO for rework, not permanently hidden.
+    const RETRYABLE_NOT_CONNECTED_DETAILS = new Set([
+      'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
+    ]);
+    // Permanent hide for terminal not-connected dispositions (wrong_number, invalid, etc.).
+    // Retryable ones above are excluded here — they go to tail instead.
+    const NOT_CONNECTED_DISPOSITION_DETAILS = new Set([
+      'wrong_number', 'invalid_number', 'invalid',
+      'rejected', 'temporary_network_issue', 'incoming_out',
+    ]);
+    const MONEY_DONE_STATUSES = new Set([
+      'donation_collected', 'done', 'lead_done', 'visit_donate',
+      'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
+    ]);
+    const TERMINAL_DISPOSITIONS = new Set([
+      'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
+      'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
+      'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
+    ]);
+    const notConnectedForeverIds = new Set();
+    const terminalForeverIds = new Set();
     if (donorIds.length > 0) {
-      const leadDoneLogs = await chunkedInQuery(donorIds, chunk =>
-        db.from('fro_donor_logs').select('donor_id, accounts_status').in('donor_id', chunk)
-          .eq('disposition_detail', 'lead_done')
+      const recentLogs = await chunkedInQuery(donorIds, chunk =>
+        db.from('fro_donor_logs').select('donor_id, disposition_detail, created_at')
+          .in('donor_id', chunk)
           .eq('action', 'disposition')
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd)
+          .order('created_at', { ascending: false })
       );
-      for (const log of leadDoneLogs) {
-        hiddenLeadDoneIds.add(log.donor_id);
-        if (log.accounts_status === 'rejected') rejectedLeadDoneIds.add(log.donor_id);
+      const seenEver = new Set();
+      for (const log of recentLogs) {
+        if (!seenEver.has(log.donor_id)) {
+          seenEver.add(log.donor_id);
+          if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
+            notConnectedForeverIds.add(log.donor_id);
+          }
+          if (TERMINAL_DISPOSITIONS.has(log.disposition_detail)) {
+            terminalForeverIds.add(log.donor_id);
+          }
+        }
       }
-      for (const id of rejectedLeadDoneIds) hiddenLeadDoneIds.delete(id);
     }
 
-    const filtered = req.query.verified_only === 'true'
-      ? result
-      : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id));
+    const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
+      'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
+    ]);
 
-    const notConnectedSet = new Set(NOT_CONNECTED_STATUSES);
-    const connectedSet = new Set(CONNECTED_STATUSES);
+    let baseFiltered;
+    if (req.query.verified_only === 'true') {
+      baseFiltered = null;
+    } else {
+      baseFiltered = result.filter(r => {
+        if (r.hidden_until && new Date(r.hidden_until) > now) return false;
+        if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
+        if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
+        if (terminalForeverIds.has(r.donor_id)) return false;
+        if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
+        return true;
+      });
+    }
+    let filtered = baseFiltered === null ? result : baseFiltered;
+
+    const isNewAssignment = (r) => r.batch_type === 'new_data' || (r.batch_type == null && r.is_new !== false);
+    const groupOf = (r) => {
+      const isRetryable = RETRYABLE_NOT_CONNECTED_DETAILS.has(r.status);
+      const isNew = isNewAssignment(r);
+      if (isRetryable) return isNew ? 2 : 3;
+      if (isNew) return 0;
+      return 1;
+    };
 
     filtered.sort((a, b) => {
-      const groupA = a.is_new ? 0
-        : (notConnectedSet.has(a.status) || a.status === 'pending') ? 1
-        : connectedSet.has(a.status) ? 2
-        : a.status === 'lead_done' ? 3 : 4;
-      const groupB = b.is_new ? 0
-        : (notConnectedSet.has(b.status) || b.status === 'pending') ? 1
-        : connectedSet.has(b.status) ? 2
-        : b.status === 'lead_done' ? 3 : 4;
+      const groupA = groupOf(a);
+      const groupB = groupOf(b);
       if (groupA !== groupB) return groupA - groupB;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
       return dateA - dateB;
     });
 
+    // ─── Backend-authoritative current donor (controlled queue) ──────────────
+    // When queue_current=true the backend reconciles the ordered workable donor
+    // list into work_queue and hands back exactly ONE donor (the next one the
+    // FRO should work), plus durable progress. The front-end never chooses the
+    // next donor itself — no client-side skip/reorder, so a lead already worked
+    // can never reappear.
+    if (req.query.queue_current === 'true') {
+      try {
+        const operatorId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : null;
+        const queueTab = req.query.new_only === 'true' ? 'new' : 'old';
+        const queueStation = req.query.station && req.query.station !== 'all' ? req.query.station : null;
+        const donorObjs = filtered.map(r => ({ donor_id: r.donor_id, ngo_id: r.ngo_id, id: r.donor_id }));
+        await reconcileQueue({ workerId, operatorId, donors: donorObjs, station: queueStation, tab: queueTab });
+        await clearActiveRowsNotIn({ workerId, donorIds: donorObjs.map(o => o.donor_id), station: queueStation, tab: queueTab });
+        const activeRows = await getActiveQueueRows({ workerId, station: queueStation, tab: queueTab });
+        const byId = new Map(filtered.map(r => [r.donor_id, r]));
+
+        // Resume position from fro_live_status (per-tab) so reloads continue
+        // from where the FRO left off instead of jumping back to #1.
+        let resumeIndex = null;
+        let resumeId = null;
+        try {
+          const { data: prog } = await db
+            .from('fro_live_status')
+            .select('new_donor_index, old_donor_index, new_donor_id, old_donor_id')
+            .eq('worker_id', workerId)
+            .maybeSingle();
+          resumeIndex = queueTab === 'new' ? prog?.new_donor_index : prog?.old_donor_index;
+          resumeId = queueTab === 'new' ? prog?.new_donor_id : prog?.old_donor_id;
+        } catch (_) { /* ignore */ }
+
+        let next = null;
+        if (activeRows.length > 0) {
+          const resumePos = (num) => (Number.isFinite(num) ? num : -1);
+          let idx = resumeIndex != null ? activeRows.findIndex(r => r.position > resumePos(resumeIndex)) : 0;
+          if (idx < 0) idx = 0;
+          // Avoid immediately re-serving the resume donor unless it is the only one.
+          if (resumeId != null && activeRows[idx].donor_id === resumeId
+              && activeRows.length > 1
+              && resumeIndex != null && activeRows[idx].position <= resumePos(resumeIndex)) {
+            idx = (idx + 1) % activeRows.length;
+          }
+          next = activeRows[idx];
+        }
+
+        const totalActive = activeRows.length;
+        if (!next || !byId.has(next.donor_id)) {
+          console.log('queue_current: cycle exhausted for worker', workerId, 'station', queueStation, 'tab', queueTab, 'active', totalActive);
+          return res.json({ donor: null, position: -1, total: totalActive, cycle_key: cycleKey({ ngoId: null, station: queueStation, tab: queueTab }), done: true });
+        }
+        const r = byId.get(next.donor_id);
+        await markShown({ workerId, donorId: next.donor_id, ngoId: next.ngo_id, station: queueStation, tab: queueTab, position: next.position });
+        return res.json({
+          donor: r,
+          position: next.position,
+          total: totalActive,
+          cycle_key: cycleKey({ ngoId: null, station: queueStation, tab: queueTab }),
+          done: false,
+          queue_status: next.status,
+        });
+      } catch (queueErr) {
+        console.error('queue_current error for worker', workerId, ':', queueErr.message);
+        // Fall back to the plain list behaviour so the FRO does not dead-end.
+        return res.json({ donors: filtered, total: filtered.length });
+      }
+    }
+
     const total = filtered.length;
     let page = filtered;
     if (Number.isFinite(limit) && limit > 0) {
       const start = (Number.isFinite(offset) && offset > 0) ? offset : 0;
       page = filtered.slice(start, start + limit);
+    }
+
+    if (total === 0 && assignments && assignments.length > 0) {
+      console.warn('getMyDonors EMPTY after filters for worker', workerId,
+        '| raw_assignments:', assignments.length,
+        '| new_only:', req.query.new_only, '| old_only:', req.query.old_only,
+        '| ngo_id:', req.query.ngo_id || 'all',
+        '| station:', req.query.station || 'all',
+        '| not_connected_forever:', notConnectedForeverIds.size,
+        '| result_before_hide:', result.length);
     }
 
     return res.json({ donors: page, total });
@@ -1773,7 +2085,7 @@ export const getMyDonors = async (req, res) => {
 export const getTransferredLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     let effectiveScope = myScope;
@@ -2066,6 +2378,20 @@ export const getDonorLogs = async (req, res) => {
   }
 };
 
+const MONEY_TERMINAL_STATUSES = new Set(['done', 'lead_done', 'donation_collected']);
+
+// A donor whose assignment is already money-terminal is no longer workable for
+// this worker in this cycle; opening it again is a duplicate/out-of-order save.
+function isDisposedForWorker(assignment, detail) {
+  if (!assignment) return false;
+  if (assignment.status === 'reassigned') return true;
+  if (!MONEY_TERMINAL_STATUSES.has(assignment.status)) return false;
+  // Re-submitting the exact same money disposition is a duplicate; submitting a
+  // different disposition onto a closed money lead is out-of-order.
+  if (assignment.status === 'lead_done' || assignment.status === 'done') return true;
+  return false;
+}
+
 export const createDonorLogHandler = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -2111,102 +2437,157 @@ export const createDonorLogHandler = async (req, res) => {
       logData.accounts_status = 'pending';
     }
 
-    // Same-day disposition dedup: re-saving the same detail (e.g. ringing, busy,
-    // not_possible) for the same assignment refreshes today's row instead of
-    // inserting a new timeline entry. Money events (done / lead_done) always insert.
-    const MONEY_DETAILS = new Set(['done', 'lead_done']);
-    let log;
-    if (action === 'disposition' && disposition_detail && !MONEY_DETAILS.has(disposition_detail)) {
-      const dayStart = new Date();
-      dayStart.setHours(0, 0, 0, 0);
-      const existing = await findDispositionLogToday(assignment.id, creditWorkerId, disposition_detail, dayStart.toISOString());
-      if (existing) {
-        log = await updateDonorLog(existing.id, {
-          notes: logData.notes,
-          outcome: logData.outcome,
-          amount_collected: logData.amount_collected,
-          disposition_category: logData.disposition_category,
-          scheduled_at: logData.scheduled_at,
-          payment_screenshot_url: logData.payment_screenshot_url,
-          pan_number: logData.pan_number,
-          remark: logData.remark,
-          upi_transaction_id: logData.upi_transaction_id,
-          transaction_datetime: logData.transaction_datetime,
-          created_at: new Date().toISOString(),
-        });
+    // ─── Atomic, duplicate-safe disposition ──────────────────────────────────
+    // The whole save (log insert + assignment status update + donor profile
+    // update + queue update) runs in ONE transaction so a partial failure can
+    // never leave a log without its status (or vice-versa). A per-assignment
+    // advisory xact lock serializes concurrent saves (two tabs / double-click)
+    // so only one wins; the DB unique index uq_fro_donor_logs_same_day_disp is
+    // the final backstop against duplicate same-day disposition rows.
+    const retryable = classifyDisposition(disposition_detail).retryable;
+    const terminalQueued = action === 'disposition' && disposition_detail && !retryable;
+
+    const result = await db.transaction(async () => {
+      await db._pool.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['dispose:' + assignment.id]);
+
+      // Guard: do not let a worker re-open or duplicate a money-closed lead.
+      if (action === 'disposition' && isDisposedForWorker(assignment, disposition_detail)) {
+        const err = new Error('This lead is already closed (donation collected / done). Refresh to see the next donor.');
+        err.code = 'LEAD_CLOSED';
+        throw err;
+      }
+
+      // Same-day disposition dedup: re-saving the same detail (e.g. ringing, busy,
+      // not_possible) for the same assignment refreshes today's row instead of
+      // inserting a new timeline entry. Money events (done / lead_done) always insert.
+      const MONEY_DETAILS = new Set(['done', 'lead_done']);
+      let log;
+      if (action === 'disposition' && disposition_detail && !MONEY_DETAILS.has(disposition_detail)) {
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const existing = await findDispositionLogToday(assignment.id, creditWorkerId, disposition_detail, dayStart.toISOString());
+        if (existing) {
+          log = await updateDonorLog(existing.id, {
+            notes: logData.notes,
+            outcome: logData.outcome,
+            amount_collected: logData.amount_collected,
+            disposition_category: logData.disposition_category,
+            scheduled_at: logData.scheduled_at,
+            payment_screenshot_url: logData.payment_screenshot_url,
+            pan_number: logData.pan_number,
+            remark: logData.remark,
+            upi_transaction_id: logData.upi_transaction_id,
+            transaction_datetime: logData.transaction_datetime,
+            created_at: new Date().toISOString(),
+          });
+        } else {
+          log = await createDonorLog(logData);
+        }
       } else {
         log = await createDonorLog(logData);
       }
-    } else {
-      log = await createDonorLog(logData);
-    }
 
-    // Update donor profile fields if provided
-    const updateFields = {};
-    if (donor_address) updateFields.address_1 = donor_address;
-    if (donor_dob) updateFields.birth_date = donor_dob;
-    if (project_name) updateFields.project_supported = project_name;
-    if (Object.keys(updateFields).length > 0) {
-      await db.from('donor_profiles').update(updateFields).eq('id', donorId);
-    }
+      // Any logged interaction means the worker attempted this donor — clear
+      // the NEW flag so it stops counting/pinning as fresh data.
+      await db.from('fro_assignments').update({ is_new: false }).eq('id', assignment.id);
 
-    const now = new Date().toISOString();
+      // Update donor profile fields if provided
+      const updateFields = {};
+      if (donor_address) updateFields.address_1 = donor_address;
+      if (donor_dob) updateFields.birth_date = donor_dob;
+      if (project_name) updateFields.project_supported = project_name;
+      if (Object.keys(updateFields).length > 0) {
+        await db.from('donor_profiles').update(updateFields).eq('id', donorId);
+      }
 
-    if (action === 'donation') {
-      await updateAssignmentStatus(assignment.id, {
-        status: 'donation_collected',
-        last_contacted_at: now,
-      });
-    } else if (action === 'disposition' && disposition_detail) {
-      await completeAllScheduledByAssignment(assignment.id);
+      const now = new Date().toISOString();
 
-      const statusFromDetail = dispositionDetailToStatus(disposition_detail);
-      const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
-
-      if (['scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'callback'].includes(disposition_detail) && scheduled_at) {
-        await createScheduledContact({
-          assignment_id: assignment.id,
-          scheduled_at,
-          notes: notes || null,
-          created_by: workerId,
+      if (action === 'donation') {
+        await updateAssignmentStatus(assignment.id, {
+          status: 'donation_collected',
+          last_contacted_at: now,
+          hidden_until: firstOfNextMonthIST(),
         });
-        statusUpdates.next_follow_up = scheduled_at.slice(0, 10);
+      } else if (action === 'disposition' && disposition_detail) {
+        await completeAllScheduledByAssignment(assignment.id);
+
+        const statusFromDetail = dispositionDetailToStatus(disposition_detail);
+        const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
+
+        if (['scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'callback'].includes(disposition_detail) && scheduled_at) {
+          await createScheduledContact({
+            assignment_id: assignment.id,
+            scheduled_at,
+            notes: notes || null,
+            created_by: workerId,
+          });
+          statusUpdates.next_follow_up = istDateString(scheduled_at);
+        }
+
+        if (outcome && outcome.startsWith('next_date:')) {
+          statusUpdates.next_follow_up = outcome.replace('next_date:', '').trim();
+        }
+
+        statusUpdates.hidden_until = computeHiddenUntil(disposition_detail, scheduled_at);
+        await updateAssignmentStatus(assignment.id, statusUpdates);
+      } else if (action === 'call' || action === 'visit') {
+        await updateAssignmentStatus(assignment.id, {
+          status: 'contacted',
+          last_contacted_at: now,
+        });
       }
 
-      if (outcome && outcome.startsWith('next_date:')) {
-        statusUpdates.next_follow_up = outcome.replace('next_date:', '').trim();
+      // Reflect the disposition on the controlled queue: terminal dispositions
+      // mark the donor DISPOSED across all the worker's active queues (gone, so
+      // it can never reappear); retryable not-connected (ringing/busy) stay
+      // active so the same donor can be reworked next time.
+      if (action === 'disposition' && disposition_detail) {
+        try {
+          await markDisposed({
+            workerId,
+            donorId,
+            disposed: terminalQueued,
+          });
+        } catch (queueErr) {
+          console.warn('work_queue status update skipped for assignment', assignment.id, ':', queueErr.message);
+        }
       }
 
-      await updateAssignmentStatus(assignment.id, statusUpdates);
-    } else if (action === 'call' || action === 'visit') {
-      await updateAssignmentStatus(assignment.id, {
-        status: 'contacted',
-        last_contacted_at: now,
-      });
-    }
-
-    // If this assignment had a rejected lead ticket, resolve it
-    try {
-      const { data: logs } = await db
-        .from('fro_donor_logs')
-        .select('id')
-        .eq('assignment_id', assignment.id)
-        .eq('accounts_status', 'rejected')
-        .limit(1);
-      if (logs && logs.length > 0) {
-        const rejectedLogIds = logs.map(l => l.id);
-        await db
-          .from('rejected_lead_tickets')
-          .update({ status: 'resolved' })
-          .in('fro_donor_log_id', rejectedLogIds)
-          .eq('status', 'pending_review');
+      // If this assignment had a rejected lead ticket, resolve it
+      try {
+        const { data: logs } = await db
+          .from('fro_donor_logs')
+          .select('id')
+          .eq('assignment_id', assignment.id)
+          .eq('accounts_status', 'rejected')
+          .limit(1);
+        if (logs && logs.length > 0) {
+          const rejectedLogIds = logs.map(l => l.id);
+          await db
+            .from('rejected_lead_tickets')
+            .update({ status: 'resolved' })
+            .in('fro_donor_log_id', rejectedLogIds)
+            .eq('status', 'pending_review');
+        }
+      } catch (err) {
+        console.error('Failed to resolve rejected lead ticket:', err.message);
       }
-    } catch (err) {
-      console.error('Failed to resolve rejected lead ticket:', err.message);
-    }
 
-    return res.json({ message: 'Log entry created', data: log });
+      return log;
+    });
+
+    return res.json({ message: 'Log entry created', data: result });
   } catch (error) {
+    if (error && error.code === 'LEAD_CLOSED') {
+      return res.status(409).json({ message: error.message });
+    }
+    if (error && error.code === '23505') {
+      // Duplicate same-day disposition prevented by the DB unique index — the
+      // save already happened; treat as idempotent success so the front-end
+      // advances rather than erroring repeatedly.
+      console.warn('duplicate same-day disposition suppressed:', error.message);
+      return res.status(200).json({ message: 'Already logged — duplicate suppressed', data: null });
+    }
     return res.status(500).json({ message: error.message });
   }
 };
@@ -2214,7 +2595,7 @@ export const createDonorLogHandler = async (req, res) => {
 export const getRejectedLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
 
     if (stationNames.length === 0) return res.json([]);
 
@@ -2346,9 +2727,33 @@ function dispositionDetailToStatus(detail) {
     receipt_request: 'receipt_request',
     dnd: 'dnd',
     wrong_person: 'wrong_person',
+    not_possible: 'not_possible',
     call_disconnected: 'call_disconnected',
   };
   return map[detail] || 'contacted';
+}
+
+const SCHEDULE_DISPOSITIONS = new Set([
+  'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
+]);
+
+function firstOfNextMonthIST() {
+  return firstOfNextMonthIstUtc();
+}
+
+function computeHiddenUntil(dispositionDetail, scheduledAt) {
+  if (SCHEDULE_DISPOSITIONS.has(dispositionDetail) && scheduledAt) {
+    return new Date(scheduledAt);
+  }
+  // Only unanswered calls are automatically retryable, from the next IST day.
+  const RETRYABLE_NEXT_DAY = new Set([
+    'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
+    'unreachable', 'voicemail',
+  ]);
+  if (RETRYABLE_NEXT_DAY.has(dispositionDetail)) {
+    return startOfNextIstDayUtc();
+  }
+  return firstOfNextMonthIST();
 }
 
 export const scheduleContact = async (req, res) => {
@@ -2376,7 +2781,7 @@ export const scheduleContact = async (req, res) => {
     await updateAssignmentStatus(assignment.id, {
       status: 'scheduled',
       last_contacted_at: new Date().toISOString(),
-      next_follow_up: scheduled_at.slice(0, 10),
+      next_follow_up: istDateString(scheduled_at),
     });
 
     return res.json({ message: 'Contact scheduled', data: contact });
@@ -2416,7 +2821,23 @@ export const getMyTarget = async (req, res) => {
 
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
-    const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
+    const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
+    const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
+    const collectedByNgo = await getCollectedByNgo(creditWorkerId, monthStart, monthEnd, allowedNgoIds);
+
+    // Resolve NGO names for the breakdown
+    const collectedNgoIds = Object.keys(collectedByNgo).filter(id => id !== 'others');
+    const collectedNgoMap = {};
+    if (collectedNgoIds.length > 0) {
+      const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', collectedNgoIds);
+      for (const n of ngoRows || []) collectedNgoMap[n.id] = n.name;
+    }
+    const collected_by_ngo = Object.entries(collectedByNgo).map(([id, amount]) => ({
+      ngo_id: id,
+      ngo_name: id === 'others' ? 'Others' : (collectedNgoMap[id] || 'Unknown'),
+      amount,
+    })).filter(r => r.amount > 0).sort((a, b) => b.amount - a.amount);
 
     const stats = await getDashboardStats(workerId);
 
@@ -2432,9 +2853,9 @@ export const getMyTarget = async (req, res) => {
       totalCollectionAKI: 0,
     };
     try {
-      const achievements = await getAchievements(workerId, monthStart, monthEnd);
+      const achievements = await getAchievements(creditWorkerId, monthStart, monthEnd);
       const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-      const dailyCollection = await getDailyCollectionByWorker(workerId, monthStart, monthEnd);
+      const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd);
       const akiPerDay = Object.entries(dailyCollection || {})
         .map(([date, collection]) => ({
           date,
@@ -2464,6 +2885,7 @@ export const getMyTarget = async (req, res) => {
       target,
       target_source: targetSource,
       collected,
+      collected_by_ngo: collected_by_ngo,
       achieved_target,
       remaining: Math.max(0, target - collected),
       salary: currentSalary,
@@ -2479,17 +2901,24 @@ export const getMyTarget = async (req, res) => {
 export const getMyStations = async (req, res) => {
   try {
     const workerId = req.user.id;
+    const actPairs = froActPairs(req);
     const { data: stations, error } = await db
       .from('fro_station_assignments')
       .select('station, ngo_id, ngos(name)')
       .eq('fro_worker_id', workerId)
       .order('station', { ascending: true });
     if (error) throw error;
-    return res.json((stations || []).map(s => ({
+    let mapped = (stations || []).map(s => ({
       station: s.station,
       ngo_id: s.ngo_id,
       ngo_name: s.ngos?.name || null,
-    })));
+    }));
+    // Acting session: narrow dropdown to claimed stations only (e.g. DH-1 not FD-1)
+    if (actPairs && actPairs.length > 0) {
+      const allowed = new Set(actPairs.map(p => `${p.ngo_id ?? ''}|${String(p.station ?? '').trim()}`));
+      mapped = mapped.filter(s => allowed.has(`${s.ngo_id ?? ''}|${String(s.station ?? '').trim()}`));
+    }
+    return res.json(mapped);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -2498,7 +2927,7 @@ export const getMyStations = async (req, res) => {
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: contacts, error } = await withStationNgoPairs(
@@ -2551,7 +2980,7 @@ export const getFroScheduled = async (req, res) => {
 export const getFroCallbacks = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const { data: assignments, error } = await withStationNgoPairs(
@@ -2606,22 +3035,87 @@ export const getFroCallbacks = async (req, res) => {
   }
 };
 
+// Open money-promise leads for the worker: money intent was expressed but not yet
+// collected, so the FRO can keep following up. Only uncollected/available
+// assignments are returned (disposed/terminal/collected rows are excluded by
+// their status not being in the set). Sorted by next follow-up / due date (oldest
+// first) so the most-overdue promise surfaces first.
+export const getFroPromises = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    if (stationNames.length === 0) return res.json([]);
+
+    const { data: assignments, error } = await withStationNgoPairs(
+      db
+        .from('fro_assignments')
+        .select('*')
+        .in('station', stationNames)
+        .in('status', ['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent']),
+      myScope
+    );
+
+    if (error) throw error;
+
+    const assignmentIds = (assignments || []).map(a => a.id);
+    const [donorsRes, schedulesRes] = await Promise.all([
+      db.from('donor_profiles').select('id, name, mobile_number')
+        .in('id', [...new Set(assignments.map(a => a.donor_id).filter(Boolean))]),
+      assignmentIds.length > 0
+        ? db.from('fro_scheduled_contacts').select('assignment_id, scheduled_at').in('assignment_id', assignmentIds).eq('is_completed', false)
+        : { data: [] },
+    ]);
+
+    const donorMap = {};
+    for (const d of donorsRes.data || []) donorMap[d.id] = d;
+    const scheduleMap = {};
+    for (const s of schedulesRes.data || []) {
+      if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
+    }
+
+    const seen = new Set();
+    const result = [];
+    for (const a of assignments || []) {
+      const d = donorMap[a.donor_id];
+      if (!d) continue;
+      const key = `${a.donor_id}-${a.ngo_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        id: a.donor_id,
+        ngo_id: a.ngo_id,
+        donor_name: d.name || 'Unknown',
+        donor_mobile: d.mobile_number || '',
+        scheduled_at: scheduleMap[a.id] || null,
+        due_date: a.next_follow_up || scheduleMap[a.id] || null,
+        status: a.status,
+        next_follow_up: a.next_follow_up,
+        assignment_id: a.id,
+      });
+    }
+    result.sort((x, y) => {
+      const tx = x.due_date ? new Date(x.due_date).getTime() : Infinity;
+      const ty = y.due_date ? new Date(y.due_date).getTime() : Infinity;
+      return tx - ty;
+    });
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getMyHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
-    if (stationNames.length === 0) return res.json([]);
-
-    const { data: logs, error } = await withStationNgoPairs(
-      db
-        .from('fro_donor_logs')
-        .select('*, fro_assignments!inner(fro_worker_id, donor_id, station)')
-        .eq('fro_worker_id', workerId)
-        .in('fro_assignments.station', stationNames)
-        .order('created_at', { ascending: false })
-        .limit(200),
-      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-    );
+    // Own-actions history: every log recorded by this FRO, regardless of which
+    // (station, ngo) assignment the donor belongs to — cross-FRO verifications
+    // reuse the original owner's assignment, so pair-scoping hid them here.
+    const { data: logs, error } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
+      .eq('fro_worker_id', workerId)
+      .order('created_at', { ascending: false })
+      .limit(200);
 
     if (error) throw error;
 
@@ -2647,6 +3141,8 @@ export const getMyHistory = async (req, res) => {
         created_at: l.created_at,
         outcome: l.outcome,
         accounts_status: l.accounts_status,
+        ngo_id: l.fro_assignments?.ngo_id || null,
+        ngo_name: l.fro_assignments?.ngos?.name || null,
       };
     });
     return res.json(result);
@@ -2695,12 +3191,10 @@ export const getMyDataRequests = async (req, res) => {
 export const getFollowUps = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
-    const nowUtc = new Date();
-    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
+    const { start: todayStart, end: todayEnd } = istDayBounds();
 
     const { data: contacts, error } = await withStationNgoPairs(
       db
@@ -2752,7 +3246,7 @@ export const getFollowUps = async (req, res) => {
 export const getLeadStats = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ new_donors: 0, new_amount: 0, existing_donors: 0, existing_amount: 0 });
 
     const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -2813,7 +3307,7 @@ export const getLeadStats = async (req, res) => {
 export const getMonthlyDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -2905,7 +3399,7 @@ export const getDonorHistory = async (req, res) => {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const period = req.query.period || 'monthly';
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const now = new Date();
@@ -3226,7 +3720,7 @@ export const searchDonors = async (req, res) => {
     const { q } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
     const searchTerm = `%${q.trim()}%`;
@@ -3291,7 +3785,13 @@ export const searchDonors = async (req, res) => {
         const hasScoped = evidence.activeAssignmentIds.has(a.id) || evidence.receiptPairs.has(pair);
         const donatedThisPeriod = evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair);
         const rawStatus = a.status || 'pending';
-        const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !donatedThisPeriod;
+        // Same policy as getMyDonors: only donation_collected resets across a
+        // period boundary; lead_done/done are terminal and stay hidden.
+        const staleDoneStatus = rawStatus === 'donation_collected' && !donatedThisPeriod;
+        const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
+        const displayStatus = staleDoneStatus
+          ? 'pending'
+          : (donatedThisPeriod && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
         result.push({
           donor_id: d.id,
           ngo_id: a.ngo_id,
@@ -3332,7 +3832,7 @@ export const getFullDonorHistory = async (req, res) => {
     const ngoId = parseInt(req.query.ngo_id) || null;
     const unlockAll = req.query.unlock_all === 'true';
 
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const { data: donor } = await db
