@@ -64,6 +64,8 @@ import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
 import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
 import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
+import simCardRoutes from './routes/simCardRoutes.js';
+import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -209,6 +211,8 @@ app.use('/api/quiz', quizRoutes);
 app.use('/api/envadmin', envAdminRoutes);
 app.use('/api/temp-cleanup', tempCleanupRoutes);
 app.use('/api/ngo-allocations', ngoAllocationRoutes);
+app.use('/api/sim-cards', simCardRoutes);
+app.use('/api/sim-inventory', simInventoryRoutes);
 
 app.get('/api/deploy-test', (req, res) => {
   res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });
