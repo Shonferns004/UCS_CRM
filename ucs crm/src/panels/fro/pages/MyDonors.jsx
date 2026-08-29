@@ -49,10 +49,12 @@ const HIDDEN_STATUSES = new Set([
 function isNewDonor(d) {
   return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
 }
+function filterDonors(list) {
+  return list.filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month);
+}
+
 function filterAndSortDonors(list) {
-  return list
-    .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)
-    .sort((a, b) => {
+  return filterDonors(list).sort((a, b) => {
       const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
       const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
       // tier: 0 = new workable, 1 = old workable, 2 = retryable tail
@@ -86,7 +88,11 @@ function findNextDonorIndex(donors, currentId) {
 }
 
 function applyDonorPatch(list, donorId, ngoId, patch) {
-  return filterAndSortDonors(list.map(d =>
+  // Preserve the current queue order while applying the patch — only filter out
+  // hidden/done donors, do NOT re-sort. Re-sorting here would move a just-fired
+  // disposition (e.g. ringing -> retryable tail) to the end of the list, making
+  // the next-lead cursor jump to a random "#N" instead of advancing #1 -> #2 -> #3.
+  return filterDonors(list.map(d =>
     d.id === donorId && d.ngo_id === ngoId ? { ...d, ...patch } : d
   ));
 }
