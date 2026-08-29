@@ -4710,7 +4710,7 @@ export const getFollowups = async (req, res) => {
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
     }
 
-    const { ngo_id: filterNgoId, bucket } = req.query;
+    const { ngo_id: filterNgoId, bucket, date } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
@@ -4724,11 +4724,18 @@ export const getFollowups = async (req, res) => {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
     const tomorrowStr = new Date(now.getTime() + 24*60*60*1000).toISOString().slice(0, 10);
+    const daywiseDate = date ? String(date).slice(0, 10) : null;
+
+    const istDateOf = (value) => {
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return null;
+      return new Date(d.getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
+    };
 
     let query = db
       .from('fro_assignments')
       .select(`
-        id, next_follow_up, fro_worker_id, donor_id,
+        id, status, next_follow_up, fro_worker_id, donor_id,
         workers!fro_assignments_fro_worker_id_fkey(name),
         donor_profiles!inner(name, mobile_number)
       `)
@@ -4740,6 +4747,57 @@ export const getFollowups = async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
 
+    // Day-wise mode: return records due / scheduled for one day, tagged
+    // follow_up or callback (callback = donor asked for a call-back or has an
+    // incomplete scheduled contact that day). No double counting.
+    if (daywiseDate) {
+      const assignments = data || [];
+      const ids = assignments.map(a => a.id);
+      const scheduleMap = {};
+      if (ids.length > 0) {
+        const { data: sched, error: schedErr } = await db
+          .from('fro_scheduled_contacts')
+          .select('assignment_id, scheduled_at')
+          .in('assignment_id', ids)
+          .eq('is_completed', false);
+        if (schedErr) throw schedErr;
+        for (const s of sched || []) {
+          if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
+        }
+      }
+
+      const callbackStatuses = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate']);
+      const results = [];
+      for (const f of assignments) {
+        const scheduled_at = scheduleMap[f.id] || null;
+        const scheduledDay = scheduled_at ? istDateOf(scheduled_at) : null;
+        const assignedDay = f.next_follow_up ? String(f.next_follow_up).slice(0, 10) : null;
+        if (assignedDay !== daywiseDate && scheduledDay !== daywiseDate) continue;
+
+        const isCallback = callbackStatuses.has(f.status) || scheduledDay === daywiseDate;
+        results.push({
+          assignment_id: f.id,
+          assignmentId: f.id,
+          telecaller: f.workers?.name || 'Unknown',
+          fro_worker_id: f.fro_worker_id,
+          donor_name: f.donor_profiles?.name || 'Unknown',
+          mobile: f.donor_profiles?.mobile_number || '',
+          followup_date: f.next_follow_up,
+          scheduled_at,
+          status: f.status || null,
+          type: isCallback ? 'callback' : 'follow_up',
+        });
+      }
+
+      results.sort((a, b) => {
+        if ((a.telecaller || '') !== (b.telecaller || '')) return (a.telecaller || '').localeCompare(b.telecaller || '');
+        if (a.type !== b.type) return a.type.localeCompare(b.type);
+        return (a.donor_name || '').localeCompare(b.donor_name || '');
+      });
+      return res.json(results);
+    }
+
+    // Existing bucket mode (unchanged)
     const followups = (data || []).map(f => {
       let bucket = 'future';
       if (f.next_follow_up < todayStr) bucket = 'overdue';
