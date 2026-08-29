@@ -3,6 +3,7 @@ import { CalendarClock, Clock, AlarmClock, AlertTriangle, ChevronRight, Phone, S
 import { getScheduled, getCallbacks, getPromises } from '../api/donors';
 import DispositionModal from '../components/DispositionModal';
 import { SkeletonTable } from '../../../components/Skeleton';
+import { istDateString, formatIstTime } from '../utils/time';
 
 const TABS = [
   { id: 'scheduled', label: 'Follow Up' },
@@ -34,7 +35,7 @@ function getTimeInfo(scheduledAt, now) {
 
 function fmtTime(scheduledAt) {
   try {
-    return new Date(scheduledAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return `${new Date(scheduledAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}, ${formatIstTime(scheduledAt)}`;
   } catch { return ''; }
 }
 
@@ -55,12 +56,12 @@ export default function Scheduled() {
   const loadRows = () => {
     setLoading(true);
     Promise.all([getScheduled(), getCallbacks(), getPromises()]).then(([scheduled, callbacks, promises]) => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = istDateString();
       const items = [];
       const seen = new Set();
       const k = (d) => `${d.id}`;
       (scheduled || []).forEach(d => {
-        if (d.scheduled_at && d.scheduled_at.slice(0, 10) !== todayStr && !seen.has(k(d))) {
+        if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(k(d))) {
           seen.add(k(d));
           items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'scheduled' });
         }
@@ -72,7 +73,7 @@ export default function Scheduled() {
         }
       });
       (scheduled || []).forEach(d => {
-        if (d.scheduled_at && d.scheduled_at.slice(0, 10) === todayStr && !seen.has(k(d))) {
+        if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(k(d))) {
           seen.add(k(d));
           items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'callback' });
         }
