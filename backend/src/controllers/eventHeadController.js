@@ -15,6 +15,13 @@ const sanitize = (data) => {
   return clean;
 };
 
+// NGO-scoped Event Head workspace: users whose account carries an ngo_id
+// (e.g. an Event Head for BSCT) only ever see their own NGO's data.
+const ownNgoId = (req) => {
+  if (!req.user || !req.user.ngo_id || req.user.role === 'super_admin') return null;
+  return String(req.user.ngo_id);
+};
+
 // Load NGO/Sector/Activity lookup maps once, shared by event views.
 const buildEventContextMaps = async () => {
   const [ngos, sectors, activities] = await Promise.all([
@@ -85,7 +92,8 @@ export const createEventHandler = async (req, res) => {
 
 export const listEventHeadEvents = async (req, res) => {
   try {
-    const { ngo_id, sector_id, activity_id, status, month, year } = req.query;
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const { sector_id, activity_id, status, month, year } = req.query;
     const filters = { ngo_id, sector_id, activity_id, status, month, year };
     const events = await EventHead.getAllEventHeadEvents(filters);
     const ctx = await buildEventContextMaps();
@@ -179,12 +187,14 @@ const ATTENTION_LABELS = {
 
 export const getEventHeadDashboardStats = async (req, res) => {
   try {
-    const { ngo_id, sector_id, activity_id, month, year } = req.query;
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const { sector_id, activity_id, month, year } = req.query;
     const base = { ngo_id, sector_id, activity_id, month, year };
 
     // core = full filter set (drives KPIs + today/upcoming/week/month lists).
     // byNgo = filter set minus NGO (drives the per-NGO breakdown).
     // sectorSummary = ngo + month/year only (drives the per-sector breakdown).
+    const scope = ownNgoId(req);
     const [core, byNgo, sectorSummary, sectors, activities, ngos, ctx] = await Promise.all([
       EventHead.getEventHeadDashboardEvents(base),
       EventHead.getEventHeadDashboardEvents({ sector_id, activity_id, month, year }),
@@ -217,7 +227,8 @@ export const getEventHeadDashboardStats = async (req, res) => {
 
     const ngoCounts = {};
     for (const e of byNgo) if (e.ngo_id != null) ngoCounts[e.ngo_id] = (ngoCounts[e.ngo_id] || 0) + 1;
-    const events_by_ngo = ngos.map(n => ({
+    const scopedNgos = scope ? ngos.filter(n => String(n.id) === scope) : ngos;
+    const events_by_ngo = scopedNgos.map(n => ({
       ngo_id: n.id,
       ngo_name: n.name || n.code,
       count: ngoCounts[n.id] || 0,
@@ -313,7 +324,8 @@ export const getEventHeadDashboardStats = async (req, res) => {
 
 export const getEventHeadEventsByMonth = async (req, res) => {
   try {
-    const events = await EventHead.getEventHeadEventsByMonth(req.params.month, req.params.year);
+    const ngo_id = ownNgoId(req) || null;
+    const events = await EventHead.getEventHeadEventsByMonth(req.params.month, req.params.year, ngo_id);
     return res.json(events);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -323,7 +335,8 @@ export const getEventHeadEventsByMonth = async (req, res) => {
 
 export const getEventHeadEventsByNgo = async (req, res) => {
   try {
-    const events = await EventHead.getEventHeadEventsByNgo(req.params.ngoId);
+    const ngoId = ownNgoId(req) || req.params.ngoId;
+    const events = await EventHead.getEventHeadEventsByNgo(ngoId);
     return res.json(events);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -761,7 +774,8 @@ export const listApprovals = async (req, res) => {
 export const listEventHeadNgos = async (req, res) => {
   try {
     const ngos = await EventHead.getAllEventHeadNgos();
-    return res.json(ngos);
+    const scope = ownNgoId(req);
+    return res.json(scope ? ngos.filter(n => String(n.id) === scope) : ngos);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -771,7 +785,7 @@ export const listEventHeadNgos = async (req, res) => {
 // ─── SECTORS ───
 export const listSectors = async (req, res) => {
   try {
-    const { ngo_id } = req.query;
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
     const [sectors, activityCounts, eventCounts] = await Promise.all([
       EventHead.getAllEventHeadSectors(),
       EventHead.getSectorActivityCounts(ngo_id),
@@ -792,7 +806,8 @@ export const listSectors = async (req, res) => {
 // ─── ACTIVITIES ───
 export const listActivities = async (req, res) => {
   try {
-    const { ngo_id, sector_id } = req.query;
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const { sector_id } = req.query;
     const [activities, ngos, sectors, eventCounts] = await Promise.all([
       EventHead.getAllActivities({ ngo_id, sector_id }),
       EventHead.getAllEventHeadNgos().catch(() => []),
