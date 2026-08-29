@@ -41,15 +41,6 @@ CREATE INDEX IF NOT EXISTS idx_work_queue_worker_status
 -- hardens the app-level same-day dedup (findDispositionLogToday) so an
 -- accidental double-save / double-click / second-tab save cannot insert a
 -- duplicate timeline entry.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE schemaname = 'public' AND tablename = 'fro_donor_logs'
-      AND indexname = 'uq_fro_donor_logs_same_day_disp'
-  ) THEN
-    CREATE UNIQUE INDEX uq_fro_donor_logs_same_day_disp
-      ON fro_donor_logs(assignment_id, fro_worker_id, disposition_detail, created_at::date)
-      WHERE action = 'disposition';
-  END IF;
-END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fro_donor_logs_same_day_disp
+  ON fro_donor_logs(assignment_id, fro_worker_id, disposition_detail, (created_at::date))
+  WHERE action = 'disposition';
