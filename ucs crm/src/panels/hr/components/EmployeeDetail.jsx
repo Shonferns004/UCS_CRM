@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useHR, avatarColor, avatarTint, initials, DEPTS, TEAMS } from '../store';
+import { useHR, avatarColor, avatarTint, initials, DEPTS } from '../store';
+import { useTeams } from '../../../components/useTeams';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { api } from '../../../api/auth';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
@@ -30,6 +31,7 @@ function Badge({ status }) {
 }
 
 export default function EmployeeDetail({ worker, onBack, onOffboard }) {
+  const { teams: teamOptions } = useTeams();
   const { isSalaryUnlocked, promptUnlock, lockSalary, formatSalary, maskSalary } = useSalaryPrivacy();
   const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc } = useHR();
   const [attendance, setAttendance] = useState([]);
@@ -631,7 +633,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       <span className="detail-label">Team</span>
                       <Dropdown value={form.team} onChange={setField('team')}
                         style={{ width:'100%' }}
-                        options={[{value:'',label:'No Team'}, ...TEAMS.map(t => ({ value:t, label:t }))]} />
+                        options={[{value:'',label:'No Team'}, ...teamOptions.map(t => ({ value:t, label:t }))]} />
                     </div>
                   ) : <Field label="Team" value={data.team || 'No Team'} />}
                   {editing && form.department === 'NGO Admin' ? (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
+import { useTeams } from '../../../components/useTeams';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check } from '../icons';
@@ -107,7 +108,8 @@ function WhoWithPhoto({ name, role, photo_url }) {
 }
 
 export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
-  const { addWorker, DEPTS, TEAMS, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
+  const { addWorker, DEPTS, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
+  const { teams: teamOptions } = useTeams();
   const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
@@ -812,7 +814,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             </label>
             <label className="field">UFS Team
               <Dropdown value={team} onChange={e=>setTeam(e.target.value)}
-                options={[{value:'',label:'No Team'}, ...TEAMS.map(t => ({value:t, label:t}))]} />
+                options={[{value:'',label:'No Team'}, ...teamOptions.map(t => ({value:t, label:t}))]} />
             </label>
           </div>
           {dept === 'NGO Admin' && ngos.length > 0 && (
@@ -950,7 +952,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                       <td onClick={(e) => e.stopPropagation()}>
                         <Dropdown value={w.team || ''} onChange={e => saveTeam(w, e.target.value)}
                           style={{ minWidth: 78 }}
-                          options={[{value:'',label:'—'}, ...TEAMS.map(t => ({value:t, label:t}))]} />
+                          options={[{value:'',label:'—'}, ...teamOptions.map(t => ({value:t, label:t}))]} />
                       </td>
                       <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
                       <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
