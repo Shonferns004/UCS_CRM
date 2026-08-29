@@ -123,7 +123,11 @@ const verifyClaimed = async (r, donor, log) => {
 };
 
 const linkReceiptOnly = async (r, logRow, workerName) => {
-  const no = await client.query(`SELECT next_receipt_no($1) AS n`, [r.project_id || 'bsct']);
+  if (!r.project_id) {
+    // Never draw from the Being Sevak counter for a receipt with no known NGO.
+    throw new Error('No project_id for receipt — cannot allocate a receipt number safely.');
+  }
+  const no = await client.query(`SELECT next_receipt_no($1) AS n`, [r.project_id]);
   const receiptNo = String(no.rows[0].n);
   const donorId = logRow.log_donor_id;
   await client.query(
@@ -151,7 +155,11 @@ const linkReceiptOnly = async (r, logRow, workerName) => {
 const applyCredit = async (r, donor, worker, ngoId, logInfo, claimedWorkerName) => {
   const { logId, assignmentId } = logInfo;
 
-  const no = await client.query(`SELECT next_receipt_no($1) AS n`, [r.project_id || 'bsct']);
+  if (!r.project_id) {
+    // Never draw from the Being Sevak counter for a receipt with no known NGO.
+    throw new Error('No project_id for receipt — cannot allocate a receipt number safely.');
+  }
+  const no = await client.query(`SELECT next_receipt_no($1) AS n`, [r.project_id]);
   const receiptNo = String(no.rows[0].n);
 
   const workerName = claimedWorkerName || worker?.name || null;
