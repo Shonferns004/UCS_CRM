@@ -62,6 +62,14 @@ router.get('/dashboard/suspense', getSuspenseReceipts);
 router.post('/dashboard/suspense/:receiptId/claim', claimSuspenseReceipt);
 router.get('/reactivated-donors', getReactivatedDonors);
 router.get('/donors', getMyDonors);
+router.get('/queue/current', (req, res, next) => {
+  // Backend-authoritative "current donor" for the controlled queue: reuses the
+  // getMyDonors pipeline (same scope/ordering/filtering/dedup) but returns only
+  // the single next donor plus durable progress, so the front-end never picks
+  // or skips the next donor itself.
+  req.query = { ...req.query, queue_current: 'true', limit: undefined, offset: undefined };
+  return getMyDonors(req, res).catch(next);
+});
 router.get('/transferred-leads', getTransferredLeads);
 router.put('/donors/:id/status', updateDonorStatus);
 router.put('/donors/:id/donor-type', updateDonorType);
