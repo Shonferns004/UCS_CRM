@@ -25,6 +25,8 @@ export default function Teams() {
   const [renameVal, setRenameVal] = useState('');
   const [selected, setSelected] = useState(new Set());
   const [bulkTeam, setBulkTeam] = useState('');
+  const [search, setSearch] = useState('');
+  const [teamFilter, setTeamFilter] = useState('');
 
   useEffect(() => {
     apiGet('/workers?status=all')
@@ -38,6 +40,14 @@ export default function Teams() {
   const activeFros = workers.filter(w => (w.department || '').trim().toLowerCase() === 'fro' && (w.employment_status || 'active') === 'active');
   const counts = {};
   activeFros.forEach(w => { counts[w.team] = (counts[w.team] || 0) + 1; });
+
+  const filteredFros = activeFros.filter(w => {
+    if (teamFilter && (w.team || '') !== teamFilter) return false;
+    const q = String(search || '').trim().toLowerCase();
+    if (!q) return true;
+    const emp = (w.employee_id || '').replace(/\D/g, '');
+    return (w.name || '').toLowerCase().includes(q) || (w.email || '').toLowerCase().includes(q) || emp.includes(q);
+  });
 
   const addTeam = async () => {
     const name = String(newTeam || '').trim().toUpperCase();
@@ -94,7 +104,7 @@ export default function Teams() {
     });
   };
   const toggleAll = () => {
-    setSelected(prev => prev.size === activeFros.length ? new Set() : new Set(activeFros.map(w => w.id)));
+    setSelected(prev => prev.size === filteredFros.length ? new Set() : new Set(filteredFros.map(w => w.id)));
   };
 
   const doBulkAssign = async () => {
@@ -175,6 +185,25 @@ export default function Teams() {
           <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{activeFros.length} active FROs</span>
         </div>
 
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" style={{ position: 'absolute', left: 10, top: 10 }}>
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input value={search} onChange={e => { setSearch(e.target.value); setSelected(new Set()); }}
+              placeholder="Search FRO by name, email or emp ID"
+              style={{ width: '100%', padding: '8px 12px 8px 32px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 13, boxSizing: 'border-box' }} />
+          </div>
+          <Dropdown value={teamFilter} onChange={e => { setTeamFilter(e.target.value); setSelected(new Set()); }}
+            options={[{ value: '', label: 'All teams' }, { value: 'No Team', label: 'No Team' }, ...teams.map(t => ({ value: t, label: t }))]}
+            style={{ minWidth: 130 }} />
+          {search && (
+            <button className="btn btn-sm" onClick={() => setSearch('')}>Clear</button>
+          )}
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, color: 'var(--ink-soft)', alignSelf: 'center' }}>{filteredFros.length} shown</span>
+        </div>
+
         {selected.size > 0 && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px', marginBottom: 12, borderRadius: 8, background: '#F3FBF6', border: '1px solid #B9EFCE' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#1B7A3D' }}>{selected.size} selected</span>
@@ -190,19 +219,21 @@ export default function Teams() {
           <div className="empty" style={{ padding: 40 }}>Loading FROs…</div>
         ) : activeFros.length === 0 ? (
           <div className="empty" style={{ padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>No active FRO workers found.</div>
+        ) : filteredFros.length === 0 ? (
+          <div className="empty" style={{ padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>No FROs match the search.</div>
         ) : (
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 640 }}>
               <thead>
                 <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
-                  <th style={{ padding: '9px 12px', width: 36 }}><input type="checkbox" checked={selected.size === activeFros.length && activeFros.length > 0} onChange={toggleAll} /></th>
+                  <th style={{ padding: '9px 12px', width: 36 }}><input type="checkbox" checked={selected.size === filteredFros.length && filteredFros.length > 0} onChange={toggleAll} /></th>
                   <th style={{ padding: '9px 12px' }}>FRO</th>
                   <th style={{ padding: '9px 12px' }}>Emp ID</th>
                   <th style={{ padding: '9px 12px' }}>Team</th>
                 </tr>
               </thead>
               <tbody>
-                {activeFros.map(w => (
+                {filteredFros.map(w => (
                   <tr key={w.id} style={{ borderTop: '1px solid var(--line)' }}>
                     <td style={{ padding: '9px 12px' }}>
                       <input type="checkbox" checked={selected.has(w.id)} onChange={() => toggleRow(w.id)} />
