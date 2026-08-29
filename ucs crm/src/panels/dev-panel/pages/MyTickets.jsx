@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useUcs } from '../../../store'
-import { getMyDevTickets, getDevTicket, updateDevTicket } from '../api/tickets'
+import { getMyUnifiedTickets, getTicketBySource, updateTicketBySource, replyToTicketBySource, resolveTicketBySource } from '../api/tickets'
 import { SourceBadge, PriorityBadge } from '../components/Badge'
 import { toast } from '../components/Toast'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -57,7 +57,7 @@ export default function MyTickets() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { setTickets((await getMyDevTickets()) || []) }
+    try { setTickets((await getMyUnifiedTickets()) || []) }
     catch (e) { toast(e.message || 'Failed to load tickets', 'error'); setTickets([]) }
     finally { setLoading(false) }
   }, [])
@@ -88,7 +88,7 @@ export default function MyTickets() {
   const canTrans = (t) => t.status !== 'resolved' && t.status !== 'closed'
   const openDetail = async (t) => {
     setDetailLoading(true)
-    try { setDetail(await getDevTicket(t.id)) }
+    try { setDetail({ ...(await getTicketBySource(t.id, t._source)), _source: t._source }) }
     catch (e) { toast(e.message || 'Could not load ticket', 'error'); setDetail(null) }
     finally { setDetailLoading(false) }
   }
@@ -96,18 +96,18 @@ export default function MyTickets() {
     if (!resolve) return
     if (!note.trim()) { toast('Please provide a resolution note', 'warning'); return }
     try {
-      await updateDevTicket(resolve.id, { status: 'resolved', resolution: note.trim() })
+      await resolveTicketBySource(resolve.id, note.trim(), resolve._source);
       toast('Ticket marked as resolved', 'success'); setResolve(null); setNote(''); load()
     } catch (e) { toast(e.message || 'Failed to resolve ticket', 'error') }
   }
   const doClose = async () => {
     if (!closeTicket) return
-    try { await updateDevTicket(closeTicket.id, { status: 'closed' }); toast('Ticket closed', 'success'); setCloseTicket(null); load() }
+    try { await updateTicketBySource(closeTicket.id, { status: 'closed' }, closeTicket._source); toast('Ticket closed', 'success'); setCloseTicket(null); load() }
     catch (e) { toast(e.message || 'Failed to close ticket', 'error') }
   }
   const doReview = async (t) => {
     if (t.status === 'resolved' || t.status === 'closed') return
-    try { await updateDevTicket(t.id, { status: 'under_review' }); toast('Ticket sent for review', 'success'); load() }
+    try { await updateTicketBySource(t.id, { status: 'under_review' }, t._source); toast('Ticket sent for review', 'success'); load() }
     catch (e) { toast(e.message || 'Action failed', 'error') }
   }
 
@@ -188,7 +188,7 @@ export default function MyTickets() {
                 const closed = t.status === 'closed'
                 return (
                   <tr key={t.id} style={{ borderBottom: '1px solid var(--line)', opacity: closed ? 0.7 : 1 }}>
-                    <td style={{ padding: '8px 12px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, ...sMuted, whiteSpace: 'nowrap' }}>#DEV-{t.id}</td>
+                    <td style={{ padding: '8px 12px', fontFamily: 'JetBrains Mono,monospace', fontSize: 11, ...sMuted, whiteSpace: 'nowrap' }}>{t._source === 'developer' ? '#DEV-' : '#SUP-'}{t.id}</td>
                     <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}><SourceBadge source={t.raised_by_panel} size='sm' /></td>
                     <td style={{ padding: '8px 12px', maxWidth: 320 }}>
                       <div style={{ fontWeight: 500, fontSize: 13, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(closed ? { textDecoration: 'line-through', color: 'var(--ink-soft)' } : {}) }}>{t.subject || 'Untitled ticket'}</div>
@@ -236,7 +236,7 @@ export default function MyTickets() {
               {detailLoading ? <div style={{ fontSize: 13, ...sMuted }}>Loading...</div> : (
                 <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 14, fontSize: 13 }}>
                   <div style={{ ...sMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>ID</div>
-                  <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, ...sInk }}>#DEV-{detail.id}</div>
+                  <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, ...sInk }}>{detail._source === 'developer' ? '#DEV-' : '#SUP-'}{detail.id}</div>
                   <div style={{ ...sMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Source</div>
                   <div><SourceBadge source={detail.raised_by_panel} /></div>
                   <div style={{ ...sMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 }}>Subject</div>
@@ -273,7 +273,7 @@ export default function MyTickets() {
             </div>
             <div style={{ padding: '14px 18px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={() => setDetail(null)} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card-bg)', ...sMuted, cursor: 'pointer' }}>Close</button>
-              <button onClick={() => { setDetail(null); navigate(`/dev-panel/tickets/${detail.id}`) }} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', cursor: 'pointer' }}>Edit Ticket</button>
+              <button onClick={() => { setDetail(null); navigate(`/dev-panel/tickets/${detail.id}`, { state: { source: detail._source } }) }} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 8, background: 'var(--primary)', color: 'var(--on-primary)', cursor: 'pointer' }}>Edit Ticket</button>
             </div>
           </div>
         </div>

@@ -745,6 +745,13 @@ async function checkLeavesTable() {
 }
 
 if (!process.env.VERCEL) {
+  try {
+    const { ensureEventHeadSchema } = await import('./bootstrap/ensureEventHeadSchema.js');
+    await ensureEventHeadSchema();
+    console.log('Event Head schema bootstrap: OK');
+  } catch (err) {
+    console.warn('Event Head schema bootstrap failed (idempotent, will retry next boot):', err && err.message ? err.message : err);
+  }
   const server = app.listen(PORT, '0.0.0.0', () => {
     _log(`Server running on port ${PORT}`);
     checkLeavesTable();
