@@ -10,6 +10,7 @@ import { useRealtime } from '../../hooks/useRealtime'
 import ToastContainer from '../../components/Toast'
 import LeadAudit from './pages/LeadAudit'
 import Reports from './pages/Reports'
+import TeamsPage from './pages/Teams'
 import Donors from './pages/Donors'
 import AddressImport from './pages/AddressImport'
 import AssetRegister from './pages/AssetRegister'
@@ -34,6 +35,8 @@ const NAV = [
   { id: 'attendance', path: '/accounts/attendance', label: 'Attendance',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14l2 2 4-4"/></svg> },
   { id: 'volunteers', path: '/accounts/volunteers', label: 'Salary',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { id: 'teams', path: '/accounts/teams', label: 'Teams',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   { id: 'donors', path: '/accounts/donors', label: 'Donors',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
@@ -284,6 +287,7 @@ export default function AccountsPanel() {
             <Route path="template-settings" element={<TemplateSettings />} />
             <Route path="asset-register" element={<AssetRegister />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="teams" element={<TeamsPage />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>
