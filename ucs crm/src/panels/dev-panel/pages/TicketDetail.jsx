@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useUcs } from '../../../store';
-import { getDevTicket, updateDevTicket, replyToDevTicket, getDevAssignees } from '../api/tickets';
+import { getTicketBySource, updateTicketBySource, replyToTicketBySource, resolveTicketBySource, getDevAssignees } from '../api/tickets';
 
 const STATUS_COLORS = {
   open: { bg: '#fefce8', color: '#a16207' },
@@ -21,8 +21,10 @@ const PANEL_LABELS = { fro: 'FRO', accounts: 'Accounts', ngo_admin: 'NGO Admin',
 export default function TicketDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useUcs();
   const [ticket, setTicket] = useState(null);
+  const [source, setSource] = useState(location.state?.source || null);
   const [loading, setLoading] = useState(true);
   const [assignees, setAssignees] = useState([]);
   const [replyText, setReplyText] = useState('');
@@ -37,8 +39,24 @@ export default function TicketDetail() {
   const loadTicket = async () => {
     setLoading(true);
     try {
-      const data = await getDevTicket(id);
-      setTicket(data);
+      let src = source;
+      if (!src) {
+        // No source in nav state — try developer first, fall back to regular
+        try {
+          const devTicket = await getTicketBySource(id, 'developer');
+          src = 'developer';
+          setSource(src);
+          setTicket({ ...devTicket, _source: 'developer' });
+          setResolution(devTicket.resolution || '');
+          setLoading(false);
+          return;
+        } catch {
+          src = 'regular';
+          setSource(src);
+        }
+      }
+      const data = await getTicketBySource(id, src);
+      setTicket({ ...data, _source: src });
       setResolution(data.resolution || '');
     } catch (err) {
       console.error(err);
@@ -62,7 +80,7 @@ export default function TicketDetail() {
     if (!replyText.trim()) return;
     setSending(true);
     try {
-      await replyToDevTicket(id, { message: replyText.trim(), is_internal: isDigital && isInternal });
+      await replyToTicketBySource(id, { message: replyText.trim(), is_internal: isDigital && isInternal }, source);
       setReplyText('');
       setIsInternal(false);
       await loadTicket();
@@ -76,11 +94,20 @@ export default function TicketDetail() {
   const handleStatusUpdate = async (newStatus) => {
     setStatusUpdating(true);
     try {
-      const updates = { status: newStatus };
-      if ((newStatus === 'resolved' || newStatus === 'closed') && resolution) {
-        updates.resolution = resolution;
+      if (newStatus === 'resolved') {
+        if (!resolution || resolution.trim() === '') {
+          alert('Please provide a resolution note');
+          setStatusUpdating(false);
+          return;
+        }
+        await resolveTicketBySource(id, resolution, source);
+      } else {
+        const updates = { status: newStatus };
+        if ((newStatus === 'resolved' || newStatus === 'closed') && resolution) {
+          updates.resolution = resolution;
+        }
+        await updateTicketBySource(id, updates, source);
       }
-      await updateDevTicket(id, updates);
       await loadTicket();
     } catch (err) {
       alert(err.message);
@@ -91,7 +118,7 @@ export default function TicketDetail() {
 
   const handleAssign = async (assigneeId) => {
     try {
-      await updateDevTicket(id, { assigned_to: assigneeId || null });
+      await updateTicketBySource(id, { assigned_to: assigneeId || null }, source);
       await loadTicket();
     } catch (err) {
       alert(err.message);
@@ -100,7 +127,7 @@ export default function TicketDetail() {
 
   const handlePriority = async (priority) => {
     try {
-      await updateDevTicket(id, { priority });
+      await updateTicketBySource(id, { priority }, source);
       await loadTicket();
     } catch (err) {
       alert(err.message);
@@ -171,6 +198,23 @@ export default function TicketDetail() {
         </button>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                background: source === 'developer' ? '#eef2ff' : '#dcfce7',
+                color: source === 'developer' ? '#4338ca' : '#166534',
+              }}>
+                {source === 'developer' ? `DEV-${ticket.id}` : `SUP-${ticket.id}`}
+              </span>
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                background: source === 'developer' ? '#eef2ff' : '#dcfce7',
+                color: source === 'developer' ? '#4338ca' : '#166534',
+                textTransform: 'capitalize',
+              }}>
+                {source === 'developer' ? 'Developer' : 'Support'}
+              </span>
+            </div>
             <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 6 }}>{ticket.subject}</h2>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{
@@ -362,14 +406,14 @@ export default function TicketDetail() {
                 <div style={{ fontWeight: 600 }}>{ticket.workers?.name || ticket.raised_by_name || 'Unknown'}</div>
               </div>
               <div>
-                <div style={{ color: 'var(--ink-soft)', fontSize: 10, marginBottom: 2 }}>Source Panel</div>
+                <div style={{ color: 'var(--ink-soft)', fontSize: 10, marginBottom: 2 }}>Source</div>
                 <span style={{
                   fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
-                  background: ticket.raised_by_panel === 'fro' ? '#dcfce7' : ticket.raised_by_panel === 'accounts' ? '#dbeafe' : '#ede9fe',
-                  color: ticket.raised_by_panel === 'fro' ? '#166534' : ticket.raised_by_panel === 'accounts' ? '#1e40af' : '#5b21b6',
+                  background: source === 'developer' ? '#eef2ff' : '#dcfce7',
+                  color: source === 'developer' ? '#4338ca' : '#166534',
                   textTransform: 'capitalize', display: 'inline-block',
                 }}>
-                  {PANEL_LABELS[ticket.raised_by_panel] || ticket.raised_by_panel}
+                  {source === 'developer' ? (PANEL_LABELS[ticket.raised_by_panel] || 'Developer') : (ticket.department || 'Support')}
                 </span>
               </div>
               {ticket.reference_id && (
@@ -405,25 +449,32 @@ export default function TicketDetail() {
           </div>
 
           {/* Assigned To */}
-          <div style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--line)' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Assigned To</div>
-            {isDigital ? (
-              <select
-                value={ticket.assigned_to || ''}
-                onChange={e => handleAssign(e.target.value)}
-                style={{ width: '100%', padding: '6px 8px', fontSize: 12, border: '1px solid var(--line)', borderRadius: 6, fontFamily: 'inherit', background: 'var(--card-bg)' }}
-              >
-                <option value="">Unassigned</option>
-                {assignees.map(a => <option key={a.id} value={a.id}>{a.name || a.login_id}</option>)}
-              </select>
-            ) : (
-              <div style={{ fontSize: 12, fontWeight: 600 }}>
-                {ticket.assigned_worker ? (ticket.assigned_worker.name || ticket.assigned_worker.login_id) : (
-                  <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}>Unassigned</span>
-                )}
-              </div>
-            )}
-          </div>
+          {source === 'developer' ? (
+            <div style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Assigned To</div>
+              {isDigital ? (
+                <select
+                  value={ticket.assigned_to || ''}
+                  onChange={e => handleAssign(e.target.value)}
+                  style={{ width: '100%', padding: '6px 8px', fontSize: 12, border: '1px solid var(--line)', borderRadius: 6, fontFamily: 'inherit', background: 'var(--card-bg)' }}
+                >
+                  <option value="">Unassigned</option>
+                  {assignees.map(a => <option key={a.id} value={a.id}>{a.name || a.login_id}</option>)}
+                </select>
+              ) : (
+                <div style={{ fontSize: 12, fontWeight: 600 }}>
+                  {ticket.assigned_worker ? (ticket.assigned_worker.name || ticket.assigned_worker.login_id) : (
+                    <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}>Unassigned</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Department</div>
+              <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize' }}>{ticket.department || '—'}</div>
+            </div>
+          )}
 
           {/* Priority */}
           {isDigital && (
