@@ -13,7 +13,7 @@ const STATUS_BG = {
 }
 const PRIORITY_COLORS = { High: '#dc2626', Medium: '#f59e0b', Low: '#16a34a', Urgent: '#7c3aed' }
 
-export default function EventModal({ event, onClose }) {
+export default function EventModal({ event, onClose, onView, onEdit }) {
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handleKey)
@@ -156,13 +156,13 @@ export default function EventModal({ event, onClose }) {
           borderTop: '1px solid #e5e7eb',
           background: '#fff',
         }}>
-          <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => onEdit?.(event)}>
             <Pencil size={14} /> Edit Event
           </button>
           <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--danger)', borderColor: 'var(--danger)' }}>
             <Trash size={14} /> Delete Event
           </button>
-          <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => onView?.(event)}>
             <Eye size={14} /> View Full Event
           </button>
           <button className="btn btn-sm" onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

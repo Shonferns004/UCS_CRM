@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUcs } from '../../../store';
-import { getDevTickets, getMyDevTickets, getUnassignedTickets, getDevAssignees, bulkUpdateDevTickets } from '../api/tickets';
+import { getUnifiedDevTickets, getMyUnifiedTickets, getUnassignedTickets, getDevAssignees, bulkUpdateDevTickets } from '../api/tickets';
 
 const STATUS_TABS = [
   { key: '', label: 'All' },
@@ -60,9 +60,10 @@ export default function TicketList({ filter = 'all' }) {
     try {
       let data;
       if (filter === 'my') {
-        data = await getMyDevTickets();
+        data = await getMyUnifiedTickets();
       } else if (filter === 'unassigned') {
-        data = await getUnassignedTickets();
+        const all = await getUnifiedDevTickets();
+        data = all.filter(t => !t.assigned_to);
       } else {
         const params = {};
         if (statusFilter) params.status = statusFilter;
@@ -73,7 +74,7 @@ export default function TicketList({ filter = 'all' }) {
         if (search) params.search = search;
         if (dateFrom) params.date_from = dateFrom;
         if (dateTo) params.date_to = dateTo + 'T23:59:59';
-        data = await getDevTickets(params);
+        data = await getUnifiedDevTickets(params);
       }
       setTickets(data || []);
     } catch (err) {
@@ -150,6 +151,10 @@ export default function TicketList({ filter = 'all' }) {
 
   const getAssignedName = (ticket) => {
     if (ticket.assigned_worker) return ticket.assigned_worker.name || ticket.assigned_worker.login_id || '—';
+    if (ticket._source === 'regular') {
+      if (ticket.resolved_by && ticket.users) return ticket.users.name || '—';
+      return 'Unassigned';
+    }
     return 'Unassigned';
   };
 
@@ -353,11 +358,11 @@ export default function TicketList({ filter = 'all' }) {
                       <td style={{ padding: '8px 10px' }}>
                         <span style={{
                           fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
-                          background: t.raised_by_panel === 'fro' ? '#dcfce7' : t.raised_by_panel === 'accounts' ? '#dbeafe' : '#ede9fe',
-                          color: t.raised_by_panel === 'fro' ? '#166534' : t.raised_by_panel === 'accounts' ? '#1e40af' : '#5b21b6',
+                          background: t._source === 'developer' ? '#eef2ff' : '#dcfce7',
+                          color: t._source === 'developer' ? '#4338ca' : '#166534',
                           textTransform: 'capitalize',
                         }}>
-                          {t.raised_by_panel === 'ngo_admin' ? 'NGO Admin' : (t.raised_by_panel || '—')}
+                          {t._source === 'developer' ? 'Dev' : (t.department || 'FRO/Accounts')}
                         </span>
                       </td>
                       <td style={{ padding: '8px 10px', fontSize: 11, textTransform: 'capitalize' }}>
@@ -392,7 +397,7 @@ export default function TicketList({ filter = 'all' }) {
                       </td>
                       <td style={{ padding: '8px 10px' }}>
                         <button
-                          onClick={() => navigate(`/dev-panel/tickets/${t.id}`)}
+                          onClick={() => navigate(`/dev-panel/tickets/${t.id}`, { state: { source: t._source } })}
                           style={{ padding: '3px 10px', fontSize: 11, fontWeight: 500, border: '1px solid var(--line)', borderRadius: 6, background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink-soft)' }}
                         >
                           View
