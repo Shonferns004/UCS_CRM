@@ -54,12 +54,14 @@ export const deleteEventHeadEvent = async (id) => {
   return { message: 'Event deleted' };
 };
 
-export const getEventHeadEventsByMonth = async (month, year) => {
+export const getEventHeadEventsByMonth = async (month, year, ngo_id) => {
   const m = Number(month), y = Number(year);
-  const { data, error } = await db.from('event_head_events').select('*')
+  let query = db.from('event_head_events').select('*')
     .gte('date', `${y}-${String(m).padStart(2, '0')}-01`)
     .lt('date', `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`)
     .order('date', { ascending: true });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 };
