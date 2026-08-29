@@ -1328,7 +1328,7 @@
 .panel-accounts .lead-audit-section-title::before { content:''; width:4px; height:16px; border-radius:4px; background:var(--sage); }
 .panel-accounts .lead-audit-section-title span { flex:0 0 auto; }
 .panel-accounts .lead-audit-section-title::after { content:''; height:1px; flex:1; background:linear-gradient(90deg,var(--line),transparent); }
-.panel-accounts .lead-audit-columns { gap:18px; }
+.panel-accounts .lead-audit-columns { grid-template-columns: 0.8fr 1.2fr; gap:28px; }
 .panel-accounts .lead-audit-columns > div { min-width:0; }
 .panel-accounts .lead-audit-columns .card { background:transparent; border-color:transparent; box-shadow:none; overflow:hidden; }
 .panel-accounts .lead-audit-columns .filter-bar { background:var(--card-bg); border:1px solid #dce4ee; border-radius:11px; box-shadow:0 2px 8px rgba(31,55,86,.05); }

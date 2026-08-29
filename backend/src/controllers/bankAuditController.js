@@ -302,14 +302,19 @@ export const listEntries = async (req, res) => {
             donor_id,
             donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported),
             workers!inner(id, name)
-          )
+          ),
+          workers!fro_donor_logs_fro_worker_id_fkey(id, name)
         `)
         .in('id', logIds);
       const matchMap = {};
       for (const l of logs || []) {
         const assignment = l.fro_assignments;
         const donor = assignment?.donor_profiles || {};
-        const worker = assignment?.workers || {};
+        // The FRO shown here must be the ACTUAL credited worker (fro_donor_logs
+        // .fro_worker_id), not the assignment owner — when an acting FRO
+        // "works as" another FRO and claims a lead, the assignment stays with
+        // the owner while the log credits the acting FRO.
+        const worker = { id: l.workers?.id, name: l.workers?.name || assignment?.workers?.name || '' };
         matchMap[l.id] = {
           donor_name: donor.name || 'Unknown',
           fro_name: worker.name || 'Unknown',

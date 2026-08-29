@@ -148,10 +148,13 @@ export const getLeadList = async (req, res) => {
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
-      agent_name: (req.user?.impersonation && req.user.imposter_name && (r.fro_worker_id === req.user.id || r.fro_worker_id === req.user.imposter_id))
-        ? req.user.imposter_name
-        : r.fro_assignments?.workers?.name || 'Priyank Shah',
-      agent_login: r.fro_assignments?.workers?.login_id || '',
+      // The credited worker is fro_donor_logs.fro_worker_id — when an acting
+      // FRO "works as" another FRO and claims a lead, that is the acting FRO,
+      // while the assignment stays with the owner. Resolve the agent from the
+      // credited worker first so the Lead Verification list shows the acting
+      // FRO, falling back to the assignment owner.
+      agent_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
+      agent_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
@@ -841,6 +844,35 @@ export const rejectLead = async (req, res) => {
     try {
       await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
     } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
+
+    // Fully revert the linked bank audit entry so the money leaves the matched
+    // state and re-enters the unclaimed suspense pool: clear the claim match
+    // (matched_lead_log_id / match_status / match_no / matched_by/at) and the
+    // claim-linked donor fields, and set status back to unverified. Without
+    // this the entry keeps an orange "MATCHED" line and is excluded from the
+    // FRO suspense pool (which filters matched_lead_log_id IS NULL), so the
+    // rejected money can never be claimed again. The entry keeps its
+    // receipt_id so the receipt (number intact) returns to the pool too.
+    try {
+      await db.from('bank_audit_entries').update({
+        status: 'unverified',
+        matched_lead_log_id: null,
+        match_status: null,
+        match_source: null,
+        match_no: null,
+        matched_by: null,
+        matched_at: null,
+        donor_id: null,
+        donor_mobile: null,
+        donor_email: null,
+        donor_pan: null,
+        donor_address_1: null,
+        donor_address_2: null,
+        donor_city: null,
+        donor_pin_code: null,
+        updated_at: new Date().toISOString(),
+      }).eq('matched_lead_log_id', logId);
+    } catch (err) { console.error('Failed to revert bank audit entry on lead rejection:', err.message); }
 
     if (log.fro_assignments?.donor_id) {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
