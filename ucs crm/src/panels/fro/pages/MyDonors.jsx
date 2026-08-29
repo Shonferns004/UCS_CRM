@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
@@ -128,7 +128,7 @@ function DonationDoneStamp({ donor }) {
           </div>
           <div style={{ marginTop: 12 }}>
             <span style={{ display: 'inline-block', border: '2px solid #fff', borderRadius: 999, padding: '3px 16px', fontSize: 10, fontWeight: 800, letterSpacing: .8 }}>
-              {donor.has_verified_donation_current_month ? 'âœ“ VERIFIED' : 'â³ PENDING VERIFICATION'}
+              {donor.has_verified_donation_current_month ? '✓  VERIFIED' : '●  PENDING VERIFICATION'}
             </span>
           </div>
         </div>
@@ -981,7 +981,7 @@ export default function MyDonors() {
       setShowSearchDropdown(true);
       return;
     }
-    // No match in the loaded page(s) â€” search the full backend stack (covers
+    // No match in the loaded page(s) — search the full backend stack (covers
     // donors beyond the loaded window, e.g. a donor at position 800+).
     backendSearchTimerRef.current = setTimeout(async () => {
       setSearchingAll(true);
@@ -1275,9 +1275,9 @@ export default function MyDonors() {
               </div>
               <div className="detail-field-row">
                 <div className="fld">
-                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>savingâ€¦</span>}</label>
+                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>saving…</span>}</label>
                   <select value={donor.donor_type || ''} onChange={handleDonorTypeChange} disabled={donorTypeSaving}>
-                    <option value="">â€” Select â€”</option>
+                    <option value="">— Select —</option>
                     <option value="monthly">Monthly</option>
                     <option value="quarterly">Quarterly</option>
                     <option value="half_yearly">Half-Yearly</option>
@@ -1309,7 +1309,7 @@ export default function MyDonors() {
                           </div>
                           <div className="detail-field-row" style={{ marginBottom: 4 }}>
                             <div className="fld">
-                              <label>Amount (â‚¹)</label>
+                              <label>Amount (₹)</label>
                               <input type="number" min="0" placeholder="e.g. 5000"
                                 value={donationAmt} onChange={e => setDonationAmt(e.target.value)}
                                 style={{ width: '100%', boxSizing: 'border-box' }} />
@@ -1356,9 +1356,9 @@ export default function MyDonors() {
                       <>
                         {donations.slice(0, 6).map((d, i) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, fontSize: 10, padding: '2px 0', borderBottom: '1px dashed var(--line)' }}>
-                            <span style={{ flexShrink: 0 }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'â€”'}</span>
-                            <span style={{ fontWeight: 600, marginLeft: 'auto' }}>â‚¹{Number(d.amount || 0).toLocaleString('en-IN')}</span>
-                            <span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`} style={{ fontSize: 8, padding: '1px 6px' }}>{d.status || 'â€”'}</span>
+                            <span style={{ flexShrink: 0 }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</span>
+                            <span style={{ fontWeight: 600, marginLeft: 'auto' }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</span>
+                            <span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`} style={{ fontSize: 8, padding: '1px 6px' }}>{d.status || '—'}</span>
                           </div>
                         ))}
                         <button onClick={openDonationModal}
@@ -1414,9 +1414,9 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* MIDDLE PANEL â€” Tabs / Filters */}
+        {/* MIDDLE PANEL — Tabs / Filters */}
         <div className="fro-mid-tabs">
-          {/* NGO Tabs â€” only shown when FRO is assigned to multiple NGOs */}
+          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
           {(() => {
             const ngoMap = {};
             stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
@@ -1601,7 +1601,7 @@ export default function MyDonors() {
                     <div className="fld">
                       <label>Project</label>
                       <select value={projectName} onChange={e => setProjectName(e.target.value)}>
-                        <option value="">â€” Select Project â€”</option>
+                        <option value="">— Select Project —</option>
                         {PROJECTS.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
                     </div>
@@ -1636,7 +1636,7 @@ export default function MyDonors() {
                   </div>
                   <div className="detail-field-row">
                     <div className="fld">
-                      <label>UPI Transaction ID {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)',marginLeft:4}}>OCRâ€¦</span>}</label>
+                      <label>UPI Transaction ID {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)',marginLeft:4}}>OCR…</span>}</label>
                       <input type="text" value={upiTransactionId} onChange={e => setUpiTransactionId(e.target.value)} placeholder="Auto-detected from screenshot" />
                     </div>
                     <div className="fld">
@@ -1667,7 +1667,7 @@ export default function MyDonors() {
                         if (v.length === 0) {
                           setPanError('');
                         } else if (!PAN_REGEX.test(v) && v.length === 10) {
-                          setPanError('Invalid PAN â€” use format: ABCDE1234F');
+                          setPanError('Invalid PAN — use format: ABCDE1234F');
                         } else if (v.length > 0 && v.length < 10) {
                           setPanError('PAN must be 10 characters');
                         } else {
@@ -1710,13 +1710,13 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* RIGHT PANEL â€” Timeline (20%) */}
+        {/* RIGHT PANEL — Timeline (20%) */}
         <div className="detail-right" style={{ padding: '12px 12px 12px 0' }}>
           {/* Timeline card */}
           <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
             <div className="detail-card-head">
               <span>CRM Timeline</span>
-              {totalCollected > 0 && <span style={{ color: 'var(--sage)', fontSize: 10 }}>â‚¹{totalCollected.toLocaleString('en-IN')}</span>}
+              {totalCollected > 0 && <span style={{ color: 'var(--sage)', fontSize: 10 }}>₹{totalCollected.toLocaleString('en-IN')}</span>}
             </div>
             <div className="detail-card-scroll">
               {detailLoading ? (
@@ -1741,7 +1741,7 @@ export default function MyDonors() {
                             <span className="tl-time">{formatTime(logDate(log))}</span>
                           </div>
                           {isThisMonth(logDate(log)) && (log.remark || log.notes) && <div className="tl-note">{log.remark || log.notes}</div>}
-                          {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>â‚¹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
+                          {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
                           {isCollectionLog(log) && log.fro_worker_name && (
                             <div className="tl-note" style={{ color: 'var(--ink-soft)', fontSize: 9 }}>Collected by {log.fro_worker_name}</div>
                           )}
@@ -1835,7 +1835,7 @@ export default function MyDonors() {
       <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }} onClick={() => setShowDonationModal(false)}>
         <div style={{ background: '#fff', borderRadius: 12, width: isMobile ? 'calc(100vw - 32px)' : 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>Donations â€” {donor.donor_name}</span>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Donations — {donor.donor_name}</span>
             <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => setShowDonationModal(false)}>close</span>
           </div>
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1848,7 +1848,7 @@ export default function MyDonors() {
             ))}
             <select value={donationFilter.startsWith('year_') ? donationFilter : ''} onChange={e => handleDonationFilterChange(e.target.value)}
               style={{ padding: '4px 8px', border: `1px solid ${donationFilter.startsWith('year_') ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 6, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
-              <option value="">Yearâ€¦</option>
+              <option value="">Year…</option>
               {allYears.map(y => <option key={y} value={`year_${y}`}>{y}</option>)}
             </select>
           </div>
@@ -1875,10 +1875,10 @@ export default function MyDonors() {
                 <tbody>
                   {visibleDonations.map((d, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : 'â€”'}</td>
-                      <td style={{ padding: '5px 6px', fontWeight: 600 }}>â‚¹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ padding: '5px 6px' }}>{d.mode || 'â€”'}</td>
-                      <td style={{ padding: '5px 6px' }}><span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`}>{d.status || 'â€”'}</span></td>
+                      <td style={{ padding: '5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '—'}</td>
+                      <td style={{ padding: '5px 6px', fontWeight: 600 }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '5px 6px' }}>{d.mode || '—'}</td>
+                      <td style={{ padding: '5px 6px' }}><span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`}>{d.status || '—'}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1886,7 +1886,7 @@ export default function MyDonors() {
             )}
           </div>
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
-            Total: â‚¹{Math.round(visibleDonations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
+            Total: ₹{Math.round(visibleDonations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
           </div>
         </div>
       </div>
