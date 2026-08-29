@@ -6,7 +6,7 @@ import * as ctrl from '../controllers/eventHeadController.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head');
+const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head');
 // Events (static paths BEFORE :id)
 router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);
