@@ -4722,15 +4722,21 @@ export const getFollowups = async (req, res) => {
     if (ngoIds.length === 0) return res.json([]);
 
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-    const tomorrowStr = new Date(now.getTime() + 24*60*60*1000).toISOString().slice(0, 10);
-    const daywiseDate = date ? String(date).slice(0, 10) : null;
-
     const istDateOf = (value) => {
       const d = new Date(value);
       if (isNaN(d.getTime())) return null;
       return new Date(d.getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
     };
+    const todayStr = istDateOf(now);
+    const tomorrowStr = istDateOf(now.getTime() + 24 * 60 * 60 * 1000);
+    const daywiseDate = date ? String(date).slice(0, 10) : null;
+
+    // IST week (Mon–Sun) + month boundaries for the week/month buckets
+    const istNow = new Date(now.getTime() + ((5 * 60) + 30) * 60000);
+    const mondayOffset = (istNow.getUTCDay() + 6) % 7;
+    const mondayStr = istDateOf(now.getTime() - mondayOffset * 24 * 60 * 60 * 1000);
+    const sundayStr = istDateOf(now.getTime() + (6 - mondayOffset) * 24 * 60 * 60 * 1000);
+    const monthStr = (todayStr || '').slice(0, 7);
 
     let query = db
       .from('fro_assignments')
@@ -4797,26 +4803,65 @@ export const getFollowups = async (req, res) => {
       return res.json(results);
     }
 
-    // Existing bucket mode (unchanged)
+    // Existing bucket mode — every row gets a primary date bucket plus optional
+    // week/month membership, and a callback/follow_up type (same rules as day-wise).
+    const idsForBuckets = (data || []).map(a => a.id);
+    const scheduleMap = {};
+    if (idsForBuckets.length > 0) {
+      const { data: sched, error: schedErr } = await db
+        .from('fro_scheduled_contacts')
+        .select('assignment_id, scheduled_at')
+        .in('assignment_id', idsForBuckets)
+        .eq('is_completed', false);
+      if (schedErr) throw schedErr;
+      for (const s of sched || []) {
+        if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
+      }
+    }
+
+    const monthPrefix = (d) => String(d).slice(0, 7);
+    const callbackStatuses = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate']);
+
     const followups = (data || []).map(f => {
-      let bucket = 'future';
-      if (f.next_follow_up < todayStr) bucket = 'overdue';
-      else if (f.next_follow_up === todayStr) bucket = 'today';
-      else if (f.next_follow_up === tomorrowStr) bucket = 'tomorrow';
-      
+      const nd = f.next_follow_up ? String(f.next_follow_up).slice(0, 10) : null;
+      const buckets = [];
+      if (!nd) buckets.push('future');
+      else if (nd < todayStr) buckets.push('overdue');
+      else if (nd === todayStr) buckets.push('today');
+      else if (nd === tomorrowStr) buckets.push('tomorrow');
+      else buckets.push('future');
+      if (nd && nd >= mondayStr && nd <= sundayStr) buckets.push('week');
+      if (nd && monthPrefix(nd) === monthStr) buckets.push('month');
+
+      const scheduled_at = scheduleMap[f.id] || null;
+      const scheduledDay = scheduled_at ? istDateOf(scheduled_at) : null;
+      const isCallback = callbackStatuses.has(f.status) || (nd && scheduledDay === nd);
+
       return {
         assignment_id: f.id,
+        assignmentId: f.id,
         telecaller: f.workers?.name || 'Unknown',
+        fro_worker_id: f.fro_worker_id,
         donor_name: f.donor_profiles?.name || 'Unknown',
         mobile: f.donor_profiles?.mobile_number || '',
         expected_amount: 0, // Would need additional query
         followup_date: f.next_follow_up,
-        bucket,
+        scheduled_at,
+        status: f.status || null,
+        type: isCallback ? 'callback' : 'follow_up',
+        bucket: buckets[0],
+        buckets,
       };
     });
 
     if (bucket) {
-      return res.json(followups.filter(f => f.bucket === bucket));
+      const filtered = followups.filter(f => (f.buckets || [f.bucket]).includes(bucket));
+      filtered.sort((a, b) => {
+        if ((a.telecaller || '') !== (b.telecaller || '')) return (a.telecaller || '').localeCompare(b.telecaller || '');
+        if (a.type !== b.type) return a.type.localeCompare(b.type);
+        return (a.donor_name || '').localeCompare(b.donor_name || '');
+      });
+      return res.json(filtered);
     }
     return res.json(followups);
   } catch (error) {
