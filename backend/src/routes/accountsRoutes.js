@@ -5,6 +5,16 @@ import { restoreWrongAssignments } from '../controllers/ngoAdminController.js';
 
 const router = Router();
 
+const accessCodeRole = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
+
+// Shared access-code used by the HR panel's "Unlock Salary" and accounts
+// receipts/reports. Placed before the accounts-only guard so HR/admin can
+// manage their own per-user code.
+router.get('/access-code/status', accessCodeRole, getAccessCodeStatus);
+router.post('/access-code', accessCodeRole, createAccessCode);
+router.post('/access-code/verify', accessCodeRole, verifyAccessCode);
+router.post('/access-code/change', accessCodeRole, changeAccessCode);
+
 router.use(authenticateRole('accounts', 'super_admin'));
 
 router.get('/leads', getLeadList);
@@ -61,10 +71,5 @@ router.get('/day-end-report', getDayEndReport);
 router.get('/report-targets', getReportTargets);
 router.put('/report-targets', putReportTargets);
 router.get('/report-data', getReportData);
-
-router.get('/access-code/status', getAccessCodeStatus);
-router.post('/access-code', createAccessCode);
-router.post('/access-code/verify', verifyAccessCode);
-router.post('/access-code/change', changeAccessCode);
 
 export default router;
