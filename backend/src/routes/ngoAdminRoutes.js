@@ -97,6 +97,13 @@ router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), ge
 router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
 router.get('/ngos', authenticateRole('admin', 'super_admin', 'accounts'), getAccessibleNgos);
 
+// Accounts panel handles New Data distribution + Old Data viewing — allow accounts role
+router.get('/donors-by-station', authenticateRole('admin', 'super_admin', 'accounts'), getDonorsByStation);
+router.get('/new-data', authenticateRole('admin', 'super_admin', 'accounts'), getNewData);
+router.post('/new-data/distribute', authenticateRole('admin', 'super_admin', 'accounts'), distributeNewData);
+router.post('/new-data/cleanup', authenticateRole('admin', 'super_admin', 'accounts'), cleanupNewData);
+router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'accounts'), resetFreshData);
+
 router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
@@ -123,7 +130,6 @@ router.get('/donors', getDonors);
 router.get('/donors/:donorId/credit', getDonorCreditLogs);
 router.put('/credit-logs/:logId/transfer', transferDonorCredit);
 router.get('/donors/:mobile', getDonorDetail);
-router.get('/donors-by-station', getDonorsByStation);
 router.get('/donors-by-fro', getDonorsByFro);
 router.get('/fro-workers', getFroWorkers);
 router.get('/assignments', getAssignments);
@@ -149,11 +155,7 @@ router.get('/transfers', getTransferHistory);
 router.get('/transfers/:id/donors', getTransferDonors);
 router.post('/transfers/:id/return-early', returnTransferEarly);
 
-router.get('/new-data', getNewData);
 router.get('/data-overview', getDataOverview);
-router.post('/new-data/distribute', distributeNewData);
-router.post('/new-data/cleanup', cleanupNewData);
-router.post('/new-data/reset', resetFreshData);
 
 router.get('/alerts', getAlerts);
 router.put('/alerts/:id/acknowledge', acknowledgeAlert);
