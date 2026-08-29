@@ -417,10 +417,15 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
               <div className="ec-title">{e.payer_name||'\u2014'}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2, minWidth: 0 }}>
                 <span className="ec-sub" style={{ marginTop: 0 }}>{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</span>
-                {(e.verify_type||e.verify_fro_worker_id)&&((ag)=>ag&&ag!=='Suspense'
-                  ?<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED · {ag}</span>
-                  :<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED</span>
-                )(e.agent_name||e.verify_fro_name||e.match_fro)}
+                {e.claimed_by
+                  ? <>
+                      <span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#e0f2fe', color: '#0369a1', whiteSpace: 'nowrap', flexShrink: 0 }} title="Claimed by FRO">Claimed by {e.claimed_by}</span>
+                      {e.claimed_donor_name&&<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', whiteSpace: 'nowrap', flexShrink: 0 }} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
+                    </>
+                  :(e.verify_type||e.verify_fro_worker_id)&&((ag)=>ag&&ag!=='Suspense'
+                    ?<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED · {ag}</span>
+                    :<span className="pill" style={{ fontSize: 9, fontWeight: 700, background: '#ede9fe', color: '#7c3aed', whiteSpace: 'nowrap', flexShrink: 0 }} title="Manual verify details saved">SAVED</span>
+                  )(e.agent_name||e.verify_fro_name||e.match_fro)}
               </div>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -435,8 +440,6 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
               {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
               {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
               <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
-              {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
-              {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
               <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
             </div>
             <span className="pill" style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, background: (NGO_STYLE[ngoOf(e)]||{background:'#f3f4f6',color:'#6b7280'}).background, color: (NGO_STYLE[ngoOf(e)]||{background:'#f3f4f6',color:'#6b7280'}).color, borderRadius: 999, padding: '3px 10px' }}>{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>

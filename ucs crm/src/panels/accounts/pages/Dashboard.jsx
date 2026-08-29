@@ -307,17 +307,15 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                   <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                 </div>
                 <div className="ec-meta">
-                  {l.accounts_status === 'pending' ? <span className="pill pill-yellow">Pending</span> :
+                  {l.accounts_status === 'pending' ? null :
                    l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
                    l.accounts_status === 'rejected' ? <span className="pill pill-red" title={l.rejection_reason || ''}>Rejected</span> :
                    <span className="pill pill-gray">{l.accounts_status || '\u2014'}</span>}
                   <span className="pill pill-gray">{({ bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
                   {l.upi_transaction_id && <span className="pill pill-gray" style={{ fontFamily: 'monospace' }} title="Incoming payment ID">{l.upi_transaction_id}</span>}
-                  {l.claimed_receipt && <span className="pill" style={{ fontSize: 10, background: '#FDE7DB', color: '#B5603A' }}>Claimant</span>}
-                  {l.bank_match && <span className="pill" style={{ fontSize: 10, background: l.bank_match.match_source === 'manual' ? '#fef3c7' : '#dbeafe', color: l.bank_match.match_source === 'manual' ? '#92400e' : '#1d4ed8' }} title={`${l.bank_match.match_source === 'manual' ? 'Manually' : 'Auto'} matched${l.bank_match.match_score ? ` · score ${l.bank_match.match_score}` : ''}`}>
-                    {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
-                  </span>}
-                  <span className="ec-agent">{l.claimant_name || l.agent_name || 'No agent'}</span>
+                  {l.claimed_receipt && <span className="pill" style={{ fontSize: 10, background: '#FDE7DB', color: '#B5603A' }}>{l.claimant_name || 'Claimant'}{l.agent_name && l.agent_name !== l.claimant_name ? ` | ${l.agent_name}` : ''}</span>}
+                  {l.bank_match && <span className="pill" style={{ fontSize: 10, background: '#ffedd5', color: '#c2410c' }} title={`${l.bank_match.match_source === 'manual' ? 'Manually' : 'Auto'} matched${l.bank_match.match_score ? ` · score ${l.bank_match.match_score}` : ''}`}>Matched</span>}
+                  {!l.claimed_receipt && <span className="ec-agent">{l.claimant_name || l.agent_name || 'No agent'}</span>}
                   <span className="ec-date">{fmtDT(l.transaction_datetime || l.created_at)}</span>
                   {l.accounts_status === 'pending' && l.agent_name === 'Priyank Shah' && (
                     <button className="btn btn-sm" onClick={e => { e.stopPropagation(); setQuickVerifyLead(l); setQuickVerifyName('Priyank Shah'); }}
