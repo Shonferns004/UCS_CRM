@@ -1792,7 +1792,11 @@ export const getMyDonors = async (req, res) => {
       seen.add(key);
       const s = scheduleMap[a.id];
       const rawStatus = a.status || 'pending';
-      const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !monthDonatedSet.has(a.id);
+      // Only donation_collected should reset to pending across a donation
+      // period boundary (so a recurring donor reappears to be collected again).
+      // lead_done / done are terminal dispositions — once the FRO closes the
+      // lead they must stay hidden, otherwise disposed leads come back again.
+      const staleDoneStatus = rawStatus === 'donation_collected' && !monthDonatedSet.has(a.id);
       // A donor who has already donated in the current period has nothing left
       // to collect — drop them out of the workable (pending/not-connected) pool
       // so they stop reappearing at the top of the FRO stack. Uses monthDonatedSet
@@ -3650,7 +3654,9 @@ export const searchDonors = async (req, res) => {
         const hasScoped = evidence.activeAssignmentIds.has(a.id) || evidence.receiptPairs.has(pair);
         const donatedThisPeriod = evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair);
         const rawStatus = a.status || 'pending';
-        const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !donatedThisPeriod;
+        // Same policy as getMyDonors: only donation_collected resets across a
+        // period boundary; lead_done/done are terminal and stay hidden.
+        const staleDoneStatus = rawStatus === 'donation_collected' && !donatedThisPeriod;
         const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
         const displayStatus = staleDoneStatus
           ? 'pending'
