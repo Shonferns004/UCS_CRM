@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { fetchEventsByMonth, fetchNGOs } from '../store'
+import { useNavigate } from 'react-router-dom'
+import { fetchEventsByMonth, fetchWorkspaceNgos } from '../store'
 import SummaryCards from '../components/planner/SummaryCards'
 import PlannerFilters from '../components/planner/PlannerFilters'
 import CalendarToolbar from '../components/planner/CalendarToolbar'
@@ -11,6 +12,7 @@ import LoadingSkeleton from '../components/planner/LoadingSkeleton'
 const now = new Date()
 
 export default function MonthlyPlanner() {
+  const navigate = useNavigate()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [events, setEvents] = useState([])
@@ -36,7 +38,7 @@ export default function MonthlyPlanner() {
     setLoading(true)
     Promise.all([
       fetchEventsByMonth(month + 1, year).catch(() => []),
-      fetchNGOs().catch(() => []),
+      fetchWorkspaceNgos().catch(() => []),
     ]).then(([evts, n]) => {
       if (cancelled) return
       setEvents(Array.isArray(evts) ? evts : [])
@@ -169,7 +171,7 @@ export default function MonthlyPlanner() {
       </div>
 
       {selectedEvent && (
-        <EventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+        <EventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} onView={(ev) => navigate('/event-head/events/' + ev.id)} onEdit={(ev) => navigate('/event-head/events/' + ev.id + '?edit=1')} />
       )}
     </div>
   )

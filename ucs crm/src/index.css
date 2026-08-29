@@ -851,6 +851,21 @@
 .panel-dev .material-symbols-outlined { font-family: 'Material Symbols Outlined'; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
 .panel-dev .material-symbols-outlined.filled { font-variation-settings: 'FILL' 1; }
 
+/* ── Dev Panel Dashboard ── */
+.dp-glass-card {
+  background: rgba(255,255,255,0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.04);
+}
+.dp-chart-grid {
+  background-size: 40px 40px;
+  background-image:
+    linear-gradient(to right, rgba(236,238,240,0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(236,238,240,0.4) 1px, transparent 1px);
+}
+
 /* ── Recruiter Overview ── */
 .ro-wrap { display:flex; flex-direction:column; gap:0; }
 .ro-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:14px; flex-wrap:wrap; }
@@ -1227,6 +1242,12 @@
 .panel-event-head .filter-bar select, .panel-accounts .filter-bar select, .panel-ngo-admin .filter-bar select, .panel-fro .filter-bar select { padding:7px 10px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:13px; font-family:inherit; outline:none; }
 .panel-event-head .filter-bar input:focus, .panel-accounts .filter-bar input:focus, .panel-ngo-admin .filter-bar input:focus, .panel-fro .filter-bar input:focus,
 .panel-event-head .filter-bar select:focus, .panel-accounts .filter-bar select:focus, .panel-ngo-admin .filter-bar select:focus, .panel-fro .filter-bar select:focus { border-color:var(--sage); }
+
+.panel-event-head .modal { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow-md); width:100%; max-width:520px; max-height:90vh; overflow-y:auto; }
+.panel-event-head .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
+.panel-event-head .modal-head h3 { font-size:15px; font-weight:600; }
+.panel-event-head .modal-body { padding:18px; }
+.panel-event-head .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
 
 /* Accounts panel extras */
 .panel-accounts .count { font-size:12px; color:var(--ink-soft); }
