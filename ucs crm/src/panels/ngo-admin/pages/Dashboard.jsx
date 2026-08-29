@@ -436,7 +436,68 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
   );
 }
 
-function FollowupDetailModal({ worker, date, onClose, onRowRemoved }) {
+const FOLLOWUP_TAB_LABELS = {
+  overdue: 'Overdue', today: 'Today', tomorrow: 'Tomorrow', future: 'Future',
+  week: 'This Week', month: 'This Month',
+};
+
+function buildWorkerSummary(rows, todayIst = toIstDate()) {
+  const map = {};
+  for (const r of rows) {
+    const key = r.fro_worker_id || r.telecaller || 'Unknown';
+    if (!map[key]) map[key] = { key, telecaller: r.telecaller || 'Unknown', callback: 0, follow_up: 0, overdue: 0, rows: [] };
+    map[key][r.type === 'callback' ? 'callback' : 'follow_up']++;
+    const fd = r.followup_date ? String(r.followup_date).slice(0, 10) : null;
+    if (fd && fd < todayIst) map[key].overdue++;
+    map[key].rows.push(r);
+  }
+  const list = Object.values(map).map(x => ({ ...x, total: x.callback + x.follow_up }));
+  list.sort((a, b) => b.total - a.total || a.telecaller.localeCompare(b.telecaller));
+  return list;
+}
+
+function FollowupSummaryTable({ summary, onSelect, hint }) {
+  const tCall = summary.reduce((s, w) => s + w.callback, 0);
+  const tFup = summary.reduce((s, w) => s + w.follow_up, 0);
+  const tOver = summary.reduce((s, w) => s + w.overdue, 0);
+  const tTotal = summary.reduce((s, w) => s + w.total, 0);
+  return (
+    <div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              {[['Telecaller', 'left'], ['Callback', 'center'], ['Follow-up', 'center'], ['Overdue', 'center'], ['Total', 'center']].map(([h, align]) => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map(w => (
+              <tr key={w.key} onClick={() => onSelect(w)} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }} title="Click to view details">
+                <td style={{ padding: '8px 10px', fontWeight: 600 }}>{w.telecaller}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}>{w.callback}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#ea580c', fontWeight: 600 }}>{w.follow_up}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#dc2626', fontWeight: 600 }}>{w.overdue}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{w.total}</td>
+              </tr>
+            ))}
+            <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)', fontWeight: 700 }}>
+              <td style={{ padding: '8px 10px', fontWeight: 700 }}>TOTAL</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tCall}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tFup}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tOver}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tTotal}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>{hint || 'Click a telecaller to view donors'}</div>
+    </div>
+  );
+}
+
+function FollowupDetailModal({ worker, label, onClose, onChanged }) {
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
@@ -468,7 +529,7 @@ function FollowupDetailModal({ worker, date, onClose, onRowRemoved }) {
         <div className="modal-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0, fontSize: 14 }}>{worker.telecaller}</h3>
-            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 500, background: 'var(--bg)', padding: '2px 10px', borderRadius: 12 }}>{date}</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 500, background: 'var(--bg)', padding: '2px 10px', borderRadius: 12 }}>{label}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#ea580c', background: '#fff7ed', padding: '2px 10px', borderRadius: 12 }}>
               {followupCount} Follow-up{followupCount !== 1 ? 's' : ''}
             </span>
@@ -480,13 +541,13 @@ function FollowupDetailModal({ worker, date, onClose, onRowRemoved }) {
         </div>
         <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
           {rows.length === 0 ? (
-            <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No records for this telecaller on {date}.</div>
+            <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No records for this telecaller in {label}.</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {[['Donor', 'left'], ['Mobile', 'left'], ['Type', 'left'], ['Scheduled', 'center'], ['', 'right']].map(([h, align]) => (
+                    {[['Donor', 'left'], ['Mobile', 'left'], ['Type', 'left'], ['Date', 'center'], ['Scheduled', 'center'], ['', 'right']].map(([h, align]) => (
                       <th key={h || 'action'} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>{h || 'Action'}</th>
                     ))}
                   </tr>
@@ -497,6 +558,7 @@ function FollowupDetailModal({ worker, date, onClose, onRowRemoved }) {
                       <td style={{ padding: '8px 10px', fontWeight: 500 }}>{r.donor_name || '—'}</td>
                       <td style={{ padding: '8px 10px', color: 'var(--ink-soft)' }}>{r.mobile || '—'}</td>
                       <td style={{ padding: '8px 10px' }}><span style={typePill(r.type)}>{r.type === 'callback' ? 'Callback' : 'Follow-up'}</span></td>
+                      <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{r.followup_date ? String(r.followup_date).slice(0, 10) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{fmtTime(r.scheduled_at)}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>
                         <button onClick={async () => {
@@ -504,7 +566,7 @@ function FollowupDetailModal({ worker, date, onClose, onRowRemoved }) {
                           if (newDate && newDate !== r.followup_date) {
                             try {
                               await apiPut(`/ngo-admin/followups/${r.assignment_id || r.assignmentId}/date`, { followup_date: newDate });
-                              onRowRemoved(r.assignment_id || r.assignmentId);
+                              onChanged();
                             } catch (err) { alert('Failed: ' + err.message); }
                           }
                         }} style={{ fontSize: 10, padding: '3px 8px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
@@ -914,6 +976,7 @@ export default function Dashboard() {
   const [daywiseRows, setDaywiseRows] = useState([]);
   const [daywiseLoading, setDaywiseLoading] = useState(false);
   const [fupDetailWorker, setFupDetailWorker] = useState(null);
+  const [followupReload, setFollowupReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -938,7 +1001,7 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setFollowups([]); })
       .finally(() => { if (!cancelled) setFollowupLoading(false); });
     return () => { cancelled = true };
-  }, [showFollowups, selectedNgoId]);
+  }, [showFollowups, selectedNgoId, followupReload]);
 
   useEffect(() => {
     if (!showFollowups || followupMode !== 'daywise') return;
@@ -951,24 +1014,18 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setDaywiseRows([]); })
       .finally(() => { if (!cancelled) setDaywiseLoading(false); });
     return () => { cancelled = true };
-  }, [showFollowups, followupMode, followupDay, selectedNgoId]);
+  }, [showFollowups, followupMode, followupDay, selectedNgoId, followupReload]);
 
-  const daywiseSummary = useMemo(() => {
-    const map = {};
-    for (const r of daywiseRows) {
-      const key = r.fro_worker_id || r.telecaller || 'Unknown';
-      if (!map[key]) map[key] = { key, telecaller: r.telecaller || 'Unknown', callback: 0, follow_up: 0, rows: [] };
-      map[key][r.type === 'callback' ? 'callback' : 'follow_up']++;
-      map[key].rows.push(r);
-    }
-    const list = Object.values(map).map(x => ({ ...x, total: x.callback + x.follow_up }));
-    list.sort((a, b) => b.total - a.total || a.telecaller.localeCompare(b.telecaller));
-    return list;
-  }, [daywiseRows]);
+  const daywiseSummary = useMemo(() => buildWorkerSummary(daywiseRows), [daywiseRows]);
 
-  const removeDaywiseRow = useCallback((assignment_id) => {
-    setDaywiseRows(prev => prev.filter(r => (r.assignment_id || r.assignmentId) !== assignment_id));
-  }, []);
+  const bucketRows = useMemo(() => {
+    if (!Array.isArray(followups)) return [];
+    return followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(followupTab));
+  }, [followups, followupTab]);
+
+  const bucketSummary = useMemo(() => buildWorkerSummary(bucketRows), [bucketRows]);
+
+  const bumpFollowupReload = useCallback(() => setFollowupReload(n => n + 1), []);
 
   const fetchDashboard = useCallback(() => {
     const controller = new AbortController();
@@ -2167,8 +2224,10 @@ export default function Dashboard() {
                     { key: 'today', label: 'Today', color: '#ea580c', bg: '#fff7ed' },
                     { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb', bg: '#eff6ff' },
                     { key: 'future', label: 'Future', color: '#6b7280', bg: '#f9fafb' },
+                    { key: 'week', label: 'This Week', color: '#5B6B4E', bg: '#f0f2ee' },
+                    { key: 'month', label: 'This Month', color: '#7c3aed', bg: '#f5f3ff' },
                   ].map(tab => {
-                    const count = followups.filter(f => f.bucket === tab.key).length;
+                    const count = followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(tab.key)).length;
                     const active = followupMode === 'bucket' && followupTab === tab.key;
                     return (
                       <button key={tab.key} onClick={() => { setFollowupMode('bucket'); setFollowupTab(tab.key); }} style={{
@@ -2221,85 +2280,27 @@ export default function Dashboard() {
                         ) : daywiseSummary.length === 0 ? (
                           <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No follow-ups or callbacks on {followupDay}</div>
                         ) : (
-                          <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                              <thead>
-                                <tr>
-                                  {[['Telecaller', 'left'], ['Callback', 'center'], ['Follow-up', 'center'], ['Total', 'center']].map(([h, align]) => (
-                                    <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>{h}</th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {daywiseSummary.map(w => (
-                                  <tr key={w.key} onClick={() => setFupDetailWorker(w)} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }} title="Click to view details">
-                                    <td style={{ padding: '8px 10px', fontWeight: 600 }}>{w.telecaller}</td>
-                                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}>{w.callback}</td>
-                                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#ea580c', fontWeight: 600 }}>{w.follow_up}</td>
-                                    <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{w.total}</td>
-                                  </tr>
-                                ))}
-                                <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)', fontWeight: 700 }}>
-                                  <td style={{ padding: '8px 10px', fontWeight: 700 }}>Total</td>
-                                  <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{daywiseSummary.reduce((s, w) => s + w.callback, 0)}</td>
-                                  <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{daywiseSummary.reduce((s, w) => s + w.follow_up, 0)}</td>
-                                  <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{totalDay}</td>
-                                </tr>
-                              </tbody>
-                            </table>
-                            <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>Click a telecaller to view that day's donors</div>
-                          </div>
+                          <FollowupSummaryTable
+                            summary={daywiseSummary}
+                            hint={`${totalDay} record${totalDay !== 1 ? 's' : ''} — click a telecaller to view that day's donors`}
+                            onSelect={setFupDetailWorker}
+                          />
                         )}
                       </div>
                     );
                   })()
 ) : (
                   (() => {
-                    const filtered = followups.filter(f => f.bucket === followupTab);
-                  if (filtered.length === 0) return <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {followupTab} follow-ups</div>;
-                  return (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                        <thead>
-                          <tr>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Donor</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Telecaller</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Date</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.slice(0, 20).map(f => (
-                            <tr key={f.assignment_id} style={{ borderBottom: '1px solid var(--line)' }}>
-                              <td style={{ padding: '8px 10px', fontWeight: 500 }}>{f.donor_name || '—'}</td>
-                              <td style={{ padding: '8px 10px', color: 'var(--ink-soft)' }}>{f.telecaller || '—'}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{f.followup_date || '—'}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                <button onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const newDate = prompt('New follow-up date (YYYY-MM-DD):', f.followup_date);
-                                  if (newDate && newDate !== f.followup_date) {
-                                    try {
-                                      await apiPut(`/ngo-admin/followups/${f.assignmentId || f.assignment_id}/date`, { followup_date: newDate });
-                                      setFollowups(prev => prev.map(x => x.assignment_id === f.assignment_id ? { ...x, followup_date: newDate } : x));
-                                    } catch (err) { alert('Failed: ' + err.message); }
-                                  }
-                                }} style={{ fontSize: 10, padding: '3px 8px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-                                  Change Date
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {filtered.length > 20 && (
-                        <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>
-                          Showing 20 of {filtered.length} — go to Donor CRM for full list
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()
+                    const tabLabel = FOLLOWUP_TAB_LABELS[followupTab] || followupTab;
+                    if (bucketSummary.length === 0) return <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {tabLabel} follow-ups</div>;
+                    return (
+                      <FollowupSummaryTable
+                        summary={bucketSummary}
+                        hint={`${bucketRows.length} record${bucketRows.length !== 1 ? 's' : ''} in ${tabLabel} — click a telecaller to view donors`}
+                        onSelect={setFupDetailWorker}
+                      />
+                    );
+                  })()
                 )}
               </>
             )}
@@ -2418,9 +2419,9 @@ export default function Dashboard() {
       {fupDetailWorker && (
         <FollowupDetailModal
           worker={fupDetailWorker}
-          date={followupDay}
+          label={followupMode === 'daywise' ? followupDay : (FOLLOWUP_TAB_LABELS[followupTab] || followupTab)}
           onClose={() => setFupDetailWorker(null)}
-          onRowRemoved={removeDaywiseRow}
+          onChanged={bumpFollowupReload}
         />
       )}
 
