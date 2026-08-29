@@ -509,6 +509,14 @@ function FollowupDetailModal({ worker, label, onClose, onChanged }) {
   const callbackCount = rows.filter(r => r.type === 'callback').length;
   const followupCount = rows.length - callbackCount;
 
+  const todayIst = toIstDate();
+  const isOverdueRow = (r) => {
+    const fd = r.followup_date ? String(r.followup_date).slice(0, 10) : null;
+    return !!(fd && fd < todayIst);
+  };
+  const overdueCount = rows.filter(isOverdueRow).length;
+  const sortedRows = [...rows].sort((a, b) => Number(isOverdueRow(b)) - Number(isOverdueRow(a)));
+
   const typePill = (type) => ({
     padding: '2px 10px', borderRadius: 12, fontSize: 10, fontWeight: 700, display: 'inline-flex',
     textTransform: 'uppercase', letterSpacing: '0.04em',
@@ -536,8 +544,13 @@ function FollowupDetailModal({ worker, label, onClose, onChanged }) {
             <span style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', background: '#f0fdf4', padding: '2px 10px', borderRadius: 12 }}>
               {callbackCount} Callback{callbackCount !== 1 ? 's' : ''}
             </span>
+            {overdueCount > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#dc2626', background: '#fee2e2', padding: '2px 10px', borderRadius: 12 }}>
+                {overdueCount} Overdue{overdueCount !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
-          <button className="btn btn-sm btn-outline" onClick={onClose} style={{ width: 28, height: 28, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <button aria-label="Close" onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1 }}>✕</button>
         </div>
         <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
           {rows.length === 0 ? (
@@ -553,12 +566,19 @@ function FollowupDetailModal({ worker, label, onClose, onChanged }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(r => (
-                    <tr key={r.assignment_id || r.assignmentId} style={{ borderBottom: '1px solid var(--line)' }}>
+                  {sortedRows.map(r => (
+                    <tr key={r.assignment_id || r.assignmentId} style={{ borderBottom: '1px solid var(--line)', background: isOverdueRow(r) ? '#fff7f7' : undefined }}>
                       <td style={{ padding: '8px 10px', fontWeight: 500 }}>{r.donor_name || '—'}</td>
                       <td style={{ padding: '8px 10px', color: 'var(--ink-soft)' }}>{r.mobile || '—'}</td>
                       <td style={{ padding: '8px 10px' }}><span style={typePill(r.type)}>{r.type === 'callback' ? 'Callback' : 'Follow-up'}</span></td>
-                      <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{r.followup_date ? String(r.followup_date).slice(0, 10) : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>
+                        {isOverdueRow(r) ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#dc2626', fontWeight: 700 }}>
+                            {r.followup_date ? String(r.followup_date).slice(0, 10) : '—'}
+                            <span style={{ padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, background: '#fee2e2', color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Overdue</span>
+                          </span>
+                        ) : (r.followup_date ? String(r.followup_date).slice(0, 10) : '—')}
+                      </td>
                       <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{fmtTime(r.scheduled_at)}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>
                         <button onClick={async () => {
@@ -579,9 +599,6 @@ function FollowupDetailModal({ worker, label, onClose, onChanged }) {
               </table>
             </div>
           )}
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-sm btn-outline" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
@@ -1189,7 +1206,7 @@ export default function Dashboard() {
     const styleCell = (ws, r, c, s) => { const ref = ws[enc({ r, c })]; if (ref) ref.s = s; };
     const spanRef = (ws) => {
       const cur = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: cur });
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: cur.e });
     };
 
     const periodLabel = perfPeriod === 'today' ? 'Today' : perfPeriod === 'week' ? 'This Week' : 'This Month';
