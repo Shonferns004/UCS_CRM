@@ -7,8 +7,31 @@ export const createEventHeadEvent = async (data) => {
   return result;
 };
 
-export const getAllEventHeadEvents = async () => {
-  const { data, error } = await db.from('event_head_events').select('*').order('created_at', { ascending: false });
+// Bulk insert from an events sheet import. No ON CONFLICT (events have no
+// natural unique key) — the caller dedupes rows before calling.
+export const insertEventHeadEventsBulk = async (rows) => {
+  if (!rows || !rows.length) return [];
+  const withTs = rows.map(r => ({ ...r, updated_at: new Date() }));
+  const { data, error } = await db.from('event_head_events').insert(withTs).select('id');
+  if (error) throw error;
+  return data || [];
+};
+
+export const getAllEventHeadEvents = async (filters = {}) => {
+  const { ngo_id, sector_id, activity_id, status, month, year } = filters;
+  let query = db.from('event_head_events').select('*').order('created_at', { ascending: false });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (sector_id) query = query.eq('sector_id', sector_id);
+  if (activity_id) query = query.eq('activity_id', activity_id);
+  if (status) query = query.eq('status', status);
+  if (month && year) {
+    const m = Number(month), y = Number(year);
+    if (m >= 1 && m <= 12) {
+      query = query.gte('date', `${y}-${String(m).padStart(2, '0')}-01`)
+        .lt('date', `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`);
+    }
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 };
@@ -64,6 +87,36 @@ export const getEventHeadDashboard = async () => {
   const budgetTotal = data.reduce((s, e) => s + (+e.budget || 0), 0);
   const beneficiariesTotal = data.reduce((s, e) => s + (+e.expected_beneficiaries || 0), 0);
   return { total, upcoming, today, completed, cancelled, budget_total: budgetTotal, beneficiaries_total: beneficiariesTotal };
+};
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const monthBounds = (month, year) => {
+  const y = year ? Number(year) : null;
+  if (month) {
+    const m = Number(month);
+    if (!(m >= 1 && m <= 12)) return null;
+    const yearForMonth = y || new Date().getFullYear();
+    const next = m === 12 ? `${yearForMonth + 1}-01-01` : `${yearForMonth}-${pad2(m + 1)}-01`;
+    return { from: `${yearForMonth}-${pad2(m)}-01`, to: next };
+  }
+  if (y && Number.isFinite(y)) return { from: `${y}-01-01`, to: `${y + 1}-01-01` };
+  return null;
+};
+
+// Lean projection of events for the dashboard stats calculation.
+// Applies the scalar filters (ngo/sector/activity) and the month+year window.
+export const getEventHeadDashboardEvents = async (filters = {}) => {
+  const { ngo_id, sector_id, activity_id, month, year } = filters;
+  let query = db.from('event_head_events')
+    .select('id, name, date, start_time, end_time, venue, status, ngo_id, sector_id, activity_id, budget, expected_beneficiaries');
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (sector_id) query = query.eq('sector_id', sector_id);
+  if (activity_id) query = query.eq('activity_id', activity_id);
+  const bounds = monthBounds(month, year);
+  if (bounds) query = query.gte('date', bounds.from).lt('date', bounds.to);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
 };
 
 // ─── ASSETS ───
@@ -283,5 +336,100 @@ export const getAllPartners = async () => {
 export const getAllDonors = async () => {
   const { data, error } = await db.from('event_head_donors').select('*').order('name', { ascending: true });
   if (error) throw error;
+  return data;
+};
+
+// ─── SECTORS (Dynamic 12-sector reference, seeded via migration) ───
+export const getAllEventHeadSectors = async () => {
+  const { data, error } = await db.from('event_head_sectors').select('*').order('sort_order', { ascending: true });
+  if (error) throw error;
+  return data;
+};
+
+export const getSectorActivityCounts = async (ngoId) => {
+  let query = db.from('event_head_activities').select('id, sector_id, ngo_id');
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data, error } = await query;
+  if (error) throw error;
+  const counts = {};
+  for (const a of data || []) if (a.sector_id) counts[a.sector_id] = (counts[a.sector_id] || 0) + 1;
+  return counts;
+};
+
+export const getSectorEventCounts = async (ngoId) => {
+  let query = db.from('event_head_events').select('id, sector_id, ngo_id');
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data, error } = await query;
+  if (error) throw error;
+  const counts = {};
+  for (const e of data || []) if (e.sector_id) counts[e.sector_id] = (counts[e.sector_id] || 0) + 1;
+  return counts;
+};
+
+// ─── ACTIVITIES (NGO → Sector → Activity) ───
+export const createActivity = async (data) => {
+  const { data: result, error } = await db.from('event_head_activities').insert([{ ...data, updated_at: new Date() }]).select().single();
+  if (error) throw error;
+  return result;
+};
+
+// Bulk upsert from a sheet import. Only actually-inserted rows are returned
+// (ON CONFLICT ... DO NOTHING skips existing), so callers can report
+// inserted vs skipped_existing counts precisely.
+export const insertActivitiesBulk = async (rows) => {
+  if (!rows || !rows.length) return [];
+  const { data, error } = await db.from('event_head_activities')
+    .upsert(rows, { onConflict: 'ngo_id,sector_id,name', ignoreDuplicates: true })
+    .select('id');
+  if (error) throw error;
+  return data || [];
+};
+
+export const getAllActivities = async ({ ngo_id, sector_id } = {}) => {
+  let query = db.from('event_head_activities').select('*').order('created_at', { ascending: false });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (sector_id) query = query.eq('sector_id', sector_id);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+};
+
+export const getActivityById = async (id) => {
+  const { data, error } = await db.from('event_head_activities').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+export const updateActivity = async (id, updates) => {
+  const { data, error } = await db.from('event_head_activities').update({ ...updates, updated_at: new Date() }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+};
+
+export const getActivityEventCounts = async () => {
+  const { data, error } = await db.from('event_head_events').select('id, activity_id');
+  if (error) throw error;
+  const counts = {};
+  for (const e of data || []) if (e.activity_id) counts[e.activity_id] = (counts[e.activity_id] || 0) + 1;
+  return counts;
+};
+
+// ─── NGO CONTEXT (read-only, Event Head workspace) ───
+const EVENT_HEAD_NGO_CODES = ['bsct', 'mann', 'aflf'];
+
+export const getAllEventHeadNgos = async () => {
+  const { data, error } = await db.from('ngos').select('id, name, code').order('name', { ascending: true });
+  if (error) throw error;
+  return (data || []).sort((a, b) => {
+    const ia = EVENT_HEAD_NGO_CODES.indexOf(String(a.code || a.name || '').toLowerCase());
+    const ib = EVENT_HEAD_NGO_CODES.indexOf(String(b.code || b.name || '').toLowerCase());
+    return (ia === -1 ? 9 : ia) - (ib === -1 ? 9 : ib) || String(a.name || a.code).localeCompare(String(b.name || b.code));
+  });
+};
+
+export const getEventHeadNgoById = async (ngoId) => {
+  if (!ngoId) return null;
+  const { data, error } = await db.from('ngos').select('id, name, code').eq('id', ngoId).maybeSingle();
+  if (error) return null;
   return data;
 };

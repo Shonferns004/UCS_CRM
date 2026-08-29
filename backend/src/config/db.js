@@ -92,6 +92,10 @@ const EMBED_JOINS = {
   agent_phone_assignments: {
     whatsapp_accounts: { childColumn: 'account_id', parentColumn: 'id' },
   },
+  developer_tickets: {
+    developer_tickets_raised_by_fkey: { childColumn: 'raised_by', parentColumn: 'id' },
+    developer_tickets_assigned_to_fkey: { childColumn: 'assigned_to', parentColumn: 'id' },
+  },
 };
 
 async function getForeignKeys() {
@@ -188,14 +192,26 @@ async function resolveRelationship(childTable, rel, hint) {
   let chosen = null;
   if (hintConstraint || hintColumn) {
     chosen = hintConstraint || hintColumn;
-  } else {
-    const byTable = childFks.filter((f) => f.parent_table === rel);
-    if (byTable.length === 1) {
-      chosen = byTable[0];
-    } else if (byTable.length > 1) {
-      throw new Error(`Ambiguous relationship ${childTable} -> ${rel}`);
+} else {
+    // Check EMBED_JOINS with hint first (for cases where FK constraints were dropped in RDS migration).
+    // This allows PostgREST embeds like "workers!developer_tickets_raised_by_fkey(...)" to resolve
+    // using explicit childColumn/parentColumn mappings instead of relying on DB metadata FK constraints.
+    if (hint && EMBED_JOINS[childTable] && EMBED_JOINS[childTable][hint]) {
+      const manual = EMBED_JOINS[childTable][hint];
+      chosen = {
+        parent_table: rel,
+        child_column: manual.childColumn,
+        parent_column: manual.parentColumn,
+      };
     } else {
-      chosen = childFks.find((f) => f.constraint === rel) || childFks.find((f) => f.child_column === rel) || null;
+      const byTable = childFks.filter((f) => f.parent_table === rel);
+      if (byTable.length === 1) {
+        chosen = byTable[0];
+      } else if (byTable.length > 1) {
+        throw new Error(`Ambiguous relationship ${childTable} -> ${rel}`);
+      } else {
+        chosen = childFks.find((f) => f.constraint === rel) || childFks.find((f) => f.child_column === rel) || null;
+      }
     }
   }
 
