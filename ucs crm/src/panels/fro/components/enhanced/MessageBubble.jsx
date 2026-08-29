@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import MediaPreviewModal from './MediaPreviewModal'
 import { API_BASE as apiBase } from '../../../../lib/apiBase'
+import { istDateString } from '../../utils/time'
 
 function MessageStatusIcon({ status }) {
   if (status === 'queued' || status === 'sending') {
@@ -45,13 +46,13 @@ function MessageStatusIcon({ status }) {
 function TimeDisplay({ ts }) {
   if (!ts) return null
   const d = new Date(ts)
-  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+  return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })
 }
 
 function DateSeparator({ dateStr }) {
   if (!dateStr) return null
-  const today = new Date().toISOString().slice(0, 10)
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const today = istDateString()
+  const yesterday = istDateString(Date.now() - 86400000)
   let label
   if (dateStr === today) label = 'Today'
   else if (dateStr === yesterday) label = 'Yesterday'
@@ -68,7 +69,7 @@ function DateSeparator({ dateStr }) {
 
 function getMessageDate(ts) {
   if (!ts) return null
-  return new Date(ts).toISOString().slice(0, 10)
+  return istDateString(ts)
 }
 
 function shouldGroup(prev, curr) {

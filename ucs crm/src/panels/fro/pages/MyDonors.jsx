@@ -12,6 +12,7 @@ import { extractTransactionData } from '../utils/ocr';
 import { API_BASE } from '../../../lib/apiBase';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
+import { istDateString, istDateTimeToIso } from '../utils/time';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -844,12 +845,10 @@ export default function MyDonors() {
         notes: notes || null,
         ngo_id: donor.ngo_id,
       };
-      if (SCHEDULE_DATE_TYPES.has(selected)) logData.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
+      if (SCHEDULE_DATE_TYPES.has(selected)) logData.scheduled_at = istDateTimeToIso(scheduledDate, scheduledTime);
       if (SCHEDULE_TIME_TYPES.has(selected)) {
-        const target = new Date();
-        const [h, m] = callbackTime.split(':');
-        target.setHours(+h, +m, 0, 0);
-        logData.scheduled_at = target.toISOString();
+        const todayIst = istDateString();
+        logData.scheduled_at = istDateTimeToIso(todayIst, callbackTime);
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
@@ -876,7 +875,7 @@ export default function MyDonors() {
       // Not-connected dispositions now vanish permanently too (latest-ever
       // rule in getMyDonors), so drop them locally as well: the just-worked
       // lead must never linger on screen.
-      const removeLocally = selected === 'dnd' || NOT_CONNECTED_IDS.has(selected);
+      const removeLocally = !RETRYABLE_NOT_CONNECTED.has(selected);
       const newDonors = removeLocally
         ? filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)))
         : applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: DISP_TO_STATUS[selected] || selected, is_new: false });

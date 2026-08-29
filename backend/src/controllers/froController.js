@@ -33,6 +33,7 @@ import {
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -1583,6 +1584,7 @@ export const getMyDonors = async (req, res) => {
       let query = db
         .from('fro_assignments')
         .select('*, ngos(name)')
+        .eq('fro_worker_id', workerId)
         .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
@@ -1605,7 +1607,7 @@ export const getMyDonors = async (req, res) => {
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
-          query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = db.from('fro_assignments').select('*, ngos(name)').eq('fro_worker_id', workerId).in('station', effectiveStations).not('status', 'eq', 'reassigned');
           query = withStationNgoPairs(query, effectiveScope);
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
@@ -1957,6 +1959,7 @@ export const getMyDonors = async (req, res) => {
     } else {
       baseFiltered = result.filter(r => {
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
+        if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
         if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
         if (terminalForeverIds.has(r.donor_id)) return false;
         if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
@@ -2412,7 +2415,7 @@ export const createDonorLogHandler = async (req, res) => {
           notes: notes || null,
           created_by: workerId,
         });
-        statusUpdates.next_follow_up = scheduled_at.slice(0, 10);
+        statusUpdates.next_follow_up = istDateString(scheduled_at);
       }
 
       if (outcome && outcome.startsWith('next_date:')) {
@@ -2600,24 +2603,20 @@ const SCHEDULE_DISPOSITIONS = new Set([
 ]);
 
 function firstOfNextMonthIST() {
-  const now = new Date();
-  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  return new Date(Date.UTC(ist.getFullYear(), ist.getMonth() + 1, 1, 0, 0, 0));
+  return firstOfNextMonthIstUtc();
 }
 
 function computeHiddenUntil(dispositionDetail, scheduledAt) {
   if (SCHEDULE_DISPOSITIONS.has(dispositionDetail) && scheduledAt) {
     return new Date(scheduledAt);
   }
-  // Money-promise / follow-up dispositions: re-appear from tomorrow (next IST day)
-  const FOLLOW_UP_NEXT_DAY = new Set([
-    'promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate',
-    'already_donated', 'call_disconnected', 'email_sent', 'whatsapp_sent',
+  // Only unanswered calls are automatically retryable, from the next IST day.
+  const RETRYABLE_NEXT_DAY = new Set([
+    'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
+    'unreachable', 'voicemail',
   ]);
-  if (FOLLOW_UP_NEXT_DAY.has(dispositionDetail)) {
-    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    ist.setDate(ist.getDate() + 1);
-    return new Date(Date.UTC(ist.getFullYear(), ist.getMonth(), ist.getDate(), 0, 0, 0));
+  if (RETRYABLE_NEXT_DAY.has(dispositionDetail)) {
+    return startOfNextIstDayUtc();
   }
   return firstOfNextMonthIST();
 }
@@ -2647,7 +2646,7 @@ export const scheduleContact = async (req, res) => {
     await updateAssignmentStatus(assignment.id, {
       status: 'scheduled',
       last_contacted_at: new Date().toISOString(),
-      next_follow_up: scheduled_at.slice(0, 10),
+      next_follow_up: istDateString(scheduled_at),
     });
 
     return res.json({ message: 'Contact scheduled', data: contact });
@@ -3060,9 +3059,7 @@ export const getFollowUps = async (req, res) => {
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
-    const nowUtc = new Date();
-    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
+    const { start: todayStart, end: todayEnd } = istDayBounds();
 
     const { data: contacts, error } = await withStationNgoPairs(
       db

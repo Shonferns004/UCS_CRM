@@ -8,6 +8,7 @@ import { cacheGet, cacheSet } from '../../../utils/cache'
 import { useCall } from '../CallContext'
 import { api } from '../api/auth'
 import { useIsMobile } from '../../../hooks/useIsMobile'
+import { formatIstTime } from '../utils/time'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
 
@@ -760,7 +761,7 @@ export default function Dashboard() {
                     border: '1px solid ' + (fu.is_overdue ? '#fecaca' : '#bbf7d0'),
                   }}>
                     <span style={{ fontSize:10, fontWeight:600, color:'var(--ink-soft)', minWidth:50 }}>
-                      {new Date(fu.scheduled_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}
+                      {formatIstTime(fu.scheduled_at)}
                     </span>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:11, fontWeight:600 }}>{fu.donor_name}</div>
