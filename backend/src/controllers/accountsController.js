@@ -4052,33 +4052,41 @@ export const getDonorDetail = async (req, res) => {
     let assigned_agent = null;
     let assignment_station = null;
     let assignment_ngo = null;
+    let assignments = [];
     try {
-      const { data: assignments } = await db
+      const { data: assignmentRows } = await db
         .from('fro_assignments')
-        .select('fro_worker_id, station, ngo_id')
+        .select('id, fro_worker_id, station, ngo_id, status')
         .eq('donor_id', id)
         .not('status', 'eq', 'reassigned')
         .order('assigned_at', { ascending: false });
 
-      if (assignments && assignments.length > 0) {
+      const workerIds = [...new Set((assignmentRows || []).map(a => a.fro_worker_id).filter(Boolean))];
+      const ngoIds = [...new Set((assignmentRows || []).map(a => a.ngo_id).filter(Boolean))];
+      const workerMap = {};
+      const ngoMap = {};
+      if (workerIds.length > 0) {
+        const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
+        for (const worker of workers || []) workerMap[worker.id] = worker.name;
+      }
+      if (ngoIds.length > 0) {
+        const { data: ngos } = await db.from('ngos').select('id, name').in('id', ngoIds);
+        for (const ngo of ngos || []) ngoMap[ngo.id] = ngo.name;
+      }
+      assignments = (assignmentRows || []).map(a => ({
+        id: a.id,
+        worker_id: a.fro_worker_id,
+        worker_name: workerMap[a.fro_worker_id] || null,
+        station: a.station || '',
+        ngo_id: a.ngo_id,
+        ngo_name: ngoMap[a.ngo_id] || null,
+        status: a.status,
+      }));
+      if (assignments.length > 0) {
         const a = assignments[0];
-        if (a.fro_worker_id) {
-          const { data: worker } = await db
-            .from('workers')
-            .select('name')
-            .eq('id', a.fro_worker_id)
-            .maybeSingle();
-          assigned_agent = worker?.name || null;
-        }
+        assigned_agent = a.worker_name;
         assignment_station = a.station || null;
-        if (a.ngo_id) {
-          const { data: ngo } = await db
-            .from('ngos')
-            .select('name')
-            .eq('id', a.ngo_id)
-            .maybeSingle();
-          assignment_ngo = ngo?.name || null;
-        }
+        assignment_ngo = a.ngo_name;
       }
     } catch (assignErr) {
       console.error('getDonorDetail: failed to load assignment:', assignErr.message);
@@ -4092,7 +4100,95 @@ export const getDonorDetail = async (req, res) => {
       assigned_agent,
       assignment_station,
       assignment_ngo,
+      assignments,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Permanently remove a donor and operational FRO data as one transaction.
+// Financial receipts remain in place but are detached from the deleted profile.
+export const deleteDonor = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const result = await db.transaction(async (tx) => {
+      const { data: donor, error: donorErr } = await tx.from('donor_profiles').select('id, name, mobile_number').eq('id', donorId).maybeSingle();
+      if (donorErr) throw donorErr;
+      if (!donor) return null;
+
+      const { data: assignments, error: assignmentErr } = await tx
+        .from('fro_assignments').select('id').eq('donor_id', donorId);
+      if (assignmentErr) throw assignmentErr;
+      const assignmentIds = (assignments || []).map(a => a.id).filter(Boolean);
+
+      // Clear both direct and log-linked receipt references before deleting logs/profile.
+      const { error: receiptErr } = await tx.from('receipts').update({ donor_id: null }).eq('donor_id', donorId);
+      if (receiptErr) throw receiptErr;
+
+      let logsDeleted = 0;
+      if (assignmentIds.length > 0) {
+        const { data: logs, error: logFetchErr } = await tx.from('fro_donor_logs').select('id').in('assignment_id', assignmentIds);
+        if (logFetchErr) throw logFetchErr;
+        const logIds = (logs || []).map(l => l.id).filter(Boolean);
+        if (logIds.length > 0) {
+          const { error: linkedReceiptErr } = await tx.from('receipts').update({ donor_id: null, log_id: null }).in('log_id', logIds);
+          if (linkedReceiptErr) throw linkedReceiptErr;
+          const { error: logDeleteErr } = await tx.from('fro_donor_logs').delete().in('id', logIds);
+          if (logDeleteErr) throw logDeleteErr;
+          logsDeleted = logIds.length;
+        }
+        const { error: scheduleErr } = await tx.from('fro_scheduled_contacts').delete().in('assignment_id', assignmentIds);
+        if (scheduleErr) throw scheduleErr;
+        const { error: assignmentDeleteErr } = await tx.from('fro_assignments').delete().in('id', assignmentIds);
+        if (assignmentDeleteErr) throw assignmentDeleteErr;
+      }
+
+      const { error: profileErr } = await tx.from('donor_profiles').delete().eq('id', donorId);
+      if (profileErr) throw profileErr;
+      return { donor, assignments_deleted: assignmentIds.length, logs_deleted: logsDeleted };
+    });
+
+    if (!result) return res.status(404).json({ message: 'Donor not found' });
+    return res.json({ deleted: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ message: `Donor deletion failed: ${error.message}` });
+  }
+};
+
+export const createDonorAssignment = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const { fro_worker_id: workerId, ngo_id: ngoId, station } = req.body || {};
+    const cleanStation = String(station || '').trim();
+    if (!workerId || !ngoId || !cleanStation) return res.status(400).json({ message: 'Agent, NGO, and station are required' });
+
+    const { data: donor, error: donorErr } = await db.from('donor_profiles').select('id').eq('id', donorId).maybeSingle();
+    if (donorErr) throw donorErr;
+    if (!donor) return res.status(404).json({ message: 'Donor not found' });
+
+    const { data: worker, error: workerErr } = await db.from('workers')
+      .select('id, name').eq('id', workerId).eq('department', 'FRO').eq('employment_status', 'active').maybeSingle();
+    if (workerErr) throw workerErr;
+    if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
+
+    const { data: existing, error: existingErr } = await db.from('fro_assignments')
+      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).not('status', 'eq', 'reassigned').maybeSingle();
+    if (existingErr) throw existingErr;
+    if (existing) return res.status(409).json({ message: 'This donor already has an active assignment for this NGO; replace that assignment instead' });
+
+    const now = new Date().toISOString();
+    const { data: assignment, error: insertErr } = await db.from('fro_assignments').insert({
+      donor_id: donorId,
+      fro_worker_id: worker.id,
+      ngo_id: ngoId,
+      station: cleanStation,
+      assigned_by: req.user?.id || null,
+      status: 'pending',
+      assigned_at: now,
+    }).select().single();
+    if (insertErr) throw insertErr;
+    return res.status(201).json({ assignment, agent_name: worker.name, message: `Assigned to ${worker.name} · ${cleanStation}` });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4278,6 +4374,8 @@ export const deleteAssignment = async (req, res) => {
     if (logs && logs.length > 0) {
       await db.from('fro_donor_logs').delete().eq('assignment_id', row.id);
     }
+    const { error: scheduleErr } = await db.from('fro_scheduled_contacts').delete().eq('assignment_id', row.id);
+    if (scheduleErr) throw scheduleErr;
     await db.from('fro_assignments').delete().eq('id', row.id);
 
     return res.json({
