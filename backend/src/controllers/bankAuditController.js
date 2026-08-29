@@ -458,6 +458,30 @@ export const addEntry = async (req, res) => {
     });
 
     findAutoMatches().catch((err) => console.error('Auto-match after addEntry failed:', err.message));
+
+    // Notify every active FRO that a new bank-audit entry was created, so the
+    // toaster fires on the FRO panel. Best effort only — a notification failure
+    // must never abort the entry-creation response.
+    try {
+      const { data: froWorkers } = await db
+        .from('workers')
+        .select('id')
+        .eq('department', 'fro')
+        .eq('is_active', true);
+      if (froWorkers && froWorkers.length) {
+        const donorLabel = payer_name || link?.receipt?.donor_name || 'donor';
+        await db.from('notification_log').insert(
+          froWorkers.map((f) => ({
+            worker_id: f.id,
+            type: 'new_audit',
+            title: 'New Audit Entry',
+            body: `A new bank audit entry was created for ${donorLabel} (\u20B9${Number(amount).toLocaleString('en-IN')}).`,
+            sent_at: new Date().toISOString(),
+          }))
+        );
+      }
+    } catch (err) { console.error('Failed to notify FROs of new audit entry:', err.message); }
+
     return res.status(201).json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });

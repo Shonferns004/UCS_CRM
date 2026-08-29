@@ -26,7 +26,7 @@ const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id ==
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const NGO_STYLE = { bsct:{background:'#dbeafe',color:'#1d4ed8'}, aflf:{background:'#dcfce7',color:'#166534'}, mann:{background:'#fce7f3',color:'#be185d'} };
 const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
-const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:TODAY_IST,remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
+const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:'',remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
 const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','Paytm','others'];
 
 const NGO_MAP = {
@@ -534,7 +534,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const resolveMode=()=>fm.mode==='others'?(fm.modeCustom||'').trim():fm.mode;
 
-  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date||!fm.payment_time){setTo({msg:'Received Bank, amount, date, and payment time are required',type:'error',vis:true});return};if(Number(fm.amount)<=0){setTo({msg:'Amount must be greater than zero',type:'error',vis:true});return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null,donor_id:fm.donor_id||null,mode:resolveMode()||null});setSa(false);setFm({...EMPTY_FM});setTo({msg:'Entry added successfully',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setSv(false)}};
+  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date||!fm.payment_time||!fm.project_id){setTo({msg:'Received Bank, amount, NGO, date, and payment time are required',type:'error',vis:true});return};if(Number(fm.amount)<=0){setTo({msg:'Amount must be greater than zero',type:'error',vis:true});return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id,donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null,donor_id:fm.donor_id||null,mode:resolveMode()||null});setSa(false);setFm({...EMPTY_FM});setTo({msg:'Entry added successfully',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setSv(false)}};
   const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setTo({msg:'Amount must be greater than zero',type:'error',vis:true});return};setFer('');setSv(true);try{
     if(isReceiptSuspense(se)){
       await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.donor_name||fm.payer_name||null,donor_mobile:fm.donor_mobile||se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct',agent_name:fm.agent_name,log_id:fm.log_id||null,mode:resolveMode()||null});
@@ -641,8 +641,9 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </label>
         <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
           <span>NGO</span>
-          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>setFm(p=>({...p,project_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
+          <select className="field-input" value={fm.project_id||''} onChange={e=>setFm(p=>({...p,project_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
             {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+            <option value="" disabled>Select NGO...</option>
           </select>
         </label>
       </FieldSection>
