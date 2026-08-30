@@ -608,7 +608,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     try {
       await updateWorker(worker.id, { is_test: !worker.is_test });
       reload();
-    } catch (err) { console.error('Error:', err.message); }
+    } catch (err) { console.error('Error:', err.message); alert('Could not update test status: ' + (err && err.message ? err.message : 'unknown error')); }
   };
 
   const toTitleCase = (str) => {
