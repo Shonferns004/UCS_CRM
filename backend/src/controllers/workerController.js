@@ -69,7 +69,7 @@ function validateAllocations(allocations, salary) {
 
 export const addWorker = async (req, res) => {
   try {
-    const { name, email, gender, dob, ngo_id, department, allocations, team } = req.body;
+    const { name, email, gender, dob, ngo_id, department, allocations, team, is_test } = req.body;
     if (!name) {
       return res.status(400).json({ message: 'Name is required' });
     }
@@ -97,6 +97,7 @@ export const addWorker = async (req, res) => {
       ngo_id: (finalAllocations && finalAllocations[0]?.ngo_id) || req.user.ngo_id || null,
       department: department || null,
       team: team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null,
+      is_test: !!is_test,
       created_by: req.user.id,
     };
 
@@ -345,6 +346,7 @@ export const editWorker = async (req, res) => {
       education, family, previous_organizations, references,
       declaration_date, declaration_place,
       team,
+      is_test,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -355,6 +357,7 @@ export const editWorker = async (req, res) => {
     if (alternate_phone !== undefined) updates.alternate_phone = alternate_phone;
     if (department !== undefined) updates.department = department;
     if (team !== undefined) updates.team = team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null;
+    if (is_test !== undefined) updates.is_test = !!is_test;
     if (address !== undefined) updates.address = address;
     if (city !== undefined) updates.city = city;
     if (state !== undefined) updates.state = state;
