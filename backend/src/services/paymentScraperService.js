@@ -101,7 +101,7 @@ async function resolveGooglePaySource() {
 
 // --- run + assistant models -------------------------------------------------
 
-async function resolveProjectCode(rawProjectId) {
+export async function resolveProjectCode(rawProjectId) {
   if (!rawProjectId) return null;
   const canonical = canonicalProject(rawProjectId);
   if (KNOWN_PROJECTS.has(canonical)) return canonical;
