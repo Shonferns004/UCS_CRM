@@ -1,4 +1,4 @@
-import db from '../config/db.js';
+import db, { sql } from '../config/db.js';
 
 export const createDonorLog = async (data) => {
   const { data: result, error } = await db
@@ -206,17 +206,6 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   const todayStartDay = String(todayStart).slice(0, 10);
   const todayEndDay = String(todayEnd).slice(0, 10);
 
-  const { data: ngos } = await db.from('ngos').select('id, name');
-  const projToNgoId = {};
-  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
-  for (const n of ngos || []) {
-    const nn = norm(n.name);
-    projToNgoId[nn] = n.id;
-    if (nn.includes('beingsevak') || nn.includes('sevak')) projToNgoId['bsct'] = n.id;
-    if (nn.includes('ashray')) projToNgoId['aflf'] = n.id;
-    if (nn.includes('mann')) projToNgoId['mann'] = n.id;
-  }
-
   const init = () => ({ amount: 0, count: 0 });
   const monthCollection = {}; for (const id of workerIds) monthCollection[id] = 0;
   const todayCollection = {}; for (const id of workerIds) todayCollection[id] = 0;
@@ -231,36 +220,49 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   const weekStartDay = weekStart.toISOString().slice(0, 10);
   const weekEndDay = weekEnd.toISOString().slice(0, 10);
 
+  if (workerNames.length === 0) {
+    return { monthCollection, todayCollection, weekCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
+  }
+
+  const byName = {};
   for (const w of workerNames) {
-    const { data: receipts } = await db
-      .from('receipts')
-      .select('id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name')
-      .ilike('agent_name', w.name)
-      .gte('receipt_date', monthStartDay)
-      .lte('receipt_date', monthEndDay);
-    if (!receipts || receipts.length === 0) continue;
+    const k = w.name.toLowerCase();
+    (byName[k] = byName[k] || []).push(w.id);
+  }
 
-    const seen = new Set();
-    for (const r of receipts) {
-      const amount = parseFloat(r.amount || 0);
-      if (amount <= 0) continue;
-      const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
-      if (!day) continue;
-      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
-      if (seen.has(dedupKey)) continue;
-      seen.add(dedupKey);
+  const receipts = await sql(
+    `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name
+     FROM receipts
+     WHERE receipt_date >= $1 AND receipt_date <= $2
+       AND lower(agent_name) = ANY($3)`,
+    [monthStartDay, monthEndDay, Object.keys(byName)]
+  );
 
-      if (day >= monthStartDay && day <= monthEndDay) monthCollection[w.id] += amount;
-      if (day >= weekStartDay && day <= weekEndDay) weekCollection[w.id] += amount;
-      if (day >= todayStartDay && day <= todayEndDay) todayCollection[w.id] += amount;
+  const dedup = {}; for (const id of workerIds) dedup[id] = new Set();
+
+  for (const r of receipts) {
+    const matched = byName[String(r.agent_name || '').toLowerCase()];
+    if (!matched) continue;
+    const amount = parseFloat(r.amount || 0);
+    if (amount <= 0) continue;
+    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
+    if (!day) continue;
+    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
+    for (const id of matched) {
+      if (dedup[id].has(dedupKey)) continue;
+      dedup[id].add(dedupKey);
+
+      if (day >= monthStartDay && day <= monthEndDay) monthCollection[id] += amount;
+      if (day >= weekStartDay && day <= weekEndDay) weekCollection[id] += amount;
+      if (day >= todayStartDay && day <= todayEndDay) todayCollection[id] += amount;
 
       if (day >= monthStartDay && day <= monthEndDay) {
-        verifiedMonth[w.id].amount += amount;
-        verifiedMonth[w.id].count++;
+        verifiedMonth[id].amount += amount;
+        verifiedMonth[id].count++;
       }
       if (day >= todayStartDay && day <= todayEndDay) {
-        verifiedToday[w.id].amount += amount;
-        verifiedToday[w.id].count++;
+        verifiedToday[id].amount += amount;
+        verifiedToday[id].count++;
       }
     }
   }

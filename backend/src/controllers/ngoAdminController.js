@@ -1,4 +1,4 @@
-import db from '../config/db.js';
+import db, { sql } from '../config/db.js';
 import { getDonorByMobile } from '../models/donorProfileModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
@@ -55,6 +55,28 @@ async function getUserNgoIds(user) {
   if (user.ngo_id) return [user.ngo_id];
   return [];
 }
+
+const _rCache = new Map();
+const cacheGet = (key, ttlMs) => {
+  const e = _rCache.get(key);
+  if (e && Date.now() - e.t < ttlMs) return e.v;
+  if (e) _rCache.delete(key);
+  return undefined;
+};
+const cacheSet = (key, v) => {
+  if (_rCache.size > 300) {
+    const now = Date.now();
+    for (const [k, e] of _rCache) if (now - e.t > 120000) _rCache.delete(k);
+  }
+  _rCache.set(key, { v, t: Date.now() });
+};
+const CONNECTED_STATUSES = [
+  'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
+  'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
+  'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
+  'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
+  'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback',
+];
 
 export const getDonors = async (req, res) => {
   try {
@@ -579,6 +601,11 @@ export const getDailyTarget = async (req, res) => {
 
 export const getDashboard = async (req, res) => {
   try {
+    const dashCacheKey = `dash:${req.user.id}:${req.query.ngo_id || 'all'}`;
+    if (req.query.fresh !== '1') {
+      const cached = cacheGet(dashCacheKey, 60000);
+      if (cached) return res.json(cached);
+    }
     const access = await getUserNgoAccess(req.user.id);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
@@ -607,22 +634,27 @@ export const getDashboard = async (req, res) => {
 
     let totalDonorCount = 0;
     if (ngoNames.length > 0) {
-      const { data: mobiles, error: mErr } = await db
-        .from('new_data')
-        .select('mobile_number')
-        .in('ngo', ngoNames)
-        .not('mobile_number', 'is', null);
-      if (mErr) throw mErr;
-      totalDonorCount = new Set((mobiles || []).map(r => r.mobile_number)).size;
+      const donorCountRows = await sql(
+        'SELECT COUNT(DISTINCT mobile_number) AS c FROM new_data WHERE ngo = ANY($1) AND mobile_number IS NOT NULL',
+        [ngoNames]
+      );
+      totalDonorCount = parseInt(donorCountRows[0] ? donorCountRows[0].c : 0, 10) || 0;
     }
 
-    const { data: allAssignments, error: aErr } = await db
-      .from('fro_assignments')
-      .select('donor_id, status, fro_worker_id, assigned_at')
-      .in('ngo_id', ngoIds)
-      .order('assigned_at', { ascending: false });
-    if (aErr) throw aErr;
-    const collectedDonorCount = new Set((allAssignments || []).filter(a => a.status === 'donation_collected').map(a => a.donor_id)).size;
+    const assignmentAgg = ngoIds.length > 0
+      ? await sql(
+          `SELECT donor_id,
+                  BOOL_OR(status <> 'reassigned') AS has_active,
+                  BOOL_OR(status = 'donation_collected') AS has_collected,
+                  BOOL_OR(status <> 'reassigned' AND status = ANY($2)) AS connected,
+                  array_agg(DISTINCT fro_worker_id) FILTER (WHERE fro_worker_id IS NOT NULL) AS worker_ids
+           FROM fro_assignments
+           WHERE ngo_id = ANY($1)
+           GROUP BY donor_id`,
+          [ngoIds, CONNECTED_STATUSES]
+        )
+      : [];
+    const collectedDonorCount = assignmentAgg.filter(a => a.has_collected).length;
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -650,30 +682,11 @@ export const getDashboard = async (req, res) => {
     }
 
     // Data used / unused — per unique donor
-    const connectedStatuses = new Set([
-      'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
-      'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
-      'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
-      'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
-      'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback',
-    ]);
-    const donorInfo = new Map();
-    for (const a of allAssignments || []) {
-      if (!donorInfo.has(a.donor_id)) {
-        donorInfo.set(a.donor_id, { hasActive: false, connected: false });
-      }
-      const d = donorInfo.get(a.donor_id);
-      if (a.status !== 'reassigned') {
-        d.hasActive = true;
-        if (connectedStatuses.has(a.status)) d.connected = true;
-      }
-    }
-
     let assignedCount = 0, dataUsed = 0, dataUnused = 0;
-    for (const [, d] of donorInfo) {
-      if (!d.hasActive) continue;
+    for (const a of assignmentAgg) {
+      if (!a.has_active) continue;
       assignedCount++;
-      if (d.connected) dataUsed++;
+      if (a.connected) dataUsed++;
       else dataUnused++;
     }
 
@@ -691,9 +704,9 @@ export const getDashboard = async (req, res) => {
 
     const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
     let activeDonors = 0, inactiveDonors = 0;
-    for (const [donorId, d] of donorInfo) {
-      if (!d.hasActive) continue;
-      if (activeDonorIds.has(donorId)) activeDonors++;
+    for (const a of assignmentAgg) {
+      if (!a.has_active) continue;
+      if (activeDonorIds.has(a.donor_id)) activeDonors++;
       else inactiveDonors++;
     }
 
@@ -770,7 +783,8 @@ export const getDashboard = async (req, res) => {
     const activeFroCount = froWorkers.filter(w => w.is_active !== false).length;
     const attendancePct = activeFroCount > 0 ? Math.round(((workersPresent + workersLate) / activeFroCount) * 1000) / 10 : 0;
 
-    const assignedWorkerIds = new Set((allAssignments || []).map(a => a.fro_worker_id).filter(Boolean));
+    const assignedWorkerIds = new Set();
+    for (const a of assignmentAgg) for (const id of a.worker_ids || []) assignedWorkerIds.add(id);
     const assignedFroCount = assignedWorkerIds.size;
 
     const ngoIdToName = {};
@@ -818,7 +832,7 @@ export const getDashboard = async (req, res) => {
 
     const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersLate - workersAbsent);
 
-    return res.json({
+    const payload = {
       ngos: origNgoNames,
       period: {
         month: now.toISOString().slice(0, 7),
@@ -874,7 +888,9 @@ export const getDashboard = async (req, res) => {
         connect_rate_pct: assignedCount > 0 ? Math.round((dataUsed / assignedCount) * 100) : 0,
       },
       stations_per_ngo: stationsPerNgo,
-    });
+    };
+    cacheSet(dashCacheKey, payload);
+    return res.json(payload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1559,6 +1575,11 @@ export const reassignStationFro = async (req, res) => {
 
 export const getStationStats = async (req, res) => {
   try {
+    const stationCacheKey = `stn:${req.user.id}:${req.query.ngo_id || 'all'}:${req.query.from || ''}:${req.query.to || ''}`;
+    if (req.query.fresh !== '1') {
+      const cached = cacheGet(stationCacheKey, 60000);
+      if (cached) return res.json(cached);
+    }
     const access = await getUserNgoAccess(req.user.id);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
@@ -1580,8 +1601,6 @@ export const getStationStats = async (req, res) => {
     if (ngoIds.length === 0) return res.json({ stations: {}, summary: {} });
 
     const stationMap = {};
-    const summary = {};
-    const summaryDonors = new Set();
 
     const allStats = await Promise.all(ngoIds.map(ngoId => getStationDispositionStats(ngoId, from, to)));
     for (const stats of allStats) {
@@ -1593,18 +1612,14 @@ export const getStationStats = async (req, res) => {
       }
     }
 
-    const allAssignForSummary = await db
-      .from('fro_assignments')
-      .select('donor_id, status')
-      .in('ngo_id', ngoIds)
-      .not('station', 'is', null)
-      .not('status', 'eq', 'reassigned');
-    for (const a of allAssignForSummary.data || []) {
-      const key = `${a.donor_id}_${a.status}`;
-      if (summaryDonors.has(key)) continue;
-      summaryDonors.add(key);
-      summary[a.status] = (summary[a.status] || 0) + 1;
-    }
+    const summaryRows = await sql(
+      `SELECT status, COUNT(*) AS c
+       FROM (SELECT DISTINCT donor_id, status FROM fro_assignments WHERE ngo_id = ANY($1) AND station IS NOT NULL AND status <> 'reassigned') t
+       GROUP BY status`,
+      [ngoIds]
+    );
+    const summary = {};
+    for (const r of summaryRows) summary[r.status] = parseInt(r.c, 10) || 0;
 
     // Get all stations for this NGO (including empty ones)
     const stationAssigns = await getStationAssignmentsByNgo(ngoIds);
@@ -1614,7 +1629,9 @@ export const getStationStats = async (req, res) => {
       }
     }
 
-    return res.json({ stations: stationMap, summary });
+    const stationPayload = { stations: stationMap, summary };
+    cacheSet(stationCacheKey, stationPayload);
+    return res.json(stationPayload);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4224,6 +4241,11 @@ export const getDataOverview = async (req, res) => {
 // Combined TL Dashboard Summary
 export const getTLDashboard = async (req, res) => {
   try {
+    const tlCacheKey = `tl:${req.user.id}:${req.query.ngo_id || 'all'}`;
+    if (req.query.fresh !== '1') {
+      const cached = cacheGet(tlCacheKey, 15000);
+      if (cached) return res.json(cached);
+    }
     const access = await getUserNgoAccess(req.user.id);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
@@ -4547,7 +4569,7 @@ export const getTLDashboard = async (req, res) => {
         };
       });
 
-    return res.json({
+    const tlPayload = {
       kpis: {
         total_fros: froWorkers.length,
         calling,
@@ -4572,7 +4594,9 @@ export const getTLDashboard = async (req, res) => {
         target: bottomByTarget,
       },
       idle_alerts: idleAlerts,
-    });
+    };
+    cacheSet(tlCacheKey, tlPayload);
+    return res.json(tlPayload);
   } catch (error) {
     console.error('getTLDashboard error:', error.message);
     return res.status(500).json({ message: error.message });
