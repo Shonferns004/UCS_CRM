@@ -44,7 +44,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "stop" -> {
-                    ScraperAccessibilityService.instance?.stopRun()
+                    ScraperAccessibilityService.instance?.stopRun(uploadCollected = true)
                     result.success(true)
                 }
                 "setInspect" -> {

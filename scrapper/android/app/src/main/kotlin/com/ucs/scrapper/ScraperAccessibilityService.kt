@@ -70,9 +70,9 @@ class ScraperAccessibilityService : AccessibilityService() {
 
     private val collected = mutableListOf<ScrapedTxn>()
     private val seenRefs = HashSet<String>()
-    private val seenPartial = HashSet<String>()
     private val knownRefs = HashSet<String>()
     private var lastHeaderDate: String? = null
+    private var revisitCount = 0
 
     private var training = false
     private val trainedSteps = mutableListOf<TrainedStep>()
@@ -198,13 +198,13 @@ class ScraperAccessibilityService : AccessibilityService() {
         cutoffDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
         hitCutoff = false
 
-        collected.clear(); seenRefs.clear(); seenPartial.clear()
+        collected.clear(); seenRefs.clear()
         knownRefs.clear()
         Thread {
             val remote = ScraperUploader.knownRefs(backendUrl, apiKey, projectId)
             if (remote.isNotEmpty()) handler.post { knownRefs.addAll(remote) }
         }.start()
-        pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0
+        pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0; revisitCount = 0
         listEntered = false; detailPhase = 0; pendingDetail = null
         lastHeaderDate = null
         trainedFlow = TrainedStep.load(ScraperConfig.get("trainedFlow"))
@@ -235,7 +235,11 @@ class ScraperAccessibilityService : AccessibilityService() {
         try { tick() } catch (t: Throwable) {}
     }
 
-    fun stopRun() {
+    fun stopRun(uploadCollected: Boolean = false) {
+        if (uploadCollected && running && collected.isNotEmpty()) {
+            finishUpload("stopped manually")
+            return
+        }
         running = false
         handler.removeCallbacksAndMessages(ticker)
         releaseKeepOn()
@@ -405,11 +409,6 @@ class ScraperAccessibilityService : AccessibilityService() {
                 break
             }
             if (!txn.received && receivedOnly) continue
-            val pr = Rect()
-            row.getBoundsInScreen(pr)
-            val partial = "${pr.left.toInt()}|${pr.top.toInt()}|${pr.right.toInt()}|${pr.bottom.toInt()}|${txn.amount.toString()}|${(txn.payerName ?: "").trim().lowercase()}"
-            if (partial in seenPartial) continue
-            seenPartial.add(partial)
 
             val ref = txn.paymentId?.filterNot { it == ' ' }
             val refOk = !ref.isNullOrBlank() && ref.length >= 12 && !ref.uppercase().contains("X")
@@ -552,15 +551,33 @@ class ScraperAccessibilityService : AccessibilityService() {
                 if (refOk) {
                     val already = ref in knownRefs
                     val hasDate = !pendingDetail?.transactionDate.isNullOrBlank()
+                    val txn = pendingDetail
+                    if (ref in seenRefs) {
+                        // same transaction re-opened (a scroll didn't move) — swipe past it
+                        pendingDetail = null
+                        detailPhase = 0
+                        revisitCount++
+                        if (revisitCount >= 5) {
+                            revisitCount = 0
+                            finishUpload("scanned all new rows")
+                            return Stage.IDLE
+                        }
+                        swipeUp()
+                        return Stage.COLLECT
+                    }
                     seenRefs.add(ref)
-                    if (!already && hasDate && pendingDetail !in collected) collected.add(pendingDetail!!)
+                    revisitCount = 0
                     pendingDetail = null
                     detailPhase = 0
+                    if (!already && hasDate && txn != null && txn !in collected) collected.add(txn)
                     emit("collected", mapOf("count" to collected.size))
+                    swipeUp()
                     return Stage.COLLECT
                 }
                 pendingDetail = null
                 detailPhase = 0
+                revisitCount++
+                swipeUp()
                 emit("collected", mapOf("count" to collected.size))
                 return Stage.COLLECT
             }
