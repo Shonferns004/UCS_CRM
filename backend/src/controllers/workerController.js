@@ -215,6 +215,7 @@ export const getWorkers = async (req, res) => {
         permanent_address: w.permanent_address,
         photo_url: w.photo_url,
         is_active: w.is_active,
+        is_test: !!w.is_test,
         employment_status: w.employment_status || 'active',
         ngo_id: w.ngo_id,
         created_at: w.created_at,
