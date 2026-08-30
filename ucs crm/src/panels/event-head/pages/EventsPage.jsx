@@ -88,6 +88,24 @@ export default function EventsPage({ view } = {}) {
     return list
   }, [allActivities, ngoFilter, sectorFilter, activityFilter])
 
+  // Sectors/activities of the NGO chosen for the sheet upload (derived client-side).
+  const upNgo = useMemo(() => ngos.find(n => String(n.id) === String(importNgo)) || null, [ngos, importNgo])
+  const uploadScopedSectors = useMemo(() => {
+    const set = new Set()
+    for (const a of allActivities) {
+      if (a.ngo_id != null && String(a.ngo_id) === importNgo) set.add(String(a.sector_id))
+    }
+    let list = sectors.filter(s => set.has(String(s.id)))
+    if (list.length === 0 && importNgo) list = sectors
+    return list
+  }, [sectors, allActivities, importNgo])
+  const uploadScopedActivities = useMemo(() => {
+    if (!importNgo) return []
+    let list = allActivities.filter(a => String(a.ngo_id) === importNgo)
+    if (list.length === 0) list = allActivities.filter(a => a.ngo_id == null)
+    return list
+  }, [allActivities, importNgo])
+
   const onNgo = (v) => { setNgoFilter(v); setSectorFilter(''); setActivityFilter('') }
   const onSector = (v) => { setSectorFilter(v); setActivityFilter('') }
 
@@ -143,7 +161,7 @@ export default function EventsPage({ view } = {}) {
     setImportResult(null)
     try {
       const ngoCode = importNgo ? ngos.find(n => String(n.id) === String(importNgo)) : null
-      const result = await importEventsSheet((ngoCode && (ngoCode.code || ngoCode.name)) || '', importFile)
+      const result = await importEventsSheet({ id: importNgo || undefined, code: (ngoCode && (ngoCode.code || ngoCode.name)) || '' }, importFile)
       setImportResult(result)
       await reload()
       if (fileRef.current) fileRef.current.value = ''
@@ -315,9 +333,28 @@ export default function EventsPage({ view } = {}) {
                     </select>
                   </div>
                 </div>
-                <div className="form-row">
-                  <div className="field"><label>Sheet (Excel / CSV) *</label>
-                    <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { setImportFile(e.target.files[0] || null); setImportResult(null); setImportError('') }} style={{ padding: '6px 0' }} />
+                {upNgo && (
+                  <div style={{ marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'var(--panel)', fontSize: 12, overflow: 'hidden' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4, color: '#7B5EA7' }}>{upNgo.name || upNgo.code}</div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ flex: '1 1 160px', minWidth: 130 }}>
+                        <div style={{ color: 'var(--ink-soft)', fontWeight: 600, marginBottom: 2 }}>Sectors ({uploadScopedSectors.length})</div>
+                        <div style={{ maxHeight: 80, overflow: 'auto', color: 'var(--ink)', lineHeight: 1.5 }}>
+                          {uploadScopedSectors.length ? uploadScopedSectors.map(s => <div key={String(s.id)}>• {s.name}</div>) : <div style={{ color: 'var(--ink-soft)' }}>None found</div>}
+                        </div>
+                      </div>
+                      <div style={{ flex: '1 1 200px', minWidth: 140 }}>
+                        <div style={{ color: 'var(--ink-soft)', fontWeight: 600, marginBottom: 2 }}>Activities ({uploadScopedActivities.length})</div>
+                        <div style={{ maxHeight: 80, overflow: 'auto', color: 'var(--ink)', lineHeight: 1.5 }}>
+                          {uploadScopedActivities.length ? uploadScopedActivities.map(a => <div key={String(a.id)}>• {a.name}</div>) : <div style={{ color: 'var(--ink-soft)' }}>None found</div>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="form-row" style={{ flexWrap: 'wrap' }}>
+                  <div className="field" style={{ flex: '1 1 100%', minWidth: 200 }}><label>Sheet (Excel / CSV) *</label>
+                    <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { setImportFile(e.target.files[0] || null); setImportResult(null); setImportError('') }} style={{ padding: '6px 0', width: '100%' }} />
                   </div>
                 </div>
                 {importResult && (

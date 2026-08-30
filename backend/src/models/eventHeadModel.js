@@ -66,6 +66,60 @@ export const getEventHeadEventsByMonth = async (month, year, ngo_id) => {
   return data;
 };
 
+// ─── MULTI-ACTIVITY (join table) ───
+export const getEventHeadActivityIds = async (eventId) => {
+  const { data, error } = await db.from('event_head_event_activities').select('activity_id').eq('event_id', eventId);
+  if (error) throw error;
+  return (data || []).map(r => Number(r.activity_id));
+};
+
+// Set the full set of activities for an event (replaces existing rows).
+export const setEventHeadActivities = async (eventId, activityIds = []) => {
+  const ids = [...new Set(activityIds.filter(id => id != null).map(Number))];
+  await db.from('event_head_event_activities').delete().eq('event_id', eventId);
+  if (ids.length) {
+    const rows = ids.map(activity_id => ({ event_id: Number(eventId), activity_id }));
+    const { data, error } = await db.from('event_head_event_activities').insert(rows);
+    if (error) throw error;
+  }
+  return ids;
+};
+
+// Calendar-range query for FullCalendar. Returns events within [start, end).
+export const getEventHeadEventsByRange = async ({ start, end, ngo_id, sector_id, activity_id, status, year } = {}) => {
+  let query = db.from('event_head_events').select('*');
+  if (activity_id != null) {
+    // Filter by an event containing this activity (join table).
+    const ids = await getEventIdsForActivity(activity_id);
+    if (ids.length) query = query.in('id', ids);
+    else return [];
+  }
+  if (start) query = query.gte('date', String(start).slice(0, 10));
+  if (end) query = query.lt('date', String(end).slice(0, 10));
+  if (year) {
+    const y = Number(year);
+    if (Number.isFinite(y)) query = query.gte('date', `${y}-01-01`).lt('date', `${y + 1}-01-01`);
+  }
+  if (ngo_id != null) query = query.eq('ngo_id', ngo_id);
+  if (sector_id != null) query = query.eq('sector_id', sector_id);
+  if (status) query = query.eq('status', status);
+  query = query.order('date', { ascending: true });
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+// Events ids that reference a given activity (via the join table), falling back
+// to the legacy single activity_id column.
+const getEventIdsForActivity = async (activityId) => {
+  const a = Number(activityId);
+  const { data: joinRows } = await db.from('event_head_event_activities').select('event_id').eq('activity_id', a);
+  const joinIds = (joinRows || []).map(r => Number(r.event_id));
+  const { data: legacy } = await db.from('event_head_events').select('id').eq('activity_id', a);
+  const ids = new Set([...joinIds, ...(legacy || []).map(r => Number(r.id))]);
+  return [...ids];
+};
+
 export const getEventHeadEventsByNgo = async (ngoId) => {
   const { data, error } = await db.from('event_head_events').select('*').eq('ngo_id', ngoId).order('date', { ascending: false });
   if (error) throw error;
@@ -278,7 +332,33 @@ export const assignVehicle = async (data) => {
 };
 
 // ─── MEDIA ───
+// The base `event_head_media` table stores id, event_id, name, url, type,
+// created_at. The richer metadata columns (title, description, media_type,
+// year, size, uploaded_by, updated_at) are additive and managed idempotently
+// by `ensureMediaColumns()` so existing rows and deployments keep working.
+export const MEDIA_COLUMNS_SQL = [
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS title TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS media_type TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS year INT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS size BIGINT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS uploaded_by TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+];
+
+// Idempotent: add metadata columns if the table/columns do not yet exist.
+export const ensureMediaColumns = async () => {
+  const { rows } = await db._pool.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='event_head_media'`
+  );
+  if (rows.length === 0) return;
+  for (const sql of MEDIA_COLUMNS_SQL) {
+    try { await db._pool.query(sql); } catch (e) { /* ignore if column missing concurrently */ }
+  }
+};
+
 export const createMedia = async (eventId, data) => {
+  await ensureMediaColumns();
   const { data: result, error } = await db.from('event_head_media').insert([{ ...data, event_id: eventId }]).select().single();
   if (error) throw error;
   return result;
@@ -288,6 +368,21 @@ export const getMediaByEvent = async (eventId) => {
   const { data, error } = await db.from('event_head_media').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (error) throw error;
   return data;
+};
+
+export const getMediaById = async (eventId, id) => {
+  const { data, error } = await db.from('event_head_media').select('*').eq('id', id).eq('event_id', eventId).maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+export const updateMedia = async (eventId, id, updates) => {
+  await ensureMediaColumns();
+  const { data: result, error } = await db.from('event_head_media')
+    .update({ ...updates, updated_at: new Date() })
+    .eq('id', id).eq('event_id', eventId).select().single();
+  if (error) throw error;
+  return result;
 };
 
 export const deleteMedia = async (eventId, id) => {
@@ -323,6 +418,12 @@ export const upsertChecklistItem = async (eventId, item) => {
     return data;
   }
   const { data, error } = await db.from('event_head_checklist').insert([{ event_id: eventId, label: item.label, status: item.status, notes: item.notes }]).select().single();
+  if (error) throw error;
+  return data;
+};
+
+export const createChecklistItem = async (eventId, item) => {
+  const { data, error } = await db.from('event_head_checklist').insert([{ event_id: eventId, label: item.label, status: !!item.status, notes: item.notes || null }]).select().single();
   if (error) throw error;
   return data;
 };

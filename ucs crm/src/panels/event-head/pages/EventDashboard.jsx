@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchDashboardStats, fetchDashboardOptions } from '../store'
-import { StatCard } from '../components/Table'
+import { PageHeader, MetricCard, SectionCard, SearchInput, StatusPill, Empty } from '../components/ui'
 import RecentNotices from '../../../components/RecentNotices'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -23,17 +23,13 @@ const fmtDay = (d) => { if (!d) return ''; const dt = new Date(d); return isNaN(
 
 const fmtTime = (t) => { if (!t) return '—'; const s = String(t); return s.length >= 5 ? s.slice(0, 5) : s }
 
-function EmptyNote({ children }) {
-  return (
-    <div style={{ textAlign: 'center', padding: '26px 14px', color: 'var(--ink-soft)', fontSize: 13 }}>
-      {children}
-    </div>
-  )
-}
-
 function Caret() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ verticalAlign: '-2px' }}><polyline points="9 18 15 12 9 6" /></svg>
 }
+
+const Icon = ({ path, size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{path}</svg>
+)
 
 export default function EventDashboard() {
   const navigate = useNavigate()
@@ -117,56 +113,62 @@ export default function EventDashboard() {
   const maxNgoCount = Math.max(1, ...(stats?.events_by_ngo || []).map(n => n.count))
   const maxSectorCount = Math.max(1, ...(stats?.events_by_sector || []).map(s => s.event_count))
 
+  const actions = (
+    <>
+      <button className="eh-btn eh-btn-primary" onClick={() => navigate('/event-head/create')}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Create Event
+      </button>
+      <button className="eh-btn" onClick={() => navigate('/event-head/activities')}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Activity
+      </button>
+      <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')}>View Calendar <Caret /></button>
+    </>
+  )
+
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h3 style={{ fontSize: 17, margin: 0 }}>Event Management Dashboard</h3>
-          <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
-            {stats?.generated_at
-              ? `Updated ${new Date(stats.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · all data from Event Head workspace`
-              : 'Digital Team operational workspace'}
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Event Management Overview"
+        subtitle={stats?.generated_at
+          ? `Updated ${new Date(stats.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · all data from Event Head workspace`
+          : 'Digital Team operational workspace'}
+        actions={actions}
+      />
 
-      <div className="filter-bar" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
-        <select value={ngoFilter} onChange={e => onNgo(e.target.value)}>
+      <div className="eh-toolbar">
+        <SearchInput placeholder="Filter by NGO, sector or activity…" value="" onChange={() => {}} style={{ maxWidth: 420 }} />
+        <select className="eh-select" value={ngoFilter} onChange={e => onNgo(e.target.value)}>
           <option value="">All NGOs</option>
           {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
         </select>
-        <select value={month} onChange={e => setMonth(e.target.value)}>
+        <select className="eh-select" value={month} onChange={e => setMonth(e.target.value)}>
           <option value="">All Months</option>
           {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
         </select>
-        <select value={year} onChange={e => setYear(e.target.value)}>
+        <select className="eh-select" value={year} onChange={e => setYear(e.target.value)}>
           <option value="">All Years</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-        <select value={sectorFilter} onChange={e => onSector(e.target.value)} disabled={!ngoFilter && relevantSectors.length === 0}>
+        <select className="eh-select" value={sectorFilter} onChange={e => onSector(e.target.value)} disabled={!ngoFilter && relevantSectors.length === 0}>
           <option value="">All Sectors</option>
           {relevantSectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <select value={activityFilter} onChange={e => setActivityFilter(e.target.value)} disabled={!sectorFilter || relevantActivities.length === 0}>
+        <select className="eh-select" value={activityFilter} onChange={e => setActivityFilter(e.target.value)} disabled={!sectorFilter || relevantActivities.length === 0}>
           <option value="">All Activities</option>
           {relevantActivities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={() => navigate('/event-head/create')}>+ Create Event</button>
-        <button className="btn" onClick={() => navigate('/event-head/activities')}>+ Add Activity</button>
-        <button className="btn" onClick={() => navigate('/event-head/monthly-planner')}>View Calendar <Caret /></button>
-      </div>
-
       {error && (
-        <div className="card" style={{ borderLeft: '3px solid #ef4444', marginBottom: 16 }}>
-          <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ color: '#ef4444', fontWeight: 600 }}>Unable to load dashboard data.</span>
+        <div className="eh-section" style={{ borderLeft: '3px solid var(--eh-danger)', marginBottom: 16 }}>
+          <div className="eh-row" style={{ padding: '14px 18px', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ color: 'var(--eh-danger)', fontWeight: 600 }}>Unable to load dashboard data.</span>
             {error && error !== 'Unable to load dashboard data.' && (
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', flex: 1, minWidth: 160 }}>{error}</span>
+              <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)', flex: 1, minWidth: 160 }}>{error}</span>
             )}
-            <button className="btn btn-sm" onClick={() => { setError(null); setLoading(true); fetchDashboardStats({
+            <button className="eh-btn eh-btn-primary" onClick={() => { setError(null); setLoading(true); fetchDashboardStats({
               ngo_id: ngoFilter || undefined, sector_id: sectorFilter || undefined,
               activity_id: activityFilter || undefined, month: month || undefined, year: year || undefined,
             }).then(d => setStats(d || null)).catch(e => setError(e && e.message ? e.message : 'Unable to load dashboard data.')).finally(() => setLoading(false)) }}>
@@ -177,154 +179,132 @@ export default function EventDashboard() {
       )}
 
       {loading ? (
-        <div className="loading" style={{ padding: 60, textAlign: 'center', color: 'var(--ink-soft)' }}>Loading dashboard...</div>
+        <div style={{ padding: 60, textAlign: 'center', color: 'var(--eh-ink-soft)' }}>Loading dashboard…</div>
       ) : !error && stats ? (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
-            <StatCard icon={null} label="Total Events" value={k.total_events ?? 0} color="#7B5EA7" subtitle="All filtered events" />
-            <StatCard icon={null} label="Budget Total" value={'₹' + (k.budget_total ?? 0).toLocaleString()} color="#16a34a" subtitle="Across filtered events" />
-            <StatCard icon={null} label="Beneficiaries" value={(k.beneficiaries_total ?? 0).toLocaleString()} color="#7c3aed" subtitle="Expected across events" />
+          <div className="eh-metrics">
+            <MetricCard index={0} number={k.total_events ?? 0} label="Total Events"
+              icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
+              color="var(--eh-primary)" />
+            <MetricCard index={1} number={'₹' + (k.budget_total ?? 0).toLocaleString()} label="Budget Total"
+              icon={<Icon path={<><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9.5 9.5c0-.8.6-1.5 2.5-1.5 2 0 2.5.7 2.5 1.7 0 2.8-5 1.6-5 4.3 0 .8.6 1.5 2.5 1.5 1.9 0 2.5-.7 2.5-1.5"/></>} />}
+              color="var(--eh-success)" />
+            <MetricCard index={2} number={(k.beneficiaries_total ?? 0).toLocaleString()} label="Beneficiaries"
+              icon={<Icon path={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>} />}
+              color="var(--eh-secondary)" />
+            <MetricCard index={3} number={stats.this_month?.total ?? 0} label="Events This Month"
+              icon={<Icon path={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />}
+              color="#eab308" />
           </div>
 
-          <div style={{ display: 'grid', gap: 16, alignContent: 'start', minWidth: 0 }}>
-              <div className="card">
-                <div className="card-head">
-                  <h3>Calendar Preview</h3>
-                  <button className="btn btn-sm" onClick={() => navigate('/event-head/monthly-planner')}>Open Calendar</button>
-                </div>
-                {(stats.this_week?.events || []).slice(0, 4).length === 0 ? (
-                  <EmptyNote>No events this week.</EmptyNote>
-                ) : (
-                  <div>
-                    {(stats.this_week?.events || []).slice(0, 4).map(ev => (
-                      <div key={ev.id} onClick={() => open(ev.id)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <div style={{ width: 46, flexShrink: 0, textAlign: 'center', background: 'var(--bg, #f1f5f9)', borderRadius: 8, padding: '4px 0' }}>
-                          <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 700 }}>{fmtDay(ev.date)}</div>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{fmtDate(ev.date).split(' ')[0]}</div>
-                        </div>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</div>
-                          <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>{[ev.ngo_name, ev.sector_name].filter(Boolean).join(' · ')}</div>
-                        </div>
-                        <span className={`pill pill-${statusColor(ev.status)}`}>{ev.status || '—'}</span>
-                      </div>
-                    ))}
-                    <div className="card-pad" style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
-                      {stats.this_week?.count || 0} events this week total · <button className="btn btn-sm" onClick={() => navigate('/event-head/monthly-planner')}>Monthly Planner</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="card">
-                <div className="card-head"><h3>This Week</h3><span className="pill pill-blue">{stats.this_week?.count || 0} events</span></div>
-                {(stats.this_week?.events || []).length === 0 ? (
-                  <EmptyNote>No events scheduled this week.</EmptyNote>
-                ) : (
-                  <div>
-                    {(stats.this_week?.events || []).slice(0, 5).map(ev => (
-                      <div key={ev.id} onClick={() => open(ev.id)}
-                        style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '8px 14px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12.5 }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <span style={{ color: 'var(--ink)', fontWeight: 500, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</span>
-                        <span style={{ color: 'var(--ink-soft)', flexShrink: 0 }}>{fmtDay(ev.date)} · {fmtDate(ev.date)}</span>
-                      </div>
-))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 16 }}>
-            <div className="card">
-              <div className="card-head">
-                <h3>Events by NGO</h3>
-                <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>updates with Sector / Month filters</span>
-              </div>
-              {(stats.events_by_ngo || []).length === 0 ? (
-                <EmptyNote>No NGO data available.</EmptyNote>
+          <div className="eh-grid-2">
+            <SectionCard title="Calendar Preview" headRight={<button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')}>Open Calendar</button>}>
+              {(stats.this_week?.events || []).slice(0, 4).length === 0 ? (
+                <Empty>No events this week.</Empty>
               ) : (
-                <div style={{ padding: '6px 16px 16px' }}>
+                <div>
+                  {(stats.this_week?.events || []).slice(0, 4).map(ev => (
+                    <div key={ev.id} onClick={() => open(ev.id)}
+                      className="eh-row"
+                      style={{ padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <div style={{ width: 46, flexShrink: 0, textAlign: 'center', background: 'var(--eh-tint-1)', borderRadius: 10, padding: '4px 0', border: '1px solid var(--eh-line)' }}>
+                        <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--eh-ink-faint)', fontWeight: 700 }}>{fmtDay(ev.date)}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--eh-primary)' }}>{fmtDate(ev.date).split(' ')[0]}</div>
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{[ev.ngo_name, ev.sector_name].filter(Boolean).join(' · ')}</div>
+                      </div>
+                      <StatusPill status={ev.status} />
+                    </div>
+                  ))}
+                  <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--eh-ink-soft)' }}>
+                    {stats.this_week?.count || 0} events this week total · <button className="eh-btn" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => navigate('/event-head/monthly-planner')}>Monthly Planner</button>
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard title="This Month"
+              headRight={<div className="eh-m-icon" style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)', fontSize: 12, fontWeight: 700 }}>{MONTHS[new Date().getMonth()]}</div>}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-primary)' }}>{stats.this_month?.total ?? 0}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Total events</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: '#eab308' }}>{stats.this_month?.upcoming ?? 0}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Upcoming</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-success)' }}>{stats.this_month?.completed ?? 0}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Completed</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--eh-line)', fontSize: 12, color: 'var(--eh-ink-soft)' }}>
+                {['Total scheduled', 'Not done yet', 'Delivered this month'].join(' · ')}
+              </div>
+            </SectionCard>
+          </div>
+
+          <div className="eh-grid-2">
+            <SectionCard title="Events by NGO" sub="Updates with Sector / Month filters">
+              {(stats.events_by_ngo || []).length === 0 ? (
+                <Empty>No NGO data available.</Empty>
+              ) : (
+                <div style={{ padding: '12px 16px 16px' }}>
                   {(stats.events_by_ngo || []).map(n => (
                     <div key={n.ngo_id} onClick={() => navigate(`/event-head/sectors?ngo=${n.ngo_id}`)}
                       title={`Open ${n.ngo_name || ''} programs (Sector → Activity → Event)`}
-                      style={{ padding: '10px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer', opacity: ngoFilter && String(n.ngo_id) !== String(ngoFilter) ? 0.5 : 1, transition: 'background .15s, opacity .15s' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg)'; e.currentTarget.style.paddingLeft = '8px' }}
+                      style={{ padding: '10px 0', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer', opacity: ngoFilter && String(n.ngo_id) !== String(ngoFilter) ? 0.5 : 1, transition: 'background .15s, opacity .15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--eh-tint-1)'; e.currentTarget.style.paddingLeft = '8px' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.paddingLeft = '0' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{n.ngo_name || '—'}</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#7B5EA7' }}>{n.count} <span style={{ color: '#7B5EA7', verticalAlign: '-1px' }}>›</span></span>
+                      <div className="eh-row" style={{ justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{n.ngo_name || '—'}</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--eh-secondary)' }}>{n.count} ›</span>
                       </div>
-                      <div style={{ height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${Math.round((n.count / maxNgoCount) * 100)}%`, background: '#7B5EA7', borderRadius: 99, transition: 'width .3s' }} />
+                      <div style={{ height: 6, borderRadius: 99, background: 'var(--eh-line)', overflow: 'hidden', marginTop: 6 }}>
+                        <div style={{ height: '100%', width: `${Math.round((n.count / maxNgoCount) * 100)}%`, background: 'linear-gradient(90deg,var(--eh-primary),var(--eh-secondary))', borderRadius: 99, transition: 'width .3s' }} />
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
+            </SectionCard>
 
-            <div className="card">
-              <div className="card-head"><h3>This Month</h3><span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{MONTHS[new Date().getMonth()]} {new Date().getFullYear()}</span></div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, padding: '14px 16px 16px' }}>
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#7B5EA7' }}>{stats.this_month?.total ?? 0}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Total events</div>
+            <SectionCard title="Events by Sector" headRight={<button className="eh-btn" onClick={() => navigate('/event-head/sectors')}>Manage Sectors</button>}>
+              {(stats.events_by_sector || []).length === 0 ? (
+                <Empty>No sector data available.</Empty>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, paddingTop: 4 }}>
+                  {(stats.events_by_sector || []).map(s => {
+                    const active = sectorFilter && String(s.id) === String(sectorFilter)
+                    return (
+                      <div key={s.id} onClick={() => navigate(`/event-head/activities?sector=${s.id}`)}
+                        style={{ border: '1px solid var(--eh-line)', borderRadius: 14, padding: '12px 14px', cursor: 'pointer', background: active ? 'var(--eh-primary-soft)' : 'var(--eh-surface-2)', transition: 'border-color .15s, transform .15s, box-shadow .15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--eh-secondary)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--eh-line)'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
+                        <div className="eh-row" style={{ justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', lineHeight: 1.3 }}>{s.name} {active && <StatusPill status="active" />}</span>
+                        </div>
+                        <div className="eh-row" style={{ marginTop: 8, gap: 14 }}>
+                          <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}><b style={{ color: 'var(--eh-primary)' }}>{s.activity_count ?? 0}</b> activities</span>
+                          <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}><b style={{ color: 'var(--eh-secondary)' }}>{s.event_count ?? 0}</b> events</span>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#3485D4' }}>{stats.this_month?.upcoming ?? 0}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Upcoming</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#5B6B4E' }}>{stats.this_month?.completed ?? 0}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Completed</div>
-                </div>
-              </div>
-              <div className="card-pad" style={{ borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--ink-soft)' }}>
-                {['Total scheduled', 'Not done yet', 'Delivered this month'].join(' · ')}
-              </div>
-            </div>
+              )}
+            </SectionCard>
           </div>
 
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head">
-              <h3>Events by Sector</h3>
-              <button className="btn btn-sm" onClick={() => navigate('/event-head/sectors')}>Manage Sectors</button>
-            </div>
-            {(stats.events_by_sector || []).length === 0 ? (
-              <EmptyNote>No sector data available.</EmptyNote>
-            ) : (
-              <div className="card-pad" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, paddingTop: 14 }}>
-                {(stats.events_by_sector || []).map(s => {
-                  const active = sectorFilter && String(s.id) === String(sectorFilter)
-                  return (
-                    <div key={s.id} onClick={() => navigate(`/event-head/activities?sector=${s.id}`)}
-                      style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', cursor: 'pointer', background: active ? '#f5f0fb' : 'transparent', transition: 'border-color .15s, transform .15s' }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#7B5EA7'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.transform = 'none' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.3 }}>{s.name} {active && <span className="pill pill-blue" style={{ marginLeft: 4 }}>active</span>}</span>
-                      </div>
-                      <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}><b style={{ color: '#3485D4' }}>{s.activity_count ?? 0}</b> activities</span>
-                        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}><b style={{ color: '#7B5EA7' }}>{s.event_count ?? 0}</b> events</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, marginBottom: 16 }}>
-            <div className="card" style={{ minWidth: 0 }}>
-              <div className="card-head"><h3>Activities with Upcoming Events</h3></div>
+          <div className="eh-grid-2">
+            <SectionCard title="Activities with Upcoming Events">
               {(stats.activities_with_upcoming_events || []).length === 0 ? (
-                <EmptyNote>No activities have upcoming events.</EmptyNote>
+                <Empty>No activities have upcoming events.</Empty>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table>
@@ -337,7 +317,7 @@ export default function EventDashboard() {
                           <td style={{ fontWeight: 500 }}>{a.activity_name}</td>
                           <td>{a.sector_name || '—'}</td>
                           <td>{a.ngo_name || 'All NGOs'}</td>
-                          <td><span className="pill pill-blue">{a.upcoming_count}</span></td>
+                          <td><span className="eh-badge" style={{ background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)' }}>{a.upcoming_count}</span></td>
                           <td>{fmtDate(a.next_event_date)}</td>
                         </tr>
                       ))}
@@ -345,33 +325,35 @@ export default function EventDashboard() {
                   </table>
                 </div>
               )}
-            </div>
+            </SectionCard>
 
-            <div className="card" style={{ minWidth: 0 }}>
-              <div className="card-head"><h3>Events Needing Attention</h3><span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{stats.attention?.length || 0} items</span></div>
+            <SectionCard title="Events Needing Attention" headRight={<span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{stats.attention?.length || 0} items</span>}>
               {(stats.attention || []).length === 0 ? (
-                <EmptyNote>All events are in good shape.</EmptyNote>
+                <Empty>All events are in good shape.</Empty>
               ) : (
                 <div>
                   {(stats.attention || []).map(ev => (
                     <div key={ev.id} onClick={() => open(ev.id)}
-                      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                      className="eh-row"
+                      style={{ alignItems: 'flex-start', padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', marginTop: 5, flexShrink: 0, background: ev.attention_type === 'overdue' ? '#ef4444' : ev.attention_type === 'info' ? '#3b82f6' : '#eab308' }} />
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', marginTop: 5, flexShrink: 0, background: ev.attention_type === 'overdue' ? 'var(--eh-danger)' : ev.attention_type === 'info' ? 'var(--eh-primary)' : '#eab308' }} />
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{ev.name || 'Untitled'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 1 }}>{fmtDate(ev.date)}{ev.venue ? ' · ' + ev.venue : ''}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)' }}>{ev.name || 'Untitled'}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)', marginTop: 1 }}>{fmtDate(ev.date)}{ev.venue ? ' · ' + ev.venue : ''}</div>
                       </div>
-                      <span className="pill" style={{ background: ev.attention_type === 'overdue' ? '#fee2e2' : ev.attention_type === 'info' ? '#dbeafe' : '#fef3c7', color: ev.attention_type === 'overdue' ? '#dc2626' : ev.attention_type === 'info' ? '#1d4ed8' : '#b45309', whiteSpace: 'nowrap' }}>{ev.attention_reason}</span>
+                      <span className="eh-badge" style={{ background: ev.attention_type === 'overdue' ? 'var(--eh-danger-soft)' : ev.attention_type === 'info' ? 'var(--eh-primary-soft)' : 'var(--eh-warn-soft)', color: ev.attention_type === 'overdue' ? 'var(--eh-danger)' : ev.attention_type === 'info' ? 'var(--eh-primary)' : '#9a8200', whiteSpace: 'nowrap' }}>{ev.attention_reason}</span>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
+            </SectionCard>
           </div>
 
-          <RecentNotices limit={5} title="Recent Notices" />
+          <div style={{ marginBottom: 18 }}>
+            <RecentNotices limit={5} title="Recent Notices" />
+          </div>
         </>
       ) : null}
     </>

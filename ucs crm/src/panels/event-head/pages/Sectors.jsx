@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchSectors, fetchWorkspaceNgos } from '../store'
+import { PageHeader, MetricCard, SearchInput, Empty, Badge } from '../components/ui'
 
 export default function Sectors() {
   const navigate = useNavigate()
@@ -38,55 +39,54 @@ export default function Sectors() {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-            <button className="btn btn-sm" onClick={() => navigate('/event-head/ngos')}>← NGOs</button>
-            {activeNgo && <span className="pill pill-blue" style={{ fontWeight: 600 }}>{activeNgo.name || activeNgo.code}</span>}
-          </div>
-          <h3 style={{ fontSize: 16 }}>Sectors</h3>
-          <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>NGO → Sector → Activity program structure</p>
-        </div>
-        <div className="filter-bar" style={{ marginBottom: 0 }}>
-          <select value={ngoFilter} onChange={e => changeNgo(e.target.value)}>
-            <option value="">All NGOs</option>
-            {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
-          </select>
-        </div>
+      <PageHeader
+        title="Sectors"
+        subtitle={activeNgo ? `Programs under ${activeNgo.name || activeNgo.code}` : 'NGO → Sector → Activity program structure'}
+        actions={<button className="eh-btn" onClick={() => navigate('/event-head/ngos')}>← NGOs</button>}
+      />
+
+      <div className="eh-metrics">
+        <MetricCard index={0} number={sectors.length} label="Sectors" color="var(--eh-primary)" />
+        <MetricCard index={1} number={totalActivities} label="Activities" color="var(--eh-secondary)" />
+        <MetricCard index={2} number={totalEvents} label="Events" color="var(--eh-success)" />
+        {activeNgo && <MetricCard index={3} number={ngoFilter} label="Active NGO" color="#eab308" />}
       </div>
 
-      <div className="stats-grid" style={{ marginBottom: 16, gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#7B5EA7' }}>{sectors.length}</div><div className="stat-lbl">Sectors</div></div>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#3485D4' }}>{totalActivities}</div><div className="stat-lbl">Activities</div></div>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#5B6B4E' }}>{totalEvents}</div><div className="stat-lbl">Events</div></div>
+      <div className="eh-toolbar">
+        <SearchInput placeholder="Search sectors…" value="" onChange={() => {}} />
+        <select className="eh-select" value={ngoFilter} onChange={e => changeNgo(e.target.value)}>
+          <option value="">All NGOs</option>
+          {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
+        </select>
+        <span style={{ fontSize: 13, color: 'var(--eh-ink-soft)' }}>{sectors.length} sectors</span>
       </div>
 
       {loading ? (
-        <div className="loading">Loading sectors...</div>
+        <div style={{ padding: 60, textAlign: 'center', color: 'var(--eh-ink-soft)' }}>Loading sectors…</div>
       ) : sectors.length === 0 ? (
-        <div className="empty-state">No sectors found</div>
+        <div className="eh-section"><Empty>No sectors found</Empty></div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+        <div className="eh-grid-auto">
           {sectors.map(s => (
             <div
               key={s.id}
-              className="card"
-              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8, transition: 'box-shadow .15s, transform .15s' }}
+              className="eh-section"
+              style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8, padding: '18px 20px', transition: 'box-shadow .15s, transform .15s' }}
               onClick={() => navigate('/event-head/activities?sector=' + s.id)}
-              onMouseEnter={e => { e.currentTarget.style.boxShadow = 'var(--shadow-md)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = 'var(--shadow-lg)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
               onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = '' }}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.35, color: 'var(--ink)' }}>{s.name}</div>
+                  <div style={{ fontWeight: 650, fontSize: 14.5, lineHeight: 1.35, color: 'var(--eh-ink)' }}>{s.name}</div>
                 </div>
-                <span className={`pill ${s.is_active ? 'pill-blue' : 'pill-gray'}`}>{s.is_active ? 'Active' : 'Inactive'}</span>
+                <Badge tone={s.is_active ? 'primary' : 'muted'}>{s.is_active ? 'Active' : 'Inactive'}</Badge>
               </div>
-              {s.description && <div style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5 }}>{s.description}</div>}
-              <div style={{ marginTop: 'auto', paddingTop: 6, borderTop: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>
-                <span><b style={{ color: 'var(--ink)' }}>{s.activity_count || 0}</b> Activities</span>
-                <span><b style={{ color: 'var(--ink)' }}>{s.event_count || 0}</b> Events</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--sage)', fontWeight: 600 }}>View →</span>
+              {s.description && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', lineHeight: 1.5 }}>{s.description}</div>}
+              <div style={{ marginTop: 'auto', paddingTop: 6, borderTop: '1px solid var(--eh-line)', display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, color: 'var(--eh-ink-soft)' }}>
+                <span><b style={{ color: 'var(--eh-ink)' }}>{s.activity_count || 0}</b> Activities</span>
+                <span><b style={{ color: 'var(--eh-ink)' }}>{s.event_count || 0}</b> Events</span>
+                <span style={{ marginLeft: 'auto', color: 'var(--eh-primary)', fontWeight: 600 }}>View →</span>
               </div>
             </div>
           ))}

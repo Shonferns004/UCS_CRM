@@ -320,16 +320,30 @@ export async function fetchDashboardStats(params = {}) {
   }
 }
 export const fetchEventsByMonth = (month, year) => apiGet('/event-head/events/calendar?month=' + month + '&year=' + year)
+export const fetchCalendarEvents = (params = {}) => {
+  const qs = new URLSearchParams()
+  if (params.start) qs.set('start', params.start)
+  if (params.end) qs.set('end', params.end)
+  if (params.ngoId) qs.set('ngoId', params.ngoId)
+  if (params.sectorId) qs.set('sectorId', params.sectorId)
+  if (params.activityId) qs.set('activityId', params.activityId)
+  if (params.status) qs.set('status', params.status)
+  if (params.year) qs.set('year', params.year)
+  const q = qs.toString()
+  return apiGet('/event-head/events/calendar' + (q ? '?' + q : ''))
+}
 export const fetchEventsByNgo = (ngoId) => apiGet('/event-head/events/ngo/' + ngoId)
 export const fetchEventsByState = (state) => apiGet('/event-head/events/state/' + state)
 export const fetchEventPerformance = (id) => apiGet('/event-head/events/' + id + '/performance')
 export const updateEventStatus = (id, status) => apiPut('/event-head/events/' + id + '/status', { status })
 
 /* ── Events sheet import / export ── */
-export const importEventsSheet = (ngoCode, file) => {
+export const importEventsSheet = (opts = {}, file) => {
   const fd = new FormData()
+  const ngoCode = opts.code || opts.ngoCode || ''
   if (ngoCode) fd.append('ngo_code', ngoCode)
-  fd.append('file', file)
+  if (opts.id) fd.append('ngo_id', opts.id)
+  if (file) fd.append('file', file)
   return api('/event-head/events/import', { method: 'POST', body: fd, _prefix: 'ucs', timeout: 180000 })
 }
 export const exportEventsSheet = async (params = {}, defaultName) => {
@@ -355,6 +369,7 @@ export const exportEventsSheet = async (params = {}, defaultName) => {
 
 /* ── Event Checklist ── */
 export const fetchChecklist = (eventId) => apiGet('/event-head/events/' + eventId + '/checklist')
+export const createChecklistItem = (eventId, data) => apiPost('/event-head/events/' + eventId + '/checklist', data)
 export const updateChecklistItem = (eventId, itemId, data) => apiPut('/event-head/events/' + eventId + '/checklist/' + itemId, data)
 
 /* ── Assets ── */
@@ -400,7 +415,9 @@ export const assignVehicle = (data) => apiPost('/event-head/vehicles/assign', da
 
 /* ── Media ── */
 export const fetchMedia = (eventId) => apiGet('/event-head/events/' + eventId + '/media')
-export const uploadMedia = (eventId, formData) => api('/event-head/events/' + eventId + '/media', { method: 'POST', body: formData, _prefix: 'ucs' })
+export const uploadMedia = (eventId, formData) => api('/event-head/events/' + eventId + '/media', { method: 'POST', body: formData, _prefix: 'ucs', timeout: 180000 })
+export const replaceMedia = (eventId, id, formData) => api('/event-head/events/' + eventId + '/media/' + id, { method: 'PUT', body: formData, _prefix: 'ucs', timeout: 180000 })
+export const updateMedia = (eventId, id, data) => apiPut('/event-head/events/' + eventId + '/media/' + id, data)
 export const deleteMedia = (eventId, id) => apiDelete('/event-head/events/' + eventId + '/media/' + id)
 
 /* ── Attendance ── */
