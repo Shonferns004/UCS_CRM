@@ -91,4 +91,43 @@ export async function ensureEventHeadSchema() {
       [name, code]
     );
   }
+
+  // Multi-activity join table (idempotent, mirrors migration 092).
+  await db._pool.query(`CREATE TABLE IF NOT EXISTS event_head_event_activities (
+       event_id    INT NOT NULL REFERENCES event_head_events(id) ON DELETE CASCADE,
+       activity_id INT NOT NULL REFERENCES event_head_activities(id) ON DELETE CASCADE,
+       created_at  TIMESTAMPTZ DEFAULT NOW(),
+       PRIMARY KEY (event_id, activity_id)
+     )`);
+  await db._pool.query(`CREATE INDEX IF NOT EXISTS idx_event_head_event_activities_activity
+       ON event_head_event_activities (activity_id)`);
+  await db._pool.query(
+    `INSERT INTO event_head_event_activities (event_id, activity_id)
+     SELECT e.id, e.activity_id
+     FROM event_head_events e
+     WHERE e.activity_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM event_head_event_activities ea
+         WHERE ea.event_id = e.id AND ea.activity_id = e.activity_id
+       )`
+  );
+
+  // Media metadata columns (additive; safe to run any time).
+  const MEDIA_COLUMNS = [
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS title TEXT`,
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS description TEXT`,
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS media_type TEXT`,
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS year INT`,
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS size BIGINT`,
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS uploaded_by TEXT`,
+    `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+  ];
+  const hasMedia = (await db._pool.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='event_head_media'`
+  )).rows.length > 0;
+  if (hasMedia) {
+    for (const sql of MEDIA_COLUMNS) {
+      try { await db._pool.query(sql); } catch { /* column may already exist */ }
+    }
+  }
 }
