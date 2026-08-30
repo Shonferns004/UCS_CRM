@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
-import { useTeams } from '../../../components/useTeams';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Who, Avatar, Dropdown } from './ui';
-import { Plus, Trash, Check } from '../icons';
+import { Plus, Trash, Check, Flask } from '../icons';
 import { api } from '../../../api/auth';
 import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
@@ -109,7 +108,6 @@ function WhoWithPhoto({ name, role, photo_url }) {
 
 export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
   const { addWorker, DEPTS, updateWorker, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
-  const { teams: teamOptions } = useTeams();
   const { formatSalary, isSalaryUnlocked, promptUnlock, lockSalary } = useSalaryPrivacy();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
@@ -117,8 +115,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
-  const [team, setTeam] = useState('');
   const [client, setClient] = useState('BSCT');
+  const [isTest, setIsTest] = useState(false);
   const [err, setErr] = useState('');
   const [nameErr, setNameErr] = useState('');
   const [search, setSearch] = useState(load().search || '');
@@ -209,7 +207,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   CLIENTS.forEach((c, i) => { CLIENT_COLORS[c] = PALETTE[i % PALETTE.length]; });
   const clientCounts = {};
   CLIENTS.forEach(c => { clientCounts[c] = 0; });
-  workers.forEach(w => { const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; else clientCounts[c] = 1; });
+  workers.forEach(w => { if (w.is_test) return; const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; else clientCounts[c] = 1; });
   const clientTotal = CLIENTS.reduce((s, c) => s + (clientCounts[c] || 0), 0);
   const clientPct = (c) => clientTotal ? Math.round((clientCounts[c] / clientTotal) * 100) : 0;
 
@@ -229,7 +227,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     setErr('');
     setCreated(null);
     try {
-      const body = { name: name.trim(), department: dept, team: team || null };
+      const body = { name: name.trim(), department: dept, is_test: isTest };
       const allocations = [];
       if (dept === 'NGO Admin' && selectedNgos.length > 0) {
         allocations.push(...selectedNgos.map(id => ({ ngo_id: id, salary_portion: 0 })));
@@ -241,17 +239,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       setCreated(res.worker);
       setName('');
       setDept(DEPTS?.[0] || '');
-      setTeam('');
       setSelectedNgos([]);
+      setIsTest(false);
       reload();
     } catch (e) {
       setErr(e.message);
     }
-  };
-
-  const saveTeam = (w, val) => {
-    setWorkers(prev => prev.map(x => x.id === w.id ? { ...x, team: val ? val : null } : x));
-    updateWorker(w.id, { team: val ? val : null }).catch(e => { console.error('Error:', e.message); });
   };
 
   const handleFullPayExport = async () => {
@@ -608,6 +601,14 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     if (onOffboard) onOffboard(worker);
   };
 
+  const handleToggleTest = async (e, worker) => {
+    e.stopPropagation();
+    try {
+      await updateWorker(worker.id, { is_test: !worker.is_test });
+      reload();
+    } catch (err) { console.error('Error:', err.message); }
+  };
+
   const toTitleCase = (str) => {
     if (!str || typeof str !== 'string') return str || '';
     return str.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
@@ -778,9 +779,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     <>
       <div className="card" style={{ marginBottom:20 }}>
         <div className="card-head">
-          <h3>{showAddForm ? 'Add a volunteer' : 'Volunteers by NGO'}</h3>
-          <div style={{ display:'flex', alignItems:'center', gap:'8px 16px', flexWrap:'wrap' }}>
-            <span style={{ fontSize:12, fontWeight:600 }}>Volunteers by NGO</span>
+          <h3 style={{ width:'100%' }}>{showAddForm ? 'Add a volunteer' : 'Volunteers by NGO'}</h3>
+          <div style={{ display:'flex', alignItems:'center', gap:'8px 16px', flexWrap:'wrap', width:'100%' }}>
+            {showAddForm && <span className="sub" style={{ fontWeight:600 }}>Volunteers by NGO</span>}
             <div style={{ display:'flex', height:12, borderRadius:6, overflow:'hidden', background:'var(--line)', width:180 }}>
               {CLIENTS.map(c => clientCounts[c] > 0 ? (
                 <div key={c} style={{ width: clientPct(c) + '%', background: CLIENT_COLORS[c], minWidth: 2 }}
@@ -800,8 +801,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         </div>
         {showAddForm && (
         <div className="card-pad">
-          <div className="form-row">
-            <label className="field">Full name
+          <div className="form-row" style={{ flexDirection:'row', flexWrap:'wrap' }}>
+            <label className="field" style={{ flex:2 }}>Full name
               <input value={name} onChange={e=>{ setName(e.target.value); setNameErr(/\d/.test(e.target.value) ? 'Invalid name' : ''); }} placeholder="Jane Doe"
                 onKeyDown={e=>e.key==='Enter'&&submit()} />
               {nameErr && <span style={{ color:'var(--danger)', fontSize:12, marginTop:2, display:'block' }}>{nameErr}</span>}
@@ -812,9 +813,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
             <label className="field">Client
               <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={CLIENTS} />
             </label>
-            <label className="field">UFS Team
-              <Dropdown value={team} onChange={e=>setTeam(e.target.value)}
-                options={[{value:'',label:'No Team'}, ...teamOptions.map(t => ({value:t, label:t}))]} />
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:600, color:'var(--ink)', cursor:'pointer', alignSelf:'flex-end', paddingBottom:10 }}>
+              <input type="checkbox" checked={isTest} onChange={e=>setIsTest(e.target.checked)} />
+              Test member
             </label>
           </div>
           {dept === 'NGO Admin' && ngos.length > 0 && (
@@ -906,7 +907,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           )}
         </div>
         <table>
-          <thead><tr><th>Name</th><th>NGO</th><th>Team</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -921,7 +922,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                       </div>
                     </td>
                     <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
-                    <td><div className="sk" style={{ width:70, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
@@ -944,15 +944,11 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                           <WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} />
                           {isComplete(workerDetails[w.id] || w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
+                          {w.is_test && <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, fontWeight:700, background:'#fef3c7', color:'#92400e', flexShrink:0 }}>TEST</span>}
                         </div>
                       </td>
                       <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#eef1f5', color:'#374151' }}>{clientOf(w)}</span>
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <Dropdown value={w.team || ''} onChange={e => saveTeam(w, e.target.value)}
-                          style={{ minWidth: 78 }}
-                          options={[{value:'',label:'—'}, ...teamOptions.map(t => ({value:t, label:t}))]} />
                       </td>
                       <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
                       <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
@@ -972,6 +968,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         </span>
                       </td>
                       <td style={{ textAlign:'right' }}>
+                        <button className="btn btn-icon" onClick={(e)=>handleToggleTest(e, w)} aria-label="Toggle test member"
+                          title={w.is_test ? 'Unmark as test member' : 'Mark as test member (excluded from dashboard stats)'}
+                          style={{ color: w.is_test ? '#b45309' : '#9ca3af' }}><Flask width={16}/></button>
                         <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard volunteer" style={{ color:'#dc2626' }}><Trash width={16}/></button>
                       </td>
                     </tr>
