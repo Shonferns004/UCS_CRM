@@ -155,6 +155,9 @@ export default function Teams() {
         .tf-row:hover td { background: #f9fafb; }
         .tf-tile { cursor: pointer; transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease; }
         .tf-tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+        .tf-select { appearance: none; -webkit-appearance: none; padding: 7px 28px 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-weight: 600; font-family: inherit; color: var(--ink); cursor: pointer; outline: none; background: #fff url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 8px center; }
+        .tf-select:hover { border-color: #9ca3af; }
+        .tf-select:focus { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-soft); }
       `}</style>
 
       {toast && (
@@ -324,9 +327,11 @@ export default function Teams() {
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {w.team ? <Pill name={w.team} /> : <span style={{ color: '#9ca3af', fontSize: 12 }}>No Team</span>}
-                          <Dropdown value={w.team || ''} onChange={e => setWorkerTeam(w, e.target.value)}
-                            style={{ minWidth: 96 }}
-                            options={[{ value: '', label: 'No Team' }, ...teams.map(t => ({ value: t, label: t }))]} />
+                          <select className="tf-select" value={w.team || ''} onChange={e => setWorkerTeam(w, e.target.value)}
+                            title={`Assign team for ${w.name}`}>
+                            <option value="">No Team</option>
+                            {teams.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
                         </div>
                       </td>
                     </tr>
