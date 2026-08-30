@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { Grid, Cal, Plus, Clock, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
 import { themes, applyTheme } from './theme'
@@ -25,42 +25,45 @@ import ApprovalWorkflow from './pages/ApprovalWorkflow'
 import NotificationsPage from './pages/Notifications'
 import EventsPage from './pages/EventsPage'
 import MyEvents from './pages/MyEvents'
+import NGOs from './pages/NGOs'
+import Sectors from './pages/Sectors'
+import Activities from './pages/Activities'
+import ActivityDetail from './pages/ActivityDetail'
+import EventDetail from './pages/EventDetail'
+import MediaManagement from './pages/MediaManagement'
 
 const NAV = [
-  { id:'dashboard',      path:'/event-head/dashboard',      label:'Event Dashboard',      icon:Grid,     section:'Dashboard' },
-  { id:'monthly-planner',path:'/event-head/monthly-planner',label:'Monthly Planner',       icon:Cal,     section:'Dashboard' },
-  { id:'events',         path:'/event-head/events-list',     label:'Events',                icon:Cal,     section:'Dashboard' },
-  { id:'create',         path:'/event-head/create',          label:'Create Event',          icon:Plus,    section:'Planning' },
-  { id:'checklist',      path:'/event-head/checklist',       label:'Event Checklist',       icon:Clock,   section:'Planning' },
-  { id:'assets',         path:'/event-head/assets',          label:'Asset Register',        icon:Brief,   section:'Resources' },
-  { id:'materials',      path:'/event-head/materials',       label:'Material Register',     icon:FileTxt, section:'Resources' },
-  { id:'distribution',   path:'/event-head/distribution',    label:'Beneficiary Distribution', icon:Users, section:'Execution' },
-  { id:'volunteers',     path:'/event-head/volunteers',      label:'Volunteer Management',  icon:Star,    section:'Execution' },
-  { id:'attendance',     path:'/event-head/attendance',      label:'Attendance',            icon:Users,   section:'Execution' },
-
-  { id:'events',         path:'/event-head/events',          label:'All Events',            icon:Cal,     section:'Reports' },
-  { id:'reports',        path:'/event-head/reports',         label:'Event Reports',         icon:FileTxt, section:'Reports' },
-  { id:'approvals',      path:'/event-head/approvals',       label:'Approval Workflow',     icon:SettingsIcon, section:'Reports' },
-  { id:'notifications',  path:'/event-head/notifications',   label:'Notifications',         icon:Bell,    section:'Reports' },
+  { id:'dashboard',      path:'/event-head/dashboard',        label:'Dashboard',             icon:Grid, section:'Overview' },
+  { id:'events',         path:'/event-head/events',           label:'Events',                icon:Cal, section:'Programs' },
+  { id:'monthly-planner',path:'/event-head/monthly-planner',  label:'Calendar',              icon:Cal, section:'Programs' },
+  { id:'ngos',           path:'/event-head/ngos',             label:'NGOs',                  icon:Brief, section:'Programs' },
+  { id:'sectors',        path:'/event-head/sectors',          label:'Sectors',               icon:Grid, section:'Programs' },
+  { id:'activities',     path:'/event-head/activities',       label:'Activities',            icon:Star, section:'Programs' },
+  { id:'create',         path:'/event-head/create',           label:'+ Create Event',        icon:Plus, section:'Programs' },
+  { id:'checklist',      path:'/event-head/checklist',        label:'Event Checklist',       icon:Clock, section:'Manage' },
+  { id:'events-list',    path:'/event-head/events-list',      label:'My Events',             icon:Cal, section:'Manage' },
+  { id:'media',          path:'/event-head/media-management', label:'Media / Banners',       icon:Eye, section:'Manage' },
+  { id:'reports',        path:'/event-head/reports',          label:'Event Reports',         icon:FileTxt, section:'Reporting' },
+  { id:'approvals',      path:'/event-head/approvals',        label:'Approval Workflow',     icon:SettingsIcon, section:'Reporting' },
+  { id:'notifications',  path:'/event-head/notifications',    label:'Notifications',         icon:Bell, section:'Reporting' },
 ]
 
 const SECTIONS = [
-  { id:'Dashboard', label:'Dashboard' },
-  { id:'Planning', label:'Planning' },
-  { id:'Resources', label:'Resources' },
-  { id:'Execution', label:'Execution' },
-
-  { id:'Reports', label:'Reports & Approvals' },
+  { id:'Overview', label:'Overview' },
+  { id:'Programs', label:'Programs' },
+  { id:'Manage', label:'Planning & Manage' },
+  { id:'Reporting', label:'Reporting' },
 ]
 
 function Sidebar({ open, onClose }) {
   const location = useLocation()
+  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark" style={{background:'#7B5EA7'}}>E</div>
+          <div className="brand-mark">E</div>
           <div><h1>UFS</h1><span>Event Manager</span></div>
         </div>
         <nav className="sidebar-nav">
@@ -68,7 +71,7 @@ function Sidebar({ open, onClose }) {
             <div key={s.id}>
               <div className="user-menu-label" style={{padding:'16px 12px 4px',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--ink-soft)',fontWeight:600}}>{s.label}</div>
               {NAV.filter(n => n.section === s.id).map(n => { const Icon = n.icon
-                const active = location.pathname === n.path
+                const active = isActive(n.path)
                 return (
                   <NavLink key={n.id} to={n.path} onClick={onClose}
                     className={`snav-item ${active ? 'active' : ''}`}>
@@ -88,6 +91,7 @@ function Sidebar({ open, onClose }) {
 export default function EventHeadPanel() {
   const { user, logout } = useUcs()
   const location = useLocation()
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -165,7 +169,7 @@ export default function EventHeadPanel() {
     }
   }
 
-  const meta = NAV.find(n => location.pathname === n.path)
+  const meta = [...NAV].reverse().find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Event Manager'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const drawerSections = [
@@ -186,9 +190,17 @@ export default function EventHeadPanel() {
               <h2>{meta?.label || 'Event Manager'}</h2>
             </div>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div className="eh-search" style={{ margin:0, maxWidth:280 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+              <input placeholder="Search events, NGOs, sectors…" style={{ background:'var(--eh-tint-1)', border:'none' }} />
+            </div>
+            <button className="eh-btn eh-btn-primary" style={{ marginRight:2 }} onClick={() => navigate('/event-head/create')}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Create Event
+            </button>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
-            <div className="avatar" style={{ background:'#7B5EA722', color:'#7B5EA7' }}>{initials}</div>
+            <div className="avatar">{initials}</div>
             {showMenu && (
               <div className="user-menu">
                 <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
@@ -232,14 +244,23 @@ export default function EventHeadPanel() {
             <Route path="monthly-planner" element={<MonthlyPlanner />} />
             <Route path="create" element={<CreateEvent />} />
             <Route path="checklist" element={<EventChecklist />} />
+            <Route path="ngos" element={<NGOs />} />
+            <Route path="sectors" element={<Sectors />} />
+            <Route path="activities" element={<Activities />} />
+            <Route path="activities/:id" element={<ActivityDetail />} />
             <Route path="assets" element={<AssetRegister />} />
             <Route path="materials" element={<MaterialRegister />} />
             <Route path="distribution" element={<BeneficiaryDistribution />} />
             <Route path="volunteers" element={<VolunteerManagement />} />
             <Route path="attendance" element={<AttendanceManagement />} />
+            <Route path="media-management" element={<MediaManagement />} />
 
             <Route path="events-list" element={<MyEvents />} />
+            <Route path="events-today" element={<EventsPage view="today" />} />
+            <Route path="events-upcoming" element={<EventsPage view="upcoming" />} />
+            <Route path="events-completed" element={<EventsPage view="completed" />} />
             <Route path="events" element={<EventsPage />} />
+            <Route path="events/:id" element={<EventDetail />} />
             <Route path="reports" element={<EventReports />} />
             <Route path="approvals" element={<ApprovalWorkflow />} />
             <Route path="notifications" element={<NotificationsPage />} />

@@ -1,6 +1,7 @@
 import * as EventHead from '../models/eventHeadModel.js';
+import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName, isCampaignName } from '../utils/activitySheet.js';
 
-const numericFields = ['budget', 'expected_beneficiaries', 'amount', 'quantity', 'purchase_cost', 'cost', 'opening_stock', 'received', 'issued', 'balance', 'available_qty', 'issued_qty', 'damaged_qty', 'kilometer_reading'];
+const numericFields = ['budget', 'expected_beneficiaries', 'amount', 'quantity', 'purchase_cost', 'cost', 'opening_stock', 'received', 'issued', 'balance', 'available_qty', 'issued_qty', 'damaged_qty', 'kilometer_reading', 'ngo_id', 'sector_id', 'activity_id'];
 const sanitize = (data) => {
   const clean = { ...data };
   for (const k of Object.keys(clean)) {
@@ -14,12 +15,117 @@ const sanitize = (data) => {
   return clean;
 };
 
+// Event Head workspace shows ALL NGOs to every event-head user; the NGO,
+// sector and activity lists are no longer restricted to the user's own NGO.
+const ownNgoId = (req) => {
+  return null;
+};
+
+// Load NGO/Sector/Activity lookup maps once, shared by event views.
+const buildEventContextMaps = async () => {
+  const [ngos, sectors, activities] = await Promise.all([
+    EventHead.getAllEventHeadNgos().catch(() => []),
+    EventHead.getAllEventHeadSectors().catch(() => []),
+    EventHead.getAllActivities().catch(() => []),
+  ]);
+  const ngoMap = {}; for (const n of ngos) ngoMap[n.id] = n.name || n.code;
+  const sectorMap = {}; for (const s of sectors) sectorMap[s.id] = s.name;
+  const activityMap = {}; for (const a of activities) activityMap[a.id] = a.name;
+  return { ngoMap, sectorMap, activityMap };
+};
+
+// Load activities for a set of events from the join table (falling back to the
+// primary activity_id so legacy single-activity events still resolve).
+const loadActivitiesForEvents = async (events, activityMap) => {
+  const map = {};
+  for (const e of events) {
+    if (e.id == null) continue;
+    const joinActivities = await EventHead.getEventHeadActivityIds(e.id).catch(() => []);
+    let ids = joinActivities.length ? joinActivities : (e.activity_id != null ? [Number(e.activity_id)] : []);
+    ids = [...new Set(ids.filter(id => id != null))];
+    map[e.id] = ids.map(id => ({
+      id,
+      name: activityMap[id] || (String(id) === String(e.activity_id) ? e.activity_name : null) || null,
+    })).filter(a => a.name);
+  }
+  return map;
+};
+
+const enrichEvent = (ev, ctx) => ({
+  ...ev,
+  ngo_name: ev.ngo_id ? ctx.ngoMap[ev.ngo_id] || null : null,
+  sector_name: ev.sector_id ? ctx.sectorMap[ev.sector_id] || null : null,
+  activity_name: ev.activity_id ? ctx.activityMap[ev.activity_id] || null : null,
+});
+
+// Async enrichment that also attaches the activities[] array (multi-activity).
+const enrichEvents = async (events, ctx) => {
+  if (!events || !events.length) return [];
+  const actMap = await loadActivitiesForEvents(events, ctx.activityMap);
+  return events.map(ev => ({
+    ...enrichEvent(ev, ctx),
+    activities: actMap[ev.id] || (ev.activity_id != null ? [{ id: ev.activity_id, name: ctx.activityMap[ev.activity_id] || ev.activity_name || null }].filter(a => a.name) : []),
+  }));
+};
+
+// Normalize an event's activity selections: accepts either a single `activity_id`
+// (legacy) or an array `activity_ids` (multi-activity). Returns the resolved ids.
+const resolveActivityIds = (body) => {
+  let ids = [];
+  if (Array.isArray(body.activity_ids)) ids = ids.concat(body.activity_ids);
+  else if (body.activity_id != null) ids.push(body.activity_id);
+  return [...new Set(ids.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0))];
+};
+
+// Validate the event's NGO ➜ Sector ➜ Activity relationship.
+// An activity belongs to exactly one sector, and either to one NGO or to "All NGOs".
+const validateEventRelations = async (body) => {
+  const missing = [];
+  if (!body.name) missing.push('event name');
+  if (!body.date) missing.push('event date');
+  if (!body.ngo_id) missing.push('NGO');
+  if (!body.sector_id) missing.push('sector');
+  const activityIds = resolveActivityIds(body);
+  if (!activityIds.length) missing.push('activity');
+  if (missing.length) return { error: { message: `Required fields missing: ${missing.join(', ')}` } };
+
+  const activities = await Promise.all(activityIds.map(id => EventHead.getActivityById(id)));
+  for (const activity of activities) {
+    if (!activity) return { error: { message: 'Selected activity does not exist' } };
+    if (String(activity.sector_id) !== String(body.sector_id)) {
+      return { error: { message: 'Selected sector does not belong to the selected activity' } };
+    }
+    if (activity.ngo_id != null && String(activity.ngo_id) !== String(body.ngo_id)) {
+      return { error: { message: 'Selected activity does not belong to the selected NGO' } };
+    }
+  }
+  return { activities };
+};
+
+const validateEventTimes = (body) => {
+  if (body.start_time && body.end_time && String(body.end_time) < String(body.start_time)) {
+    return { message: 'End time must be after start time' };
+  }
+  return null;
+};
+
 // ─── EVENTS ───
 export const createEventHandler = async (req, res) => {
   try {
-    const event = await EventHead.createEventHeadEvent({ ...sanitize(req.body), created_by: String(req.user.id) });
-    return res.status(201).json(event);
+    const body = sanitize(req.body);
+    const relation = await validateEventRelations(body);
+    if (relation.error) return res.status(400).json({ message: relation.error.message });
+    const timeErr = validateEventTimes(body);
+    if (timeErr) return res.status(400).json({ message: timeErr.message });
+    const activityIds = resolveActivityIds(body);
+    const insert = { ...body, activity_id: Number(activityIds[0]), created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
+    delete insert.activity_ids;
+    const event = await EventHead.createEventHeadEvent(insert);
+    if (activityIds.length) await EventHead.setEventHeadActivities(event.id, activityIds);
+    const ctx = await buildEventContextMaps();
+    return res.status(201).json((await enrichEvents([event], ctx))[0]);
   } catch (error) {
+    if (error.code === '23503') return res.status(400).json({ message: 'NGO, sector or activity reference does not exist' });
     console.error('createEventHandler error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
@@ -27,8 +133,12 @@ export const createEventHandler = async (req, res) => {
 
 export const listEventHeadEvents = async (req, res) => {
   try {
-    const events = await EventHead.getAllEventHeadEvents();
-    return res.json(events);
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const { sector_id, activity_id, status, month, year } = req.query;
+    const filters = { ngo_id, sector_id, activity_id, status, month, year };
+    const events = await EventHead.getAllEventHeadEvents(filters);
+    const ctx = await buildEventContextMaps();
+    return res.json(await enrichEvents(events, ctx));
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -39,7 +149,8 @@ export const getEventHeadEvent = async (req, res) => {
   try {
     const event = await EventHead.getEventHeadEventById(req.params.id);
     if (!event) return res.status(404).json({ message: 'Event not found' });
-    return res.json(event);
+    const ctx = await buildEventContextMaps();
+    return res.json((await enrichEvents([event], ctx))[0]);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -48,9 +159,32 @@ export const getEventHeadEvent = async (req, res) => {
 
 export const updateEventHeadEvent = async (req, res) => {
   try {
-    const event = await EventHead.updateEventHeadEvent(req.params.id, sanitize(req.body));
-    return res.json(event);
+    const body = sanitize(req.body);
+    const activityIds = resolveActivityIds(body);
+    // Only validate when the relation fields are being set (existing events may lack them).
+    if (body.ngo_id && body.sector_id && activityIds.length) {
+      const relation = await validateEventRelations(body);
+      if (relation.error) return res.status(400).json({ message: relation.error.message });
+    } else if (activityIds.length) {
+      for (const id of activityIds) {
+        const activity = await EventHead.getActivityById(id);
+        if (!activity) return res.status(400).json({ message: 'Selected activity does not exist' });
+        if (body.sector_id && String(activity.sector_id) !== String(body.sector_id)) {
+          return res.status(400).json({ message: 'Selected sector does not belong to the selected activity' });
+        }
+      }
+    }
+    const timeErr = validateEventTimes(body);
+    if (timeErr) return res.status(400).json({ message: timeErr.message });
+    const updates = { ...body };
+    delete updates.activity_ids;
+    if (activityIds.length) updates.activity_id = Number(activityIds[0]);
+    const event = await EventHead.updateEventHeadEvent(req.params.id, updates);
+    if (activityIds.length) await EventHead.setEventHeadActivities(event.id, activityIds);
+    const ctx = await buildEventContextMaps();
+    return res.json((await enrichEvents([event], ctx))[0]);
   } catch (error) {
+    if (error.code === '23503') return res.status(400).json({ message: 'NGO, sector or activity reference does not exist' });
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
@@ -86,9 +220,160 @@ export const getEventHeadDashboard = async (req, res) => {
   }
 };
 
+const pad2 = (n) => String(n).padStart(2, '0');
+const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+const NOT_HAPPENING = ['Cancelled', 'Postponed'];
+
+// Ledger of the existing Event Head workflow states that genuinely need attention.
+// Built only from reliably-determinable fields — no invented report/approval system.
+const ATTENTION_LABELS = {
+  overdue: 'Approved but overdue — mark completed',
+  approval: 'Pending approval',
+  info: 'Missing venue or start time',
+};
+
+export const getEventHeadDashboardStats = async (req, res) => {
+  try {
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const { sector_id, activity_id, month, year } = req.query;
+    const base = { ngo_id, sector_id, activity_id, month, year };
+
+    // core = full filter set (drives KPIs + today/upcoming/week/month lists).
+    // byNgo = filter set minus NGO (drives the per-NGO breakdown).
+    // sectorSummary = ngo + month/year only (drives the per-sector breakdown).
+    const scope = ownNgoId(req);
+    const [core, byNgo, sectorSummary, sectors, activities, ngos, ctx] = await Promise.all([
+      EventHead.getEventHeadDashboardEvents(base),
+      EventHead.getEventHeadDashboardEvents({ sector_id, activity_id, month, year }),
+      EventHead.getEventHeadDashboardEvents({ ngo_id, month, year }),
+      EventHead.getAllEventHeadSectors(),
+      EventHead.getAllActivities(),
+      EventHead.getAllEventHeadNgos(),
+      buildEventContextMaps(),
+    ]);
+
+    const now = new Date();
+    const todayStr = toYmd(now);
+    const weekDay = (now.getDay() + 6) % 7;
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - weekDay);
+    const weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 7);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const inRange = (e, start, end) => !!e.date && e.date >= toYmd(start) && e.date < toYmd(end);
+    const isUpcoming = (e) => e.status === 'Approved' && !!e.date && e.date >= todayStr;
+    const isToday = (e) => e.date === todayStr && !NOT_HAPPENING.includes(e.status);
+    const byDate = (a, b) => (a.date || '').localeCompare(b.date || '');
+    const byTime = (a, b) => (a.date || '').localeCompare(b.date || '') || (a.start_time || '').localeCompare(b.start_time || '');
+    const enrich = (ev) => enrichEvent(ev, ctx);
+
+    const todayEvents = core.filter(isToday).sort(byTime);
+    const upcomingEvents = core.filter(isUpcoming).sort(byDate);
+    const weekEvents = core.filter(e => isUpcoming(e) && inRange(e, weekStart, weekEnd)).sort(byDate);
+    const inMonth = core.filter(e => inRange(e, monthStart, monthEnd));
+
+    const ngoCounts = {};
+    for (const e of byNgo) if (e.ngo_id != null) ngoCounts[e.ngo_id] = (ngoCounts[e.ngo_id] || 0) + 1;
+    const scopedNgos = scope ? ngos.filter(n => String(n.id) === scope) : ngos;
+    const events_by_ngo = scopedNgos.map(n => ({
+      ngo_id: n.id,
+      ngo_name: n.name || n.code,
+      count: ngoCounts[n.id] || 0,
+    }));
+
+    const sectorEventCounts = {};
+    for (const e of sectorSummary) if (e.sector_id != null) sectorEventCounts[e.sector_id] = (sectorEventCounts[e.sector_id] || 0) + 1;
+    const sectorActivityCounts = {};
+    for (const a of activities) {
+      if (ngo_id && a.ngo_id != null && String(a.ngo_id) !== String(ngo_id)) continue;
+      if (a.sector_id == null) continue;
+      sectorActivityCounts[a.sector_id] = (sectorActivityCounts[a.sector_id] || 0) + 1;
+    }
+    const events_by_sector = sectors
+      .filter(s => s.is_active !== false)
+      .map(s => ({
+        ...s,
+        activity_count: sectorActivityCounts[s.id] || 0,
+        event_count: sectorEventCounts[s.id] || 0,
+      }));
+
+    const activityIdx = {};
+    for (const a of activities) activityIdx[a.id] = a;
+    const upcomingCounts = {};
+    const nextDates = {};
+    for (const e of upcomingEvents) {
+      if (e.activity_id == null) continue;
+      upcomingCounts[e.activity_id] = (upcomingCounts[e.activity_id] || 0) + 1;
+      if (!nextDates[e.activity_id] || e.date < nextDates[e.activity_id]) nextDates[e.activity_id] = e.date;
+    }
+    const activities_with_upcoming_events = Object.keys(upcomingCounts)
+      .map((activityId) => {
+        const a = activityIdx[activityId];
+        const ngoName = a && a.ngo_id != null ? (ctx.ngoMap[a.ngo_id] || null) : (a ? 'All NGOs' : null);
+        return {
+          activity_id: Number(activityId),
+          activity_name: a ? a.name : null,
+          sector_id: a ? a.sector_id : null,
+          sector_name: a && a.sector_id != null ? (ctx.sectorMap[a.sector_id] || null) : null,
+          ngo_id: a ? a.ngo_id : null,
+          ngo_name: ngoName,
+          upcoming_count: upcomingCounts[activityId],
+          next_event_date: nextDates[activityId],
+        };
+      })
+      .filter(x => x.activity_name)
+      .sort((p, q) => (p.next_event_date || '').localeCompare(q.next_event_date || ''));
+
+    const attention = [];
+    for (const e of core) {
+      if (['Draft', 'Submitted'].includes(e.status)) {
+        attention.push({ ...e, attention_type: 'approval', attention_reason: ATTENTION_LABELS.approval });
+      } else if (e.status === 'Approved' && e.date && e.date < todayStr) {
+        attention.push({ ...e, attention_type: 'overdue', attention_reason: ATTENTION_LABELS.overdue });
+      } else if (isUpcoming(e) && (!e.venue || !e.start_time)) {
+        attention.push({ ...e, attention_type: 'info', attention_reason: ATTENTION_LABELS.info });
+      }
+    }
+    const attentionRank = { overdue: 0, info: 1, approval: 2 };
+    attention.sort((a, b) => attentionRank[a.attention_type] - attentionRank[b.attention_type] || byDate(a, b));
+
+    const kpis = {
+      total_events: core.length,
+      upcoming_events: upcomingEvents.length,
+      today_events: todayEvents.length,
+      completed_events: core.filter(e => e.status === 'Completed').length,
+      budget_total: core.reduce((s, e) => s + (+e.budget || 0), 0),
+      beneficiaries_total: core.reduce((s, e) => s + (+e.expected_beneficiaries || 0), 0),
+    };
+
+    return res.json({
+      generated_at: new Date().toISOString(),
+      filters: base,
+      kpis,
+      this_week: { count: weekEvents.length, events: weekEvents.slice(0, 10).map(enrich) },
+      this_month: {
+        total: inMonth.length,
+        upcoming: inMonth.filter(isUpcoming).length,
+        completed: inMonth.filter(e => e.status === 'Completed').length,
+      },
+      events_by_ngo,
+      events_by_sector,
+      activities_with_upcoming_events,
+      today_events: todayEvents.slice(0, 12).map(enrich),
+      upcoming_events: upcomingEvents.slice(0, 8).map(enrich),
+      attention: attention.slice(0, 10).map(enrich),
+    });
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getEventHeadEventsByMonth = async (req, res) => {
   try {
-    const events = await EventHead.getEventHeadEventsByMonth(req.params.month, req.params.year);
+    const ngo_id = ownNgoId(req) || null;
+    const events = await EventHead.getEventHeadEventsByMonth(req.params.month, req.params.year, ngo_id);
     return res.json(events);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -96,9 +381,55 @@ export const getEventHeadEventsByMonth = async (req, res) => {
   }
 };
 
+// FullCalendar endpoint: returns FullCalendar-compatible events within a visible
+// date range, supporting start/end + NGO/Sector/Activity/Status/Year filters.
+export const getEventHeadCalendar = async (req, res) => {
+  try {
+    const { start, end, year, status } = req.query;
+    const ngo_id = ownNgoId(req) || req.query.ngoId || req.query.ngo_id;
+    const sector_id = req.query.sectorId || req.query.sector_id;
+    const activity_id = req.query.activityId || req.query.activity_id;
+    const events = await EventHead.getEventHeadEventsByRange({ start, end, ngo_id, sector_id, activity_id, status, year });
+    const ctx = await buildEventContextMaps();
+    const enriched = await enrichEvents(events, ctx);
+    return res.json(enriched.map(e => {
+      const day = String(e.date || '').slice(0, 10);
+      const st = (e.start_time || '').slice(0, 5) || '00:00';
+      const en = (e.end_time || '').slice(0, 5) || '00:00';
+      const hasTime = Boolean(e.start_time || e.end_time);
+      return {
+        id: String(e.id),
+        title: e.name || 'Untitled Event',
+        start: hasTime ? `${day}T${st}` : day,
+        end: hasTime ? `${day}T${en}` : day,
+        allDay: !hasTime,
+        extendedProps: {
+          id: e.id,
+          ngoId: e.ngo_id,
+          ngoName: e.ngo_name || null,
+          sectorId: e.sector_id,
+          sectorName: e.sector_name || null,
+          activities: e.activities || [],
+          status: e.status || null,
+          priority: e.priority || null,
+          venue: e.venue || null,
+          description: e.description || e.notes || null,
+          date: e.date || null,
+          startTime: e.start_time || null,
+          endTime: e.end_time || null,
+        },
+      };
+    }));
+  } catch (error) {
+    console.error('getEventHeadCalendar error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getEventHeadEventsByNgo = async (req, res) => {
   try {
-    const events = await EventHead.getEventHeadEventsByNgo(req.params.ngoId);
+    const ngoId = ownNgoId(req) || req.params.ngoId;
+    const events = await EventHead.getEventHeadEventsByNgo(ngoId);
     return res.json(events);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -416,10 +747,62 @@ export const assignVehicle = async (req, res) => {
 };
 
 // ─── MEDIA ───
+const normalizeMedia = (m) => ({
+  ...m,
+  title: m.title || m.name || null,
+  description: m.description || null,
+  media_type: m.media_type || categorizeMedia(m) || null,
+  year: m.year != null ? Number(m.year) : null,
+  size: m.size != null ? Number(m.size) : null,
+  uploaded_by: m.uploaded_by || null,
+});
+const categorizeMedia = (m) => {
+  const type = String(m.type || '').toLowerCase();
+  const url = String(m.url || '').toLowerCase();
+  if (type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/.test(url)) return 'Photo';
+  if (type.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/.test(url)) return 'Video';
+  if (type.includes('pdf') || /\.pdf$/i.test(url)) return 'Document';
+  if (/\.(docx?|xlsx?|pptx?|txt|csv)$/.test(url)) return 'Document';
+  return 'Other';
+};
+const pickMediaMeta = (body, file) => {
+  const clean = sanitize(body);
+  const size = file?.size != null ? Number(file.size) : (clean.size != null ? Number(clean.size) : null);
+  const meta = {
+    name: file?.originalname || clean.name || clean.title || `${Date.now()}`,
+    url: clean.url || `/uploads/${file?.filename || ''}`,
+    type: file?.mimetype || clean.type || clean.media_type || null,
+    title: clean.title || file?.originalname || clean.name || null,
+    description: clean.description || null,
+    media_type: clean.media_type || null,
+    year: clean.year != null ? Number(clean.year) : null,
+  };
+  if (size != null && !Number.isNaN(size)) meta.size = size;
+  return meta;
+};
 export const uploadMedia = async (req, res) => {
   try {
-    const media = await EventHead.createMedia(req.params.eventId, { name: req.file?.originalname || sanitize(req.body).name, url: sanitize(req.body).url || `/uploads/${req.file?.filename}`, type: req.file?.mimetype || sanitize(req.body).type });
-    return res.status(201).json(media);
+    // multer.fields() yields req.files = { file: [...], files: [...] };
+    // multer.single() yields req.file. Collect all uploaded files either way.
+    const uploaded = [];
+    if (Array.isArray(req.files)) uploaded.push(...req.files);
+    else if (req.files && typeof req.files === 'object') {
+      for (const k of Object.keys(req.files)) uploaded.push(...(req.files[k] || []));
+    }
+    if (uploaded.length > 0) {
+      const saved = [];
+      for (const f of uploaded) {
+        saved.push(await EventHead.createMedia(req.params.eventId, pickMediaMeta({ ...req.body, name: f.originalname }, f)));
+      }
+      return res.status(201).json(saved.map(normalizeMedia));
+    }
+    if (req.file) {
+      const media = await EventHead.createMedia(req.params.eventId, pickMediaMeta(req.body, req.file));
+      return res.status(201).json(normalizeMedia(media));
+    }
+    // No file — allow creating a media record by URL only (documents/other).
+    const media = await EventHead.createMedia(req.params.eventId, pickMediaMeta(req.body, null));
+    return res.status(201).json(normalizeMedia(media));
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -429,7 +812,32 @@ export const uploadMedia = async (req, res) => {
 export const listMedia = async (req, res) => {
   try {
     const media = await EventHead.getMediaByEvent(req.params.eventId);
-    return res.json(media);
+    return res.json((media || []).map(normalizeMedia));
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const replaceMedia = async (req, res) => {
+  try {
+    const existing = await EventHead.getMediaById(req.params.eventId, req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Media not found' });
+    const clean = sanitize(req.body);
+    const updates = {};
+    if (req.file) {
+      updates.url = clean.url || `/uploads/${req.file.filename || ''}`;
+      if (req.file.mimetype) updates.type = req.file.mimetype;
+      updates.name = req.file.originalname || clean.name || existing.name;
+      if (req.file.size != null) updates.size = Number(req.file.size);
+    }
+    if (clean.title != null) updates.title = clean.title;
+    if (clean.description != null) updates.description = clean.description;
+    if (clean.media_type != null) updates.media_type = clean.media_type;
+    if (clean.year != null) updates.year = Number(clean.year);
+    if (clean.uploaded_by != null) updates.uploaded_by = clean.uploaded_by;
+    const media = await EventHead.updateMedia(req.params.eventId, req.params.id, updates);
+    return res.json(normalizeMedia(media));
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -481,6 +889,17 @@ export const updateChecklistItem = async (req, res) => {
     const item = await EventHead.upsertChecklistItem(req.params.eventId, { id: req.params.itemId, ...sanitize(req.body) });
     return res.json(item);
   } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const createChecklistItem = async (req, res) => {
+  try {
+    const item = await EventHead.createChecklistItem(req.params.eventId, sanitize(req.body));
+    return res.status(201).json(item);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -528,6 +947,434 @@ export const listApprovals = async (req, res) => {
     const events = await EventHead.getAllEventHeadEvents();
     return res.json(events);
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── NGO CONTEXT (read-only for the Event Head workspace) ───
+export const listEventHeadNgos = async (req, res) => {
+  try {
+    const ngos = await EventHead.getAllEventHeadNgos();
+    const scope = ownNgoId(req);
+    return res.json(scope ? ngos.filter(n => String(n.id) === scope) : ngos);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── SECTORS ───
+export const listSectors = async (req, res) => {
+  try {
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const [sectors, activityCounts, eventCounts] = await Promise.all([
+      EventHead.getAllEventHeadSectors(),
+      EventHead.getSectorActivityCounts(ngo_id),
+      EventHead.getSectorEventCounts(ngo_id),
+    ]);
+    const enriched = sectors.map(s => ({
+      ...s,
+      activity_count: activityCounts[s.id] || 0,
+      event_count: eventCounts[s.id] || 0,
+    }));
+    return res.json(enriched);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── ACTIVITIES ───
+export const listActivities = async (req, res) => {
+  try {
+    const ngo_id = ownNgoId(req) || req.query.ngo_id;
+    const { sector_id } = req.query;
+    const [activities, ngos, sectors, eventCounts] = await Promise.all([
+      EventHead.getAllActivities({ ngo_id, sector_id }),
+      EventHead.getAllEventHeadNgos().catch(() => []),
+      EventHead.getAllEventHeadSectors().catch(() => []),
+      EventHead.getActivityEventCounts(),
+    ]);
+    const ngoNames = {}; for (const n of ngos) ngoNames[n.id] = n.name || n.code;
+    const sectorNames = {}; for (const s of sectors) sectorNames[s.id] = s.name;
+    const enriched = activities.map(a => ({
+      ...a,
+      ngo_name: a.ngo_id ? ngoNames[a.ngo_id] || null : 'All NGOs',
+      sector_name: sectorNames[a.sector_id],
+      event_count: eventCounts[a.id] || 0,
+    }));
+    return res.json(enriched);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getActivity = async (req, res) => {
+  try {
+    const activity = await EventHead.getActivityById(req.params.id);
+    if (!activity) return res.status(404).json({ message: 'Activity not found' });
+    const [ngo, sectors, eventCounts, events] = await Promise.all([
+      EventHead.getEventHeadNgoById(activity.ngo_id),
+      EventHead.getAllEventHeadSectors().catch(() => []),
+      EventHead.getActivityEventCounts(),
+      EventHead.getAllEventHeadEvents().catch(() => []),
+    ]);
+    const sector = sectors.find(s => s.id === activity.sector_id) || null;
+    const activityEvents = (events || []).filter(e => e.activity_id === activity.id)
+      .map(e => ({ id: e.id, name: e.name, date: e.date, status: e.status, venue: e.venue }));
+    return res.json({
+      ...activity,
+      ngo_name: activity.ngo_id ? (ngo ? ngo.name || ngo.code : null) : 'All NGOs',
+      sector_name: sector ? sector.name : null,
+      sector_description: sector ? sector.description : null,
+      event_count: eventCounts[activity.id] || 0,
+      events: activityEvents,
+    });
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const createActivity = async (req, res) => {
+  try {
+    const body = sanitize(req.body);
+    const name = String(body.name || '').trim();
+    if (!name || !body.sector_id) {
+      return res.status(400).json({ message: 'Activity name and sector are required' });
+    }
+    const activity = await EventHead.createActivity({
+      ...body,
+      name,
+      created_by: String(req.user.id || ''),
+      status: body.status || 'Active',
+    });
+    return res.status(201).json(activity);
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ message: 'An activity with this name already exists for this NGO' });
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── ACTIVITIES SHEET IMPORT / EXPORT ───
+// Upload an Excel/CSV sheet of the user's NGO activities; rows go straight
+// into the DB under the selected NGO's activity catalog (per-sector).
+export const importActivities = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: 'No file uploaded' });
+
+    const ngos = await EventHead.getAllEventHeadNgos();
+    let ngo = null;
+    const code = String(req.body.ngo_code || '').trim().toUpperCase();
+    if (code) ngo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === code);
+    if (!ngo && req.body.ngo_id) ngo = ngos.find(n => String(n.id) === String(req.body.ngo_id));
+    if (!ngo) return res.status(404).json({ message: `NGO not found. Use BSCT, MANN or AFLF.` });
+
+    const { rows } = parseActivitySheet(file.buffer);
+    if (!rows.length) return res.status(400).json({ message: 'No activities found in the sheet' });
+
+    const sectors = await EventHead.getAllEventHeadSectors();
+    const sectorNames = sectors.map(s => s.name);
+    const sectorByName = new Map(sectors.map(s => [s.name, s.id]));
+
+    const prepared = [];
+    const skippedCampaigns = new Set();
+    const unknownSectors = new Map();
+    const sectorCounts = {};
+    const seen = new Set();
+    let rowsParsed = 0;
+
+    for (const row of rows) {
+      const name = normalizeName(row.name);
+      if (!name) continue;
+      rowsParsed++;
+      if (isCampaignName(name)) { skippedCampaigns.add(name); continue; }
+      const canonical = canonicalizeSector(row.sectorLabel, sectorNames);
+      const sectorId = sectorByName.get(canonical);
+      if (!sectorId) {
+        unknownSectors.set(row.sectorLabel, (unknownSectors.get(row.sectorLabel) || 0) + 1);
+        continue;
+      }
+      const key = `${sectorId}\u0000${name.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      prepared.push({
+        ngo_id: ngo.id,
+        sector_id: sectorId,
+        name,
+        description: `Imported from sheet for ${ngo.code || ngo.name}`,
+        status: 'Active',
+        created_by: String(req.user.id || ''),
+      });
+      sectorCounts[canonical] = (sectorCounts[canonical] || 0) + 1;
+    }
+
+    const inserted = await EventHead.insertActivitiesBulk(prepared);
+
+    return res.json({
+      ngo: { id: ngo.id, code: ngo.code || ngo.name, name: ngo.name },
+      sheet: file.originalname,
+      rows_parsed: rowsParsed,
+      inserted: inserted.length,
+      skipped_existing: prepared.length - inserted.length,
+      skipped_campaigns: [...skippedCampaigns],
+      unknown_sectors: [...unknownSectors.entries()].map(([label, count]) => ({ sector: label, count })),
+      sectors: Object.entries(sectorCounts)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([sector_name, count]) => ({ sector_name, count })),
+    });
+  } catch (error) {
+    if (error && error.message && /Could not find|NGO/.test(error.message)) {
+      return res.status(400).json({ message: error.message });
+    }
+    console.error('importActivities error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── EVENTS SHEET IMPORT / EXPORT ───
+// Upload an Excel/CSV sheet of the user's NGO events; each row becomes an event
+// in the DB, linked to the right NGO / Sector / Activity. Activities are matched
+// by name inside the resolved sector (NGO-specific first, then "All NGOs").
+export const importEvents = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: 'No file uploaded' });
+
+    const ngos = await EventHead.getAllEventHeadNgos();
+    let defaultNgo = null;
+    const code = String(req.body.ngo_code || '').trim().toUpperCase();
+    if (code) defaultNgo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === code);
+    if (!defaultNgo && req.body.ngo_id) defaultNgo = ngos.find(n => String(n.id) === String(req.body.ngo_id));
+
+    const { rows } = parseEventSheet(file.buffer);
+    if (!rows.length) return res.status(400).json({ message: 'No events found in the sheet' });
+
+    const [sectors, activities] = await Promise.all([
+      EventHead.getAllEventHeadSectors(),
+      EventHead.getAllActivities().catch(() => []),
+    ]);
+    const sectorNames = sectors.map(s => s.name);
+    const sectorByName = new Map(sectors.map(s => [s.name, s.id]));
+
+    const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const activityIdx = new Map(); // key "sectorId|ngoId|normName"
+    const activityNames = new Map(); // key "sectorId|normName" -> array
+    for (const a of activities || []) {
+      const key = `${a.sector_id}|${a.ngo_id == null ? '' : a.ngo_id}|${norm(a.name)}`;
+      activityIdx.set(key, a);
+      const nk = `${a.sector_id}|${norm(a.name)}`;
+      if (!activityNames.has(nk)) activityNames.set(nk, []);
+      activityNames.get(nk).push(a);
+    }
+
+    const resolveActivity = (sectorId, ngoId, label) => {
+      const nk = `${sectorId}|${norm(label)}`;
+      const candidates = activityNames.get(nk) || [];
+      if (ngoId != null) {
+        const hit = candidates.find(a => String(a.ngo_id) === String(ngoId));
+        if (hit) return hit;
+      }
+      const all = candidates.find(a => a.ngo_id == null);
+      if (all) return all;
+      return activityIdx.get(`${sectorId}|${ngoId == null ? '' : ngoId}|${norm(label)}`) || null;
+    };
+
+    const normNgoKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ');
+    const ngoByKey = new Map();
+    for (const n of ngos) ngoByKey.set(normNgoKey(n.code || n.name), n);
+
+    const prepared = [];
+    const skipped = { no_date: [], unknown_activity: [], unknown_sector: [], unknown_ngo: [], dup: [] };
+    const seen = new Set();
+    let parsed = 0;
+
+    for (const row of rows) {
+      if (!row.name) continue;
+      parsed++;
+
+      let ngo = defaultNgo;
+      if (row.ngoLabel) ngo = ngoByKey.get(normNgoKey(row.ngoLabel)) || defaultNgo;
+      if (!ngo) { skipped.unknown_ngo.push(`${row.name} (${row.ngoLabel || 'no NGO'})`); continue; }
+
+      if (!row.date) { skipped.no_date.push(row.name); continue; }
+
+      const canonical = canonicalizeSector(row.sectorLabel, sectorNames);
+      const sectorId = sectorByName.get(canonical);
+      if (!sectorId) { skipped.unknown_sector.push(`${row.name} (${row.sectorLabel || 'no sector'})`); continue; }
+
+      const activity = resolveActivity(sectorId, ngo.id, row.activityLabel);
+      if (!activity) { skipped.unknown_activity.push(`${row.name} (${row.activityLabel || 'no activity'})`); continue; }
+
+      const dedupeKey = `${ngo.id}|${sectorId}|${activity.id}|${row.date}|${norm(row.name)}`;
+      if (seen.has(dedupeKey)) { skipped.dup.push(row.name); continue; }
+      seen.add(dedupeKey);
+
+      prepared.push({
+        name: row.name,
+        date: row.date,
+        ngo_id: ngo.id,
+        sector_id: sectorId,
+        activity_id: activity.id,
+        venue: row.venue,
+        start_time: row.startTime,
+        end_time: row.endTime,
+        status: row.status,
+        approval_status: row.status === 'Approved' ? 'Approved' : 'Draft',
+        budget: row.budget,
+        expected_beneficiaries: row.expectedBeneficiaries,
+        created_by: String(req.user.id || ''),
+      });
+    }
+
+    const inserted = await EventHead.insertEventHeadEventsBulk(prepared);
+
+    return res.json({
+      ngo: defaultNgo ? { id: defaultNgo.id, code: defaultNgo.code || defaultNgo.name, name: defaultNgo.name } : null,
+      sheet: file.originalname,
+      rows_parsed: parsed,
+      inserted: inserted.length,
+      skipped: {
+        missing_date: skipped.no_date.length,
+        unknown_activity: skipped.unknown_activity.length,
+        unknown_sector: skipped.unknown_sector.length,
+        unknown_ngo: skipped.unknown_ngo.length,
+        duplicates: skipped.dup.length,
+      },
+      skipped_details: {
+        no_date: skipped.no_date.slice(0, 20),
+        unknown_activity: skipped.unknown_activity.slice(0, 20),
+        unknown_sector: skipped.unknown_sector.slice(0, 20),
+        unknown_ngo: skipped.unknown_ngo.slice(0, 20),
+        dup: skipped.dup.slice(0, 20),
+      },
+    });
+  } catch (error) {
+    if (error && error.message && /Could not find|NGO/.test(error.message)) {
+      return res.status(400).json({ message: error.message });
+    }
+    console.error('importEvents error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Export events to an Excel sheet honoring the current filters.
+export const exportEvents = async (req, res) => {
+  try {
+    const { ngo_id, sector_id, activity_id, status, month, year } = req.query;
+    const events = await EventHead.getAllEventHeadEvents({ ngo_id, sector_id, activity_id, status, month, year });
+    const ctx = await buildEventContextMaps();
+    const rows = events.map(ev => enrichEvent(ev, ctx));
+
+    const aoa = [
+      ['Event Name', 'NGO', 'Sector', 'Activity', 'Date', 'Start Time', 'End Time', 'Venue', 'Status', 'Budget', 'Expected Beneficiaries'],
+    ];
+    for (const e of rows) {
+      aoa.push([
+        e.name || '',
+        e.ngo_name || '',
+        e.sector_name || '',
+        e.activity_name || '',
+        (e.date || '').slice(0, 10),
+        e.start_time ? String(e.start_time).slice(0, 5) : '',
+        e.end_time ? String(e.end_time).slice(0, 5) : '',
+        e.venue || '',
+        e.status || '',
+        e.budget != null ? Number(e.budget) : '',
+        e.expected_beneficiaries != null ? Number(e.expected_beneficiaries) : '',
+      ]);
+    }
+
+    const XLSX = (await import('xlsx')).default;
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Events');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="events.xlsx"');
+    return res.send(buf);
+  } catch (error) {
+    console.error('exportEvents error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Export the NGO's activity catalog back to an Excel sheet. Omit ngo to get
+// every NGO's activities (with the NGO column filled in).
+export const exportActivities = async (req, res) => {
+  try {
+    const { ngo_id, ngo_code } = req.query;
+    const ngos = await EventHead.getAllEventHeadNgos().catch(() => []);
+    let ngo = null;
+    if (ngo_id) ngo = ngos.find(n => String(n.id) === String(ngo_id));
+    else if (ngo_code) ngo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === String(ngo_code).toUpperCase());
+    if (ngo_id && !ngo) return res.status(404).json({ message: 'NGO not found' });
+
+    const [activities, sectors] = await Promise.all([
+      EventHead.getAllActivities(ngo ? { ngo_id: ngo.id } : {}),
+      EventHead.getAllEventHeadSectors().catch(() => []),
+    ]);
+    const sectorName = new Map(sectors.map(s => [s.id, s.name]));
+    const ngoLabel = ngo ? (ngo.code || ngo.name) : 'All NGOs';
+
+    const data = (activities || [])
+      .filter(a => a.name)
+      .sort((a, b) => String(a.sector_id || '').localeCompare(String(b.sector_id || '')) || String(a.name).localeCompare(String(b.name)))
+      .map(a => ({
+        'Sector': sectorName.get(a.sector_id) || '',
+        'Activity or Project': a.name,
+        'NGO': ngoLabel,
+      }));
+
+    const XLSX = (await import('xlsx')).default;
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Sector': '', 'Activity or Project': '', 'NGO': ngoLabel }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Activities');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const safe = String(ngoLabel).replace(/[^A-Za-z0-9_-]/g, '_');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="activities_${safe}.xlsx"`);
+    return res.send(buf);
+  } catch (error) {
+    console.error('exportActivities error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateActivity = async (req, res) => {
+  try {
+    const existing = await EventHead.getActivityById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Activity not found' });
+    const body = sanitize(req.body);
+    const updates = { ...body };
+    if (updates.name !== undefined) updates.name = String(updates.name || '').trim();
+    if (updates.name !== undefined && !updates.name) return res.status(400).json({ message: 'Activity name cannot be empty' });
+    const activity = await EventHead.updateActivity(req.params.id, updates);
+    return res.json(activity);
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ message: 'An activity with this name already exists for this NGO' });
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setActivityStatus = async (req, res) => {
+  try {
+    const { status } = sanitize(req.body);
+    if (!['Active', 'Inactive'].includes(status)) {
+      return res.status(400).json({ message: 'status must be Active or Inactive' });
+    }
+    const existing = await EventHead.getActivityById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Activity not found' });
+    const activity = await EventHead.updateActivity(req.params.id, { status });
+    return res.json(activity);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

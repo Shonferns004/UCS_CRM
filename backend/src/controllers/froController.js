@@ -33,6 +33,8 @@ import {
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
+import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition } from '../models/workQueueModel.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -1583,6 +1585,7 @@ export const getMyDonors = async (req, res) => {
       let query = db
         .from('fro_assignments')
         .select('*, ngos(name)')
+        .eq('fro_worker_id', workerId)
         .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
@@ -1605,7 +1608,7 @@ export const getMyDonors = async (req, res) => {
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
-          query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = db.from('fro_assignments').select('*, ngos(name)').eq('fro_worker_id', workerId).in('station', effectiveStations).not('status', 'eq', 'reassigned');
           query = withStationNgoPairs(query, effectiveScope);
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
@@ -1790,7 +1793,11 @@ export const getMyDonors = async (req, res) => {
       seen.add(key);
       const s = scheduleMap[a.id];
       const rawStatus = a.status || 'pending';
-      const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !monthDonatedSet.has(a.id);
+      // Only donation_collected should reset to pending across a donation
+      // period boundary (so a recurring donor reappears to be collected again).
+      // lead_done / done are terminal dispositions — once the FRO closes the
+      // lead they must stay hidden, otherwise disposed leads come back again.
+      const staleDoneStatus = rawStatus === 'donation_collected' && !monthDonatedSet.has(a.id);
       // A donor who has already donated in the current period has nothing left
       // to collect — drop them out of the workable (pending/not-connected) pool
       // so they stop reappearing at the top of the FRO stack. Uses monthDonatedSet
@@ -1951,12 +1958,29 @@ export const getMyDonors = async (req, res) => {
       'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
     ]);
 
+    // Statuses that are a hard "never work this donor again" so they must NEVER
+    // be workable, independent of whether the matching disposition log was
+    // captured. (Terminal connected dispositions like email_sent / query_complaint
+    // may still need follow-up, so they are NOT excluded by status here — they are
+    // already hidden via terminalForeverIds when a log exists.)
+    const HARD_TERMINAL_STATUSES = new Set([
+      'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible',
+      'language_barrier', 'call_disconnected',
+      'wrong_number', 'invalid_number', 'invalid', 'rejected', 'temporary_network_issue', 'incoming_out',
+    ]);
+
     let baseFiltered;
     if (req.query.verified_only === 'true') {
       baseFiltered = null;
     } else {
       baseFiltered = result.filter(r => {
+        // Status is authoritative for hard-terminal dispositions: a donor already
+        // marked not_interested / dnd / wrong_person / not_possible / wrong_number
+        // etc. must NOT be workable even if its disposition log wasn't captured —
+        // otherwise it leaks into the work queue and reappears.
+        if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
+        if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
         if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
         if (terminalForeverIds.has(r.donor_id)) return false;
         if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
@@ -1982,6 +2006,73 @@ export const getMyDonors = async (req, res) => {
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
       return dateA - dateB;
     });
+
+    // ─── Backend-authoritative current donor (controlled queue) ──────────────
+    // When queue_current=true the backend reconciles the ordered workable donor
+    // list into work_queue and hands back exactly ONE donor (the next one the
+    // FRO should work), plus durable progress. The front-end never chooses the
+    // next donor itself — no client-side skip/reorder, so a lead already worked
+    // can never reappear.
+    if (req.query.queue_current === 'true') {
+      try {
+        const operatorId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : null;
+        const queueTab = req.query.new_only === 'true' ? 'new' : 'old';
+        const queueStation = req.query.station && req.query.station !== 'all' ? req.query.station : null;
+        const donorObjs = filtered.map(r => ({ donor_id: r.donor_id, ngo_id: r.ngo_id, id: r.donor_id }));
+        await reconcileQueue({ workerId, operatorId, donors: donorObjs, station: queueStation, tab: queueTab });
+        await clearActiveRowsNotIn({ workerId, donorIds: donorObjs.map(o => o.donor_id), station: queueStation, tab: queueTab });
+        const activeRows = await getActiveQueueRows({ workerId, station: queueStation, tab: queueTab });
+        const byId = new Map(filtered.map(r => [r.donor_id, r]));
+
+        // Resume position from fro_live_status (per-tab) so reloads continue
+        // from where the FRO left off instead of jumping back to #1.
+        let resumeIndex = null;
+        let resumeId = null;
+        try {
+          const { data: prog } = await db
+            .from('fro_live_status')
+            .select('new_donor_index, old_donor_index, new_donor_id, old_donor_id')
+            .eq('worker_id', workerId)
+            .maybeSingle();
+          resumeIndex = queueTab === 'new' ? prog?.new_donor_index : prog?.old_donor_index;
+          resumeId = queueTab === 'new' ? prog?.new_donor_id : prog?.old_donor_id;
+        } catch (_) { /* ignore */ }
+
+        let next = null;
+        if (activeRows.length > 0) {
+          const resumePos = (num) => (Number.isFinite(num) ? num : -1);
+          let idx = resumeIndex != null ? activeRows.findIndex(r => r.position > resumePos(resumeIndex)) : 0;
+          if (idx < 0) idx = 0;
+          // Avoid immediately re-serving the resume donor unless it is the only one.
+          if (resumeId != null && activeRows[idx].donor_id === resumeId
+              && activeRows.length > 1
+              && resumeIndex != null && activeRows[idx].position <= resumePos(resumeIndex)) {
+            idx = (idx + 1) % activeRows.length;
+          }
+          next = activeRows[idx];
+        }
+
+        const totalActive = activeRows.length;
+        if (!next || !byId.has(next.donor_id)) {
+          console.log('queue_current: cycle exhausted for worker', workerId, 'station', queueStation, 'tab', queueTab, 'active', totalActive);
+          return res.json({ donor: null, position: -1, total: totalActive, cycle_key: cycleKey({ ngoId: null, station: queueStation, tab: queueTab }), done: true });
+        }
+        const r = byId.get(next.donor_id);
+        await markShown({ workerId, donorId: next.donor_id, ngoId: next.ngo_id, station: queueStation, tab: queueTab, position: next.position });
+        return res.json({
+          donor: r,
+          position: next.position,
+          total: totalActive,
+          cycle_key: cycleKey({ ngoId: null, station: queueStation, tab: queueTab }),
+          done: false,
+          queue_status: next.status,
+        });
+      } catch (queueErr) {
+        console.error('queue_current error for worker', workerId, ':', queueErr.message);
+        // Fall back to the plain list behaviour so the FRO does not dead-end.
+        return res.json({ donors: filtered, total: filtered.length });
+      }
+    }
 
     const total = filtered.length;
     let page = filtered;
@@ -2303,6 +2394,20 @@ export const getDonorLogs = async (req, res) => {
   }
 };
 
+const MONEY_TERMINAL_STATUSES = new Set(['done', 'lead_done', 'donation_collected']);
+
+// A donor whose assignment is already money-terminal is no longer workable for
+// this worker in this cycle; opening it again is a duplicate/out-of-order save.
+function isDisposedForWorker(assignment, detail) {
+  if (!assignment) return false;
+  if (assignment.status === 'reassigned') return true;
+  if (!MONEY_TERMINAL_STATUSES.has(assignment.status)) return false;
+  // Re-submitting the exact same money disposition is a duplicate; submitting a
+  // different disposition onto a closed money lead is out-of-order.
+  if (assignment.status === 'lead_done' || assignment.status === 'done') return true;
+  return false;
+}
+
 export const createDonorLogHandler = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -2348,108 +2453,157 @@ export const createDonorLogHandler = async (req, res) => {
       logData.accounts_status = 'pending';
     }
 
-    // Same-day disposition dedup: re-saving the same detail (e.g. ringing, busy,
-    // not_possible) for the same assignment refreshes today's row instead of
-    // inserting a new timeline entry. Money events (done / lead_done) always insert.
-    const MONEY_DETAILS = new Set(['done', 'lead_done']);
-    let log;
-    if (action === 'disposition' && disposition_detail && !MONEY_DETAILS.has(disposition_detail)) {
-      const dayStart = new Date();
-      dayStart.setHours(0, 0, 0, 0);
-      const existing = await findDispositionLogToday(assignment.id, creditWorkerId, disposition_detail, dayStart.toISOString());
-      if (existing) {
-        log = await updateDonorLog(existing.id, {
-          notes: logData.notes,
-          outcome: logData.outcome,
-          amount_collected: logData.amount_collected,
-          disposition_category: logData.disposition_category,
-          scheduled_at: logData.scheduled_at,
-          payment_screenshot_url: logData.payment_screenshot_url,
-          pan_number: logData.pan_number,
-          remark: logData.remark,
-          upi_transaction_id: logData.upi_transaction_id,
-          transaction_datetime: logData.transaction_datetime,
-          created_at: new Date().toISOString(),
-        });
+    // ─── Atomic, duplicate-safe disposition ──────────────────────────────────
+    // The whole save (log insert + assignment status update + donor profile
+    // update + queue update) runs in ONE transaction so a partial failure can
+    // never leave a log without its status (or vice-versa). A per-assignment
+    // advisory xact lock serializes concurrent saves (two tabs / double-click)
+    // so only one wins; the DB unique index uq_fro_donor_logs_same_day_disp is
+    // the final backstop against duplicate same-day disposition rows.
+    const retryable = classifyDisposition(disposition_detail).retryable;
+    const terminalQueued = action === 'disposition' && disposition_detail && !retryable;
+
+    const result = await db.transaction(async () => {
+      await db._pool.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['dispose:' + assignment.id]);
+
+      // Guard: do not let a worker re-open or duplicate a money-closed lead.
+      if (action === 'disposition' && isDisposedForWorker(assignment, disposition_detail)) {
+        const err = new Error('This lead is already closed (donation collected / done). Refresh to see the next donor.');
+        err.code = 'LEAD_CLOSED';
+        throw err;
+      }
+
+      // Same-day disposition dedup: re-saving the same detail (e.g. ringing, busy,
+      // not_possible) for the same assignment refreshes today's row instead of
+      // inserting a new timeline entry. Money events (done / lead_done) always insert.
+      const MONEY_DETAILS = new Set(['done', 'lead_done']);
+      let log;
+      if (action === 'disposition' && disposition_detail && !MONEY_DETAILS.has(disposition_detail)) {
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const existing = await findDispositionLogToday(assignment.id, creditWorkerId, disposition_detail, dayStart.toISOString());
+        if (existing) {
+          log = await updateDonorLog(existing.id, {
+            notes: logData.notes,
+            outcome: logData.outcome,
+            amount_collected: logData.amount_collected,
+            disposition_category: logData.disposition_category,
+            scheduled_at: logData.scheduled_at,
+            payment_screenshot_url: logData.payment_screenshot_url,
+            pan_number: logData.pan_number,
+            remark: logData.remark,
+            upi_transaction_id: logData.upi_transaction_id,
+            transaction_datetime: logData.transaction_datetime,
+            created_at: new Date().toISOString(),
+          });
+        } else {
+          log = await createDonorLog(logData);
+        }
       } else {
         log = await createDonorLog(logData);
       }
-    } else {
-      log = await createDonorLog(logData);
-    }
 
-    // Any logged interaction means the worker attempted this donor — clear
-    // the NEW flag so it stops counting/pinning as fresh data.
-    await db.from('fro_assignments').update({ is_new: false }).eq('id', assignment.id);
+      // Any logged interaction means the worker attempted this donor — clear
+      // the NEW flag so it stops counting/pinning as fresh data.
+      await db.from('fro_assignments').update({ is_new: false }).eq('id', assignment.id);
 
-    // Update donor profile fields if provided
-    const updateFields = {};
-    if (donor_address) updateFields.address_1 = donor_address;
-    if (donor_dob) updateFields.birth_date = donor_dob;
-    if (project_name) updateFields.project_supported = project_name;
-    if (Object.keys(updateFields).length > 0) {
-      await db.from('donor_profiles').update(updateFields).eq('id', donorId);
-    }
+      // Update donor profile fields if provided
+      const updateFields = {};
+      if (donor_address) updateFields.address_1 = donor_address;
+      if (donor_dob) updateFields.birth_date = donor_dob;
+      if (project_name) updateFields.project_supported = project_name;
+      if (Object.keys(updateFields).length > 0) {
+        await db.from('donor_profiles').update(updateFields).eq('id', donorId);
+      }
 
-    const now = new Date().toISOString();
+      const now = new Date().toISOString();
 
-    if (action === 'donation') {
-      await updateAssignmentStatus(assignment.id, {
-        status: 'donation_collected',
-        last_contacted_at: now,
-        hidden_until: firstOfNextMonthIST(),
-      });
-    } else if (action === 'disposition' && disposition_detail) {
-      await completeAllScheduledByAssignment(assignment.id);
-
-      const statusFromDetail = dispositionDetailToStatus(disposition_detail);
-      const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
-
-      if (['scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'callback'].includes(disposition_detail) && scheduled_at) {
-        await createScheduledContact({
-          assignment_id: assignment.id,
-          scheduled_at,
-          notes: notes || null,
-          created_by: workerId,
+      if (action === 'donation') {
+        await updateAssignmentStatus(assignment.id, {
+          status: 'donation_collected',
+          last_contacted_at: now,
+          hidden_until: firstOfNextMonthIST(),
         });
-        statusUpdates.next_follow_up = scheduled_at.slice(0, 10);
+      } else if (action === 'disposition' && disposition_detail) {
+        await completeAllScheduledByAssignment(assignment.id);
+
+        const statusFromDetail = dispositionDetailToStatus(disposition_detail);
+        const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
+
+        if (['scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'callback'].includes(disposition_detail) && scheduled_at) {
+          await createScheduledContact({
+            assignment_id: assignment.id,
+            scheduled_at,
+            notes: notes || null,
+            created_by: workerId,
+          });
+          statusUpdates.next_follow_up = istDateString(scheduled_at);
+        }
+
+        if (outcome && outcome.startsWith('next_date:')) {
+          statusUpdates.next_follow_up = outcome.replace('next_date:', '').trim();
+        }
+
+        statusUpdates.hidden_until = computeHiddenUntil(disposition_detail, scheduled_at);
+        await updateAssignmentStatus(assignment.id, statusUpdates);
+      } else if (action === 'call' || action === 'visit') {
+        await updateAssignmentStatus(assignment.id, {
+          status: 'contacted',
+          last_contacted_at: now,
+        });
       }
 
-      if (outcome && outcome.startsWith('next_date:')) {
-        statusUpdates.next_follow_up = outcome.replace('next_date:', '').trim();
+      // Reflect the disposition on the controlled queue: terminal dispositions
+      // mark the donor DISPOSED across all the worker's active queues (gone, so
+      // it can never reappear); retryable not-connected (ringing/busy) stay
+      // active so the same donor can be reworked next time.
+      if (action === 'disposition' && disposition_detail) {
+        try {
+          await markDisposed({
+            workerId,
+            donorId,
+            disposed: terminalQueued,
+          });
+        } catch (queueErr) {
+          console.warn('work_queue status update skipped for assignment', assignment.id, ':', queueErr.message);
+        }
       }
 
-      statusUpdates.hidden_until = computeHiddenUntil(disposition_detail, scheduled_at);
-      await updateAssignmentStatus(assignment.id, statusUpdates);
-    } else if (action === 'call' || action === 'visit') {
-      await updateAssignmentStatus(assignment.id, {
-        status: 'contacted',
-        last_contacted_at: now,
-      });
-    }
-
-    // If this assignment had a rejected lead ticket, resolve it
-    try {
-      const { data: logs } = await db
-        .from('fro_donor_logs')
-        .select('id')
-        .eq('assignment_id', assignment.id)
-        .eq('accounts_status', 'rejected')
-        .limit(1);
-      if (logs && logs.length > 0) {
-        const rejectedLogIds = logs.map(l => l.id);
-        await db
-          .from('rejected_lead_tickets')
-          .update({ status: 'resolved' })
-          .in('fro_donor_log_id', rejectedLogIds)
-          .eq('status', 'pending_review');
+      // If this assignment had a rejected lead ticket, resolve it
+      try {
+        const { data: logs } = await db
+          .from('fro_donor_logs')
+          .select('id')
+          .eq('assignment_id', assignment.id)
+          .eq('accounts_status', 'rejected')
+          .limit(1);
+        if (logs && logs.length > 0) {
+          const rejectedLogIds = logs.map(l => l.id);
+          await db
+            .from('rejected_lead_tickets')
+            .update({ status: 'resolved' })
+            .in('fro_donor_log_id', rejectedLogIds)
+            .eq('status', 'pending_review');
+        }
+      } catch (err) {
+        console.error('Failed to resolve rejected lead ticket:', err.message);
       }
-    } catch (err) {
-      console.error('Failed to resolve rejected lead ticket:', err.message);
-    }
 
-    return res.json({ message: 'Log entry created', data: log });
+      return log;
+    });
+
+    return res.json({ message: 'Log entry created', data: result });
   } catch (error) {
+    if (error && error.code === 'LEAD_CLOSED') {
+      return res.status(409).json({ message: error.message });
+    }
+    if (error && error.code === '23505') {
+      // Duplicate same-day disposition prevented by the DB unique index — the
+      // save already happened; treat as idempotent success so the front-end
+      // advances rather than erroring repeatedly.
+      console.warn('duplicate same-day disposition suppressed:', error.message);
+      return res.status(200).json({ message: 'Already logged — duplicate suppressed', data: null });
+    }
     return res.status(500).json({ message: error.message });
   }
 };
@@ -2600,24 +2754,20 @@ const SCHEDULE_DISPOSITIONS = new Set([
 ]);
 
 function firstOfNextMonthIST() {
-  const now = new Date();
-  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  return new Date(Date.UTC(ist.getFullYear(), ist.getMonth() + 1, 1, 0, 0, 0));
+  return firstOfNextMonthIstUtc();
 }
 
 function computeHiddenUntil(dispositionDetail, scheduledAt) {
   if (SCHEDULE_DISPOSITIONS.has(dispositionDetail) && scheduledAt) {
     return new Date(scheduledAt);
   }
-  // Money-promise / follow-up dispositions: re-appear from tomorrow (next IST day)
-  const FOLLOW_UP_NEXT_DAY = new Set([
-    'promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate',
-    'already_donated', 'call_disconnected', 'email_sent', 'whatsapp_sent',
+  // Only unanswered calls are automatically retryable, from the next IST day.
+  const RETRYABLE_NEXT_DAY = new Set([
+    'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
+    'unreachable', 'voicemail',
   ]);
-  if (FOLLOW_UP_NEXT_DAY.has(dispositionDetail)) {
-    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    ist.setDate(ist.getDate() + 1);
-    return new Date(Date.UTC(ist.getFullYear(), ist.getMonth(), ist.getDate(), 0, 0, 0));
+  if (RETRYABLE_NEXT_DAY.has(dispositionDetail)) {
+    return startOfNextIstDayUtc();
   }
   return firstOfNextMonthIST();
 }
@@ -2647,7 +2797,7 @@ export const scheduleContact = async (req, res) => {
     await updateAssignmentStatus(assignment.id, {
       status: 'scheduled',
       last_contacted_at: new Date().toISOString(),
-      next_follow_up: scheduled_at.slice(0, 10),
+      next_follow_up: istDateString(scheduled_at),
     });
 
     return res.json({ message: 'Contact scheduled', data: contact });
@@ -3060,9 +3210,7 @@ export const getFollowUps = async (req, res) => {
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
-    const nowUtc = new Date();
-    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
+    const { start: todayStart, end: todayEnd } = istDayBounds();
 
     const { data: contacts, error } = await withStationNgoPairs(
       db
@@ -3653,7 +3801,9 @@ export const searchDonors = async (req, res) => {
         const hasScoped = evidence.activeAssignmentIds.has(a.id) || evidence.receiptPairs.has(pair);
         const donatedThisPeriod = evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair);
         const rawStatus = a.status || 'pending';
-        const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !donatedThisPeriod;
+        // Same policy as getMyDonors: only donation_collected resets across a
+        // period boundary; lead_done/done are terminal and stay hidden.
+        const staleDoneStatus = rawStatus === 'donation_collected' && !donatedThisPeriod;
         const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
         const displayStatus = staleDoneStatus
           ? 'pending'

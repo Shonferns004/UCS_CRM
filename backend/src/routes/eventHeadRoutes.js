@@ -1,14 +1,35 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import * as ctrl from '../controllers/eventHeadController.js';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head');
+// Media/banner uploads persist to disk so their /uploads/:file URLs actually
+// resolve. The imports keep the in-memory instance above (they parse the buffer).
+const MEDIA_DIR = path.resolve(__dirname, '../../uploads');
+try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); } catch (e) { console.error('mkdir uploads:', e.message || e); }
+const sanitizeName = (original = '') => {
+  const ext = (path.extname(original) || '').toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
+  return `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+};
+const mediaStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, MEDIA_DIR),
+  filename: (req, file, cb) => cb(null, sanitizeName(file.originalname)),
+});
+const mediaUpload = multer({ storage: mediaStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head');
 // Events (static paths BEFORE :id)
+router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);
 router.get('/events/calendar', eh, (req, res) => {
-  const { month, year } = req.query;
+  const { month, year, start, end } = req.query;
+  if (start || end) return ctrl.getEventHeadCalendar(req, res);
   if (month && year) {
     req.params.month = month;
     req.params.year = year;
@@ -16,6 +37,9 @@ router.get('/events/calendar', eh, (req, res) => {
   }
   return ctrl.listEventHeadEvents(req, res);
 });
+// Event sheet import/export (static paths BEFORE /events/:id)
+router.post('/events/import', eh, upload.single('file'), ctrl.importEvents);
+router.get('/events/export', eh, ctrl.exportEvents);
 router.get('/events/ngo/:ngoId', eh, ctrl.getEventHeadEventsByNgo);
 router.get('/events/state/:state', eh, ctrl.getEventHeadEventsByState);
 router.post('/events', eh, ctrl.createEventHandler);
@@ -71,9 +95,11 @@ router.post('/vehicles', eh, ctrl.createVehicle);
 router.get('/vehicles', eh, ctrl.listVehicles);
 router.post('/vehicles/assign', eh, ctrl.assignVehicle);
 
-// Media (scoped under event)
+// Media (scoped under event). Accepts a single `file` field or multiple `files`.
+const mediaUploadMiddleware = mediaUpload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 25 }]);
 router.get('/events/:eventId/media', eh, ctrl.listMedia);
-router.post('/events/:eventId/media', eh, ctrl.uploadMedia);
+router.post('/events/:eventId/media', eh, mediaUploadMiddleware, ctrl.uploadMedia);
+router.put('/events/:eventId/media/:id', eh, mediaUpload.single('file'), ctrl.replaceMedia);
 router.delete('/events/:eventId/media/:id', eh, ctrl.removeMedia);
 
 // Attendance (scoped under event)
@@ -82,6 +108,7 @@ router.post('/events/:eventId/attendance', eh, ctrl.createAttendance);
 
 // Checklist (scoped under event)
 router.get('/events/:eventId/checklist', eh, ctrl.getChecklist);
+router.post('/events/:eventId/checklist', eh, ctrl.createChecklistItem);
 router.put('/events/:eventId/checklist/:itemId', eh, ctrl.updateChecklistItem);
 
 // Reports
@@ -93,5 +120,19 @@ router.get('/approvals', eh, ctrl.listApprovals);
 // Partners & Donors
 router.get('/csr-partners', eh, ctrl.listPartners);
 router.get('/donors', eh, ctrl.listDonors);
+
+// NGO context (read-only for the Event Head workspace)
+router.get('/ngos', eh, ctrl.listEventHeadNgos);
+
+// Sectors & Activities (NGO → Sector → Activity)
+router.get('/sectors', eh, ctrl.listSectors);
+router.get('/activities', eh, ctrl.listActivities);
+router.post('/activities', eh, ctrl.createActivity);
+// Sheet import/export (static paths BEFORE /activities/:id)
+router.post('/activities/import', eh, upload.single('file'), ctrl.importActivities);
+router.get('/activities/export', eh, ctrl.exportActivities);
+router.get('/activities/:id', eh, ctrl.getActivity);
+router.put('/activities/:id', eh, ctrl.updateActivity);
+router.put('/activities/:id/status', eh, ctrl.setActivityStatus);
 
 export default router;

@@ -2,20 +2,36 @@ import { api } from '../../../api/auth'
 
 const p = (path, opts) => api(path, { _prefix: 'ucs', ...opts })
 
-// Unified fetch - gets tickets from both sources
-export const getUnifiedDevTickets = (params = {}) => {
+// ── Unified fetch ──────────────────────────────────────────────────
+// Gets tickets from BOTH /tickets and /developer-tickets, tags each
+// with _source so consumers know which system owns the ticket.
+
+export const getUnifiedDevTickets = async (params = {}) => {
   const qs = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v) })
   const s = qs.toString()
-  // Fetch both sources in parallel
-  return Promise.all([
-    p(`/tickets${s ? '?' + s : ''}`),
-    p(`/developer-tickets${s ? '?' + s : ''}`)
-  ]).then(([regular, dev]) => [
-    ...(regular || []).map(t => ({ ...t, source: 'account_panel' })),
-    ...(dev || []).map(t => ({ ...t, source: 'panel' })),
-  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
+  const [regular, dev] = await Promise.all([
+    p(`/tickets${s ? '?' + s : ''}`).catch(() => []),
+    p(`/developer-tickets${s ? '?' + s : ''}`).catch(() => []),
+  ])
+  return [
+    ...(regular || []).map(t => ({ ...t, _source: 'regular' })),
+    ...(dev || []).map(t => ({ ...t, _source: 'developer' })),
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 }
+
+export const getMyUnifiedTickets = async () => {
+  const [regular, dev] = await Promise.all([
+    p('/tickets/my').catch(() => []),
+    p('/developer-tickets/my').catch(() => []),
+  ])
+  return [
+    ...(regular || []).map(t => ({ ...t, _source: 'regular' })),
+    ...(dev || []).map(t => ({ ...t, _source: 'developer' })),
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+}
+
+// ── Developer ticket endpoints ─────────────────────────────────────
 
 export const getDevTickets = (params = {}) => {
   const qs = new URLSearchParams()
@@ -42,7 +58,6 @@ export const replyToDevTicket = (id, data) =>
 export const bulkUpdateDevTickets = (ids, updates) =>
   p('/developer-tickets/bulk', { method: 'PUT', body: JSON.stringify({ ids, updates }) })
 
-// New mutation functions for resolve/approve/reject with notifications
 export const resolveDevTicket = (id, resolution) =>
   p(`/developer-tickets/${id}/resolve`, { method: 'PUT', body: JSON.stringify({ resolution }) })
 
@@ -52,7 +67,16 @@ export const approveDevTicket = (id) =>
 export const rejectDevTicket = (id, reason) =>
   p(`/developer-tickets/${id}/reject`, { method: 'PUT', body: JSON.stringify({ reason }) })
 
-// Also support regular tickets if needed
+// ── Regular (support) ticket endpoints ─────────────────────────────
+
+export const getRegularTicket = (id) => p(`/tickets/${id}`)
+
+export const updateRegularTicket = (id, data) =>
+  p(`/tickets/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+
+export const replyToRegularTicket = (id, data) =>
+  p(`/tickets/${id}/reply`, { method: 'POST', body: JSON.stringify(data) })
+
 export const resolveRegularTicket = (id, resolution) =>
   p(`/tickets/${id}/resolve`, { method: 'PUT', body: JSON.stringify({ resolution }) })
 
@@ -61,3 +85,18 @@ export const approveRegularTicket = (id) =>
 
 export const rejectRegularTicket = (id, reason) =>
   p(`/tickets/${id}/reject`, { method: 'PUT', body: JSON.stringify({ reason }) })
+
+// ── Source-aware helpers ───────────────────────────────────────────
+// Route operations to the correct backend based on _source tag.
+
+export const getTicketBySource = (id, source) =>
+  source === 'developer' ? getDevTicket(id) : getRegularTicket(id)
+
+export const updateTicketBySource = (id, data, source) =>
+  source === 'developer' ? updateDevTicket(id, data) : updateRegularTicket(id, data)
+
+export const replyToTicketBySource = (id, data, source) =>
+  source === 'developer' ? replyToDevTicket(id, data) : replyToRegularTicket(id, data)
+
+export const resolveTicketBySource = (id, resolution, source) =>
+  source === 'developer' ? resolveDevTicket(id, resolution) : resolveRegularTicket(id, resolution)

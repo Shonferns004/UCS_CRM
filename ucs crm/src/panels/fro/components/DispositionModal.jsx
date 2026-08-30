@@ -7,6 +7,7 @@ import { toast } from '../../../components/Toast';
 import { extractTransactionData } from '../utils/ocr';
 import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { istDateString, istDateTimeToIso } from '../utils/time';
 
 const PROJECTS = [
   'Mission Annapurna', 'Mission Vidhya', 'Mission Aurat', 'Mission Bezubaan',
@@ -126,12 +127,10 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         notes: notes || null,
         ngo_id: ngoId,
       };
-      if (SCHEDULE_DATE_TYPES.has(selected)) logPayload.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
+      if (SCHEDULE_DATE_TYPES.has(selected)) logPayload.scheduled_at = istDateTimeToIso(scheduledDate, scheduledTime);
       if (SCHEDULE_TIME_TYPES.has(selected)) {
-        const target = new Date();
-        const [h, m] = callbackTime.split(':');
-        target.setHours(+h, +m, 0, 0);
-        logPayload.scheduled_at = target.toISOString();
+        const todayIst = istDateString();
+        logPayload.scheduled_at = istDateTimeToIso(todayIst, callbackTime);
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {

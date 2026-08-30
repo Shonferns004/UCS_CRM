@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/auth'
 import { UserCog, Trash2, MapPin, AlertCircle, CheckCircle2, X } from 'lucide-react'
+import { useUcs } from '../../../store'
 
 // Soft accent palette cycled per NGO so each assignment card is instantly
 // recognizable even when a donor spans several NGOs.
@@ -58,13 +59,21 @@ const fieldVal = (d, key) => {
 
 const inputStyle = { width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, color: 'var(--ink)', background: '#fff', boxSizing: 'border-box' }
 
-function DonorDetail({ donorId, onClose, onChanged }) {
+function DonorDetail({ donorId, onClose, onChanged, ngoOptions }) {
+  const { user } = useUcs()
+  const canManage = ['accounts', 'admin', 'super_admin'].includes(user?.role) || ['accounts', 'admin'].includes(user?.department)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
   const [saveErr, setSaveErr] = useState('')
+  const [agents, setAgents] = useState([])
+  const [stationOpts, setStationOpts] = useState([])
+  const [assignmentForm, setAssignmentForm] = useState({ ngo_id: '', worker_id: '', station: '' })
+  const [editingAssignmentId, setEditingAssignmentId] = useState(null)
+  const [assignmentBusy, setAssignmentBusy] = useState(false)
+  const [assignmentErr, setAssignmentErr] = useState('')
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -80,6 +89,17 @@ function DonorDetail({ donorId, onClose, onChanged }) {
   }, [])
 
   useEffect(() => { loadDetail(donorId) }, [donorId, loadDetail])
+
+  useEffect(() => {
+    if (!canManage) return
+    Promise.all([
+      apiGet('/accounts/receipts/fro-workers'),
+      apiGet('/accounts/stations-options'),
+    ]).then(([workerRows, stationRows]) => {
+      setAgents(Array.isArray(workerRows) ? workerRows : [])
+      setStationOpts(stationRows?.options || [])
+    }).catch(e => setAssignmentErr(e.message))
+  }, [canManage])
 
   const startEdit = () => {
     if (!data?.donor) return
@@ -110,6 +130,80 @@ function DonorDetail({ donorId, onClose, onChanged }) {
       setSaveErr(e.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const refreshDetail = () => {
+    setEditingAssignmentId(null)
+    setAssignmentForm({ ngo_id: '', worker_id: '', station: '' })
+    setAssignmentErr('')
+    loadDetail(donorId)
+    if (onChanged) onChanged()
+  }
+
+  const startAssignmentEdit = (assignment) => {
+    setAssignmentErr('')
+    setEditingAssignmentId(assignment.id)
+    setAssignmentForm({ ngo_id: assignment.ngo_id || '', worker_id: assignment.worker_id || '', station: assignment.station || '' })
+  }
+
+  const saveAssignment = async (event) => {
+    event.preventDefault()
+    if (assignmentBusy) return
+    const { ngo_id, worker_id, station } = assignmentForm
+    if (!ngo_id || !worker_id || !String(station).trim()) {
+      setAssignmentErr('Select an NGO, active FRO agent, and station')
+      return
+    }
+    setAssignmentBusy(true)
+    setAssignmentErr('')
+    try {
+      if (editingAssignmentId) {
+        await apiPatch(`/accounts/donors/${donorId}/assignments/${editingAssignmentId}/replace`, {
+          fro_worker_id: worker_id,
+          station: String(station).trim(),
+        })
+      } else {
+        await apiPost(`/accounts/donors/${donorId}/assignments`, {
+          fro_worker_id: worker_id,
+          ngo_id,
+          station: String(station).trim(),
+        })
+      }
+      refreshDetail()
+    } catch (e) {
+      setAssignmentErr(e.message)
+    } finally {
+      setAssignmentBusy(false)
+    }
+  }
+
+  const removeAssignment = async (assignment) => {
+    if (!window.confirm(`Remove ${assignment.worker_name || 'this agent'} from this donor? The worker account will not be deleted.`)) return
+    setAssignmentBusy(true)
+    setAssignmentErr('')
+    try {
+      await apiDelete(`/accounts/donors/${donorId}/assignments/${assignment.id}`)
+      refreshDetail()
+    } catch (e) {
+      setAssignmentErr(e.message)
+    } finally {
+      setAssignmentBusy(false)
+    }
+  }
+
+  const deleteDonor = async () => {
+    const name = data?.donor?.name || data?.donor?.mobile_number || 'this donor'
+    if (!window.confirm(`Permanently delete ${name}? This removes the donor profile, FRO assignments, call logs, and schedules. Financial receipts will be kept but detached. This cannot be undone.`)) return
+    setAssignmentBusy(true)
+    setAssignmentErr('')
+    try {
+      await apiDelete(`/accounts/donors/${donorId}`)
+      if (onChanged) onChanged()
+      onClose()
+    } catch (e) {
+      setAssignmentErr(e.message)
+      setAssignmentBusy(false)
     }
   }
 
@@ -202,6 +296,62 @@ function DonorDetail({ donorId, onClose, onChanged }) {
             </form>
           )}
 
+          {canManage && (
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Agent assignments</div>
+                <button className="btn btn-sm" onClick={() => { setEditingAssignmentId(null); setAssignmentForm({ ngo_id: ngoOptions[0]?.id || '', worker_id: '', station: '' }); setAssignmentErr('') }} disabled={assignmentBusy}>Add agent</button>
+              </div>
+              {(data.assignments || []).length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', padding: '8px 0' }}>No active agent assigned.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {data.assignments.map(a => (
+                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 7, background: '#fff' }}>
+                      <UserCog size={14} style={{ color: 'var(--sage)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 12 }}>
+                        <strong>{a.worker_name || 'Unassigned'}</strong>
+                        <div style={{ color: 'var(--ink-soft)', marginTop: 2 }}>{a.ngo_name || 'NGO'} · {a.station || 'No station'}</div>
+                      </div>
+                      <button className="btn btn-sm" onClick={() => startAssignmentEdit(a)} disabled={assignmentBusy}>Replace</button>
+                      <button className="btn btn-sm" onClick={() => removeAssignment(a)} disabled={assignmentBusy} title="Remove assignment" style={{ color: '#b91c1c' }}><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(editingAssignmentId || assignmentForm.worker_id || assignmentForm.ngo_id) && (
+                <form onSubmit={saveAssignment} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10, padding: 10, background: 'var(--bg)', borderRadius: 7 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>
+                    NGO
+                    <select value={assignmentForm.ngo_id} onChange={e => setAssignmentForm(p => ({ ...p, ngo_id: e.target.value }))} disabled={!!editingAssignmentId} style={inputStyle}>
+                      <option value="">Select NGO</option>
+                      {ngoOptions.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>
+                    Active FRO agent
+                    <select value={assignmentForm.worker_id} onChange={e => setAssignmentForm(p => ({ ...p, worker_id: e.target.value }))} style={inputStyle}>
+                      <option value="">Select agent</option>
+                      {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>
+                    Station
+                    <select value={assignmentForm.station} onChange={e => setAssignmentForm(p => ({ ...p, station: e.target.value }))} style={inputStyle}>
+                      <option value="">Select station</option>
+                      {stationOpts.map(o => <option key={`${o.ngo_id}|${o.station}`} value={o.station}>{o.station}</option>)}
+                    </select>
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7 }}>
+                    <button type="submit" className="btn btn-sm btn-primary" disabled={assignmentBusy}>{assignmentBusy ? 'Saving...' : editingAssignmentId ? 'Save replacement' : 'Assign agent'}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => { setEditingAssignmentId(null); setAssignmentForm({ ngo_id: '', worker_id: '', station: '' }); setAssignmentErr('') }} disabled={assignmentBusy}>Cancel</button>
+                  </div>
+                </form>
+              )}
+              {assignmentErr && <div style={{ fontSize: 12, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '7px 9px', marginTop: 8 }}><AlertCircle size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{assignmentErr}</div>}
+            </div>
+          )}
+
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, margin: '14px 0 10px' }}>Receipts</div>
           {receipts.length === 0 ? (
             <p style={{ fontSize: 12, color: 'var(--ink-soft)', textAlign: 'center', padding: 24, margin: 0 }}>No receipts found</p>
@@ -224,7 +374,10 @@ function DonorDetail({ donorId, onClose, onChanged }) {
           )}
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Total donations</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {canManage && <button className="btn btn-sm" onClick={deleteDonor} disabled={assignmentBusy} style={{ color: '#b91c1c', borderColor: '#fecaca' }}><Trash2 size={13} /> Delete donor</button>}
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Total donations</span>
+          </div>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--sage)' }}>{currency(data.totalAmount)} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}>({data.receiptCount})</span></span>
         </div>
       </div>
@@ -692,7 +845,7 @@ export default function Donors() {
         </div>
       )}
 
-      {selectedId && <DonorDetail donorId={selectedId} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter, missingOnly)} />}
+      {selectedId && <DonorDetail donorId={selectedId} ngoOptions={ngoOptions} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter, missingOnly)} />}
 
       {stationDonor && (
         <SetStationModal

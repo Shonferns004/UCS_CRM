@@ -27,6 +27,7 @@ import History from './pages/History'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { istDateString } from './utils/time'
 
 const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -55,7 +56,7 @@ function loadTodayStats() {
     const raw = localStorage.getItem('fro_call_stats');
     if (!raw) return null;
     const data = JSON.parse(raw);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = istDateString();
     if (data.date !== today) return null;
     return data;
   } catch { return null; }
@@ -370,6 +371,17 @@ export default function FROPanel() {
             showDesktopNotification(n.title, n.body);
           }
         });
+        allNotifs
+          .filter(n => n.type === 'new_audit' && !n.read_at)
+          .slice(0, 20)
+          .forEach(n => {
+            if (!seenNotifIds.current.has(n.id)) {
+              seenNotifIds.current.add(n.id);
+              localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+              showDesktopNotification(n.title, n.body, '/fro/suspense');
+              toast(`${n.title}: ${n.body}`, 'info');
+            }
+          });
         setAllNotifs(rejected);
         setAllVerified(verified);
         setRejectedItems(rejectedSlice);
@@ -455,16 +467,16 @@ export default function FROPanel() {
 
   const loadReminders = () => {
     Promise.all([getScheduled(), getCallbacks()]).then(([scheduled, callbacks]) => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = istDateString();
       const items = []; const seen = new Set();
       (scheduled || []).forEach(d => {
-        if (d.scheduled_at && d.scheduled_at.slice(0, 10) !== todayStr && !seen.has(d.id)) {
+        if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(d.id)) {
           seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, assignment_id: d.assignment_id, type: 'scheduled' });
         }
       });
       (callbacks || []).forEach(d => { if (!seen.has(d.id)) { seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, assignment_id: d.assignment_id, type: 'callback' }); } });
       (scheduled || []).forEach(d => {
-        if (d.scheduled_at && d.scheduled_at.slice(0, 10) === todayStr && !seen.has(d.id)) {
+        if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(d.id)) {
           seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, assignment_id: d.assignment_id, type: 'callback' });
         }
       });
