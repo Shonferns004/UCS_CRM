@@ -54,6 +54,9 @@ class ScraperAccessibilityService : AccessibilityService() {
     private var maxTx = 200
     private var maxScrolls = 8
     private var historyText = "All activity"
+    private var cutoffDate: String? = null
+    private var oldestScanned: String? = null
+    private var hitCutoff = false
 
     private var pinIndex = 0
     private var pinDone = false
@@ -188,6 +191,9 @@ class ScraperAccessibilityService : AccessibilityService() {
         maxTx = c.getInt("maxTransactions", 200)
         maxScrolls = c.getInt("scrollLoops", 8)
         historyText = c.get("historyText") ?: "All activity"
+        cutoffDate = c.get("lastImportedDate")?.takeIf { it.isNotBlank() }
+        oldestScanned = null
+        hitCutoff = false
 
         collected.clear(); seenRefs.clear(); seenPartial.clear()
         pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0
@@ -379,6 +385,11 @@ class ScraperAccessibilityService : AccessibilityService() {
             val header = parseHeader(row)
             if (header != null) { lastHeaderDate = header; continue }
             val txn = parseRow(row) ?: continue
+            txn.transactionDate?.let { d -> if (oldestScanned == null || d < oldestScanned!!) oldestScanned = d }
+            if (cutoffDate != null && txn.transactionDate != null && txn.transactionDate!! < cutoffDate!!) {
+                hitCutoff = true
+                break
+            }
             if (!txn.received && receivedOnly) continue
             val partial = txn.amount.toString() + "|" + (txn.payerName ?: "").trim().lowercase()
             if (partial in seenPartial) continue
@@ -399,6 +410,10 @@ class ScraperAccessibilityService : AccessibilityService() {
         if (pendingDetail != null) {
             detailPhase = 0
             return Stage.DETAIL
+        }
+        if (hitCutoff) {
+            finishUpload("reached last imported date ${cutoffDate ?: ""}")
+            return Stage.IDLE
         }
         if (collected.size >= maxTx) {
             finishUpload("reached max ${maxTx} transactions")
@@ -550,6 +565,12 @@ class ScraperAccessibilityService : AccessibilityService() {
                 "count" to collected.size,
                 "counts" to counts
             )
+            if (result.ok && oldestScanned != null) {
+                val prev = ScraperConfig.get("lastImportedDate")
+                if (prev.isNullOrBlank() || oldestScanned!! < prev) {
+                    ScraperConfig.setAll(mapOf("lastImportedDate" to oldestScanned!!))
+                }
+            }
             ServiceBridge.emit(mapOf("type" to "done", "payload" to done))
             handler.post {
                 running = false
