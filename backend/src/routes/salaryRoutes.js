@@ -13,7 +13,10 @@ import {
   getWorkerAttendance,
   updateWorkerAttendance,
   getPagarExport,
-  verifySalaryPassword,
+  getSalaryAccessCodeStatus,
+  createSalaryAccessCode,
+  verifySalaryAccessCode,
+  changeSalaryAccessCode,
 } from '../controllers/salaryController.js';
 import { authenticateRole, authenticate, authenticateSalary } from '../middleware/authMiddleware.js';
 
@@ -23,7 +26,10 @@ const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr', 'accounts')
 // Volunteer detail page is also rendered inside the Accounts panel.
 const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
-router.post('/verify-password', adminHrAccounts, verifySalaryPassword);
+router.get('/access-code/status', adminHrAccounts, getSalaryAccessCodeStatus);
+router.post('/access-code', adminHrAccounts, createSalaryAccessCode);
+router.post('/access-code/verify', adminHrAccounts, verifySalaryAccessCode);
+router.post('/access-code/change', adminHrAccounts, changeSalaryAccessCode);
 router.get('/workers-summary', adminHrAccounts, getWorkersSummary);
 router.get('/payroll', adminOrHrOrHo, getPayrollExport);
 router.get('/present-days', authenticateSalary, getPresentDaysExport);

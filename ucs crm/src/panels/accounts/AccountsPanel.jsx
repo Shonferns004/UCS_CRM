@@ -22,6 +22,7 @@ import Receipts from './pages/Receipts'
 import TemplateSettings from './pages/TemplateSettings'
 import SyncSettingsView from './components/SyncSettingsView'
 import ChangeAccessCode from './components/ChangeAccessCode'
+import ChangeSalaryAccessCode from '../hr/components/ChangeSalaryAccessCode'
 import AccountsTickets from './pages/Tickets'
 import Workers from '../hr/components/Workers'
 import EmployeeDetail from '../hr/components/EmployeeDetail'
@@ -72,6 +73,9 @@ const settingsViews = [
   { key: 'access-code', label: 'Change Access Code', width: 380,
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
     content: <ChangeAccessCode /> },
+  { key: 'salary-access-code', label: 'Change Salary Access Code', width: 380,
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+    content: <ChangeSalaryAccessCode /> },
 ]
 
 function Sidebar({ open, onClose }) {
