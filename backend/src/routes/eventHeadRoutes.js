@@ -3,11 +3,14 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import * as ctrl from '../controllers/eventHeadController.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Media/banner uploads persist to disk so their /uploads/:file URLs actually
 // resolve. The imports keep the in-memory instance above (they parse the buffer).
