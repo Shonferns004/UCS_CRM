@@ -18,7 +18,8 @@ export const getNgoSummary = async (req, res) => {
     const { data: workers, error: wErr } = await db
       .from('workers')
       .select('id, ngo_id')
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .eq('is_test', false);
     if (wErr) throw wErr;
 
     const { data: salary, error: sErr } = await db
