@@ -1044,32 +1044,27 @@ export default function Dashboard() {
 
   const bumpFollowupReload = useCallback(() => setFollowupReload(n => n + 1), []);
 
-  const fetchDashboard = useCallback(() => {
+  const fetchDashboard = useCallback((opts = {}) => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
-    const opts = { signal: controller.signal, timeout: 180000 };
-    Promise.all([
-      apiGet(`/ngo-admin/dashboard${ngoParam}`, opts),
-      apiGet(`/ngo-admin/dashboard/station-stats${ngoParam}`, opts),
-      apiGet('/ngo-admin/stations', opts),
-    ])
-      .then(([d, s, st]) => {
-        if (!controller.signal.aborted) {
-          setData(d);
-          setStationStats(s);
-          setStationsData(Array.isArray(st) ? st : []);
-        }
-      })
+    const params = new URLSearchParams();
+    if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
+    if (opts.fresh) params.set('fresh', '1');
+    const ngoParam = params.toString() ? `?${params.toString()}` : '';
+    const reqOpts = { signal: controller.signal, timeout: 180000 };
+    apiGet(`/ngo-admin/dashboard${ngoParam}`, reqOpts)
+      .then(d => { if (!controller.signal.aborted) setData(d); })
       .catch((err) => {
-        if (!controller.signal.aborted) {
-          setError(err.message || 'Failed to load dashboard data');
-        }
+        if (!controller.signal.aborted) setError(err.message || 'Failed to load dashboard data');
       })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    apiGet(`/ngo-admin/dashboard/station-stats${ngoParam}`, reqOpts)
+      .then(s => { if (!controller.signal.aborted) setStationStats(s); })
+      .catch(() => {});
+    apiGet('/ngo-admin/stations', reqOpts)
+      .then(st => { if (!controller.signal.aborted) setStationsData(Array.isArray(st) ? st : []); })
+      .catch(() => {});
     return controller;
   }, [selectedNgoId]);
 
@@ -1078,8 +1073,8 @@ export default function Dashboard() {
     return () => controller.abort();
   }, [fetchDashboard]);
 
-  if (loading) return <SkeletonDashboard />;
-  if (error || !data) {
+  if (loading && !data) return <SkeletonDashboard />;
+  if (error && !data) {
     return (
       <div className="empty-state" style={{ textAlign: 'center', padding: '60px 20px' }}>
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
@@ -1087,13 +1082,14 @@ export default function Dashboard() {
         </svg>
         <p style={{ marginBottom: 6, fontWeight: 600, color: 'var(--ink)' }}>Could not load dashboard data</p>
         <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 16 }}>{error || 'The server took too long to respond. Please try again.'}</p>
-        <button className="btn btn-primary" onClick={fetchDashboard} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <button className="btn btn-primary" onClick={() => fetchDashboard({ fresh: true })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Retry
         </button>
       </div>
     );
   }
+  if (!data) return <SkeletonDashboard />;
 
   const stations = stationStats?.stations || {};
   const summary = stationStats?.summary || {};
@@ -1471,12 +1467,27 @@ export default function Dashboard() {
     <div>
       <div className="filter-bar">
         <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
-        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+        <select value={selectedNgoId} onChange={e => {
+          setData(null);
+          setStationStats(null);
+          setStationsData([]);
+          setSelectedNgoId(e.target.value);
+        }}>
           <option value="all">All NGOs</option>
           {accessibleNgos.map(ngo => (
             <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
           ))}
         </select>
+        <button
+          onClick={() => fetchDashboard({ fresh: true })}
+          disabled={loading}
+          className="btn btn-primary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}
+          title="Reload dashboard with fresh data"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={loading ? 'weak-spin' : ''}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
       {/* Top 4 Summary Cards */}
