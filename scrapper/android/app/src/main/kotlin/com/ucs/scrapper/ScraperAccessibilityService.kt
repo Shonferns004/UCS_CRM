@@ -200,7 +200,6 @@ class ScraperAccessibilityService : AccessibilityService() {
 
         collected.clear(); seenRefs.clear(); seenPartial.clear()
         knownRefs.clear()
-        ScraperConfig.getSet("knownRefs").let { knownRefs.addAll(it) }
         Thread {
             val remote = ScraperUploader.knownRefs(backendUrl, apiKey, projectId)
             if (remote.isNotEmpty()) handler.post { knownRefs.addAll(remote) }
@@ -406,7 +405,9 @@ class ScraperAccessibilityService : AccessibilityService() {
                 break
             }
             if (!txn.received && receivedOnly) continue
-            val partial = txn.amount.toString() + "|" + (txn.payerName ?: "").trim().lowercase()
+            val pr = Rect()
+            row.getBoundsInScreen(pr)
+            val partial = "${pr.left.toInt()}|${pr.top.toInt()}|${pr.right.toInt()}|${pr.bottom.toInt()}|${txn.amount.toString()}|${(txn.payerName ?: "").trim().lowercase()}"
             if (partial in seenPartial) continue
             seenPartial.add(partial)
 
@@ -550,15 +551,12 @@ class ScraperAccessibilityService : AccessibilityService() {
                 val refOk = !ref.isNullOrBlank() && ref.length >= 12 && !ref.uppercase().contains("X")
                 if (refOk) {
                     val already = ref in knownRefs
+                    val hasDate = !pendingDetail?.transactionDate.isNullOrBlank()
                     seenRefs.add(ref)
-                    if (!already && pendingDetail !in collected) collected.add(pendingDetail!!)
+                    if (!already && hasDate && pendingDetail !in collected) collected.add(pendingDetail!!)
                     pendingDetail = null
                     detailPhase = 0
                     emit("collected", mapOf("count" to collected.size))
-                    if (already) {
-                        finishUpload("stopped: found an already-imported transaction")
-                        return Stage.IDLE
-                    }
                     return Stage.COLLECT
                 }
                 pendingDetail = null
@@ -596,13 +594,6 @@ class ScraperAccessibilityService : AccessibilityService() {
                 running = false
                 stage = Stage.IDLE
                 releaseKeepOn()
-                if (result.ok) {
-                    for (t in collected) t.paymentId?.let { p ->
-                        val n = p.filterNot { it == ' ' }
-                        if (n.isNotBlank()) knownRefs.add(n)
-                    }
-                    ScraperConfig.putSet("knownRefs", knownRefs)
-                }
                 ServiceBridge.emit(mapOf("type" to "stage", "stage" to "IDLE"))
                 closeSurfacesOnFinish()
             }
@@ -745,11 +736,15 @@ class ScraperAccessibilityService : AccessibilityService() {
 
         val time = parseTime(joined)
 
+        val ownDate = texts
+            .map { parseHeaderFromText(it.trim()) }
+            .firstOrNull { it != null && Regex("^\\d{4}-\\d{2}-\\d{2}\$").matches(it) }
+
         return ScrapedTxn(
             paymentId = ref,
             amount = amount,
             payerName = payer?.ifBlank { null },
-            transactionDate = lastHeaderDate,
+            transactionDate = ownDate ?: lastHeaderDate,
             paymentTime = time,
             received = received
         )
@@ -782,8 +777,9 @@ class ScraperAccessibilityService : AccessibilityService() {
             ?: texts.firstOrNull { Regex("^[A-Za-z0-9]{16}$").matches(it.trim()) }?.trim()
         if (id != null && (txn.paymentId?.filterNot { it == ' ' } ?: "") != id) txn.paymentId = id
 
-        val date = Regex("\\bdate\\b\\s*:\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4})", RegexOption.IGNORE_CASE).find(joined)?.groupValues?.get(1)
-            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4})").find(joined)?.groupValues?.get(1)
+        val date = Regex("\\bdate\\b\\s*:\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{1,2}\\s+[A-Za-z]{3,9})", RegexOption.IGNORE_CASE).find(joined)?.groupValues?.get(1)
+            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9}(?:,\\s*\\d{2,4}))").find(joined)?.groupValues?.get(1)
+            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9})(?!\\s*\\d)").find(joined)?.groupValues?.get(1)
         if (date != null) txn.transactionDate = parseHeaderFromText(date)
 
         val relTime = Regex("\\btime\\b\\s*:\\s*(\\d{1,2}:\\d{2}\\s*(?:am|pm))", RegexOption.IGNORE_CASE).find(joined)
