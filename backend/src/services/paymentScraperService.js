@@ -107,14 +107,16 @@ async function resolveProjectCode(rawProjectId) {
   if (KNOWN_PROJECTS.has(canonical)) return canonical;
   try {
     const { data: ngos } = await db.from('ngos').select('id, name');
-    for (const ngo of ngos || []) {
-      const code = await projectCodeFromNgoId(ngo.id);
-      if (code && code === canonical) return code;
+    const needle = String(rawProjectId).trim().toLowerCase();
+    const hit = (ngos || []).find((n) => String(n.id).trim().toLowerCase() === needle);
+    if (hit) {
+      const code = await projectCodeFromNgoId(hit.id);
+      if (code && KNOWN_PROJECTS.has(code)) return code;
     }
   } catch (err) {
     console.error('Failed to resolve NGO project code:', err.message);
   }
-  return null;
+  return canonical;
 }
 
 export async function listNgoProjectCodes() {
@@ -273,6 +275,7 @@ export const importScrapedBatch = async ({
     };
   }
 
+  const resolvedProject = (await resolveProjectCode(projectId)) || projectId;
   const sourceId = await resolveGooglePaySource();
 
   const batch = transactions.map((raw) => normalizeScrapedTransaction(raw));
@@ -282,7 +285,7 @@ export const importScrapedBatch = async ({
   let skipped = 0;
   let errored = 0;
 
-  await touchRunStart(runId, deviceLabel, projectId, transactions.length);
+  await touchRunStart(runId, deviceLabel, resolvedProject, transactions.length);
 
   for (let i = 0; i < batch.length; i++) {
     const item = batch[i];
@@ -308,7 +311,7 @@ export const importScrapedBatch = async ({
       }
       seenRefs.add(paymentId);
     } else {
-      const fp = fingerprintKey(item, projectId);
+      const fp = fingerprintKey(item, resolvedProject);
       if (seenFingerprints.has(fp)) {
         skipped++;
         await logRunEntry(runId, { payment_id: null, amount, payer_name: payerName, transaction_date: transactionDate, status: 'skipped', reason: 'Duplicate within batch (same amount/date/payer)' });
@@ -323,7 +326,7 @@ export const importScrapedBatch = async ({
       await logRunEntry(runId, { payment_id: paymentId, amount, payer_name: payerName, transaction_date: transactionDate, status: 'skipped', reason: 'Audit entry already exists for this UPI reference' });
       continue;
     }
-    if (!paymentId && (await entryExistsByFingerprint(projectId, amount, transactionDate, payerName))) {
+    if (!paymentId && (await entryExistsByFingerprint(resolvedProject, amount, transactionDate, payerName))) {
       skipped++;
       await logRunEntry(runId, { payment_id: null, amount, payer_name: payerName, transaction_date: transactionDate, status: 'skipped', reason: 'Audit entry already exists (same amount/date/payer/project)' });
       continue;
@@ -339,7 +342,7 @@ export const importScrapedBatch = async ({
         payment_time: paymentTime,
         payer_name: payerName,
         mode,
-        project_id: projectId,
+        project_id: resolvedProject,
         status: 'unverified',
         remarks: remarks || `Scraped from Google Pay (${deviceLabel})`,
         created_by: null,
@@ -360,7 +363,7 @@ export const importScrapedBatch = async ({
   const result = {
     idempotent: false,
     run_id: runId,
-    project_id: projectId,
+    project_id: resolvedProject,
     device_label: deviceLabel,
     source: GOOGLE_PAY,
     summary: {
