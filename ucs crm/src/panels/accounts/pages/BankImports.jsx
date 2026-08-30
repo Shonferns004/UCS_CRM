@@ -360,12 +360,141 @@ function BankStatementTab() {
   );
 }
 
+function AiScraperTab() {
+  const [runs, setRuns] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const NGOS = [
+    { code: 'bsct', name: 'Being Sevak' },
+    { code: 'mann', name: 'Mann Care' },
+    { code: 'aflf', name: 'Ashray' },
+  ];
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const d = await apiGet('/accounts/scraper/runs');
+      setRuns(d.runs || []);
+      setError('');
+    } catch (e) { console.error('Scraper error:', e.message); setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadData(); }, []);
+
+  const all = runs || [];
+  const totals = all.reduce((a, r) => ({
+    imported: a.imported + (r.imported || 0),
+    skipped: a.skipped + (r.skipped || 0),
+    errored: a.errored + (r.errored || 0),
+    seen: a.seen + (r.transactions_seen || 0),
+  }), { imported: 0, skipped: 0, errored: 0, seen: 0 });
+
+  const ngoState = NGO => {
+    const list = all.filter(r => r.project_id === NGO);
+    const latest = list[0] || null;
+    return {
+      runs: list.length,
+      imported: list.reduce((a, r) => a + (r.imported || 0), 0),
+      lastRun: latest,
+    };
+  };
+
+  if (loading) return <SkeletonTable rows={4} cols={6} />;
+
+  return (
+    <div>
+      <div className="stats-grid" style={{ marginBottom: 12 }}>
+        {[
+          { label: 'Runs', value: all.length, color: '#2563eb', icon: <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 22v-6h-6"/><path d="M3 12a9 9 0 0 0 15 6.7L21 16"/> },
+          { label: 'Imported', value: totals.imported, color: '#059669', icon: <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/> },
+          { label: 'Skipped', value: totals.skipped, color: '#f59e0b', icon: <><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></> },
+          { label: 'Errored', value: totals.errored, color: '#dc2626', icon: <><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></> },
+        ].map((s, i) => (
+          <div key={i} className="stat-card">
+            <div className="stat-icon" style={{ background: s.color + '18', color: s.color }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">{s.icon}</svg>
+            </div>
+            <div className="stat-info">
+              <div className="stat-num">{s.value}</div>
+              <div className="stat-lbl">{s.label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 6, padding: '8px 12px', marginBottom: 12 }}>
+        <button className="btn btn-sm" onClick={async () => { setRefreshing(true); try { await loadData() } catch (e) {} setRefreshing(false) }} disabled={refreshing} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+        <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 'auto' }}>
+          Latest run per phone syncs automatically from the GPay app on each NGO phone.
+        </span>
+      </div>
+
+      {error && <div style={{ marginBottom: 12, fontSize: 13, color: '#dc2626', background: '#fef2f2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10, marginBottom: 16 }}>
+        {NGOS.map(ngo => {
+          const s = ngoState(ngo.code);
+          const last = s.lastRun;
+          const statusColor = !last ? 'var(--ink-soft)' : last.status === 'complete' ? '#059669' : last.status === 'error' ? '#dc2626' : '#f59e0b';
+          return (
+            <div key={ngo.code} className="card" style={{ marginBottom: 0 }}>
+              <div className="card-pad">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{ngo.name}</span>
+                  <span className="pill" style={{ fontSize: 11, color: statusColor, background: statusColor + '18' }}>{(last ? last.status : 'no runs').toUpperCase()}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                  Runs: {s.runs} &middot; Imported: <b style={{ color: '#059669' }}>{s.imported}</b>
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={last?.device_label}>
+                  {last ? `${last.device_label || 'device'} — ${new Date(last.started_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'No runs yet'}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Start</th><th>Device</th><th>NGO</th><th>Status</th><th>Seen</th><th>Imported</th><th>Skipped</th><th>Errors</th><th>Finished</th></tr></thead>
+          <tbody>
+            {all.length === 0 ? (
+              <tr><td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No device runs yet. Install the UCS GPay Scraper app on a phone and start a run.</td></tr>
+            ) : all.map(r => (
+              <tr key={r.id}>
+                <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{new Date(r.started_at).toLocaleString('en-IN')}</td>
+                <td style={{ fontSize: 12 }}>{r.device_label || '\u2014'}</td>
+                <td style={{ fontSize: 12 }}>{r.project_id || '\u2014'}</td>
+                <td>
+                  <span className={`pill ${r.status === 'complete' ? 'pill-green' : r.status === 'error' ? 'pill-red' : r.status === 'running' ? 'pill-yellow' : 'pill-gray'}`} style={{ fontSize: 11 }}>{r.status}</span>
+                </td>
+                <td style={{ fontSize: 12 }}>{r.transactions_seen}</td>
+                <td style={{ fontSize: 12, fontWeight: 600, color: '#059669' }}>{r.imported}</td>
+                <td style={{ fontSize: 12 }}>{r.skipped}</td>
+                <td style={{ fontSize: 12, color: r.errored > 0 ? '#dc2626' : 'inherit' }}>{r.errored}</td>
+                <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{r.finished_at ? new Date(r.finished_at).toLocaleString('en-IN') : '\u2014'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Combined Page ──────────────────────────────────────
 
 const TABS = [
   { key: 'email', label: 'Email Import' },
   { key: 'gateways', label: 'Payment Gateways' },
   { key: 'statement', label: 'Bank Statement' },
+  { key: 'scraper', label: 'AI Scraper' },
 ];
 
 export default function BankImports() {
@@ -375,6 +504,7 @@ export default function BankImports() {
     email: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
     gateways: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
     statement: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+    scraper: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>,
   };
 
   return (
@@ -400,6 +530,7 @@ export default function BankImports() {
       {tab === 'email' && <EmailImportTab />}
       {tab === 'gateways' && <PaymentGatewaysTab />}
       {tab === 'statement' && <BankStatementTab />}
+      {tab === 'scraper' && <AiScraperTab />}
     </div>
   );
 }
