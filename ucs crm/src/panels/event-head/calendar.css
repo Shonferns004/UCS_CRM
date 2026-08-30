@@ -1,0 +1,118 @@
+/* FullCalendar v6 — self-contained stylesheet styled to the event-head design
+   tokens. FullCalendar v6 npm ships no CSS, so we provide our own. Class names
+   follow FullCalendar v6's stable public DOM. */
+
+.fc {
+  --fc-border-color: var(--eh-line, #e6e0f4);
+  --fc-button-bg-color: var(--eh-primary, #2036bd);
+  --fc-button-border-color: var(--eh-primary, #2036bd);
+  --fc-button-hover-bg-color: var(--eh-primary-dark, #16279b);
+  --fc-button-hover-border-color: var(--eh-primary-dark, #16279b);
+  --fc-button-active-bg-color: var(--eh-secondary, #6b38d4);
+  --fc-button-active-border-color: var(--eh-secondary, #6b38d4);
+  --fc-today-bg-color: rgba(32, 54, 189, 0.06);
+  --fc-event-bg-color: var(--eh-primary, #2036bd);
+  --fc-event-border-color: var(--eh-primary, #2036bd);
+  --fc-event-text-color: #fff;
+  --fc-neutral-bg-color: #f7f5fc;
+  --fc-page-bg-color: #fff;
+  --fc-highlight-color: rgba(107, 56, 212, 0.08);
+  --fc-small-font-size: 0.82em;
+  --fc-border-radius: 8px;
+  font-family: inherit;
+  color: var(--eh-ink, #1a1a2e);
+  font-size: 13px;
+}
+
+/* Toolbar */
+.fc .fc-toolbar-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--eh-ink, #1a1a2e);
+}
+.fc .fc-button {
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 0.35em 0.7em;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.fc .fc-button:focus { box-shadow: 0 0 0 2px rgba(32,54,189,0.25); }
+.fc .fc-button-primary:not(:disabled):not(.fc-button-active):hover {
+  background-color: var(--fc-button-hover-bg-color);
+  border-color: var(--fc-button-hover-border-color);
+}
+
+/* Calendar frame */
+.fc .fc-view-harness { background: var(--fc-page-bg-color); border-radius: 12px; }
+
+/* Day headers */
+.fc .fc-col-header-cell { background: var(--eh-tint-1, #f4f0ff); }
+.fc .fc-col-header-cell-cushion {
+  padding: 8px 4px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--eh-ink-soft, #6b7280);
+}
+
+/* Day cells */
+.fc .fc-daygrid-day { cursor: pointer; }
+.fc .fc-daygrid-day-number {
+  padding: 6px 8px;
+  font-weight: 600;
+  color: var(--eh-ink, #1a1a2e);
+}
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  color: var(--eh-primary, #2036bd);
+  font-weight: 800;
+}
+.fc .fc-day-other .fc-daygrid-day-number { color: var(--eh-ink-faint, #c4bcd8); }
+.fc .fc-daygrid-day.fc-day-other { background: var(--eh-tint-1, #f7f5fc); }
+
+/* Events */
+.fc .fc-event {
+  border-radius: 6px;
+  border-width: 1px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 1px;
+  cursor: pointer;
+}
+.fc .fc-daygrid-event { padding: 2px 6px; }
+.fc .fc-event:hover { filter: brightness(1.08); }
+.fc .fc-event-title { font-weight: 600; }
+.fc .fc-event-time { opacity: 0.9; font-weight: 500; }
+
+/* Event color coding by status */
+.fc .fc-event.ev-status-Completed { background:#16a34a; border-color:#16a34a; }
+.fc .fc-event.ev-status-Cancelled,
+.fc .fc-event.ev-status-Rejected { background:#dc2626; border-color:#dc2626; }
+.fc .fc-event.ev-status-Approved { background:#7B5EA7; border-color:#7B5EA7; }
+.fc .fc-event.ev-status-Submitted { background:#3485D4; border-color:#3485D4; }
+.fc .fc-event.ev-status-Draft { background:#94a3b8; border-color:#94a3b8; }
+.fc .fc-event.ev-status-Closed { background:#374151; border-color:#374151; }
+.fc .fc-event.ev-status-Postponed { background:#f59e0b; border-color:#f59e0b; }
+
+/* Time grid */
+.fc .fc-timegrid-slot { height: 2.2em; }
+.fc .fc-timegrid-slot-label-cushion { font-weight: 500; color: var(--eh-ink-soft, #6b7280); }
+.fc .fc-timegrid-axis-cushion { color: var(--eh-ink-soft, #6b7280); }
+.fc .fc-timegrid-now-indicator-line { border-color: var(--eh-danger, #dc2626); }
+.fc .fc-timegrid-now-indicator-arrow { border-color: var(--eh-danger, #dc2626); }
+
+/* List view */
+.fc .fc-list { border: 1px solid var(--fc-border-color); border-radius: 10px; }
+.fc .fc-list-day-cushion {
+  background: var(--eh-tint-1, #f4f0ff);
+  color: var(--eh-ink, #1a1a2e);
+  font-weight: 700;
+  padding: 10px 16px;
+}
+.fc .fc-list-event:hover td { background: var(--eh-tint-1, #f4f0ff); }
+.fc .fc-list-event-time { font-weight: 600; color: var(--eh-ink-soft, #6b7280); }
+
+/* Highlight & selection */
+.fc .fc-highlight { background: var(--fc-highlight-color); }
+.fc .fc-daygrid-day.fc-day-today { background: var(--fc-today-bg-color); }
