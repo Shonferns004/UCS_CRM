@@ -81,20 +81,16 @@ export const ngos = async (req, res) => {
 
 export const knownRefs = async (req, res) => {
   try {
-    const { projectId, days = 3 } = req.query;
+    const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ message: 'projectId is required' });
 
     const project = (await resolveProjectCode(projectId)) || projectId;
-    const since = new Date();
-    since.setDate(since.getDate() - Number(days));
-    const sinceIso = since.toISOString().slice(0, 10);
 
     const { data, error } = await db
       .from('bank_audit_entries')
       .select('payment_id')
       .eq('project_id', project)
       .not('payment_id', 'is', null)
-      .gte('transaction_date', sinceIso)
       .limit(5000);
     if (error) throw error;
 
