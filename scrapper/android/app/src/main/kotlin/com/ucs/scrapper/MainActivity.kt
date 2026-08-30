@@ -56,6 +56,29 @@ class MainActivity : FlutterActivity() {
                     val lines = ScraperAccessibilityService.instance?.dumpWindow() ?: listOf("accessibility service not connected")
                     result.success(mapOf("lines" to lines))
                 }
+                "trainStart" -> {
+                    val svc = ScraperAccessibilityService.instance
+                    if (svc == null) {
+                        result.success(mapOf("ok" to false, "message" to "Accessibility service not connected. Enable 'UCS GPay Scraper' first."))
+                    } else {
+                        val km = getSystemService(android.app.KeyguardManager::class.java)
+                        val locked = km.isKeyguardLocked
+                        svc.startTraining()
+                        if (locked) km.requestDismissKeyguard(this, null)
+                        result.success(mapOf("ok" to true))
+                    }
+                }
+                "trainStop" -> {
+                    result.success(ScraperAccessibilityService.instance?.stopTraining() ?: 0)
+                }
+                "trainState" -> {
+                    val svc = ScraperAccessibilityService.instance
+                    result.success(mapOf(
+                        "connected" to (svc != null),
+                        "training" to (svc?.isTraining() ?: false),
+                        "steps" to (svc?.trainedCount() ?: 0)
+                    ))
+                }
                 else -> result.notImplemented()
             }
         }

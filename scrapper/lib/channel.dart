@@ -59,3 +59,17 @@ Future<List<String>> inspectNow() async {
   final r = await _channel.invokeMethod<Map>('inspectNow');
   return (r?['lines'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
 }
+
+Future<Map<String, dynamic>> startTraining() async {
+  final r = await _channel.invokeMethod<Map>('trainStart');
+  return _cfg(r ?? {});
+}
+
+Future<int> stopTraining() async {
+  return await _channel.invokeMethod<int>('trainStop') ?? 0;
+}
+
+Future<Map<String, dynamic>> getTrainingState() async {
+  final r = await _channel.invokeMethod<Map>('trainState');
+  return _cfg(r ?? {});
+}
