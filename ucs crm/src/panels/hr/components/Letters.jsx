@@ -113,21 +113,7 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
   const r = w.role || w.department || 'Team Member';
   const subj = subjectText || 'NO OBJECTION & BASIC SALARY DECLARATION';
   return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:16px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="background:#EAF1F8;flex-shrink:0;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:8px 44px 0;display:flex;align-items:center">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:112px;height:112px;object-fit:contain;margin-right:18px;flex-shrink:0" />
-<div style="flex:1">
-<div style="font-size:27px;font-weight:700;color:#134987;letter-spacing:0.5px;line-height:1.12">BEING SEVAK CHARITABLE TRUST</div>
-<div style="font-size:12px;color:#134987;margin-top:5px"><strong>Regd. No.:</strong> E-31948 (Mumbai)&nbsp;|&nbsp;<strong>80G Regd. No.:</strong> ACTB6422FE20214&nbsp;|&nbsp;<strong>PAN:</strong> AACTB6422F</div>
-<div style="margin-top:10px;display:flex;gap:8px">
-<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">Public Charitable Trust</span>
-<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">80G Tax Exempted</span>
-</div>
-</div>
-</div>
-<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:0 44px"><div style="height:1px;background:#ccd6e4;margin:16px 0 0"></div></div>
-</div>
-<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:0 44px;position:relative;z-index:1">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
 <div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">Subject:- ${subj}</div>
 <div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
@@ -156,18 +142,6 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <div><strong>Authorized Signatory:</strong> _____________</div>
 </div>
 </div>
-</div>
-<div style="background:#134987;color:#fff;flex-shrink:0;font-size:11.5px;line-height:1.6;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:18px 44px;display:flex;align-items:center;justify-content:space-between;gap:24px">
-<div>
-<strong>Regd. No. E-31948 (Mumbai)</strong><br />
-Administrative Office: A-401, New Delhi APt., Near Chandavarkar Lane, Near Railway Station, Borivali (W), Mumbai - 40092.
-</div>
-<div style="text-align:right;white-space:nowrap">
-+91 8879035035<br />being.sevak@gmail.com<br />www.being.sevak.org
-</div>
-</div>
-</div>
 </div>`;
 }
 
@@ -188,21 +162,7 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
   const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
   const subj = subjectText || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
   return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:15.5px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="background:#EAF1F8;flex-shrink:0;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:8px 44px 0;display:flex;align-items:center">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:112px;height:112px;object-fit:contain;margin-right:18px;flex-shrink:0" />
-<div style="flex:1">
-<div style="font-size:27px;font-weight:700;color:#134987;letter-spacing:0.5px;line-height:1.12">BEING SEVAK CHARITABLE TRUST</div>
-<div style="font-size:12px;color:#134987;margin-top:5px"><strong>Regd. No.:</strong> E-31948 (Mumbai)&nbsp;|&nbsp;<strong>80G Regd. No.:</strong> ACTB6422FE20214&nbsp;|&nbsp;<strong>PAN:</strong> AACTB6422F</div>
-<div style="margin-top:10px;display:flex;gap:8px">
-<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">Public Charitable Trust</span>
-<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">80G Tax Exempted</span>
-</div>
-</div>
-</div>
-<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:0 44px"><div style="height:1px;background:#ccd6e4;margin:16px 0 0"></div></div>
-</div>
-<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:0 44px;position:relative;z-index:1">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
 <div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">Subject:- ${subj}</div>
 <div style="padding:10px 0 24px;line-height:1.65;text-align:justify">
 <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
@@ -243,18 +203,6 @@ ${rowsHtml}
 <div style="margin-top:6px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
 </div>
 </div>
-</div>
-<div style="background:#134987;color:#fff;flex-shrink:0;font-size:11.5px;line-height:1.6;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:18px 44px;display:flex;align-items:center;justify-content:space-between;gap:24px">
-<div>
-<strong>Regd. No. E-31948 (Mumbai)</strong><br />
-Administrative Office: A-401, New Delhi APt., Near Chandavarkar Lane, Near Railway Station, Borivali (W), Mumbai - 40092.
-</div>
-<div style="text-align:right;white-space:nowrap">
-+91 8879035035<br />being.sevak@gmail.com<br />www.being.sevak.org
-</div>
-</div>
-</div>
 </div>`;
 }
 
@@ -272,23 +220,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
   const tdL = { ...td, textAlign: 'left' };
   return (
     <div style={{ width: 900, minHeight: 1273, margin: '0 auto', fontFamily: "'Times New Roman', Times, serif", fontSize: 15.5, lineHeight: 1.65, color: '#111', background: '#fff', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
-      <div style={{ background: '#EAF1F8', flexShrink: 0, position: 'relative', zIndex: 1, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
-      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', padding: '8px 44px 0', display: 'flex', alignItems: 'center' }}>
-        <img src={ngo.logo} alt={ngo.alt} style={{ width: 112, height: 112, objectFit: 'contain', marginRight: 18, flexShrink: 0 }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 27, fontWeight: 700, color: '#134987', letterSpacing: 0.5, lineHeight: 1.12 }}>BEING SEVAK CHARITABLE TRUST</div>
-          <div style={{ fontSize: 12, color: '#134987', marginTop: 5 }}><strong>Regd. No.:</strong> E-31948 (Mumbai)&nbsp;|&nbsp;<strong>80G Regd. No.:</strong> ACTB6422FE20214&nbsp;|&nbsp;<strong>PAN:</strong> AACTB6422F</div>
-          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <span style={{ background: '#B1C6DF', color: '#134987', fontSize: 11, fontWeight: 600, padding: '3px 14px', borderRadius: 12 }}>Public Charitable Trust</span>
-            <span style={{ background: '#B1C6DF', color: '#134987', fontSize: 11, fontWeight: 600, padding: '3px 14px', borderRadius: 12 }}>80G Tax Exempted</span>
-          </div>
-        </div>
-      </div>
-      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', padding: '0 44px' }}>
-        <div style={{ height: 1, background: '#ccd6e4', margin: '16px 0 0' }}></div>
-      </div>
-      </div>
-      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', flex: 1, padding: '0 44px', position: 'relative', zIndex: 1 }}>
+      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', flex: 1, padding: '24px 44px 0', position: 'relative', zIndex: 1 }}>
       <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#134987', textTransform: 'uppercase', letterSpacing: 0.5, margin: '20px 0 6px' }}>Subject:- {subj}</div>
       <div style={{ padding: '10px 0 24px', textAlign: 'justify' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
@@ -378,17 +310,6 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
         <div style={{ marginTop: 6 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
       </div>
       </div>
-      </div>
-      <div style={{ background: '#134987', color: '#fff', flexShrink: 0, fontSize: 11.5, lineHeight: 1.6, position: 'relative', zIndex: 1, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
-        <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', padding: '18px 44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
-          <div>
-            <strong>Regd. No. E-31948 (Mumbai)</strong><br />
-            Administrative Office: A-401, New Delhi APt., Near Chandavarkar Lane, Near Railway Station, Borivali (W), Mumbai - 40092.
-          </div>
-          <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-            +91 8879035035<br />being.sevak@gmail.com<br />www.being.sevak.org
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -660,7 +581,7 @@ export default function Letters() {
       <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
       <div className="card-pad">
         {loading ? (
-          <div className="form-row" aria-hidden="true">
+          <div className="form-row" aria-hidden="true" style={{ flexDirection:'row', flexWrap:'wrap' }}>
             {Array.from({ length: 6 }).map((_, i) => (
               <label className="field" key={i} style={{ flex: 1, minWidth: 150 }}>
                 <div className="sk" style={{ width: 60, height: 10, marginBottom: 6, borderRadius: 4 }} />
@@ -669,7 +590,7 @@ export default function Letters() {
             ))}
           </div>
         ) : (
-        <div className="form-row">
+        <div className="form-row" style={{ flexDirection:'row', flexWrap:'wrap' }}>
           <label className="field" style={{ flex: '0 0 105px', minWidth: 0 }}>NGOs
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN','UCS']} />
           </label>
