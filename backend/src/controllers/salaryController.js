@@ -22,7 +22,7 @@ import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
 
-const salaryCodeKey = (userId) => `salary_access_code_${userId}`;
+const salaryCodeKey = (userId) => `accounts_access_code_${userId}`;
 const codeToStr = (v) => String(v ?? '').trim();
 
 export const getSalaryAccessCodeStatus = async (req, res) => {
