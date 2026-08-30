@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 
 export function StatCard({ icon: Icon, label, value, trend, color, subtitle }) {
   return (
@@ -30,6 +30,7 @@ export function StatCard({ icon: Icon, label, value, trend, color, subtitle }) {
 export function EnhancedTable({
   columns, data, searchPlaceholder = 'Search...',
   pageSize = 10, onRowClick,
+  groupBy, groupLabel,
 }) {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState('')
@@ -48,22 +49,82 @@ export function EnhancedTable({
   }, [data, search, columns])
 
   const sorted = useMemo(() => {
-    if (!sortKey) return filtered
-    return [...filtered].sort((a, b) => {
-      const aV = a[sortKey] ?? ''
-      const bV = b[sortKey] ?? ''
-      const cmp = typeof aV === 'number' ? aV - bV : String(aV).localeCompare(String(bV))
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filtered, sortKey, sortDir])
+    if (sortKey) {
+      return [...filtered].sort((a, b) => {
+        const aV = a[sortKey] ?? ''
+        const bV = b[sortKey] ?? ''
+        const cmp = typeof aV === 'number' ? aV - bV : String(aV).localeCompare(String(bV))
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    }
+    if (groupBy) {
+      const fallback = (columns.find(c => c.accessor && c.accessor !== groupBy) || {}).accessor || 'id'
+      return [...filtered].sort((a, b) => {
+        const g = String(a[groupBy] ?? '').localeCompare(String(b[groupBy] ?? ''))
+        if (g !== 0) return g
+        return String(a[fallback] ?? '').localeCompare(String(b[fallback] ?? ''))
+      })
+    }
+    return filtered
+  }, [filtered, sortKey, sortDir, groupBy, columns])
 
   const totalPages = Math.ceil(sorted.length / pageSize)
   const paged = sorted.slice(page * pageSize, (page + 1) * pageSize)
+
+  const bodyColumns = groupBy ? columns.filter(col => col.accessor !== groupBy) : columns
+
+  const groups = groupBy
+    ? paged.reduce((acc, row) => {
+        const key = String(row[groupBy] ?? '')
+        if (acc.length === 0 || acc[acc.length - 1].key !== key) acc.push({ key, rows: [] })
+        acc[acc.length - 1].rows.push(row)
+        return acc
+      }, [])
+    : null
 
   const handleSort = (key) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('asc') }
     setPage(0)
+  }
+
+  const renderBody = () => {
+    if (groups) {
+      return groups.map((g, gi) => (
+        <Fragment key={gi}>
+          <tr>
+            <td colSpan={bodyColumns.length}
+              style={{ padding: '8px 14px', background: 'var(--bg)', borderBottom: '1px solid var(--line)', fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--ink-soft)' }}>
+              {groupLabel ? groupLabel(g.key, g.rows) : g.key}
+            </td>
+          </tr>
+          {g.rows.map((row, i) => (
+            <tr key={row.id ?? i} onClick={() => onRowClick?.(row)}
+              style={{ cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              {bodyColumns.map(col => (
+                <td key={col.accessor || col.header} style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', color: 'var(--ink)' }}>
+                  {col.render ? col.render(row) : row[col.accessor] ?? '—'}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </Fragment>
+      ))
+    }
+    return paged.map((row, i) => (
+      <tr key={row.id ?? i} onClick={() => onRowClick?.(row)}
+        style={{ cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+        {columns.map(col => (
+          <td key={col.accessor || col.header} style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', color: 'var(--ink)' }}>
+            {col.render ? col.render(row) : row[col.accessor] ?? '—'}
+          </td>
+        ))}
+      </tr>
+    ))
   }
 
   return (
@@ -80,7 +141,7 @@ export function EnhancedTable({
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
-              {columns.map(col => (
+              {bodyColumns.map(col => (
                 <th key={col.accessor || col.header} onClick={() => col.accessor && handleSort(col.accessor)}
                   style={{ textAlign: 'left', padding: '10px 14px', borderBottom: '1px solid var(--line)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--ink-soft)', fontWeight: 600, whiteSpace: 'nowrap', cursor: col.accessor ? 'pointer' : 'default', userSelect: 'none' }}>
                   {col.header}
@@ -93,20 +154,9 @@ export function EnhancedTable({
           </thead>
           <tbody>
             {paged.length === 0 && (
-              <tr><td colSpan={columns.length} style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>No data found</td></tr>
+              <tr><td colSpan={bodyColumns.length} style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>No data found</td></tr>
             )}
-            {paged.map((row, i) => (
-              <tr key={row.id ?? i} onClick={() => onRowClick?.(row)}
-                style={{ cursor: onRowClick ? 'pointer' : 'default', transition: 'background .1s' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                {columns.map(col => (
-                  <td key={col.accessor || col.header} style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', color: 'var(--ink)' }}>
-                    {col.render ? col.render(row) : row[col.accessor] ?? '—'}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {renderBody()}
           </tbody>
         </table>
       </div>
