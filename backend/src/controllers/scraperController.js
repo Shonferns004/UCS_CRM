@@ -1,4 +1,4 @@
-import { importScrapedBatch, getScraperStatus, listNgoProjectCodes } from '../services/paymentScraperService.js';
+import { importScrapedBatch, getScraperStatus, listNgoProjectCodes, resolveProjectCode } from '../services/paymentScraperService.js';
 import db from '../config/db.js';
 
 export const deviceImport = async (req, res) => {
@@ -74,6 +74,32 @@ export const ngos = async (req, res) => {
   try {
     const result = await listNgoProjectCodes();
     return res.json({ ngos: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const knownRefs = async (req, res) => {
+  try {
+    const { projectId, days = 3 } = req.query;
+    if (!projectId) return res.status(400).json({ message: 'projectId is required' });
+
+    const project = (await resolveProjectCode(projectId)) || projectId;
+    const since = new Date();
+    since.setDate(since.getDate() - Number(days));
+    const sinceIso = since.toISOString().slice(0, 10);
+
+    const { data, error } = await db
+      .from('bank_audit_entries')
+      .select('payment_id')
+      .eq('project_id', project)
+      .not('payment_id', 'is', null)
+      .gte('transaction_date', sinceIso)
+      .limit(5000);
+    if (error) throw error;
+
+    const refs = [...new Set((data || []).map((r) => (r.payment_id || '').replace(/\s+/g, '')).filter(Boolean))];
+    return res.json({ project, refs });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

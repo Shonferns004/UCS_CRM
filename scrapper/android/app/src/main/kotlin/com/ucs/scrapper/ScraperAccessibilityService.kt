@@ -56,7 +56,6 @@ class ScraperAccessibilityService : AccessibilityService() {
     private var maxScrolls = 8
     private var historyText = "All activity"
     private var cutoffDate: String? = null
-    private var oldestScanned: String? = null
     private var hitCutoff = false
 
     private var pinIndex = 0
@@ -72,6 +71,7 @@ class ScraperAccessibilityService : AccessibilityService() {
     private val collected = mutableListOf<ScrapedTxn>()
     private val seenRefs = HashSet<String>()
     private val seenPartial = HashSet<String>()
+    private val knownRefs = HashSet<String>()
     private var lastHeaderDate: String? = null
 
     private var training = false
@@ -192,11 +192,19 @@ class ScraperAccessibilityService : AccessibilityService() {
         maxTx = c.getInt("maxTransactions", 200)
         maxScrolls = c.getInt("scrollLoops", 8)
         historyText = c.get("historyText") ?: "All activity"
-        cutoffDate = c.get("lastImportedDate")?.takeIf { it.isNotBlank() }
-        oldestScanned = null
+        maxScrolls = 40
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+        cutoffDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
         hitCutoff = false
 
         collected.clear(); seenRefs.clear(); seenPartial.clear()
+        knownRefs.clear()
+        ScraperConfig.getSet("knownRefs").let { knownRefs.addAll(it) }
+        Thread {
+            val remote = ScraperUploader.knownRefs(backendUrl, apiKey, projectId)
+            if (remote.isNotEmpty()) handler.post { knownRefs.addAll(remote) }
+        }.start()
         pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0
         listEntered = false; detailPhase = 0; pendingDetail = null
         lastHeaderDate = null
@@ -384,9 +392,15 @@ class ScraperAccessibilityService : AccessibilityService() {
         for (row in rows) {
             if (!row.isVisibleToUser) continue
             val header = parseHeader(row)
-            if (header != null) { lastHeaderDate = header; continue }
+            if (header != null) {
+                lastHeaderDate = header
+                if (cutoffDate != null && header < cutoffDate!!) {
+                    hitCutoff = true
+                    break
+                }
+                continue
+            }
             val txn = parseRow(row) ?: continue
-            txn.transactionDate?.let { d -> if (oldestScanned == null || d < oldestScanned!!) oldestScanned = d }
             if (cutoffDate != null && txn.transactionDate != null && txn.transactionDate!! < cutoffDate!!) {
                 hitCutoff = true
                 break
@@ -413,7 +427,7 @@ class ScraperAccessibilityService : AccessibilityService() {
             return Stage.DETAIL
         }
         if (hitCutoff) {
-            finishUpload("reached last imported date ${cutoffDate ?: ""}")
+            finishUpload("scanned all of today & yesterday")
             return Stage.IDLE
         }
         if (collected.size >= maxTx) {
@@ -531,10 +545,21 @@ class ScraperAccessibilityService : AccessibilityService() {
                 detailPhase = 2
             }
             2 -> {
-                val ref = pendingDetail?.paymentId
-                if (!ref.isNullOrBlank()) {
-                    seenRefs.add(ref.filterNot { it == ' ' })
-                    if (pendingDetail !in collected) collected.add(pendingDetail!!)
+                val raw = pendingDetail?.paymentId
+                val ref = raw?.filterNot { it == ' ' }
+                val refOk = !ref.isNullOrBlank() && ref.length >= 12 && !ref.uppercase().contains("X")
+                if (refOk) {
+                    val already = ref in knownRefs
+                    seenRefs.add(ref)
+                    if (!already && pendingDetail !in collected) collected.add(pendingDetail!!)
+                    pendingDetail = null
+                    detailPhase = 0
+                    emit("collected", mapOf("count" to collected.size))
+                    if (already) {
+                        finishUpload("stopped: found an already-imported transaction")
+                        return Stage.IDLE
+                    }
+                    return Stage.COLLECT
                 }
                 pendingDetail = null
                 detailPhase = 0
@@ -566,17 +591,18 @@ class ScraperAccessibilityService : AccessibilityService() {
                 "count" to collected.size,
                 "counts" to counts
             )
-            if (result.ok && oldestScanned != null) {
-                val prev = ScraperConfig.get("lastImportedDate")
-                if (prev.isNullOrBlank() || oldestScanned!! < prev) {
-                    ScraperConfig.setAll(mapOf("lastImportedDate" to oldestScanned!!))
-                }
-            }
             ServiceBridge.emit(mapOf("type" to "done", "payload" to done))
             handler.post {
                 running = false
                 stage = Stage.IDLE
                 releaseKeepOn()
+                if (result.ok) {
+                    for (t in collected) t.paymentId?.let { p ->
+                        val n = p.filterNot { it == ' ' }
+                        if (n.isNotBlank()) knownRefs.add(n)
+                    }
+                    ScraperConfig.putSet("knownRefs", knownRefs)
+                }
                 ServiceBridge.emit(mapOf("type" to "stage", "stage" to "IDLE"))
                 closeSurfacesOnFinish()
             }
