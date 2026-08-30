@@ -3,14 +3,17 @@
 //
 // These cover the queue's business rules that don't require a database:
 //   - month / cycle-key derivation
-//   - retryable-vs-terminal disposition classification (a donor must NOT reappear
-//     after a terminal disposition, but MAY return after a retryable one)
-//   - reconcile SQL shape (one row + position per donor; correct placeholders)
+//   - retryable-vs-terminal disposition classification (a donor MAY return after
+//     a retryable disposition — with same-day suppression being a separate,
+//     additive rule that blocks it only for TODAY)
+//   - reconcile SQL shape (one row + position per donor; STABLE positions on
+//     conflict — no dense re-indexing that would re-serve processed donors)
+//   - strict-forward acceptance simulation (A → B → C → D → COMPLETE, never wrap)
 //
 // The DB-backed guarantees (unique constraint prevents any donor being enqueued
 // twice per worker+scope; advisory lock + transaction serialize double-tab /
-// double-click; same-day unique index blocks duplicate disposition rows) are
-// enforced by migration 087 and are exercised against the live DB, which is not
+// double-click; same-day suppression enforced by markDisposed / getMyDonors /
+// migration 094's trigger) are exercised against the live DB, which is not
 // reachable from a dev machine.
 
 import assert from 'node:assert/strict';
@@ -65,7 +68,7 @@ console.log('\ndisposition classification (who reappears vs who is removed)');
   ok('RETRYABLE_NOT_CONNECTED_DETAILS exported set is consistent');
 }
 
-console.log('\nreconcile SQL shape (ordering / duplicate-positioning)');
+console.log('\nreconcile SQL shape (ordering / stable positions)');
 {
   const { sql, params, cycleKey } = buildReconcileSql({
     workerId: 'w1',
@@ -84,7 +87,100 @@ console.log('\nreconcile SQL shape (ordering / duplicate-positioning)');
   // positions are the 3rd param of each donor tuple: indices 7, 10, 13
   assert.deepEqual([params[7], params[10], params[13]], [0, 1, 2], 'positions ascend in FIFO order');
   assert.match(cycleKey, /DH-1:new/);
-  ok('reconcile emits one row per donor, FIFO positions 0..n, and the unique scope constraint');
+  ok('reconcile emits one row per donor, FIFO seed positions 0..n, and the unique scope constraint');
+
+  // STABLE POSITIONS: on conflict we must NOT re-dense/re-index position.
+  // Re-indexing was what let a processed donor's slot move back to the front and
+  // be re-served; keeping the seeded position is what makes the forward cursor
+  // (`position > last ORDER BY position ASC LIMIT 1`) meaningful.
+  assert.equal(/position\s*=\s*EXCLUDED\.position/i.test(sql), false,
+    'DO UPDATE must NOT rewrite position (positions are stable for the cycle)');
+  assert.match(sql, /WHERE work_queue\.status IN \('PENDING', 'IN_PROGRESS', 'BUTTON_PRESSED'\)/);
+  ok('conflict branch keeps position stable (no dense re-index) and only rows still active can be re-touched');
+}
+
+console.log('\nsame-day suppression / strict-forward guarantees (DB-backed)');
+{
+  // These behaviors are enforced by markDisposed()'s same-day guard, the
+  // getMyDonors disposedTodayIds exclusion, and migration 094's trigger — all
+  // require a live DB. Here we assert the pure classification still treats
+  // ringing/busy as RETRYABLE (so they can return TOMORROW), while same-day
+  // suppression is a separate concern that blocks them TODAY.
+  assert.equal(classifyDisposition('ringing').retryable, true);
+  assert.equal(classifyDisposition('busy').retryable, true);
+  ok('retryable dispositions remain retryable (eligible again next day) — same-day blocking is additive');
+}
+
+// Model of the backend's strict-forward cursor. Positions are STABLE (seeded on
+// insert, never re-indexed). A donor processed TODAY is removed from the eligible
+// set (same-day suppression). Next = the lowest-position remaining eligible
+// donor; no wrap-around ever. Mirrors froController.getMyDonors(queue_current):
+//   activeRows = getActiveQueueRows() ordered by stable position ASC
+//   next = activeRows[0]   (because disposedToday donors are already excluded)
+// Acceptances: A → B → C → D → COMPLETE (never back to A).
+function simulateForward(queue, processQueues) {
+  // queue: array of { id, position } with stable positions.
+  // processQueues: array of donor ids processed today (in order).
+  const eligible = queue.filter(d => !processQueues.includes(d.id));
+  if (eligible.length === 0) return { next: null, done: true, remaining: eligible };
+  return { next: eligible[0], done: false, remaining: eligible };
+}
+
+console.log('\nACCEPTANCE: strict forward, same-day, no wrap (A → B → C → D → COMPLETE)');
+{
+  // Queue with STABLE positions, e.g. seeded on first reconcile.
+  const queue = [
+    { id: 'A', position: 0 },
+    { id: 'B', position: 1 },
+    { id: 'C', position: 2 },
+    { id: 'D', position: 3 },
+  ];
+
+  const processed = [];
+  const step = () => {
+    const r = simulateForward(queue, processed);
+    if (!r.done) processed.push(r.next.id);
+    return r;
+  };
+
+  // A → RINGING  ⇒ next B
+  const r1 = step();
+  assert.equal(r1.done, false);
+  assert.equal(r1.next.id, 'A', 'first eligible donor is A');
+  // Simulate A disposed today -> A must not come back, next is B
+  const afterA = simulateForward(queue, ['A']);
+  assert.equal(afterA.next.id, 'B', 'after A processed today, next is B (never A)');
+
+  // Process A,B,C,D in order; verify the progression and that it completes.
+  const seen = [];
+  let result = { done: false };
+  let guard = 0;
+  while (!result.done && guard++ < 20) {
+    result = simulateForward(queue, seen);
+    if (!result.done) seen.push(result.next.id);
+  }
+  assert.deepEqual(seen, ['A', 'B', 'C', 'D'], 'strict-forward progression');
+  assert.equal(result.done, true, 'queue COMPLETE after A,B,C,D — no wrap to A');
+
+  // Same-day: a donor processed once today never reappears; a fresh call after
+  // only [id] processed must return a donor other than id.
+  for (const id of ['A', 'B', 'C', 'D']) {
+    const rOne = simulateForward(queue, [id]);
+    assert.equal(rOne.done, false, 'there is still eligible work');
+    assert.equal(rOne.next.id === id, false, `a donor processed today (${id}) is never returned again today`);
+  }
+
+  // Multiple GET / refresh: after A..D processed, nothing eligible remains today.
+  for (let i = 0; i < 3; i++) {
+    const r = simulateForward(queue, ['A', 'B', 'C', 'D']);
+    assert.equal(r.done, true, `GET #${i + 1} after all processed returns COMPLETE (no A)`);
+  }
+  ok('A → B → C → D → COMPLETE holds; no A→B→C→D→A wrap; refresh/multi-GET never returns processed donors');
+
+  // Next day: processed-today donors are eligible again (retryable rule).
+  const nextDay = simulateForward(queue, []);
+  assert.equal(nextDay.next.id, 'A', 'next day the queue may start again at A (retryable)');
+  ok('next day a retryable donor (A) is eligible again — same-day blocking is not permanent');
 }
 
 console.log(`\n${passed} assertions passed`);

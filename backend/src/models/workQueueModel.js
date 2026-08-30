@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { istDayBounds } from '../utils/ist.js';
 
 // IST billing-month key (e.g. "2026-08"). The work "cycle" is per calendar month.
 export function monthKey(date = new Date()) {
@@ -40,10 +41,14 @@ export function scopeKey({ ngoId = null, station = null, tab = 'new', date = new
 }
 
 // Build the UPSERT SQL that reconciles the worker's ordered donor list into
-// work_queue for a cycle. Pure (no DB) so it's unit-testable. Position matches
-// the donor's index in `donors` (FIFO order). On conflict the position is
-// refreshed ONLY for rows still active — terminal rows keep their status, so a
-// handled donor is never resurrected.
+// work_queue for a cycle. Pure (no DB) so it's unit-testable. Position is
+// seeded ONCE on INSERT (the donor's index within `donors` = FIFO order) and is
+// then STABLE for the cycle — on conflict we do NOT refresh position. This keeps
+// a durable "position" column that a strict forward cursor can walk with
+// `position > lastPosition ORDER BY position ASC LIMIT 1`, and avoids dense
+// re-indexing that would re-serve already-processed donors. New rows (fresh
+// donors) are inserted with their current list index; a handled donor's row is
+// never resurrected via status because terminal rows keep their terminal status.
 export function buildReconcileSql({ workerId, operatorId = null, donors, ngoId = null, station = null, tab = 'new' }) {
   const ck = cycleKey({ ngoId, station, tab });
   const now = new Date().toISOString();
@@ -63,7 +68,6 @@ export function buildReconcileSql({ workerId, operatorId = null, donors, ngoId =
     VALUES ${rows.join(', ')}
     ON CONFLICT (worker_id, donor_id, ngo_id, cycle_key)
     DO UPDATE SET
-      position = EXCLUDED.position,
       station = EXCLUDED.station,
       updated_at = EXCLUDED.updated_at
       WHERE work_queue.status IN (${conflictWhere})
@@ -72,10 +76,11 @@ export function buildReconcileSql({ workerId, operatorId = null, donors, ngoId =
 }
 
 // Reconcile the worker's ordered donor list into work_queue for a cycle.
-// Inserts new rows and refreshes position for rows still active; already
-// DISPOSED/COMPLETED/EXCEPTION rows keep their terminal status (never resurrect
-// a handled donor). Duplicate (worker, donor, ngo, cycle) rows are impossible
-// via the DB unique constraint.
+// Inserts new rows (seeding a stable position) and refreshes metadata for rows
+// still active without re-indexing their position; already DISPOSED/COMPLETED/
+// EXCEPTION rows keep their terminal status (never resurrect a handled donor).
+// Duplicate (worker, donor, ngo, cycle) rows are impossible via the DB unique
+// constraint.
 export async function reconcileQueue({ workerId, operatorId = null, donors, ngoId = null, station = null, tab = 'new' }) {
   const { sql, params, cycleKey: ck } = buildReconcileSql({ workerId, operatorId, donors, ngoId, station, tab });
   let inserted = 0;
@@ -163,18 +168,39 @@ export async function markShown({ workerId, donorId, ngoId = null, station = nul
   return res.rowCount > 0;
 }
 
-// Mark a donor disposed/removed from the worker's active queues. Matches on
-// worker_id + donor_id across ALL cycles so a terminal disposition (done,
-// lead_done, not_interested, …) removes it from every active queue at once —
-// this is what permanently keeps a handled donor from reappearing regardless of
-// which tab/station view re-queries the queue.
+// Reflect a disposition on the worker's active queues. Matches on worker_id +
+// donor_id across ALL cycles (tabs/stations) so a disposition removes the donor
+// from every active queue at once — a handled donor never reappears today.
+//
+// Same-day suppression (business rule): if the donor already has ANY disposition
+// TODAY (IST) for this worker, it must stay out of the active queue until the
+// next day, EVEN for a retryable disposition (e.g. ringing/busy). So when we
+// would reset a row to PENDING (disposed==false), we skip doing so if a
+// same-day disposition log already exists. Tomorrow (new IST day) a retryable
+// donor becomes eligible again via the normal reconcile path.
+//
+//   disposed == true  → status = 'DISPOSED'        (terminal: done/not_interested/…)
+//   disposed == false → status = 'PENDING' ONLY if no same-day disposition
+//                       for this worker (otherwise the row stays DISPOSED so the
+//                       donor cannot be re-enqueued the same day).
 export async function markDisposed({ workerId, donorId, disposed = false }) {
+  const { start, end } = istDayBounds();
   const res = await db._pool.query(
     `UPDATE work_queue
         SET status = $3, disposed_at = CASE WHEN $3 = 'DISPOSED' THEN now() ELSE NULL END, updated_at = now()
       WHERE worker_id = $1 AND donor_id = $2
-        AND status IN ('PENDING','IN_PROGRESS','BUTTON_PRESSED')`,
-    [workerId, donorId, disposed ? 'DISPOSED' : 'PENDING']
+        AND status IN ('PENDING','IN_PROGRESS','BUTTON_PRESSED')
+        AND (
+          $3 = 'DISPOSED'
+          OR NOT EXISTS (
+            SELECT 1 FROM fro_donor_logs l
+            WHERE l.donor_id = work_queue.donor_id
+              AND l.fro_worker_id = $1
+              AND l.action = 'disposition'
+              AND l.created_at >= $4 AND l.created_at < $5
+          )
+        )`,
+    [workerId, donorId, disposed ? 'DISPOSED' : 'PENDING', start.toISOString(), end.toISOString()]
   );
   return res.rowCount > 0;
 }
