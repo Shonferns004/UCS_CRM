@@ -5285,7 +5285,8 @@ export const getAgentTeamCollections = async (req, res) => {
       .from('workers')
       .select('id, name, team')
       .eq('department', 'FRO')
-      .eq('employment_status', 'active');
+      .eq('employment_status', 'active')
+      .eq('is_test', false);
     if (fwErr) throw fwErr;
     const workerList = (froWorkers || []).filter((w) => w.id);
     const workerByKey = {};

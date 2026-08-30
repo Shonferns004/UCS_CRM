@@ -1291,4 +1291,9 @@ const db = {
   _pool: pool,
 };
 
+export const sql = async (text, params = []) => {
+  const { rows } = await pool.query(text, params);
+  return rows;
+};
+
 export default db;
