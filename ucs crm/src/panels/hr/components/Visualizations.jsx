@@ -147,7 +147,7 @@ export default function Visualizations() {
       fetch(API_BASE + '/salary/workers-summary', { headers }).then(r => r.json()).catch(() => []),
       fetchNgoSummaryList().catch(() => []),
     ]).then(([w, a, l, h, s, ngos]) => {
-      setWorkers(w); setAttendance(a); setLeaves(l); setHolidays(h); setSalSum(s); setNgoSummary(ngos || []);
+      setWorkers((w || []).filter(x => !x.is_test)); setAttendance(a); setLeaves(l); setHolidays(h); setSalSum((s || []).filter(x => !x.is_test)); setNgoSummary(ngos || []);
     }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false));
   }, []);
 

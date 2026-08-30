@@ -36,6 +36,7 @@ export const Eye = I(<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
 export const Globe = I(<><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></>)
 export const Dollar = I(<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>)
 export const Ticket = I(<><path d="M20 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v2"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/><line x1="16" y1="12" x2="8" y2="12"/></>)
+export const Flask = I(<><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><line x1="8" y1="2" x2="16" y2="2"/><line x1="7" y1="15" x2="17" y2="15"/></>)
 
 export const WhatsApp = ({ size = 20, ...p }) => (
   <svg {...p} width={size} height={size} viewBox="0 0 24 24" fill="currentColor">

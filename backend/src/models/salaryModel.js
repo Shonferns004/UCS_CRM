@@ -58,7 +58,7 @@ export const updateSalary = async (id, updates) => {
 export const getAllWorkersSalarySummary = async () => {
   const { data: workers, error: wErr } = await db
     .from('workers')
-    .select('id, name, email, department, created_at')
+    .select('id, name, email, department, created_at, is_test')
     .order('created_at', { ascending: false });
   if (wErr) throw wErr;
 
@@ -80,6 +80,7 @@ export const getAllWorkersSalarySummary = async () => {
     email: w.email,
     department: w.department,
     created_at: w.created_at,
+    is_test: !!w.is_test,
     current_salary: latest[w.id]?.salary || null,
     current_salary_from: latest[w.id]?.from_month || null,
     current_salary_paid: latest[w.id]?.paid_at || null,
