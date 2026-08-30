@@ -21,6 +21,7 @@ class _ScraperPageState extends State<ScraperPage> {
   int _collected = 0;
   String _stage = 'IDLE';
   bool _busy = false;
+  Map<String, dynamic>? _lastResult;
 
   @override
   void initState() {
@@ -68,7 +69,14 @@ class _ScraperPageState extends State<ScraperPage> {
         _stage = e['stage']?.toString() ?? _stage;
       }
       if (type == 'collected') _collected = (e['count'] as num?)?.toInt() ?? _collected;
-      if (type == 'started') _running = true;
+      if (type == 'started') {
+        _running = true;
+        _lastResult = null;
+      }
+      if (type == 'done') {
+        final p = (e['payload'] as Map<dynamic, dynamic>?)?.map((k, v) => MapEntry(k.toString(), v));
+        if (p != null) _lastResult = p;
+      }
       if (type == 'stopped' || (type == 'stage' && _stage == 'IDLE')) _running = false;
       _log.insert(0, {'t': DateTime.now().toIso8601String(), 'm': msg});
       if (_log.length > 80) _log.removeRange(80, _log.length);
@@ -125,6 +133,12 @@ class _ScraperPageState extends State<ScraperPage> {
       'm': n > 0 ? 'Saved $n trained steps — the next Start run will replay them first.' : 'Nothing recorded, training cleared.',
     });
     setState(() {});
+  }
+
+  String _buildCountsLine(Map<String, dynamic> p) {
+    final c = (p['counts'] as Map<dynamic, dynamic>?)?.map((k, v) => MapEntry(k.toString(), v)) ?? {};
+    String n(dynamic v) => v?.toString() ?? '0';
+    return 'Imported: ${n(c['imported'])}  •  Ref duplicates: ${n(c['ref_duplicates'])}  •  FP duplicates: ${n(c['fingerprint_duplicates'])}  •  Batch dups: ${n(c['in_batch_duplicates'])}  •  Errors: ${n(c['errors'])}';
   }
 
   Color? _colorFor(String m) {
@@ -236,6 +250,52 @@ class _ScraperPageState extends State<ScraperPage> {
               ),
             ),
           ),
+          if (_lastResult != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            (_lastResult!['ok'] as bool? ?? false)
+                                ? Icons.check_circle
+                                : Icons.error,
+                            color: (_lastResult!['ok'] as bool? ?? false)
+                                ? Colors.green
+                                : Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(width: 8),
+                          Text('Run finished', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Collected: ${_lastResult!['count'] ?? 0}',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(_buildCountsLine(_lastResult!),
+                          style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 4),
+                      Text(
+                        _lastResult!['message']?.toString() ?? '',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: (_lastResult!['ok'] as bool? ?? false)
+                              ? Colors.green
+                              : Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(

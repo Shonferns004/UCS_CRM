@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.util.Log
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -577,11 +578,27 @@ class ScraperAccessibilityService : AccessibilityService() {
                 stage = Stage.IDLE
                 releaseKeepOn()
                 ServiceBridge.emit(mapOf("type" to "stage", "stage" to "IDLE"))
+                closeSurfacesOnFinish()
             }
         }.start()
     }
 
     // ---------- blocking screens ----------
+
+    private fun closeSurfacesOnFinish() {
+        try {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } catch (ex: Exception) {
+            Log.w("Scraper", "closeSurfacesOnFinish: HOME failed: " + ex.message)
+        }
+        try {
+            val self = Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            startActivity(self)
+        } catch (ex: Exception) {
+            Log.w("Scraper", "closeSurfacesOnFinish: reopen failed: " + ex.message)
+        }
+    }
 
     private fun handleBlocker(root: AccessibilityNodeInfo?): Boolean {
         if (root == null) return false
