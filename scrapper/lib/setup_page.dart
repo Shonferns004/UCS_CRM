@@ -28,6 +28,7 @@ class _SetupPageState extends State<SetupPage> {
   String? _ngoError;
   List<Map<String, dynamic>> _ngos = [];
   bool _loadingNgos = false;
+  String _lastImportedDate = '';
 
   @override
   void initState() {
@@ -47,6 +48,7 @@ class _SetupPageState extends State<SetupPage> {
       _receivedOnly = cfg['receivedOnly'] as bool? ?? true;
       _maxTxCtl.text = (cfg['maxTransactions'] as num?)?.toString() ?? '200';
       _scrollLoopsCtl.text = (cfg['scrollLoops'] as num?)?.toString() ?? '8';
+      _lastImportedDate = cfg['lastImportedDate']?.toString() ?? '';
       final pid = cfg['projectId']?.toString() ?? '';
       if (pid.isNotEmpty) _setProjectId(pid);
     });
@@ -277,6 +279,24 @@ class _SetupPageState extends State<SetupPage> {
                   value: _receivedOnly,
                   onChanged: (v) => setState(() => _receivedOnly = v),
                 ),
+                if (_lastImportedDate.isNotEmpty)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Already collected up to: $_lastImportedDate',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          await setConfig({'lastImportedDate': ''});
+                          setState(() => _lastImportedDate = '');
+                        },
+                        child: const Text('Reset cutoff'),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _historyText,

@@ -29,7 +29,8 @@ object ScraperConfig {
         "receivedOnly" to getBool("receivedOnly", true),
         "maxTransactions" to getInt("maxTransactions", 200),
         "scrollLoops" to getInt("scrollLoops", 8),
-        "historyText" to (get("historyText") ?: "All activity")
+        "historyText" to (get("historyText") ?: "All activity"),
+        "lastImportedDate" to (get("lastImportedDate") ?: "")
     )
 
     fun setAll(map: Map<String, Any?>) {
