@@ -23,7 +23,10 @@ class ScraperAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile var instance: ScraperAccessibilityService? = null
             private set
-        const val GPAY = "com.google.android.apps.nbu.paisa"
+        val GPAY_PACKAGES = listOf(
+            "com.google.android.apps.nbu.paisa.user", // current GPay / Google Pay (India)
+            "com.google.android.apps.nbu.paisa",      // legacy Google Pay (Tez)
+        )
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -56,7 +59,7 @@ class ScraperAccessibilityService : AccessibilityService() {
     private var pinDone = false
     private var waitTicks = 0
     private var scrollCount = 0
-    private var historyClicked = false
+    private var listEntered = false
     private var detailPhase = 0
     private var pendingDetail: ScrapedTxn? = null
     private var blockedNotified = false
@@ -66,6 +69,15 @@ class ScraperAccessibilityService : AccessibilityService() {
     private val seenRefs = HashSet<String>()
     private val seenPartial = HashSet<String>()
     private var lastHeaderDate: String? = null
+
+    private var training = false
+    private val trainedSteps = mutableListOf<TrainedStep>()
+    private var trainLastAt = 0L
+    private var trainedFlow: List<TrainedStep> = emptyList()
+    private var replayIdx = 0
+    private var stepCooldown = 0
+    private var flowDone = false
+    private var linkCooldown = 0
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var runId = ""
@@ -86,7 +98,80 @@ class ScraperAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!training || event == null) return
+        val pkg = event.packageName?.toString() ?: return
+        if (!pkg.contains("nbu.paisa")) return
+        val now = System.currentTimeMillis()
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                val src = event.source ?: return
+                val t = src.text?.toString()?.trim() ?: ""
+                val d = src.contentDescription?.toString()?.trim() ?: ""
+                if (t.isEmpty() && d.isEmpty()) return
+                val last = trainedSteps.lastOrNull()
+                if (last != null && last.type == "click" && now - trainLastAt < 900 &&
+                    last.text == t && last.desc == d) return
+                trainLastAt = now
+                val b = Rect()
+                src.getBoundsInScreen(b)
+                val dm = resources.displayMetrics
+                trainedSteps.add(TrainedStep().apply {
+                    type = "click"; text = t; desc = d; cls = src.className?.toString() ?: ""
+                    relX = if (dm.widthPixels > 0) b.centerX().toFloat() / dm.widthPixels else 0f
+                    relY = if (dm.heightPixels > 0) b.centerY().toFloat() / dm.heightPixels else 0f
+                })
+                emitTraining()
+            }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val last = trainedSteps.lastOrNull()
+                if (last == null || last.type != "swipe" || now - trainLastAt > 1500) {
+                    trainedSteps.add(TrainedStep().apply { type = "swipe" })
+                    trainLastAt = now
+                    emitTraining()
+                }
+            }
+        }
+    }
+
+    fun startTraining() {
+        training = true
+        trainedSteps.clear()
+        trainLastAt = 0L
+        trainingSessionStarted()
+        emit("training", mapOf("state" to "on", "steps" to 0))
+    }
+
+    fun stopTraining(): Int {
+        training = false
+        ScraperConfig.setAll(mapOf("trainedFlow" to TrainedStep.save(trainedSteps)))
+        val n = trainedSteps.size
+        emit("training", mapOf("state" to "off", "steps" to n))
+        return n
+    }
+
+    fun isTraining(): Boolean = training
+    fun trainedCount(): Int = trainedSteps.size
+
+    private fun trainingSessionStarted() {
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (km.isKeyguardLocked) {
+            emit("status", mapOf("message" to "Unlock the phone, open Google Pay, then do the flow with your finger. Taps and scrolls are recorded."))
+            return
+        }
+        val intent = GPAY_PACKAGES.asSequence()
+            .map { packageManager.getLaunchIntentForPackage(it) }
+            .firstOrNull { it != null }
+        if (intent != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        }
+        emit("status", mapOf("message" to "Training ON. Do the flow manually: open See all transactions, tap a transaction, scroll back up. Then press Stop & save."))
+    }
+
+    private fun emitTraining() {
+        ServiceBridge.emit(mapOf("type" to "training", "steps" to trainedSteps.size))
+    }
 
     fun setInspectMode(on: Boolean) { inspectMode = on }
 
@@ -106,8 +191,10 @@ class ScraperAccessibilityService : AccessibilityService() {
 
         collected.clear(); seenRefs.clear(); seenPartial.clear()
         pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0
-        historyClicked = false; detailPhase = 0; pendingDetail = null
+        listEntered = false; detailPhase = 0; pendingDetail = null
         lastHeaderDate = null
+        trainedFlow = TrainedStep.load(ScraperConfig.get("trainedFlow"))
+        replayIdx = 0; stepCooldown = 0; flowDone = false; linkCooldown = 0
         runId = "run-${deviceLabel.ifBlank { "phone" }}-${System.currentTimeMillis()}"
 
         if (devicePin.isBlank()) {
@@ -218,7 +305,9 @@ class ScraperAccessibilityService : AccessibilityService() {
             return if (gpayLockType == "pin" && gpayPin.isNotBlank()) Stage.GPAY_PIN else Stage.COLLECT
         }
         if (waitTicks < 1) { // one launch attempt per app-open
-            val intent = packageManager.getLaunchIntentForPackage(GPAY)
+            val intent = GPAY_PACKAGES.asSequence()
+                .map { packageManager.getLaunchIntentForPackage(it) }
+                .firstOrNull { it != null }
             if (intent == null) { setError("Google Pay is not installed on this phone."); return Stage.IDLE }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
@@ -231,6 +320,8 @@ class ScraperAccessibilityService : AccessibilityService() {
     private fun stepGpayPin(root: AccessibilityNodeInfo): Stage {
         if (!hasDigitPad(root)) {
             if (pinDone) { waitTicks++; if (waitTicks > 2) { pinDone = false; waitTicks = 0; return Stage.COLLECT } }
+            waitTicks++
+            if (waitTicks > 12) { pinDone = false; waitTicks = 0; return Stage.COLLECT }
             return Stage.GPAY_PIN
         }
         waitTicks = 0
@@ -251,8 +342,37 @@ class ScraperAccessibilityService : AccessibilityService() {
     }
 
     private fun stepCollect(root: AccessibilityNodeInfo): Stage {
+        if (!flowDone && trainedFlow.isNotEmpty()) {
+            if (replayIdx >= trainedFlow.size) flowDone = true
+            else return stepTrained(root, trainedFlow)
+        }
+        if (!listEntered) {
+            if (linkCooldown > 0) {
+                linkCooldown--
+            } else {
+                val seeAll = findNode(root) {
+                    val d = it.contentDescription?.toString()?.trim() ?: ""
+                    val t = it.text?.toString()?.trim() ?: ""
+                    (it.isClickable || it.isLongClickable) && (d.equals("See all", true) || t.equals("See all", true))
+                }
+                if (seeAll != null) {
+                    emit("info", mapOf("message" to "Opening full transactions list"))
+                    seeAll.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    listEntered = true
+                    linkCooldown = 2
+                    return Stage.COLLECT
+                }
+                val link = findLinkToTransactions(root)
+                if (link != null) {
+                    emit("info", mapOf("message" to "Navigating to transaction history"))
+                    link.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    linkCooldown = 2
+                    return Stage.COLLECT
+                }
+            }
+        }
         val rows = mutableListOf<AccessibilityNodeInfo>()
-        clickableRows(root, rows)
+        collectRows(root, rows)
         lastHeaderDate = null
         for (row in rows) {
             if (!row.isVisibleToUser) continue
@@ -284,13 +404,6 @@ class ScraperAccessibilityService : AccessibilityService() {
             finishUpload("reached max ${maxTx} transactions")
             return Stage.IDLE
         }
-        if (!historyClicked && historyText.isNotBlank()) {
-            val q = historyText.lowercase()
-            val link = findNode(root) {
-                it.isClickable && ((it.text?.toString()?.lowercase() ?: "").contains(q) || (it.contentDescription?.toString()?.lowercase() ?: "").contains(q))
-            }
-            if (link != null) { link.performAction(AccessibilityNodeInfo.ACTION_CLICK); historyClicked = true }
-        }
         if (scrollCount >= maxScrolls) {
             finishUpload("no new rows after $maxScrolls scrolls")
             return Stage.IDLE
@@ -300,21 +413,99 @@ class ScraperAccessibilityService : AccessibilityService() {
         return Stage.COLLECT
     }
 
+    private fun findLinkToTransactions(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val patterns = listOf("see transaction history", "see all transactions", "view all transactions", "view all", "all transactions", "all activity")
+        val want = (patterns + listOf(historyText.lowercase())).filter { it.length >= 3 }.toSet()
+        return findNode(root) {
+            val t = (it.text?.toString() ?: "").lowercase()
+            val d = (it.contentDescription?.toString() ?: "").lowercase()
+            (it.isClickable || it.isLongClickable) && want.any { (t + " " + d).contains(it) }
+        }
+    }
+
+    private fun stepTrained(root: AccessibilityNodeInfo, steps: List<TrainedStep>): Stage {
+        if (stepCooldown > 0) {
+            stepCooldown--
+            return Stage.COLLECT
+        }
+        val st = steps[replayIdx]
+        when (st.type) {
+            "back" -> {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                replayIdx++; stepCooldown = 2
+                return Stage.COLLECT
+            }
+            "swipe" -> {
+                swipeUp()
+                replayIdx++; stepCooldown = 1
+                return Stage.COLLECT
+            }
+            else -> {
+                val node = findNode(root) {
+                    if (!it.isVisibleToUser) return@findNode false
+                    val t = (it.text?.toString() ?: "").trim()
+                    val d = (it.contentDescription?.toString() ?: "").trim()
+                    (st.text.isNotEmpty() && (t == st.text || (t.length >= 3 && t.contains(st.text)))) ||
+                        (st.desc.isNotEmpty() && (d == st.desc || (d.length >= 3 && d.contains(st.desc))))
+                }
+                if (node != null) {
+                    if (node.isClickable) node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    else {
+                        val r = Rect()
+                        node.getBoundsInScreen(r)
+                        tap(r.centerX().toFloat(), r.centerY().toFloat())
+                    }
+                    replayIdx++; stepCooldown = 2
+                    return Stage.COLLECT
+                }
+                val joined = textsJoined(root).lowercase()
+                val inDetail = Regex("(transaction id|txn id|ref no|reference no|upi[- ]?ref|payment id)").containsMatchIn(joined)
+                if (inDetail) {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    stepCooldown = 2
+                    return Stage.COLLECT
+                }
+                swipeUp()
+                stepCooldown = 1
+                return Stage.COLLECT
+            }
+        }
+    }
+
     private fun stepDetail(root: AccessibilityNodeInfo): Stage {
         when (detailPhase) {
             0 -> {
                 val pd = pendingDetail ?: return Stage.COLLECT
-                val located = findNode(root) {
-                    val s = it.text?.toString() ?: ""
-                    Regex("\\d").containsMatchIn(s) && s.contains(pd.amount.toInt().toString())
-                }
-                if (located != null) {
+                var tapped = false
+                val rows = mutableListOf<AccessibilityNodeInfo>()
+                collectRows(root, rows)
+                for (row in rows) {
+                    if (!row.isVisibleToUser) continue
+                    val txn = parseRow(row) ?: continue
+                    if (txn.amount != pd.amount) continue
+                    val pn = pd.payerName?.trim()?.lowercase() ?: ""
+                    val tn = txn.payerName?.trim()?.lowercase() ?: ""
+                    if (pn.isNotEmpty() && tn.isNotEmpty() && !tn.contains(pn) && !pn.contains(tn)) continue
                     val r = Rect()
-                    located.getBoundsInScreen(r)
-                    tap((r.centerX()).toFloat(), (r.centerY()).toFloat())
-                } else {
-                    val a = matchRowCoordinates(root, pd)
-                    if (a != null) tap(a.first, a.second)
+                    row.getBoundsInScreen(r)
+                    if (row.isClickable) {
+                        row.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    } else {
+                        tap((r.centerX()).toFloat(), (r.centerY()).toFloat())
+                    }
+                    tapped = true
+                    break
+                }
+                if (!tapped) {
+                    val located = findNode(root) {
+                        val s = it.text?.toString() ?: ""
+                        Regex("\\d").containsMatchIn(s) && s.contains(pd.amount.toInt().toString())
+                    }
+                    if (located != null) {
+                        val r = Rect()
+                        located.getBoundsInScreen(r)
+                        tap((r.centerX()).toFloat(), (r.centerY()).toFloat())
+                    }
                 }
                 detailPhase = 1
             }
@@ -431,6 +622,29 @@ class ScraperAccessibilityService : AccessibilityService() {
     }
 
     private fun parseRow(row: AccessibilityNodeInfo): ScrapedTxn? {
+        val desc = row.contentDescription?.toString()?.trim()
+        if (!desc.isNullOrBlank()) {
+            val am = Regex("[₹$]\\s*([\\d,]+(?:\\.\\d{1,2})?)\\s+(credited|debited)\\b", RegexOption.IGNORE_CASE).find(desc)
+            if (am != null) {
+                val amount = am.groupValues[1].replace(",", "").toDoubleOrNull() ?: return null
+                val received = am.groupValues[2].equals("credited", true)
+                val lines = desc.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+                val name = lines.firstOrNull { Regex("[₹$\\d]").find(it) == null }?.take(80)
+                val dateLine = lines.firstOrNull { l ->
+                    Regex("credited|debited", RegexOption.IGNORE_CASE).find(l) == null &&
+                        Regex("\\d{1,2}\\s+[A-Za-z]{3,9}").find(l) != null
+                }
+                val parsedDate = dateLine?.let { parseHeaderFromText(it) }
+                return ScrapedTxn(
+                    paymentId = null,
+                    amount = amount,
+                    payerName = name?.ifBlank { null },
+                    transactionDate = parsedDate,
+                    paymentTime = null,
+                    received = received
+                )
+            }
+        }
         val texts = mutableListOf<String>()
         collectTexts(row, texts)
         var amount: Double? = null
@@ -498,15 +712,22 @@ class ScraperAccessibilityService : AccessibilityService() {
         collectTexts(root, texts)
         val joined = texts.joinToString("\n")
 
-        val id = Regex("(?:UPI\\s*transaction\\s*ID|Transaction\\s*(?:ID|Id|id)|UPI\\s*Ref|Reference\\s*No|payment\\s*ID)\\s*[:.]?\\s*([A-Za-z0-9_-]{10,})").find(joined)?.groupValues?.get(1)
+        val id = Regex("(?:UPI\\s*transaction\\s*ID|Transaction\\s*(?:ID|Id|id)|UPI\\s*Ref|Reference\\s*No|payment\\s*ID|Google\\s*transaction\\s*ID)\\s*[:.]?\\s*(?:\\n\\s*)?([A-Za-z0-9][A-Za-z0-9 _-]{9,})", RegexOption.IGNORE_CASE).find(joined)
+            ?.groupValues?.get(1)?.replace(Regex("[ \\n]"), "")
+            ?.takeIf { Regex("^[A-Za-z0-9_-]{10,}\$").matches(it) }
             ?: texts.firstOrNull { Regex("^[A-Za-z0-9]{16}$").matches(it.trim()) }?.trim()
         if (id != null && (txn.paymentId?.filterNot { it == ' ' } ?: "") != id) txn.paymentId = id
 
         val date = Regex("\\bdate\\b\\s*:\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4})", RegexOption.IGNORE_CASE).find(joined)?.groupValues?.get(1)
+            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4})").find(joined)?.groupValues?.get(1)
         if (date != null) txn.transactionDate = parseHeaderFromText(date)
 
         val relTime = Regex("\\btime\\b\\s*:\\s*(\\d{1,2}:\\d{2}\\s*(?:am|pm))", RegexOption.IGNORE_CASE).find(joined)
+            ?: Regex("(\\d{1,2}:\\d{2}\\s*(?:am|pm))", RegexOption.IGNORE_CASE).find(joined)
         if (relTime != null) txn.paymentTime = convert12(relTime.groupValues[1])
+
+        val fromLine = Regex("From:\\s*([A-Za-z][A-Za-z .'-]{1,60})", RegexOption.IGNORE_CASE).find(joined)
+        if (fromLine != null) txn.payerName = fromLine.groupValues[1].trim().trimEnd('.').take(80)
     }
 
     private fun convert12(s: String): String {
@@ -582,25 +803,58 @@ class ScraperAccessibilityService : AccessibilityService() {
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
-    private fun matchRowCoordinates(root: AccessibilityNodeInfo, pd: ScrapedTxn): Pair<Float, Float>? {
-        val rows = mutableListOf<AccessibilityNodeInfo>()
-        clickableRows(root, rows)
-        for (row in rows) {
-            if (!row.isVisibleToUser) continue
-            val t = row.text?.toString() ?: ""
-            val d = pd.amount.toInt().toString()
-            if (t.contains(d)) {
-                val r = Rect()
-                row.getBoundsInScreen(r)
-                if (r.width() > 0) {
-                    val txn = parseRow(row)
-                    if (txn != null && txn.amount == pd.amount) {
-                        return (r.centerX()).toFloat() to (r.centerY()).toFloat()
-                    }
-                }
+    private fun collectDescRows(node: AccessibilityNodeInfo?, out: MutableList<AccessibilityNodeInfo>, seen: HashSet<AccessibilityNodeInfo>) {
+        if (node == null || !node.isVisibleToUser || !seen.add(node)) return
+        if (node.isClickable) {
+            val d = node.contentDescription?.toString()?.trim() ?: ""
+            if (d.isNotBlank() && Regex("[₹$]\\s*[\\d,]+(?:\\.\\d{1,2})?\\s+(credited|debited)\\b", RegexOption.IGNORE_CASE).containsMatchIn(d)) {
+                out.add(node)
+                return
             }
         }
-        return null
+        for (i in 0 until node.childCount) collectDescRows(node.getChild(i), out, seen)
+    }
+
+    private fun amountNodes(node: AccessibilityNodeInfo?, out: MutableList<AccessibilityNodeInfo>, seen: HashSet<AccessibilityNodeInfo>) {
+        if (node == null || !node.isVisibleToUser || !seen.add(node)) return
+        val t = node.text?.toString()?.trim() ?: ""
+        if (t.isNotEmpty() && t.length <= 16 &&
+            Regex("^[+-]?\\s*[₹$]?\\s*[\\d,]+(?:\\.\\d{1,2})?\\s*$").matches(t)) {
+            out.add(node)
+        }
+        for (i in 0 until node.childCount) amountNodes(node.getChild(i), out, seen)
+    }
+
+    private fun collectRows(root: AccessibilityNodeInfo, out: MutableList<AccessibilityNodeInfo>) {
+        val descRows = mutableListOf<AccessibilityNodeInfo>()
+        collectDescRows(root, descRows, HashSet())
+        if (descRows.isNotEmpty()) {
+            out.addAll(descRows)
+            return
+        }
+        val amounts = mutableListOf<AccessibilityNodeInfo>()
+        amountNodes(root, amounts, HashSet())
+        if (amounts.isNotEmpty()) {
+            val used = HashSet<AccessibilityNodeInfo>()
+            val dm = resources.displayMetrics
+            for (n in amounts) {
+                var row = n
+                var cur: AccessibilityNodeInfo? = n
+                while (true) {
+                    val p = cur?.parent ?: break
+                    if (!p.isVisibleToUser) break
+                    val r = Rect()
+                    p.getBoundsInScreen(r)
+                    if (r.isEmpty) break
+                    if (r.height() > dm.heightPixels * 0.15f) break
+                    if (r.width() >= dm.widthPixels * 0.45f) { row = p; break }
+                    cur = p
+                }
+                if (used.add(row)) out.add(row)
+            }
+            return
+        }
+        clickableRows(root, out)
     }
 
     // ---------- tree scanning ----------

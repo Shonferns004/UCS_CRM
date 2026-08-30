@@ -16,6 +16,8 @@ class _ScraperPageState extends State<ScraperPage> {
   StreamSubscription<Map<dynamic, dynamic>>? _sub;
   bool _connected = false;
   bool _running = false;
+  bool _training = false;
+  int _trainSteps = 0;
   int _collected = 0;
   String _stage = 'IDLE';
   bool _busy = false;
@@ -35,10 +37,13 @@ class _ScraperPageState extends State<ScraperPage> {
 
   Future<void> _refreshState() async {
     final s = await getServiceState();
+    final t = await getTrainingState();
     if (!mounted) return;
     setState(() {
       _connected = s['connected'] as bool? ?? false;
       _running = s['running'] as bool? ?? false;
+      _training = t['training'] as bool? ?? false;
+      _trainSteps = t['steps'] as int? ?? 0;
     });
   }
 
@@ -54,9 +59,11 @@ class _ScraperPageState extends State<ScraperPage> {
       'done' => 'done ok=${e['payload']}',
       'connected' => 'accessibility service connected',
       'status' => 'status: ${e['message']}',
+      'training' => 'training steps=${e['steps']}',
       _ => 'event $type ${e['message']}',
     };
     setState(() {
+      if (type == 'training') _trainSteps = (e['steps'] as num?)?.toInt() ?? _trainSteps;
       if (type == 'stage' || type == 'started' || type == 'stopped') {
         _stage = e['stage']?.toString() ?? _stage;
       }
@@ -85,6 +92,39 @@ class _ScraperPageState extends State<ScraperPage> {
   Future<void> _stop() async {
     await stopRun();
     _refreshState();
+  }
+
+  Future<void> _startTrain() async {
+    setState(() => _busy = true);
+    final r = await startTraining();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (r['ok'] as bool? ?? false) {
+      _log.insert(0, {
+        't': DateTime.now().toIso8601String(),
+        'm': 'TRAINING: do the flow by hand in Google Pay (tap See all transactions, tap a transaction, scroll). Press Stop & save when done.',
+      });
+      setState(() => _training = true);
+    } else {
+      _log.insert(0, {
+        't': DateTime.now().toIso8601String(),
+        'm': r['message']?.toString() ?? 'training start failed',
+      });
+    }
+    _refreshState();
+  }
+
+  Future<void> _stopTrain() async {
+    setState(() => _busy = true);
+    final n = await stopTraining();
+    await _refreshState();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _log.insert(0, {
+      't': DateTime.now().toIso8601String(),
+      'm': n > 0 ? 'Saved $n trained steps — the next Start run will replay them first.' : 'Nothing recorded, training cleared.',
+    });
+    setState(() {});
   }
 
   Color? _colorFor(String m) {
@@ -136,6 +176,36 @@ class _ScraperPageState extends State<ScraperPage> {
                         Text('Collected: $_collected'),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: (_running || _training || _busy) ? null : _startTrain,
+                            icon: _training
+                                ? const Icon(Icons.fiber_manual_record)
+                                : const Icon(Icons.gesture),
+                            label: Text(_training ? 'Training…' : 'Start training'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (_training && !_busy) ? _stopTrain : null,
+                            icon: const Icon(Icons.save),
+                            label: const Text('Stop & save'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_trainSteps > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Saved trained flow: $_trainSteps step(s).',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
                     const SizedBox(height: 12),
                     Row(
                       children: [

@@ -53,16 +53,33 @@ class _SetupPageState extends State<SetupPage> {
   }
 
   void _setProjectId(String pid) {
-    for (final n in _ngos) {
-      if (n['project_id'] == pid) {
-        _selectedProjectId = pid;
-        return;
-      }
+    _savedProjectId = pid;
+    if (_selectedProjectId == null && _ngos.any((n) => _ngoId(n) == pid)) {
+      _selectedProjectId = pid;
     }
-    _selectedProjectId = null;
+    _reconcileSelection();
   }
 
+  String? _ngoId(Map<String, dynamic> n) =>
+      (n['id'] ?? n['project_id'])?.toString();
+
   String? _selectedProjectId;
+  String? _savedProjectId;
+
+  void _reconcileSelection() {
+    if (_ngos.isEmpty) {
+      _selectedProjectId = null;
+      return;
+    }
+    final valid = _ngos.any((n) => _ngoId(n) == _selectedProjectId);
+    if (valid) return;
+    if (_savedProjectId != null &&
+        _ngos.any((n) => _ngoId(n) == _savedProjectId)) {
+      _selectedProjectId = _savedProjectId;
+    } else {
+      _selectedProjectId = _ngoId(_ngos.first);
+    }
+  }
 
   Future<void> _fetchNgos() async {
     setState(() {
@@ -85,9 +102,7 @@ class _SetupPageState extends State<SetupPage> {
       setState(() {
         _ngos = list;
         _loadingNgos = false;
-        if (_selectedProjectId == null && list.isNotEmpty) {
-          _selectedProjectId = list.first['project_id']?.toString();
-        }
+        _reconcileSelection();
       });
     } catch (e) {
       if (!mounted) return;
@@ -171,13 +186,14 @@ class _SetupPageState extends State<SetupPage> {
                   segments: const [
                     ButtonSegment(value: 'pin', label: Text('Passcode')),
                     ButtonSegment(value: 'biometric', label: Text('Fingerprint / Face')),
+                    ButtonSegment(value: 'none', label: Text('No lock')),
                   ],
                   selected: {_gpayLockType},
                   onSelectionChanged: (s) => setState(() => _gpayLockType = s.first),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Passcode: the app types it automatically. Fingerprint/Face: the run waits and prompts you to scan, then continues. For hands-free runs, set a passcode in Google Pay.',
+                  'Passcode: the app types it automatically. Fingerprint/Face: the run waits and prompts you to scan, then continues. No lock: Google Pay opens straight to transactions. For hands-free runs, set a passcode in Google Pay or pick No lock.',
                   style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12),
                 ),
                 const SizedBox(height: 20),
@@ -191,9 +207,9 @@ class _SetupPageState extends State<SetupPage> {
                         initialValue: _selectedProjectId,
                         items: _ngos
                             .map((n) => DropdownMenuItem(
-                                  value: n['project_id']?.toString(),
+                                  value: _ngoId(n),
                                   child: Text(
-                                    '${n['name'] ?? n['project_code']} (${n['project_id']})',
+                                    '${n['name'] ?? n['project_code']} (${n['project_code'] ?? _ngoId(n)})',
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ))
