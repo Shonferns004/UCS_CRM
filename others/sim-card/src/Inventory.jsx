@@ -7,13 +7,14 @@ import { toast } from './Toast';
 
 const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
 const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 30 Days', 'More than 30 Days'];
+const SIM_NAME_FILTERS = ['All', 'Android', 'Nokia'];
 const SORTABLE = ['mobile_id', 'device_model', 'imei', 'team', 'sim_type', 'issue_date', 'expiry_date', 'days_left', 'status', 'replacement_count'];
 
 const COLUMNS = [
   { key: 'mobile_id', label: 'Mobile ID No.' },
   { key: 'device_model', label: 'Device & Model Name' },
   { key: 'imei', label: 'IMEI No.' },
-  { key: 'team', label: 'Team' },
+  { key: 'team', label: 'Owner' },
   { key: 'sim_type', label: 'SIM Type' },
   { key: 'signature', label: 'Signature' },
   { key: 'issue_date', label: 'Issue Date' },
@@ -32,6 +33,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
   const [team, setTeam] = useState('All');
   const [simType, setSimType] = useState('All');
   const [device, setDevice] = useState('All');
+  const [simName, setSimName] = useState('All');
   const [expiry, setExpiry] = useState('All');
   const [sortKey, setSortKey] = useState('mobile_id');
   const [sortDir, setSortDir] = useState('asc');
@@ -50,7 +52,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
   const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
   const devices = useMemo(() => [...new Set(enriched.map((c) => c.device_model).filter(Boolean))].sort(), [enriched]);
 
-  useEffect(() => { setPage(1); }, [search, status, team, device, expiry]);
+  useEffect(() => { setPage(1); }, [search, status, team, device, simName, expiry]);
 
   const filtered = useMemo(() => {
     let list = enriched;
@@ -66,6 +68,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
     if (team !== 'All') list = list.filter((c) => c.team === team);
     if (simType !== 'All') list = list.filter((c) => c.sim_type === simType);
     if (device !== 'All') list = list.filter((c) => c.device_model === device);
+    if (simName !== 'All') list = list.filter((c) => (c.mobile_id || '').toLowerCase().startsWith(simName.toLowerCase()));
     if (expiry !== 'All') {
       list = list.filter((c) => {
         const d = c.days_left;
@@ -90,7 +93,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
       });
     }
     return list;
-  }, [enriched, search, status, team, simType, device, expiry, sortKey, sortDir]);
+  }, [enriched, search, status, team, simType, device, simName, expiry, sortKey, sortDir]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
   const safePage = Math.min(page, pageCount);
@@ -111,7 +114,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
       const n = { ...selected }; pageRows.forEach((r) => { n[r.id] = true; }); setSelected(n);
     }
   };
-  const clearFilters = () => { setSearch(''); setStatus('All'); setTeam('All'); setSimType('All'); setDevice('All'); setExpiry('All'); setPage(1); };
+  const clearFilters = () => { setSearch(''); setStatus('All'); setTeam('All'); setSimType('All'); setDevice('All'); setSimName('All'); setExpiry('All'); setPage(1); };
 
   async function doBulkChange(statusVal) {
     const ids = Object.keys(selected).filter((k) => selected[k]);
@@ -149,7 +152,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
           {STATUS_FILTERS.map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className="sim-select" value={team} onChange={(e) => setTeam(e.target.value)}>
-          <option value="All">All Teams</option>
+          <option value="All">All Owners</option>
           {teams.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <select className="sim-select" value={simType} onChange={(e) => setSimType(e.target.value)}>
@@ -159,6 +162,9 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
         <select className="sim-select" value={device} onChange={(e) => setDevice(e.target.value)}>
           <option value="All">All Devices</option>
           {devices.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select className="sim-select" value={simName} onChange={(e) => setSimName(e.target.value)}>
+          {SIM_NAME_FILTERS.map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className="sim-select" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
           {EXPIRY_FILTERS.map((s) => <option key={s}>{s}</option>)}

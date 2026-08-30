@@ -198,7 +198,7 @@ export default function Activities() {
       {loading ? (
         <div className="loading">Loading activities...</div>
       ) : (
-        <EnhancedTable columns={columns} data={filtered} searchPlaceholder="Search activities..." pageSize={10} />
+        <EnhancedTable columns={columns} data={filtered} searchPlaceholder="Search activities..." pageSize={10} groupBy="sector_name" groupLabel={(key, rows) => (rows[0] && rows[0].sector_name) || 'Unassigned'} />
       )}
 
       {importModal && (
