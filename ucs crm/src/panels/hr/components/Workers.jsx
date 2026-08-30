@@ -121,7 +121,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [nameErr, setNameErr] = useState('');
   const [search, setSearch] = useState(load().search || '');
   const [roleFilter, setRoleFilter] = useState(load().roleFilter || '');
-  const [statusFilter, setStatusFilter] = useState(load().statusFilter || 'active');
+  const [statusFilter, setStatusFilter] = useState(['active','absconded','offboarded','all'].includes(load().statusFilter) ? load().statusFilter : 'active');
+  const [showTest, setShowTest] = useState(load().showTest || false);
   const [entityFilter, setEntityFilter] = useState('All');
   const [page, setPage] = useState(load().page || 1);
   const [created, setCreated] = useState(null);
@@ -181,6 +182,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
     return name === 'OTHER' ? 'Other' : (name || 'Other');
   };
   const filtered = workers.filter(w => {
+    if (w.is_test && !showTest) return false;
     const role = w.department || 'Team Member';
     if (roleFilter && role !== roleFilter) return false;
     const empStatus = w.employment_status || 'active';
@@ -877,6 +879,11 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                 {value:'offboarded', label:'Offboarded'},
                 {value:'all', label:'All'},
               ]} />
+            <button className={`btn btn-sm ${showTest ? 'btn-primary' : 'btn-outline'}`} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
+              onClick={()=>{ const v = !showTest; setShowTest(v); save({ showTest: v }); }}
+              title={showTest ? 'Hide test member accounts' : 'Show test member accounts (they stay excluded from stats)'}>
+              <Flask width={14}/> {showTest ? 'Hide test' : 'Show test'}
+            </button>
             <input className="search-input" value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Search by name, email, or team…"
               style={{ marginTop:0, maxWidth:200 }} />
@@ -944,7 +951,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                           <WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} />
                           {isComplete(workerDetails[w.id] || w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
-                          {w.is_test && <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, fontWeight:700, background:'#fef3c7', color:'#92400e', flexShrink:0 }}>TEST</span>}
+                          {w.is_test && <span style={{ fontSize:10, padding:'2px 8px', borderRadius:10, fontWeight:800, letterSpacing:'.5px', background:'#fef3c7', color:'#92400e', border:'1px solid #fcd34d', flexShrink:0 }}>TEST</span>}
                         </div>
                       </td>
                       <td>
