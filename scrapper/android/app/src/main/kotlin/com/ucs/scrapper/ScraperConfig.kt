@@ -29,8 +29,7 @@ object ScraperConfig {
         "receivedOnly" to getBool("receivedOnly", true),
         "maxTransactions" to getInt("maxTransactions", 200),
         "scrollLoops" to getInt("scrollLoops", 8),
-        "historyText" to (get("historyText") ?: "All activity"),
-        "lastImportedDate" to (get("lastImportedDate") ?: "")
+        "historyText" to (get("historyText") ?: "All activity")
     )
 
     fun setAll(map: Map<String, Any?>) {
@@ -53,6 +52,8 @@ object ScraperConfig {
     fun get(k: String) = prefs.getString(k, null)
     fun getBool(k: String, d: Boolean) = prefs.getBoolean(k, d)
     fun getInt(k: String, d: Int) = prefs.getInt(k, d)
+    fun getSet(k: String): Set<String> = prefs.getStringSet(k, emptySet()) ?: emptySet()
+    fun putSet(k: String, s: Set<String>) { prefs.edit().putStringSet(k, s).apply() }
 
     private fun getKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

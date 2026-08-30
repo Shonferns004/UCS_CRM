@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { deviceImport, status, runs, runDetail, ngos } from '../controllers/scraperController.js';
+import { deviceImport, status, runs, runDetail, ngos, knownRefs } from '../controllers/scraperController.js';
 
 const router = Router();
 
@@ -18,6 +18,7 @@ const requireDeviceKey = (req, res, next) => {
 };
 
 router.post('/device-import', requireDeviceKey, deviceImport);
+router.get('/known-refs', requireDeviceKey, knownRefs);
 router.get('/ngos', requireDeviceKey, ngos);
 
 // ---- Accounts panel endpoints ----
