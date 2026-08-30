@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { Grid, Cal, Plus, Clock, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
 import { themes, applyTheme } from './theme'
@@ -63,7 +63,7 @@ function Sidebar({ open, onClose }) {
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark" style={{background:'#7B5EA7'}}>E</div>
+          <div className="brand-mark">E</div>
           <div><h1>UFS</h1><span>Event Manager</span></div>
         </div>
         <nav className="sidebar-nav">
@@ -91,6 +91,7 @@ function Sidebar({ open, onClose }) {
 export default function EventHeadPanel() {
   const { user, logout } = useUcs()
   const location = useLocation()
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -189,9 +190,17 @@ export default function EventHeadPanel() {
               <h2>{meta?.label || 'Event Manager'}</h2>
             </div>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div className="eh-search" style={{ margin:0, maxWidth:280 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+              <input placeholder="Search events, NGOs, sectors…" style={{ background:'var(--eh-tint-1)', border:'none' }} />
+            </div>
+            <button className="eh-btn eh-btn-primary" style={{ marginRight:2 }} onClick={() => navigate('/event-head/create')}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Create Event
+            </button>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
-            <div className="avatar" style={{ background:'#7B5EA722', color:'#7B5EA7' }}>{initials}</div>
+            <div className="avatar">{initials}</div>
             {showMenu && (
               <div className="user-menu">
                 <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>

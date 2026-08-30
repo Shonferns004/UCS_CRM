@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { CATEGORIES, PRIORITIES, EVENT_STATUSES, fetchEventById, updateEvent, updateEventStatus, fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchMedia } from '../store'
+import EditBannerModal from '../components/EditBannerModal'
 
 const statusColor = (s) => {
   const map = { Completed:'green', Approved:'blue', Draft:'gray', Submitted:'yellow', Rejected:'red', Cancelled:'red', Closed:'green', Postponed:'yellow' }
@@ -21,6 +22,7 @@ export default function EventDetail() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [editBanner, setEditBanner] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -251,13 +253,19 @@ export default function EventDetail() {
           <div className="card">
             <div className="card-pad">
               {media.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
-                  {media.filter(m => /image/i.test(m.type || '') || /\.(png|jpe?g|gif|webp)$/i.test(m.url || '')).slice(0, 4).map((m, i) => (
-                    <a key={i} href={m.url} target="_blank" rel="noreferrer" style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', display: 'block' }}>
-                      <img src={m.url} alt={m.name || 'media'} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
-                    </a>
-                  ))}
-                </div>
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, alignItems: 'center', color: 'var(--ink-soft)' }}>{media.length} media file{media.length !== 1 ? 's' : ''}</span>
+                    <button className="btn btn-sm" style={{ background: '#7B5EA7', borderColor: '#7B5EA7', color: '#fff' }} onClick={() => setEditBanner(media[0])}>Edit Banner</button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
+                    {media.filter(m => /image/i.test(m.type || '') || /\.(png|jpe?g|gif|webp)$/i.test(m.url || '')).slice(0, 4).map((m, i) => (
+                      <a key={i} href={m.url} target="_blank" rel="noreferrer" style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', display: 'block' }}>
+                        <img src={m.url} alt={m.name || 'media'} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                      </a>
+                    ))}
+                  </div>
+                </>
               )}
               <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{event.name}</div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -306,6 +314,15 @@ export default function EventDetail() {
           )}
         </div>
       </div>
+
+      {editBanner && (
+        <EditBannerModal
+          media={editBanner}
+          event={event}
+          onClose={() => setEditBanner(null)}
+          onSaved={() => { setEditBanner(null); load() }}
+        />
+      )}
     </>
   )
 }
