@@ -1,0 +1,257 @@
+import { useMemo, useState, useEffect } from 'react';
+import { useSim } from './store';
+import { Icon } from './components';
+import { effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_STATUSES } from './helpers';
+import { bulkChangeStatus, bulkDelete } from './api';
+import { toast } from '../../components/Toast';
+
+const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
+const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 30 Days', 'More than 30 Days'];
+const SORTABLE = ['mobile_id', 'device_model', 'imei', 'team', 'issue_date', 'expiry_date', 'days_left', 'status', 'replacement_count'];
+
+const COLUMNS = [
+  { key: 'mobile_id', label: 'Mobile ID No.' },
+  { key: 'device_model', label: 'Device & Model Name' },
+  { key: 'imei', label: 'IMEI No.' },
+  { key: 'team', label: 'Team' },
+  { key: 'signature', label: 'Signature' },
+  { key: 'issue_date', label: 'Issue Date' },
+  { key: 'expiry_date', label: 'Auto Expiry Date' },
+  { key: 'days_left', label: 'Expiry Days Left', num: true },
+  { key: 'status', label: 'SIM Card Status' },
+  ...['sim_1','sim_2','sim_3','sim_4','sim_5','sim_6','sim_7','sim_8'].map((k) => ({ key: k, label: k.toUpperCase() })),
+  { key: 'replacement_count', label: 'Replacement Count', num: true },
+];
+
+export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }) {
+  const { cards, refresh } = useSim();
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('All');
+  const [team, setTeam] = useState('All');
+  const [device, setDevice] = useState('All');
+  const [expiry, setExpiry] = useState('All');
+  const [sortKey, setSortKey] = useState('mobile_id');
+  const [sortDir, setSortDir] = useState('asc');
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+  const [selected, setSelected] = useState({});
+  const [showActions, setShowActions] = useState(null);
+
+  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: effectiveStatus(c) })), [cards]);
+
+  const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
+  const devices = useMemo(() => [...new Set(enriched.map((c) => c.device_model).filter(Boolean))].sort(), [enriched]);
+
+  useEffect(() => { setPage(1); }, [search, status, team, device, expiry]);
+
+  const filtered = useMemo(() => {
+    let list = enriched;
+    if (search.trim()) {
+      const s = search.trim().toLowerCase();
+      list = list.filter((c) =>
+        (c.mobile_id || '').toLowerCase().includes(s) ||
+        (c.device_model || '').toLowerCase().includes(s) ||
+        (c.imei || '').toLowerCase().includes(s)
+      );
+    }
+    if (status !== 'All') list = list.filter((c) => c._status === status);
+    if (team !== 'All') list = list.filter((c) => c.team === team);
+    if (device !== 'All') list = list.filter((c) => c.device_model === device);
+    if (expiry !== 'All') {
+      list = list.filter((c) => {
+        const d = c.days_left;
+        if (expiry === 'Expired') return c._status === 'Expired';
+        if (expiry === 'Within 7 Days') return d !== null && d >= 0 && d <= 7;
+        if (expiry === 'Within 30 Days') return d !== null && d >= 0 && d <= 30;
+        if (expiry === 'More than 30 Days') return d !== null && d > 30;
+        return true;
+      });
+    }
+    if (sortKey) {
+      list = [...list].sort((a, b) => {
+        let va = a[sortKey], vb = b[sortKey];
+        if (sortKey === 'days_left') { va = va === null ? Infinity : va; vb = vb === null ? Infinity : vb; }
+        if (sortKey === 'status') { va = a._status; vb = b._status; }
+        if (sortKey === 'issue_date' || sortKey === 'expiry_date') { va = va || '9999-12-31'; vb = vb || '9999-12-31'; }
+        if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va;
+        va = String(va ?? '').toLowerCase(); vb = String(vb ?? '').toLowerCase();
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return list;
+  }, [enriched, search, status, team, device, expiry, sortKey, sortDir]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
+  const safePage = Math.min(page, pageCount);
+  const start = (safePage - 1) * perPage;
+  const pageRows = filtered.slice(start, start + perPage);
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+
+  const toggleSelect = (id) => setSelected((p) => ({ ...p, [id]: !p[id] }));
+  const toggleAll = () => {
+    if (selectedCount === pageRows.length && selectedCount > 0) {
+      const n = { ...selected }; pageRows.forEach((r) => delete n[r.id]); setSelected(n);
+    } else {
+      const n = { ...selected }; pageRows.forEach((r) => { n[r.id] = true; }); setSelected(n);
+    }
+  };
+  const clearFilters = () => { setSearch(''); setStatus('All'); setTeam('All'); setDevice('All'); setExpiry('All'); setPage(1); };
+
+  async function doBulkChange(statusVal) {
+    const ids = Object.keys(selected).filter((k) => selected[k]);
+    if (!ids.length) return;
+    try {
+      await bulkChangeStatus(ids, statusVal);
+      toast(`${ids.length} SIM card(s) updated`, 'success');
+      setSelected({}); refresh();
+    } catch (e) { toast(e.message || 'Failed', 'error'); }
+  }
+
+  async function doBulkDelete() {
+    const ids = Object.keys(selected).filter((k) => selected[k]);
+    if (!ids.length) return;
+    if (!window.confirm(`Delete ${ids.length} selected SIM card(s)? This cannot be undone.`)) return;
+    try {
+      await bulkDelete(ids);
+      toast(`${ids.length} SIM card(s) deleted`, 'success');
+      setSelected({}); refresh();
+    } catch (e) { toast(e.message || 'Failed', 'error'); }
+  }
+
+  const handleDelete = (c) => {
+    if (window.confirm(`Delete SIM card ${c.mobile_id || ''}? This cannot be undone.`)) onDelete(c);
+  };
+
+  return (
+    <div>
+      <div className="toolbar">
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <span style={{ position: 'absolute', left: 10, color: 'var(--sim-ink-soft)', display: 'flex' }}><Icon name="search" size={15} /></span>
+          <input className="sim-input search-input" placeholder="Search Mobile ID, Device, IMEI..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 32 }} />
+        </div>
+        <select className="sim-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+          {STATUS_FILTERS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select className="sim-select" value={team} onChange={(e) => setTeam(e.target.value)}>
+          <option value="All">All Teams</option>
+          {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="sim-select" value={device} onChange={(e) => setDevice(e.target.value)}>
+          <option value="All">All Devices</option>
+          {devices.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select className="sim-select" value={expiry} onChange={(e) => setExpiry(e.target.value)}>
+          {EXPIRY_FILTERS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <button className="sim-btn ghost" onClick={clearFilters}>Clear Filters</button>
+      </div>
+
+      {selectedCount > 0 && (
+        <div className="bulk-bar">
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Selected {selectedCount} SIM Cards</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="sim-btn" onClick={() => doBulkChange('Active')}>Mark Active</button>
+            <button className="sim-btn" onClick={() => doBulkChange('Inactive')}>Mark Inactive</button>
+            <button className="sim-btn danger" onClick={doBulkDelete}>Delete Selected</button>
+            <button className="sim-btn ghost" onClick={() => setSelected({})}>Clear</button>
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="sim-box empty-state">
+          <div className="big">No SIM Cards Found</div>
+          <div className="small">Adjust filters or add a new SIM card to get started.</div>
+          <button className="sim-btn primary" onClick={onAdd}>+ Add SIM Card</button>
+        </div>
+      ) : (
+        <div className="card-block">
+          <div className="table-wrap">
+            <table className="sim-table">
+              <thead>
+                <tr>
+                  <th className="check-cell">
+                    <input type="checkbox" checked={selectedCount === pageRows.length && selectedCount > 0} onChange={toggleAll} />
+                  </th>
+                  {COLUMNS.map((col) => (
+                    <th key={col.key} className={col.key === 'actions' ? '' : (SORTABLE.includes(col.key) ? `sortable ${col.num ? 'num' : ''}` : (col.num ? 'num' : ''))} onClick={() => SORTABLE.includes(col.key) && toggleSort(col.key)}>
+                      {col.label}
+                      {col.key === sortKey && <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                    </th>
+                  ))}
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((c) => (
+                  <tr key={c.id} className={selected[c.id] ? 'selected' : ''}>
+                    <td className="check-cell"><input type="checkbox" checked={!!selected[c.id]} onChange={() => toggleSelect(c.id)} /></td>
+                    <td style={{ fontWeight: 600 }}>{c.mobile_id || '—'}</td>
+                    <td>{c.device_model || '—'}</td>
+                    <td>{c.imei || '—'}</td>
+                    <td>{c.team || '—'}</td>
+                    <td>{c.signature || '—'}</td>
+                    <td>{formatDate(c.issue_date)}</td>
+                    <td>{formatDate(c.expiry_date)}</td>
+                    <td className={`days-cell num ${dayClass(c.days_left)}`}>{dayLabel(c.days_left)}</td>
+                    <td><span className={`pill ${pillForStatus(c._status)}`}>{c._status}</span></td>
+                    {['sim_1','sim_2','sim_3','sim_4','sim_5','sim_6','sim_7','sim_8'].map((k) => <td key={k}>{c[k] || '—'}</td>)}
+                    <td className="num">{c.replacement_count || 0}</td>
+                    <td>
+                      <div style={{ position: 'relative' }}>
+                        <button className="mini-btn" onClick={() => setShowActions(showActions === c.id ? null : c.id)}>⋯</button>
+                        {showActions === c.id && (
+                          <div style={{ position: 'absolute', right: 0, top: 26, background: '#fff', border: '1px solid var(--sim-line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 30, minWidth: 130, padding: 4 }}>
+                            {[['View', () => onView(c)], ['Edit', () => onEdit(c)], ['Replace', () => onReplace(c)], ['Delete', () => handleDelete(c)]].map(([label, fn]) => (
+                              <button key={label} className="mini-btn" style={{ width: '100%', textAlign: 'left', border: 'none', background: 'transparent', padding: '8px 10px', borderRadius: 6 }} onClick={() => { setShowActions(null); fn(); }}>
+                                <span style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }}>{label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="pagination">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--sim-ink-soft)' }}>
+              <span>Showing {filtered.length === 0 ? 0 : start + 1}–{Math.min(start + perPage, filtered.length)} of {filtered.length} SIM Cards</span>
+              <select className="sim-select" value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }} style={{ padding: '5px 8px' }}>
+                {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} rows</option>)}
+              </select>
+            </div>
+            <div className="pages">
+              <button className="page-btn" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>‹</button>
+              {Array.from({ length: Math.min(pageCount, 7) }, (_, i) => {
+                let p = i + 1;
+                if (pageCount > 7) {
+                  const half = Math.floor(6 / 2);
+                  const maxLeft = safePage - half;
+                  const maxRight = safePage + half;
+                  if (maxRight > pageCount) p = pageCount - 6 + i;
+                  else if (maxLeft < 1) p = 1 + i;
+                  else p = maxLeft + i;
+                }
+                return p >= 1 && p <= pageCount ? (
+                  <button key={p} className={`page-btn ${p === safePage ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
+                ) : null;
+              })}
+              <button className="page-btn" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)}>›</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

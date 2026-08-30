@@ -30,6 +30,9 @@ const DISPOSITION_GROUPS = [
 
 const PER_PAGE = 50;
 
+const toIstDate = (d = new Date()) =>
+  new Date(new Date(d).getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
+
 function StationDetailModal({ station, stats, stationInfo, onClose }) {
   const [donors, setDonors] = useState([]);
   const [loadingDonors, setLoadingDonors] = useState(false);
@@ -433,6 +436,175 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
   );
 }
 
+const FOLLOWUP_TAB_LABELS = {
+  overdue: 'Overdue', today: 'Today', tomorrow: 'Tomorrow', future: 'Future',
+  week: 'This Week', month: 'This Month',
+};
+
+function buildWorkerSummary(rows, todayIst = toIstDate()) {
+  const map = {};
+  for (const r of rows) {
+    const key = r.fro_worker_id || r.telecaller || 'Unknown';
+    if (!map[key]) map[key] = { key, telecaller: r.telecaller || 'Unknown', callback: 0, follow_up: 0, overdue: 0, rows: [] };
+    map[key][r.type === 'callback' ? 'callback' : 'follow_up']++;
+    const fd = r.followup_date ? String(r.followup_date).slice(0, 10) : null;
+    if (fd && fd < todayIst) map[key].overdue++;
+    map[key].rows.push(r);
+  }
+  const list = Object.values(map).map(x => ({ ...x, total: x.callback + x.follow_up }));
+  list.sort((a, b) => b.total - a.total || a.telecaller.localeCompare(b.telecaller));
+  return list;
+}
+
+function FollowupSummaryTable({ summary, onSelect, hint }) {
+  const tCall = summary.reduce((s, w) => s + w.callback, 0);
+  const tFup = summary.reduce((s, w) => s + w.follow_up, 0);
+  const tOver = summary.reduce((s, w) => s + w.overdue, 0);
+  const tTotal = summary.reduce((s, w) => s + w.total, 0);
+  return (
+    <div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              {[['Telecaller', 'left'], ['Callback', 'center'], ['Follow-up', 'center'], ['Overdue', 'center'], ['Total', 'center']].map(([h, align]) => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map(w => (
+              <tr key={w.key} onClick={() => onSelect(w)} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }} title="Click to view details">
+                <td style={{ padding: '8px 10px', fontWeight: 600 }}>{w.telecaller}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}>{w.callback}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#ea580c', fontWeight: 600 }}>{w.follow_up}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', color: '#dc2626', fontWeight: 600 }}>{w.overdue}</td>
+                <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{w.total}</td>
+              </tr>
+            ))}
+            <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)', fontWeight: 700 }}>
+              <td style={{ padding: '8px 10px', fontWeight: 700 }}>TOTAL</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tCall}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tFup}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tOver}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{tTotal}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>{hint || 'Click a telecaller to view donors'}</div>
+    </div>
+  );
+}
+
+function FollowupDetailModal({ worker, label, onClose, onChanged }) {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  if (!worker) return null;
+
+  const rows = worker.rows || [];
+  const callbackCount = rows.filter(r => r.type === 'callback').length;
+  const followupCount = rows.length - callbackCount;
+
+  const todayIst = toIstDate();
+  const isOverdueRow = (r) => {
+    const fd = r.followup_date ? String(r.followup_date).slice(0, 10) : null;
+    return !!(fd && fd < todayIst);
+  };
+  const overdueCount = rows.filter(isOverdueRow).length;
+  const sortedRows = [...rows].sort((a, b) => Number(isOverdueRow(b)) - Number(isOverdueRow(a)));
+
+  const typePill = (type) => ({
+    padding: '2px 10px', borderRadius: 12, fontSize: 10, fontWeight: 700, display: 'inline-flex',
+    textTransform: 'uppercase', letterSpacing: '0.04em',
+    background: type === 'callback' ? '#f0fdf4' : '#fff7ed',
+    color: type === 'callback' ? '#16a34a' : '#ea580c',
+  });
+
+  const fmtTime = (v) => {
+    if (!v) return '—';
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, fontSize: 14 }}>{worker.telecaller}</h3>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 500, background: 'var(--bg)', padding: '2px 10px', borderRadius: 12 }}>{label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#ea580c', background: '#fff7ed', padding: '2px 10px', borderRadius: 12 }}>
+              {followupCount} Follow-up{followupCount !== 1 ? 's' : ''}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#16a34a', background: '#f0fdf4', padding: '2px 10px', borderRadius: 12 }}>
+              {callbackCount} Callback{callbackCount !== 1 ? 's' : ''}
+            </span>
+            {overdueCount > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#dc2626', background: '#fee2e2', padding: '2px 10px', borderRadius: 12 }}>
+                {overdueCount} Overdue{overdueCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <button aria-label="Close" onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1 }}>✕</button>
+        </div>
+        <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
+          {rows.length === 0 ? (
+            <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No records for this telecaller in {label}.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {[['Donor', 'left'], ['Mobile', 'left'], ['Type', 'left'], ['Date', 'center'], ['Scheduled', 'center'], ['', 'right']].map(([h, align]) => (
+                      <th key={h || 'action'} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '1px solid var(--line)' }}>{h || 'Action'}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.map(r => (
+                    <tr key={r.assignment_id || r.assignmentId} style={{ borderBottom: '1px solid var(--line)', background: isOverdueRow(r) ? '#fff7f7' : undefined }}>
+                      <td style={{ padding: '8px 10px', fontWeight: 500 }}>{r.donor_name || '—'}</td>
+                      <td style={{ padding: '8px 10px', color: 'var(--ink-soft)' }}>{r.mobile || '—'}</td>
+                      <td style={{ padding: '8px 10px' }}><span style={typePill(r.type)}>{r.type === 'callback' ? 'Callback' : 'Follow-up'}</span></td>
+                      <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>
+                        {isOverdueRow(r) ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#dc2626', fontWeight: 700 }}>
+                            {r.followup_date ? String(r.followup_date).slice(0, 10) : '—'}
+                            <span style={{ padding: '1px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, background: '#fee2e2', color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Overdue</span>
+                          </span>
+                        ) : (r.followup_date ? String(r.followup_date).slice(0, 10) : '—')}
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{fmtTime(r.scheduled_at)}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                        <button onClick={async () => {
+                          const newDate = prompt('New follow-up date (YYYY-MM-DD):', r.followup_date || '');
+                          if (newDate && newDate !== r.followup_date) {
+                            try {
+                              await apiPut(`/ngo-admin/followups/${r.assignment_id || r.assignmentId}/date`, { followup_date: newDate });
+                              onChanged();
+                            } catch (err) { alert('Failed: ' + err.message); }
+                          }
+                        }} style={{ fontSize: 10, padding: '3px 8px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                          Change Date
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FroDetailModal({ froId, froName, filterType, perfPeriod, onClose }) {
   const [allDonors, setAllDonors] = useState([]);
   const [loadingDonors, setLoadingDonors] = useState(true);
@@ -816,6 +988,12 @@ export default function Dashboard() {
   const [followupTab, setFollowupTab] = useState('overdue');
   const [followupLoading, setFollowupLoading] = useState(false);
   const [showFollowups, setShowFollowups] = useState(false);
+  const [followupMode, setFollowupMode] = useState('bucket');
+  const [followupDay, setFollowupDay] = useState(() => toIstDate());
+  const [daywiseRows, setDaywiseRows] = useState([]);
+  const [daywiseLoading, setDaywiseLoading] = useState(false);
+  const [fupDetailWorker, setFupDetailWorker] = useState(null);
+  const [followupReload, setFollowupReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -840,7 +1018,31 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setFollowups([]); })
       .finally(() => { if (!cancelled) setFollowupLoading(false); });
     return () => { cancelled = true };
-  }, [showFollowups, selectedNgoId]);
+  }, [showFollowups, selectedNgoId, followupReload]);
+
+  useEffect(() => {
+    if (!showFollowups || followupMode !== 'daywise') return;
+    let cancelled = false;
+    setDaywiseLoading(true);
+    const params = new URLSearchParams({ date: followupDay });
+    if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
+    apiGet(`/ngo-admin/followups?${params}`)
+      .then(d => { if (!cancelled) setDaywiseRows(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setDaywiseRows([]); })
+      .finally(() => { if (!cancelled) setDaywiseLoading(false); });
+    return () => { cancelled = true };
+  }, [showFollowups, followupMode, followupDay, selectedNgoId, followupReload]);
+
+  const daywiseSummary = useMemo(() => buildWorkerSummary(daywiseRows), [daywiseRows]);
+
+  const bucketRows = useMemo(() => {
+    if (!Array.isArray(followups)) return [];
+    return followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(followupTab));
+  }, [followups, followupTab]);
+
+  const bucketSummary = useMemo(() => buildWorkerSummary(bucketRows), [bucketRows]);
+
+  const bumpFollowupReload = useCallback(() => setFollowupReload(n => n + 1), []);
 
   const fetchDashboard = useCallback(() => {
     const controller = new AbortController();
@@ -1000,95 +1202,269 @@ export default function Dashboard() {
     if (!tlData?.performance) return;
     const XLSX = await import('xlsx-js-style');
     const wb = XLSX.utils.book_new();
+    const enc = XLSX.utils.encode_cell;
+    const styleCell = (ws, r, c, s) => { const ref = ws[enc({ r, c })]; if (ref) ref.s = s; };
+    const spanRef = (ws) => {
+      const cur = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: cur.e });
+    };
 
-    // Sheet 1: Telecaller Performance Summary
     const periodLabel = perfPeriod === 'today' ? 'Today' : perfPeriod === 'week' ? 'This Week' : 'This Month';
-    const headers = [
+    const filteredPerformance = tlData.performance.filter(p =>
+      !froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())
+    );
+
+    const HDR = {
+      fgColor: { rgb: '5B6B4E' }, pattern: 'solid',
+      font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    };
+    const TITLE = {
+      fgColor: { rgb: '5B6B4E' }, pattern: 'solid',
+      font: { name: 'Calibri', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    };
+    const SUB = {
+      fgColor: { rgb: 'E8EDE1' }, pattern: 'solid',
+      font: { name: 'Calibri', sz: 10, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    };
+    const AMT = { numFmt: '"₹"#,##0' };
+    const FONT = { name: 'Calibri', sz: 10 };
+
+    const calc = (p) => {
+      const calls = perfPeriod === 'today' ? (p.calls_today || 0) : perfPeriod === 'week' ? (p.calls_week || 0) : (p.calls || 0);
+      const connected = perfPeriod === 'today' ? (p.connected_today || 0) : perfPeriod === 'week' ? (p.connected_week || 0) : (p.connected || 0);
+      const interested = perfPeriod === 'today' ? (p.interested_today || 0) : perfPeriod === 'week' ? (p.interested_week || 0) : (p.interested || 0);
+      const received = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
+      return {
+        calls, connected,
+        nonConnected: Math.max(0, calls - connected),
+        interested, received,
+        donors: p.receivedDonors || 0,
+        statuses: perfPeriod === 'today' ? (p.connectedStatuses_today || {}) : perfPeriod === 'week' ? (p.connectedStatuses_week || {}) : (p.connectedStatuses_month || p.connectedStatuses || {}),
+      };
+    };
+    const calcRows1 = filteredPerformance.map(p => ({ p, c: calc(p) }));
+    const sum1 = (k) => calcRows1.reduce((a, { c }) => a + c[k], 0);
+    const tcalls = sum1('calls'), tconn = sum1('connected'), tnc = sum1('nonConnected');
+    const tint = sum1('interested'), tdon = sum1('donors'), tamt = sum1('received');
+
+    // ── Sheet 1: Telecaller Performance ─────────────────────────────
+    const headers1 = [
       'Telecaller', 'Login ID', 'Period', 'Calls', 'Connected', 'Non-Connected',
       `Status Breakdown (${periodLabel})`, 'Interested', 'Received Donors', 'Amount (₹)', 'Target %',
       'Claims Pending', 'Claims Verified', 'Claims Rejected', 'Live Status'
     ];
-    const filteredPerformance = tlData.performance.filter(p => 
-      !froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())
-    );
-    const rows = filteredPerformance.map(p => {
-      const periodCalls = perfPeriod === 'today' ? (p.calls_today || 0) : perfPeriod === 'week' ? (p.calls_week || 0) : (p.calls || 0);
-      const periodConnected = perfPeriod === 'today' ? (p.connected_today || 0) : perfPeriod === 'week' ? (p.connected_week || 0) : (p.connected || 0);
-      const periodInterested = perfPeriod === 'today' ? (p.interested_today || 0) : perfPeriod === 'week' ? (p.interested_week || 0) : (p.interested || 0);
-      const periodReceived = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
-      const periodNonConnected = Math.max(0, periodCalls - periodConnected);
-      
-      // Select breakdown for the active period!
-      const activeStatuses = 
-        perfPeriod === 'today' ? (p.connectedStatuses_today || {}) :
-        perfPeriod === 'week' ? (p.connectedStatuses_week || {}) :
-        (p.connectedStatuses_month || p.connectedStatuses || {});
-        
-      const connectedBreakdown = Object.entries(activeStatuses)
-        .map(([status, count]) => `${status}: ${count}`)
+    const aoa1 = calcRows1.map(({ p, c }) => {
+      const connectedBreakdown = Object.entries(c.statuses)
+        .map(([status, count]) => `${(DISPOSITION_LABELS[status] || status)}: ${count}`)
         .filter(s => !s.endsWith(': 0'))
         .join('; ');
-      
       return [
-        p.fro_name,
-        p.fro_login_id || '',
-        periodLabel,
-        periodCalls,
-        periodConnected,
-        periodNonConnected,
-        connectedBreakdown || '—',
-        periodInterested,
-        p.receivedDonors || 0,
-        periodReceived,
-        p.target_pct || 0,
-        p.claims_pending || 0,
-        p.claims_verified || 0,
-        p.claims_rejected || 0,
-        p.status || 'offline'
+        p.fro_name, p.fro_login_id || '', periodLabel, c.calls, c.connected, c.nonConnected,
+        connectedBreakdown || '—', c.interested, c.donors, c.received, p.target_pct || 0,
+        p.claims_pending || 0, p.claims_verified || 0, p.claims_rejected || 0, p.status || 'offline'
       ];
     });
-    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    sheet['!cols'] = [
+    const t1 = calcRows1.reduce((a, { p, c }) => ({
+      calls: a.calls + c.calls, connected: a.connected + c.connected, nonConnected: a.nonConnected + c.nonConnected,
+      interested: a.interested + c.interested, donors: a.donors + c.donors, amount: a.amount + c.received,
+      cp: a.cp + (p.claims_pending || 0), cv: a.cv + (p.claims_verified || 0), cr: a.cr + (p.claims_rejected || 0),
+    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, cp: 0, cv: 0, cr: 0 });
+    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, t1.nonConnected, '', t1.interested, t1.donors, t1.amount, '', t1.cp, t1.cv, t1.cr, '']);
+
+    const ws1 = XLSX.utils.aoa_to_sheet([]);
+    ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
+    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 14 } }];
+    ws1['!rows'] = [{ hpt: 30 }, { hpt: 28 }];
+    XLSX.utils.sheet_add_aoa(ws1, [headers1], { origin: 'A2' });
+    XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
+    spanRef(ws1);
+    ws1['!cols'] = [
       { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 14 },
       { wch: 45 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 10 },
       { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
     ];
-    XLSX.utils.book_append_sheet(wb, sheet, 'Telecaller Performance');
+    styleCell(ws1, 0, 0, TITLE);
+    for (let c = 0; c <= 14; c++) styleCell(ws1, 1, c, HDR);
+    const numCols1 = [3, 4, 5, 7, 8, 10, 11, 12, 13];
+    for (let r = 2; r < 2 + aoa1.length; r++) {
+      for (let c = 0; c <= 14; c++) {
+        const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols1.includes(c) || c === 9 ? 'center' : 'left' } };
+        if (c === 9) s.numFmt = AMT.numFmt;
+        styleCell(ws1, r, c, s);
+      }
+    }
+    for (let c = 0; c <= 14; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 9 ? AMT.numFmt : undefined });
+    ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws1['!autofilter'] = { ref: `A2:O${1 + aoa1.length}` };
+    XLSX.utils.book_append_sheet(wb, ws1, 'Telecaller Performance');
 
-    // Sheet 2: Hourly Breakdown by FRO
+    // ── Sheet 2: Hourly Performance (subtotals per telecaller) ──────
     let hourlyDataToUse = froHourlyData;
     if (!hourlyDataToUse || hourlyDataToUse.length === 0) {
       try {
-        const data = await getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) });
-        hourlyDataToUse = data || [];
+        hourlyDataToUse = await getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) }) || [];
       } catch (e) {
         hourlyDataToUse = [];
       }
     }
-    if (hourlyDataToUse && hourlyDataToUse.length > 0) {
-      const hourlyHeaders = [
-        'Telecaller', 'Login ID', 'Hour Slot', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
-      ];
-      const hourlyRows = hourlyDataToUse.map(h => [
-        h.fro_name,
-        h.fro_login_id || '',
-        h.hour,
-        h.calls || 0,
-        h.connected || 0,
-        h.interested || 0,
-        h.donations || 0,
-        h.amount || 0
-      ]);
-      const hourlySheet = XLSX.utils.aoa_to_sheet([hourlyHeaders, ...hourlyRows]);
-      hourlySheet['!cols'] = [
-        { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
-      ];
-      XLSX.utils.book_append_sheet(wb, hourlySheet, 'Hourly Breakdown');
+    const headers2 = ['Telecaller', 'Login ID', 'Hour Slot', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'];
+    const ws2 = XLSX.utils.aoa_to_sheet([]);
+    ws2[enc({ r: 0, c: 0 })] = { t: 's', v: `Hourly Collection Performance — ${hourlyExportFrom} to ${hourlyExportTo}` };
+    ws2['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+    ws2['!rows'] = [{ hpt: 30 }, { hpt: 26 }];
+    XLSX.utils.sheet_add_aoa(ws2, [headers2], { origin: 'A2' });
+
+    const aoa2 = [];
+    const subRows2 = [];
+    let grandRow2 = -1;
+    if (hourlyDataToUse && hourlyDataToUse.length) {
+      const groups = {};
+      hourlyDataToUse.forEach(h => { const k = h.fro_name || 'Unknown'; (groups[k] = groups[k] || []).push(h); });
+      Object.keys(groups).forEach(name => {
+        groups[name].forEach(h => aoa2.push([h.fro_name || name, h.fro_login_id || '', h.hour, h.calls || 0, h.connected || 0, h.interested || 0, h.donations || 0, h.amount || 0]));
+        const st = groups[name].reduce((a, h) => ({
+          calls: a.calls + (h.calls || 0), connected: a.connected + (h.connected || 0), interested: a.interested + (h.interested || 0),
+          donations: a.donations + (h.donations || 0), amount: a.amount + (h.amount || 0)
+        }), { calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 });
+        aoa2.push([`${name} — Subtotal`, '', '', st.calls, st.connected, st.interested, st.donations, st.amount]);
+        subRows2.push(1 + aoa2.length);
+      });
+      const gt = hourlyDataToUse.reduce((a, h) => ({
+        calls: a.calls + (h.calls || 0), connected: a.connected + (h.connected || 0), interested: a.interested + (h.interested || 0),
+        donations: a.donations + (h.donations || 0), amount: a.amount + (h.amount || 0)
+      }), { calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 });
+      aoa2.push(['GRAND TOTAL', '', '', gt.calls, gt.connected, gt.interested, gt.donations, gt.amount]);
+      grandRow2 = 1 + aoa2.length;
+    } else {
+      aoa2.push(['No hourly data for selected range', '', '', '', '', '', '', '']);
+    }
+    XLSX.utils.sheet_add_aoa(ws2, aoa2, { origin: 'A3' });
+    spanRef(ws2);
+    ws2['!cols'] = [
+      { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
+    ];
+    styleCell(ws2, 0, 0, TITLE);
+    for (let c = 0; c <= 7; c++) styleCell(ws2, 1, c, HDR);
+    const numCols2 = [3, 4, 5, 6, 7];
+    for (let r = 2; r < 2 + aoa2.length; r++) {
+      for (let c = 0; c <= 7; c++) {
+        const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols2.includes(c) ? 'center' : 'left' } };
+        if (c === 7) s.numFmt = AMT.numFmt;
+        styleCell(ws2, r, c, s);
+      }
+    }
+    subRows2.forEach(r => { for (let c = 0; c <= 7; c++) styleCell(ws2, r, c, { ...SUB, numFmt: c === 7 ? AMT.numFmt : undefined }); });
+    if (grandRow2 > 0) for (let c = 0; c <= 7; c++) styleCell(ws2, grandRow2, c, { ...SUB, numFmt: c === 7 ? AMT.numFmt : undefined });
+    ws2['!freeze'] = { xSplit: 0, ySplit: 1 };
+    if (aoa2.length > 1) ws2['!autofilter'] = { ref: `A2:H${1 + aoa2.length}` };
+    XLSX.utils.book_append_sheet(wb, ws2, 'Hourly Performance');
+
+    // ── Sheet 3: Computations ───────────────────────────────────────
+    const ws3 = XLSX.utils.aoa_to_sheet([]);
+    ws3[enc({ r: 0, c: 0 })] = { t: 's', v: `Computations — ${periodLabel}` };
+    ws3['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+    ws3['!rows'] = [{ hpt: 30 }];
+    let r3 = 1;
+    const appendR = (row) => { XLSX.utils.sheet_add_aoa(ws3, [row], { origin: 'A' + (r3 + 1) }); r3++; };
+
+    const secRows = [];
+    const hdrRows = [];
+    const totRows = [];
+    const amtCells = [];
+
+    appendR(['Key Metrics']);
+    secRows.push(r3 - 1);
+    [
+      ['Total Telecallers', calcRows1.length],
+      ['Total Calls', tcalls],
+      ['Total Connected', tconn],
+      ['Connection Rate', tcalls ? `${((tconn / tcalls) * 100).toFixed(1)}%` : '—'],
+      ['Non-Connected', tnc],
+      ['Interested', tint],
+      ['Received Donors', tdon],
+      ['Received Amount (₹)', tamt],
+      ['Conversion Rate', tcalls ? `${((tdon / tcalls) * 100).toFixed(1)}%` : '—'],
+      ['Avg Ticket Size (₹)', tdon ? Math.round(tamt / tdon) : 0],
+    ].forEach(([lbl, val]) => { appendR([lbl, val]); if (lbl.includes('₹')) amtCells.push([r3 - 1, 1]); });
+
+    appendR(['']);
+    const hourTotals = {};
+    if (hourlyDataToUse && hourlyDataToUse.length) {
+      hourlyDataToUse.forEach(h => {
+        const k = h.hour || 'Unknown';
+        hourTotals[k] = hourTotals[k] || { calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 };
+        hourTotals[k].calls += h.calls || 0; hourTotals[k].connected += h.connected || 0;
+        hourTotals[k].interested += h.interested || 0; hourTotals[k].donations += h.donations || 0;
+        hourTotals[k].amount += h.amount || 0;
+      });
+      appendR(['Hourly Totals']);
+      secRows.push(r3 - 1);
+      appendR(['Hour Slot', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)']);
+      hdrRows.push(r3 - 1);
+      Object.keys(hourTotals).sort().forEach(k => {
+        const t = hourTotals[k];
+        appendR([k, t.calls, t.connected, t.interested, t.donations, t.amount]);
+        amtCells.push([r3 - 1, 5]);
+      });
+      const ht = Object.values(hourTotals).reduce((a, t) => ({
+        calls: a.calls + t.calls, connected: a.connected + t.connected, interested: a.interested + t.interested,
+        donations: a.donations + t.donations, amount: a.amount + t.amount
+      }), { calls: 0, connected: 0, interested: 0, donations: 0, amount: 0 });
+      appendR(['TOTAL', ht.calls, ht.connected, ht.interested, ht.donations, ht.amount]);
+      totRows.push(r3 - 1);
+      amtCells.push([r3 - 1, 5]);
+      appendR(['']);
     }
 
+    appendR(['Per-Telecaller Share']);
+    secRows.push(r3 - 1);
+    appendR(['Telecaller', 'Calls', 'Connected', 'Interest (I/C) %', 'Amount (₹)', 'Share %']);
+    hdrRows.push(r3 - 1);
+    calcRows1.forEach(({ p, c }) => {
+      appendR([p.fro_name, c.calls, c.connected, c.connected ? `${((c.interested / c.connected) * 100).toFixed(1)}%` : '—', c.received, tamt ? `${((c.received / tamt) * 100).toFixed(1)}%` : '—']);
+      amtCells.push([r3 - 1, 4]);
+    });
+    appendR(['TOTAL', tcalls, tconn, tconn ? `${((tint / tconn) * 100).toFixed(1)}%` : '—', tamt, '100%']);
+    totRows.push(r3 - 1);
+    amtCells.push([r3 - 1, 4]);
+    appendR(['']);
+
+    const shareCols = calcRows1.map(({ p }) => p.fro_name);
+    const statusKeys = [...new Set(calcRows1.flatMap(({ c }) => Object.keys(c.statuses)))];
+    appendR(['Connected-Status Matrix']);
+    secRows.push(r3 - 1);
+    appendR(['Connected Disposition', ...shareCols, 'TOTAL']);
+    hdrRows.push(r3 - 1);
+    statusKeys.forEach(k => {
+      const vals = calcRows1.map(({ c }) => c.statuses[k] || 0);
+      appendR([DISPOSITION_LABELS[k] || k, ...vals, vals.reduce((a, b) => a + b, 0)]);
+    });
+    const colTotals = shareCols.length ? calcRows1.map(({ c }, i) => statusKeys.reduce((a, k) => a + (c.statuses[k] || 0), 0)) : [];
+    appendR(['TOTAL', ...colTotals, colTotals.reduce((a, b) => a + b, 0)]);
+    totRows.push(r3 - 1);
+
+    spanRef(ws3);
+    ws3['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+    styleCell(ws3, 0, 0, TITLE);
+    secRows.forEach(r => {
+      styleCell(ws3, r, 0, { font: { name: 'Calibri', sz: 11, bold: true } });
+    });
+    hdrRows.forEach(r => {
+      for (let c = 0; c <= 5; c++) styleCell(ws3, r, c, { ...HDR, fgColor: { rgb: 'D9DFCE' }, font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: '3F4A38' } } });
+    });
+    totRows.forEach(r => {
+      for (let c = 0; c <= 5; c++) styleCell(ws3, r, c, SUB);
+    });
+    for (let r = 0; r < r3; r++) {
+      amtCells.forEach(([ar, ac]) => { if (ar === r) styleCell(ws3, ar, ac, { font: FONT, alignment: { horizontal: 'center' }, numFmt: AMT.numFmt }); });
+    }
+    XLSX.utils.book_append_sheet(wb, ws3, 'Computations');
+
     const dateStr = new Date().toISOString().slice(0, 10);
-    const fileName = `telecaller-performance-${perfPeriod}-${dateStr}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    XLSX.writeFile(wb, `telecaller-performance-${perfPeriod}-${dateStr}.xlsx`);
   };
 
   return (
@@ -1859,71 +2235,90 @@ export default function Dashboard() {
               <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading follow-ups...</div>
             ) : (
               <>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
                     { key: 'overdue', label: 'Overdue', color: '#dc2626', bg: '#fef2f2' },
                     { key: 'today', label: 'Today', color: '#ea580c', bg: '#fff7ed' },
                     { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb', bg: '#eff6ff' },
                     { key: 'future', label: 'Future', color: '#6b7280', bg: '#f9fafb' },
+                    { key: 'week', label: 'This Week', color: '#5B6B4E', bg: '#f0f2ee' },
+                    { key: 'month', label: 'This Month', color: '#7c3aed', bg: '#f5f3ff' },
                   ].map(tab => {
-                    const count = followups.filter(f => f.bucket === tab.key).length;
+                    const count = followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(tab.key)).length;
+                    const active = followupMode === 'bucket' && followupTab === tab.key;
                     return (
-                      <button key={tab.key} onClick={() => setFollowupTab(tab.key)} style={{
-                        padding: '5px 14px', borderRadius: 20, border: followupTab === tab.key ? `2px solid ${tab.color}` : '1px solid var(--line)',
+                      <button key={tab.key} onClick={() => { setFollowupMode('bucket'); setFollowupTab(tab.key); }} style={{
+                        padding: '5px 14px', borderRadius: 20, border: active ? `2px solid ${tab.color}` : '1px solid var(--line)',
                         fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                        background: followupTab === tab.key ? tab.bg : '#fff', color: followupTab === tab.key ? tab.color : 'var(--ink-soft)',
+                        background: active ? tab.bg : '#fff', color: active ? tab.color : 'var(--ink-soft)',
                       }}>
                         {tab.label} ({count})
                       </button>
                     );
                   })}
+                  <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
+                  <button onClick={() => { setFollowupMode('daywise'); setFollowupTab(''); }} style={{
+                    padding: '5px 14px', borderRadius: 20, fontFamily: 'inherit',
+                    border: followupMode === 'daywise' ? '2px solid #5B6B4E' : '1px solid var(--line)',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: followupMode === 'daywise' ? '#e8ede1' : '#fff',
+                    color: followupMode === 'daywise' ? '#3f4a38' : 'var(--ink-soft)',
+                  }}>
+                    Day-wise
+                  </button>
                 </div>
-                {(() => {
-                  const filtered = followups.filter(f => f.bucket === followupTab);
-                  if (filtered.length === 0) return <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {followupTab} follow-ups</div>;
-                  return (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                        <thead>
-                          <tr>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Donor</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Telecaller</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Date</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.slice(0, 20).map(f => (
-                            <tr key={f.assignment_id} style={{ borderBottom: '1px solid var(--line)' }}>
-                              <td style={{ padding: '8px 10px', fontWeight: 500 }}>{f.donor_name || '—'}</td>
-                              <td style={{ padding: '8px 10px', color: 'var(--ink-soft)' }}>{f.telecaller || '—'}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{f.followup_date || '—'}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                <button onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const newDate = prompt('New follow-up date (YYYY-MM-DD):', f.followup_date);
-                                  if (newDate && newDate !== f.followup_date) {
-                                    try {
-                                      await apiPut(`/ngo-admin/followups/${f.assignmentId || f.assignment_id}/date`, { followup_date: newDate });
-                                      setFollowups(prev => prev.map(x => x.assignment_id === f.assignment_id ? { ...x, followup_date: newDate } : x));
-                                    } catch (err) { alert('Failed: ' + err.message); }
-                                  }
-                                }} style={{ fontSize: 10, padding: '3px 8px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-                                  Change Date
-                                </button>
-                              </td>
-                            </tr>
+                {followupMode === 'daywise' ? (
+                  (() => {
+                    const todayStr = toIstDate();
+                    const yesterdayStr = toIstDate(new Date(Date.now() - 86400000));
+                    const totalDay = daywiseRows.length;
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {[{ label: 'Today', value: todayStr }, { label: 'Yesterday', value: yesterdayStr }].map(opt => (
+                            <button key={opt.label} onClick={() => setFollowupDay(opt.value)} style={{
+                              padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                              border: followupDay === opt.value ? '1.5px solid #5B6B4E' : '1px solid var(--line)',
+                              background: followupDay === opt.value ? '#e8ede1' : '#fff',
+                              color: followupDay === opt.value ? '#3f4a38' : 'var(--ink-soft)',
+                            }}>{opt.label}</button>
                           ))}
-                        </tbody>
-                      </table>
-                      {filtered.length > 20 && (
-                        <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>
-                          Showing 20 of {filtered.length} — go to Donor CRM for full list
+                          <input
+                            type="date"
+                            value={followupDay}
+                            max={todayStr}
+                            onChange={e => setFollowupDay(e.target.value)}
+                            style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)', color: 'var(--ink)' }}
+                          />
+                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{totalDay} record{totalDay !== 1 ? 's' : ''}</span>
                         </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                        {daywiseLoading ? (
+                          <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading follow-ups...</div>
+                        ) : daywiseSummary.length === 0 ? (
+                          <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No follow-ups or callbacks on {followupDay}</div>
+                        ) : (
+                          <FollowupSummaryTable
+                            summary={daywiseSummary}
+                            hint={`${totalDay} record${totalDay !== 1 ? 's' : ''} — click a telecaller to view that day's donors`}
+                            onSelect={setFupDetailWorker}
+                          />
+                        )}
+                      </div>
+                    );
+                  })()
+) : (
+                  (() => {
+                    const tabLabel = FOLLOWUP_TAB_LABELS[followupTab] || followupTab;
+                    if (bucketSummary.length === 0) return <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {tabLabel} follow-ups</div>;
+                    return (
+                      <FollowupSummaryTable
+                        summary={bucketSummary}
+                        hint={`${bucketRows.length} record${bucketRows.length !== 1 ? 's' : ''} in ${tabLabel} — click a telecaller to view donors`}
+                        onSelect={setFupDetailWorker}
+                      />
+                    );
+                  })()
+                )}
               </>
             )}
           </div>
@@ -2035,6 +2430,15 @@ export default function Dashboard() {
           stats={stations[selectedStation]}
           stationInfo={stationInfoMap[selectedStation]}
           onClose={() => setSelectedStation(null)}
+        />
+      )}
+
+      {fupDetailWorker && (
+        <FollowupDetailModal
+          worker={fupDetailWorker}
+          label={followupMode === 'daywise' ? followupDay : (FOLLOWUP_TAB_LABELS[followupTab] || followupTab)}
+          onClose={() => setFupDetailWorker(null)}
+          onChanged={bumpFollowupReload}
         />
       )}
 

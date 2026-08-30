@@ -302,14 +302,19 @@ export const listEntries = async (req, res) => {
             donor_id,
             donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported),
             workers!inner(id, name)
-          )
+          ),
+          workers!fro_donor_logs_fro_worker_id_fkey(id, name)
         `)
         .in('id', logIds);
       const matchMap = {};
       for (const l of logs || []) {
         const assignment = l.fro_assignments;
         const donor = assignment?.donor_profiles || {};
-        const worker = assignment?.workers || {};
+        // The FRO shown here must be the ACTUAL credited worker (fro_donor_logs
+        // .fro_worker_id), not the assignment owner — when an acting FRO
+        // "works as" another FRO and claims a lead, the assignment stays with
+        // the owner while the log credits the acting FRO.
+        const worker = { id: l.workers?.id, name: l.workers?.name || assignment?.workers?.name || '' };
         matchMap[l.id] = {
           donor_name: donor.name || 'Unknown',
           fro_name: worker.name || 'Unknown',
@@ -381,8 +386,10 @@ export const addEntry = async (req, res) => {
 
     // The receipt's project decides its number sequence. The linked receipt /
     // picked donor win; the form value is next; never silently force 'bsct'
-    // (that is what gave Ashray money the next BSCT number).
-    const ngo = link?.receipt?.project_id || resolvedDonor?.project_supported || project_id || 'bsct';
+    // (that is what gave Ashray money the next BSCT number). When no NGO can be
+    // determined, leave it null so the entry stays unnumbered instead of
+    // stealing a number from the Being Sevak counter.
+    const ngo = link?.receipt?.project_id || resolvedDonor?.project_supported || project_id || null;
 
     // Donor-derived fields for the receipt + bank_audit_entries row. A linked
     // lead wins; a picked donor profile is next; otherwise fall back to the
@@ -458,6 +465,30 @@ export const addEntry = async (req, res) => {
     });
 
     findAutoMatches().catch((err) => console.error('Auto-match after addEntry failed:', err.message));
+
+    // Notify every active FRO that a new bank-audit entry was created, so the
+    // toaster fires on the FRO panel. Best effort only — a notification failure
+    // must never abort the entry-creation response.
+    try {
+      const { data: froWorkers } = await db
+        .from('workers')
+        .select('id')
+        .eq('department', 'fro')
+        .eq('is_active', true);
+      if (froWorkers && froWorkers.length) {
+        const donorLabel = payer_name || link?.receipt?.donor_name || 'donor';
+        await db.from('notification_log').insert(
+          froWorkers.map((f) => ({
+            worker_id: f.id,
+            type: 'new_audit',
+            title: 'New Audit Entry',
+            body: `A new bank audit entry was created for ${donorLabel} (\u20B9${Number(amount).toLocaleString('en-IN')}).`,
+            sent_at: new Date().toISOString(),
+          }))
+        );
+      }
+    } catch (err) { console.error('Failed to notify FROs of new audit entry:', err.message); }
+
     return res.status(201).json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1228,7 +1259,13 @@ export const manualVerifyEntry = async (req, res) => {
     const amount = Number(entry.amount || 0);
     const now = new Date().toISOString();
     const VALID_PROJECT_OVERRIDES = ['library', 'pg'];
-    const project = (project_id && VALID_PROJECT_OVERRIDES.includes(project_id)) ? project_id : (entry.project_id || 'bsct');
+    // Never silently force 'bsct' as the number sequence: an entry whose NGO is
+    // unknown (e.g. Ashray money with no resolvable project) must NOT draw from
+    // the Being Sevak counter. Require the NGO before numbering instead.
+    const project = (project_id && VALID_PROJECT_OVERRIDES.includes(project_id)) ? project_id : BankAudit.canonicalProject(entry.project_id || req.body.project_id || null);
+    if (!project) {
+      return res.status(400).json({ message: 'Receipt NGO is unknown. Please set the NGO for this entry before verifying.' });
+    }
     const entryAddress = [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null;
     const ngoId = await BankAudit.ngoIdFromProjectId(project);
 

@@ -7,8 +7,31 @@ export const createEventHeadEvent = async (data) => {
   return result;
 };
 
-export const getAllEventHeadEvents = async () => {
-  const { data, error } = await db.from('event_head_events').select('*').order('created_at', { ascending: false });
+// Bulk insert from an events sheet import. No ON CONFLICT (events have no
+// natural unique key) — the caller dedupes rows before calling.
+export const insertEventHeadEventsBulk = async (rows) => {
+  if (!rows || !rows.length) return [];
+  const withTs = rows.map(r => ({ ...r, updated_at: new Date() }));
+  const { data, error } = await db.from('event_head_events').insert(withTs).select('id');
+  if (error) throw error;
+  return data || [];
+};
+
+export const getAllEventHeadEvents = async (filters = {}) => {
+  const { ngo_id, sector_id, activity_id, status, month, year } = filters;
+  let query = db.from('event_head_events').select('*').order('created_at', { ascending: false });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (sector_id) query = query.eq('sector_id', sector_id);
+  if (activity_id) query = query.eq('activity_id', activity_id);
+  if (status) query = query.eq('status', status);
+  if (month && year) {
+    const m = Number(month), y = Number(year);
+    if (m >= 1 && m <= 12) {
+      query = query.gte('date', `${y}-${String(m).padStart(2, '0')}-01`)
+        .lt('date', `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`);
+    }
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 };
@@ -31,14 +54,70 @@ export const deleteEventHeadEvent = async (id) => {
   return { message: 'Event deleted' };
 };
 
-export const getEventHeadEventsByMonth = async (month, year) => {
+export const getEventHeadEventsByMonth = async (month, year, ngo_id) => {
   const m = Number(month), y = Number(year);
-  const { data, error } = await db.from('event_head_events').select('*')
+  let query = db.from('event_head_events').select('*')
     .gte('date', `${y}-${String(m).padStart(2, '0')}-01`)
     .lt('date', `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`)
     .order('date', { ascending: true });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  const { data, error } = await query;
   if (error) throw error;
   return data;
+};
+
+// ─── MULTI-ACTIVITY (join table) ───
+export const getEventHeadActivityIds = async (eventId) => {
+  const { data, error } = await db.from('event_head_event_activities').select('activity_id').eq('event_id', eventId);
+  if (error) throw error;
+  return (data || []).map(r => Number(r.activity_id));
+};
+
+// Set the full set of activities for an event (replaces existing rows).
+export const setEventHeadActivities = async (eventId, activityIds = []) => {
+  const ids = [...new Set(activityIds.filter(id => id != null).map(Number))];
+  await db.from('event_head_event_activities').delete().eq('event_id', eventId);
+  if (ids.length) {
+    const rows = ids.map(activity_id => ({ event_id: Number(eventId), activity_id }));
+    const { data, error } = await db.from('event_head_event_activities').insert(rows);
+    if (error) throw error;
+  }
+  return ids;
+};
+
+// Calendar-range query for FullCalendar. Returns events within [start, end).
+export const getEventHeadEventsByRange = async ({ start, end, ngo_id, sector_id, activity_id, status, year } = {}) => {
+  let query = db.from('event_head_events').select('*');
+  if (activity_id != null) {
+    // Filter by an event containing this activity (join table).
+    const ids = await getEventIdsForActivity(activity_id);
+    if (ids.length) query = query.in('id', ids);
+    else return [];
+  }
+  if (start) query = query.gte('date', String(start).slice(0, 10));
+  if (end) query = query.lt('date', String(end).slice(0, 10));
+  if (year) {
+    const y = Number(year);
+    if (Number.isFinite(y)) query = query.gte('date', `${y}-01-01`).lt('date', `${y + 1}-01-01`);
+  }
+  if (ngo_id != null) query = query.eq('ngo_id', ngo_id);
+  if (sector_id != null) query = query.eq('sector_id', sector_id);
+  if (status) query = query.eq('status', status);
+  query = query.order('date', { ascending: true });
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+// Events ids that reference a given activity (via the join table), falling back
+// to the legacy single activity_id column.
+const getEventIdsForActivity = async (activityId) => {
+  const a = Number(activityId);
+  const { data: joinRows } = await db.from('event_head_event_activities').select('event_id').eq('activity_id', a);
+  const joinIds = (joinRows || []).map(r => Number(r.event_id));
+  const { data: legacy } = await db.from('event_head_events').select('id').eq('activity_id', a);
+  const ids = new Set([...joinIds, ...(legacy || []).map(r => Number(r.id))]);
+  return [...ids];
 };
 
 export const getEventHeadEventsByNgo = async (ngoId) => {
@@ -64,6 +143,36 @@ export const getEventHeadDashboard = async () => {
   const budgetTotal = data.reduce((s, e) => s + (+e.budget || 0), 0);
   const beneficiariesTotal = data.reduce((s, e) => s + (+e.expected_beneficiaries || 0), 0);
   return { total, upcoming, today, completed, cancelled, budget_total: budgetTotal, beneficiaries_total: beneficiariesTotal };
+};
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const monthBounds = (month, year) => {
+  const y = year ? Number(year) : null;
+  if (month) {
+    const m = Number(month);
+    if (!(m >= 1 && m <= 12)) return null;
+    const yearForMonth = y || new Date().getFullYear();
+    const next = m === 12 ? `${yearForMonth + 1}-01-01` : `${yearForMonth}-${pad2(m + 1)}-01`;
+    return { from: `${yearForMonth}-${pad2(m)}-01`, to: next };
+  }
+  if (y && Number.isFinite(y)) return { from: `${y}-01-01`, to: `${y + 1}-01-01` };
+  return null;
+};
+
+// Lean projection of events for the dashboard stats calculation.
+// Applies the scalar filters (ngo/sector/activity) and the month+year window.
+export const getEventHeadDashboardEvents = async (filters = {}) => {
+  const { ngo_id, sector_id, activity_id, month, year } = filters;
+  let query = db.from('event_head_events')
+    .select('id, name, date, start_time, end_time, venue, status, ngo_id, sector_id, activity_id, budget, expected_beneficiaries');
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (sector_id) query = query.eq('sector_id', sector_id);
+  if (activity_id) query = query.eq('activity_id', activity_id);
+  const bounds = monthBounds(month, year);
+  if (bounds) query = query.gte('date', bounds.from).lt('date', bounds.to);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
 };
 
 // ─── ASSETS ───
@@ -223,7 +332,33 @@ export const assignVehicle = async (data) => {
 };
 
 // ─── MEDIA ───
+// The base `event_head_media` table stores id, event_id, name, url, type,
+// created_at. The richer metadata columns (title, description, media_type,
+// year, size, uploaded_by, updated_at) are additive and managed idempotently
+// by `ensureMediaColumns()` so existing rows and deployments keep working.
+export const MEDIA_COLUMNS_SQL = [
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS title TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS media_type TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS year INT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS size BIGINT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS uploaded_by TEXT`,
+  `ALTER TABLE event_head_media ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+];
+
+// Idempotent: add metadata columns if the table/columns do not yet exist.
+export const ensureMediaColumns = async () => {
+  const { rows } = await db._pool.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='event_head_media'`
+  );
+  if (rows.length === 0) return;
+  for (const sql of MEDIA_COLUMNS_SQL) {
+    try { await db._pool.query(sql); } catch (e) { /* ignore if column missing concurrently */ }
+  }
+};
+
 export const createMedia = async (eventId, data) => {
+  await ensureMediaColumns();
   const { data: result, error } = await db.from('event_head_media').insert([{ ...data, event_id: eventId }]).select().single();
   if (error) throw error;
   return result;
@@ -233,6 +368,21 @@ export const getMediaByEvent = async (eventId) => {
   const { data, error } = await db.from('event_head_media').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (error) throw error;
   return data;
+};
+
+export const getMediaById = async (eventId, id) => {
+  const { data, error } = await db.from('event_head_media').select('*').eq('id', id).eq('event_id', eventId).maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+export const updateMedia = async (eventId, id, updates) => {
+  await ensureMediaColumns();
+  const { data: result, error } = await db.from('event_head_media')
+    .update({ ...updates, updated_at: new Date() })
+    .eq('id', id).eq('event_id', eventId).select().single();
+  if (error) throw error;
+  return result;
 };
 
 export const deleteMedia = async (eventId, id) => {
@@ -272,6 +422,12 @@ export const upsertChecklistItem = async (eventId, item) => {
   return data;
 };
 
+export const createChecklistItem = async (eventId, item) => {
+  const { data, error } = await db.from('event_head_checklist').insert([{ event_id: eventId, label: item.label, status: !!item.status, notes: item.notes || null }]).select().single();
+  if (error) throw error;
+  return data;
+};
+
 // ─── PARTNERS (CSR) ───
 export const getAllPartners = async () => {
   const { data, error } = await db.from('event_head_partners').select('*').order('name', { ascending: true });
@@ -283,5 +439,100 @@ export const getAllPartners = async () => {
 export const getAllDonors = async () => {
   const { data, error } = await db.from('event_head_donors').select('*').order('name', { ascending: true });
   if (error) throw error;
+  return data;
+};
+
+// ─── SECTORS (Dynamic 12-sector reference, seeded via migration) ───
+export const getAllEventHeadSectors = async () => {
+  const { data, error } = await db.from('event_head_sectors').select('*').order('sort_order', { ascending: true });
+  if (error) throw error;
+  return data;
+};
+
+export const getSectorActivityCounts = async (ngoId) => {
+  let query = db.from('event_head_activities').select('id, sector_id, ngo_id');
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data, error } = await query;
+  if (error) throw error;
+  const counts = {};
+  for (const a of data || []) if (a.sector_id) counts[a.sector_id] = (counts[a.sector_id] || 0) + 1;
+  return counts;
+};
+
+export const getSectorEventCounts = async (ngoId) => {
+  let query = db.from('event_head_events').select('id, sector_id, ngo_id');
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data, error } = await query;
+  if (error) throw error;
+  const counts = {};
+  for (const e of data || []) if (e.sector_id) counts[e.sector_id] = (counts[e.sector_id] || 0) + 1;
+  return counts;
+};
+
+// ─── ACTIVITIES (NGO → Sector → Activity) ───
+export const createActivity = async (data) => {
+  const { data: result, error } = await db.from('event_head_activities').insert([{ ...data, updated_at: new Date() }]).select().single();
+  if (error) throw error;
+  return result;
+};
+
+// Bulk upsert from a sheet import. Only actually-inserted rows are returned
+// (ON CONFLICT ... DO NOTHING skips existing), so callers can report
+// inserted vs skipped_existing counts precisely.
+export const insertActivitiesBulk = async (rows) => {
+  if (!rows || !rows.length) return [];
+  const { data, error } = await db.from('event_head_activities')
+    .upsert(rows, { onConflict: 'ngo_id,sector_id,name', ignoreDuplicates: true })
+    .select('id');
+  if (error) throw error;
+  return data || [];
+};
+
+export const getAllActivities = async ({ ngo_id, sector_id } = {}) => {
+  let query = db.from('event_head_activities').select('*').order('created_at', { ascending: false });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (sector_id) query = query.eq('sector_id', sector_id);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+};
+
+export const getActivityById = async (id) => {
+  const { data, error } = await db.from('event_head_activities').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+export const updateActivity = async (id, updates) => {
+  const { data, error } = await db.from('event_head_activities').update({ ...updates, updated_at: new Date() }).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+};
+
+export const getActivityEventCounts = async () => {
+  const { data, error } = await db.from('event_head_events').select('id, activity_id');
+  if (error) throw error;
+  const counts = {};
+  for (const e of data || []) if (e.activity_id) counts[e.activity_id] = (counts[e.activity_id] || 0) + 1;
+  return counts;
+};
+
+// ─── NGO CONTEXT (read-only, Event Head workspace) ───
+const EVENT_HEAD_NGO_CODES = ['bsct', 'mann', 'aflf'];
+
+export const getAllEventHeadNgos = async () => {
+  const { data, error } = await db.from('ngos').select('id, name, code').order('name', { ascending: true });
+  if (error) throw error;
+  return (data || []).sort((a, b) => {
+    const ia = EVENT_HEAD_NGO_CODES.indexOf(String(a.code || a.name || '').toLowerCase());
+    const ib = EVENT_HEAD_NGO_CODES.indexOf(String(b.code || b.name || '').toLowerCase());
+    return (ia === -1 ? 9 : ia) - (ib === -1 ? 9 : ib) || String(a.name || a.code).localeCompare(String(b.name || b.code));
+  });
+};
+
+export const getEventHeadNgoById = async (ngoId) => {
+  if (!ngoId) return null;
+  const { data, error } = await db.from('ngos').select('id, name, code').eq('id', ngoId).maybeSingle();
+  if (error) return null;
   return data;
 };

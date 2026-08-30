@@ -1,0 +1,263 @@
+import {
+  createSimCard,
+  getAllSimCards,
+  getSimCardById,
+  updateSimCard,
+  deleteSimCard,
+  createReplacement,
+  getAllReplacements,
+  getReplacementsBySimCard,
+  deleteReplacementsBySimCard,
+  bulkInsertSimCards,
+} from '../models/simCardModel.js';
+
+export const SIM_STATUSES = ['Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
+
+export const requiredFields = [
+  'mobile_id',
+  'device_model',
+  'imei',
+  'team',
+  'issue_date',
+  'expiry_date',
+];
+
+const alwaysPresentFields = [
+  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'sim_type',
+  'sim_1', 'sim_2', 'sim_3', 'sim_4', 'sim_5', 'sim_6', 'sim_7', 'sim_8',
+];
+
+function clean(data) {
+  const c = { ...data };
+  delete c.id;
+  delete c.created_at;
+  delete c.updated_at;
+  alwaysPresentFields.forEach((k) => {
+    if (c[k] === undefined || c[k] === null) c[k] = '';
+    if (c[k] === '') c[k] = null;
+  });
+  ['issue_date', 'expiry_date'].forEach((k) => {
+    if (c[k] === undefined || c[k] === null) c[k] = null;
+    if (c[k] === '') c[k] = null;
+  });
+  if (c.replacement_count === undefined || c.replacement_count === null || c.replacement_count === '') {
+    c.replacement_count = 0;
+  }
+  if (c.replacement_count) c.replacement_count = Number(c.replacement_count) || 0;
+  return c;
+}
+
+export function computeExpiry(expiryDate, today = new Date()) {
+  if (!expiryDate) {
+    return { daysLeft: null, dcStatus: 'Inactive' };
+  }
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const end = new Date(`${expiryDate}T00:00:00`).getTime();
+  const days = Math.round((end - start) / 86400000);
+  if (days > 30) return { daysLeft: days, dcStatus: 'Active' };
+  if (days >= 8) return { daysLeft: days, dcStatus: 'Expiring Soon' };
+  if (days >= 1) return { daysLeft: days, dcStatus: 'Expiring Soon' };
+  return { daysLeft: days, dcStatus: 'Expired' };
+}
+
+function finalStatus(card, expiry) {
+  const base = (card.status || 'Active').trim();
+  if (base === 'Replaced') return 'Replaced';
+  if (base === 'Inactive') return 'Inactive';
+  return expiry.dcStatus;
+}
+
+export const addSimCard = async (req, res) => {
+  try {
+    const body = clean(req.body);
+    if (requiredFields.some((f) => !body[f] || !String(body[f]).trim())) {
+      return res.status(400).json({ message: 'Required fields are missing' });
+    }
+    const { daysLeft, dcStatus } = computeExpiry(body.expiry_date);
+    body.status = finalStatus({ status: body.status || 'Active' }, { daysLeft, dcStatus });
+    body.replacement_count = Number(body.replacement_count) || 0;
+    body.created_by = req.user?.login_id || req.user?.id || req.user?.name || null;
+    if (body.status === 'Inactive' && body.expiry_date && !body.status) body.status = 'Inactive';
+    const sim = await createSimCard(body);
+    return res.status(201).json({ message: 'SIM card added', sim, daysLeft });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listSimCards = async (req, res) => {
+  try {
+    const cards = await getAllSimCards();
+    const now = new Date();
+    const withMeta = cards.map((c) => {
+      const { daysLeft, dcStatus } = computeExpiry(c.expiry_date, now);
+      const status = finalStatus(c, { daysLeft, dcStatus });
+      return { ...c, days_left: daysLeft, derived_status: status };
+    });
+    return res.json(withMeta);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getSimCard = async (req, res) => {
+  try {
+    const sim = await getSimCardById(req.params.id);
+    if (!sim) return res.status(404).json({ message: 'SIM card not found' });
+    const { daysLeft } = computeExpiry(sim.expiry_date);
+    return res.json({ ...sim, days_left: daysLeft });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const editSimCard = async (req, res) => {
+  try {
+    const body = clean(req.body);
+    if (requiredFields.some((f) => !body[f] || !String(body[f]).trim())) {
+      return res.status(400).json({ message: 'Required fields are missing' });
+    }
+    const { daysLeft, dcStatus } = computeExpiry(body.expiry_date);
+    body.status = finalStatus({ status: body.status || 'Active' }, { daysLeft, dcStatus });
+    const sim = await updateSimCard(req.params.id, body);
+    return res.json({ message: 'SIM card updated', sim, daysLeft });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const removeSimCard = async (req, res) => {
+  try {
+    await deleteReplacementsBySimCard(req.params.id);
+    await deleteSimCard(req.params.id);
+    return res.json({ message: 'SIM card deleted' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const replaceSimCard = async (req, res) => {
+  try {
+    const sim = await getSimCardById(req.params.id);
+    if (!sim) return res.status(404).json({ message: 'SIM card not found' });
+    const { new_sim, replacement_date, reason, new_expiry_date } = req.body;
+    if (!new_sim || !String(new_sim).trim()) {
+      return res.status(400).json({ message: 'New SIM number is required' });
+    }
+    const oldSim = sim.sim_1 || sim.mobile_id || '';
+    const rep = await createReplacement({
+      sim_card_id: sim.id,
+      replacement_date: replacement_date || new Date().toISOString().slice(0, 10),
+      old_sim: oldSim,
+      new_sim: String(new_sim).trim(),
+      device: sim.device_model || null,
+      reason: reason || '',
+      new_expiry_date: new_expiry_date || sim.expiry_date,
+      changed_by: req.user?.login_id || req.user?.name || req.user?.id || null,
+    });
+    const nextCount = (Number(sim.replacement_count) || 0) + 1;
+    const updates = {
+      sim_1: String(new_sim).trim(),
+      replacement_count: nextCount,
+      status: 'Active',
+    };
+    if (new_expiry_date) updates.expiry_date = new_expiry_date;
+    const updated = await updateSimCard(sim.id, { ...updates, expiry_date: new_expiry_date || sim.expiry_date });
+    const { daysLeft } = computeExpiry(updates.expiry_date);
+    return res.status(200).json({ message: 'SIM card replaced', sim: updated, replacement: rep, daysLeft });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listReplacements = async (req, res) => {
+  try {
+    const reps = await getAllReplacements();
+    return res.json(reps);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const replaceHistoryForSim = async (req, res) => {
+  try {
+    const reps = await getReplacementsBySimCard(req.params.id);
+    return res.json(reps);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateStatusBulk = async (req, res) => {
+  try {
+    const { ids, status } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'No SIM cards selected' });
+    }
+    if (!SIM_STATUSES.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+    let updated = 0;
+    for (const id of ids) {
+      await updateSimCard(id, { status });
+      updated += 1;
+    }
+    return res.json({ message: `${ids.length} SIM card(s) updated`, updated });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteBulk = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'No SIM cards selected' });
+    }
+    for (const id of ids) {
+      await deleteReplacementsBySimCard(id);
+      await deleteSimCard(id);
+    }
+    return res.json({ message: `${ids.length} SIM card(s) deleted` });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const importSimCards = async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No rows to import' });
+    }
+    const valid = [];
+    const invalid = [];
+    const usedMobile = new Set();
+    for (const raw of rows) {
+      const row = clean(raw);
+      const missing = requiredFields.filter((f) => !row[f] || !String(row[f]).trim());
+      const dup = row.mobile_id ? usedMobile.has(String(row.mobile_id).trim()) : false;
+      if (dup) usedMobile.add(String(row.mobile_id).trim());
+      if (missing.length > 0 || dup) {
+        invalid.push({ row, reason: missing.length ? `Missing: ${missing.join(', ')}` : 'Duplicate Mobile ID' });
+        continue;
+      }
+      if (row.mobile_id) usedMobile.add(String(row.mobile_id).trim());
+      const { daysLeft, dcStatus } = computeExpiry(row.expiry_date);
+      row.status = row.status && SIM_STATUSES.includes(row.status) ? row.status : (row.status || 'Active');
+      row.status = finalStatus({ status: row.status }, { daysLeft, dcStatus });
+      row.replacement_count = Number(row.replacement_count) || 0;
+      row.created_by = req.user?.login_id || req.user?.name || null;
+      valid.push(row);
+    }
+    const inserted = valid.length ? await bulkInsertSimCards(valid) : [];
+    return res.status(201).json({
+      message: `Imported ${inserted.length} SIM card(s)`,
+      valid: inserted.length,
+      invalid: invalid.length,
+      invalidRows: invalid,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};

@@ -1,9 +1,27 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { getLeadList, verifyLead, quickVerifyLead, doneLead, rejectLead, goBackLead, undoLeadVerification, undoReceipt, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getAddressSuggestions, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, importReceiptNames, getReceiptByMobile, clearReceipts, getReceiptCount, getReceiptNumbers, getSuspenseByNgo, getDonorsList, quickSearchDonors, exportDonors, getDonorDetail, updateDonor, importDonorAddresses, getExcludedReceipts, fixAndQueueReceipt, deleteQueueReceipt, getImportNgoOptions, getFroWorkersList, updateReceipt, getStationOptions, updateAssignmentStations, deleteAssignment, replaceAssignment, getReportTargets, putReportTargets, getReportData, getAccessCodeStatus, createAccessCode, verifyAccessCode, changeAccessCode } from '../controllers/accountsController.js';
+import { getLeadList, verifyLead, quickVerifyLead, doneLead, rejectLead, goBackLead, undoLeadVerification, undoReceipt, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getAddressSuggestions, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, importReceiptNames, getReceiptByMobile, clearReceipts, getReceiptCount, getReceiptNumbers, getSuspenseByNgo, getDonorsList, quickSearchDonors, exportDonors, getDonorDetail, updateDonor, deleteDonor, createDonorAssignment, importDonorAddresses, getExcludedReceipts, fixAndQueueReceipt, deleteQueueReceipt, getImportNgoOptions, getFroWorkersList, updateReceipt, getStationOptions, updateAssignmentStations, deleteAssignment, replaceAssignment, getReportTargets, putReportTargets, getReportData, getAgentTeamCollections, getAccessCodeStatus, createAccessCode, verifyAccessCode, changeAccessCode } from '../controllers/accountsController.js';
 import { restoreWrongAssignments } from '../controllers/ngoAdminController.js';
 
 const router = Router();
+
+const accessCodeRole = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
+const donorManageRole = authenticateRole('accounts', 'admin', 'super_admin');
+
+// Donor administration is intentionally scoped to these routes so adding
+// admin access here does not broaden access to the rest of Accounts.
+router.delete('/donors/:id', donorManageRole, deleteDonor);
+router.post('/donors/:id/assignments', donorManageRole, createDonorAssignment);
+router.delete('/donors/:id/assignments/:assignmentId', donorManageRole, deleteAssignment);
+router.patch('/donors/:id/assignments/:assignmentId/replace', donorManageRole, replaceAssignment);
+
+// Shared access-code used by the HR panel's "Unlock Salary" and accounts
+// receipts/reports. Placed before the accounts-only guard so HR/admin can
+// manage their own per-user code.
+router.get('/access-code/status', accessCodeRole, getAccessCodeStatus);
+router.post('/access-code', accessCodeRole, createAccessCode);
+router.post('/access-code/verify', accessCodeRole, verifyAccessCode);
+router.post('/access-code/change', accessCodeRole, changeAccessCode);
 
 router.use(authenticateRole('accounts', 'super_admin'));
 
@@ -61,10 +79,6 @@ router.get('/day-end-report', getDayEndReport);
 router.get('/report-targets', getReportTargets);
 router.put('/report-targets', putReportTargets);
 router.get('/report-data', getReportData);
-
-router.get('/access-code/status', getAccessCodeStatus);
-router.post('/access-code', createAccessCode);
-router.post('/access-code/verify', verifyAccessCode);
-router.post('/access-code/change', changeAccessCode);
+router.get('/report-agent-team', getAgentTeamCollections);
 
 export default router;

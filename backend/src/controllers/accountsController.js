@@ -148,10 +148,13 @@ export const getLeadList = async (req, res) => {
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
-      agent_name: (req.user?.impersonation && req.user.imposter_name && (r.fro_worker_id === req.user.id || r.fro_worker_id === req.user.imposter_id))
-        ? req.user.imposter_name
-        : r.fro_assignments?.workers?.name || 'Priyank Shah',
-      agent_login: r.fro_assignments?.workers?.login_id || '',
+      // The credited worker is fro_donor_logs.fro_worker_id — when an acting
+      // FRO "works as" another FRO and claims a lead, that is the acting FRO,
+      // while the assignment stays with the owner. Resolve the agent from the
+      // credited worker first so the Lead Verification list shows the acting
+      // FRO, falling back to the assignment owner.
+      agent_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
+      agent_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
@@ -841,6 +844,35 @@ export const rejectLead = async (req, res) => {
     try {
       await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
     } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
+
+    // Fully revert the linked bank audit entry so the money leaves the matched
+    // state and re-enters the unclaimed suspense pool: clear the claim match
+    // (matched_lead_log_id / match_status / match_no / matched_by/at) and the
+    // claim-linked donor fields, and set status back to unverified. Without
+    // this the entry keeps an orange "MATCHED" line and is excluded from the
+    // FRO suspense pool (which filters matched_lead_log_id IS NULL), so the
+    // rejected money can never be claimed again. The entry keeps its
+    // receipt_id so the receipt (number intact) returns to the pool too.
+    try {
+      await db.from('bank_audit_entries').update({
+        status: 'unverified',
+        matched_lead_log_id: null,
+        match_status: null,
+        match_source: null,
+        match_no: null,
+        matched_by: null,
+        matched_at: null,
+        donor_id: null,
+        donor_mobile: null,
+        donor_email: null,
+        donor_pan: null,
+        donor_address_1: null,
+        donor_address_2: null,
+        donor_city: null,
+        donor_pin_code: null,
+        updated_at: new Date().toISOString(),
+      }).eq('matched_lead_log_id', logId);
+    } catch (err) { console.error('Failed to revert bank audit entry on lead rejection:', err.message); }
 
     if (log.fro_assignments?.donor_id) {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
@@ -4020,33 +4052,41 @@ export const getDonorDetail = async (req, res) => {
     let assigned_agent = null;
     let assignment_station = null;
     let assignment_ngo = null;
+    let assignments = [];
     try {
-      const { data: assignments } = await db
+      const { data: assignmentRows } = await db
         .from('fro_assignments')
-        .select('fro_worker_id, station, ngo_id')
+        .select('id, fro_worker_id, station, ngo_id, status')
         .eq('donor_id', id)
         .not('status', 'eq', 'reassigned')
         .order('assigned_at', { ascending: false });
 
-      if (assignments && assignments.length > 0) {
+      const workerIds = [...new Set((assignmentRows || []).map(a => a.fro_worker_id).filter(Boolean))];
+      const ngoIds = [...new Set((assignmentRows || []).map(a => a.ngo_id).filter(Boolean))];
+      const workerMap = {};
+      const ngoMap = {};
+      if (workerIds.length > 0) {
+        const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
+        for (const worker of workers || []) workerMap[worker.id] = worker.name;
+      }
+      if (ngoIds.length > 0) {
+        const { data: ngos } = await db.from('ngos').select('id, name').in('id', ngoIds);
+        for (const ngo of ngos || []) ngoMap[ngo.id] = ngo.name;
+      }
+      assignments = (assignmentRows || []).map(a => ({
+        id: a.id,
+        worker_id: a.fro_worker_id,
+        worker_name: workerMap[a.fro_worker_id] || null,
+        station: a.station || '',
+        ngo_id: a.ngo_id,
+        ngo_name: ngoMap[a.ngo_id] || null,
+        status: a.status,
+      }));
+      if (assignments.length > 0) {
         const a = assignments[0];
-        if (a.fro_worker_id) {
-          const { data: worker } = await db
-            .from('workers')
-            .select('name')
-            .eq('id', a.fro_worker_id)
-            .maybeSingle();
-          assigned_agent = worker?.name || null;
-        }
+        assigned_agent = a.worker_name;
         assignment_station = a.station || null;
-        if (a.ngo_id) {
-          const { data: ngo } = await db
-            .from('ngos')
-            .select('name')
-            .eq('id', a.ngo_id)
-            .maybeSingle();
-          assignment_ngo = ngo?.name || null;
-        }
+        assignment_ngo = a.ngo_name;
       }
     } catch (assignErr) {
       console.error('getDonorDetail: failed to load assignment:', assignErr.message);
@@ -4060,7 +4100,95 @@ export const getDonorDetail = async (req, res) => {
       assigned_agent,
       assignment_station,
       assignment_ngo,
+      assignments,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Permanently remove a donor and operational FRO data as one transaction.
+// Financial receipts remain in place but are detached from the deleted profile.
+export const deleteDonor = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const result = await db.transaction(async (tx) => {
+      const { data: donor, error: donorErr } = await tx.from('donor_profiles').select('id, name, mobile_number').eq('id', donorId).maybeSingle();
+      if (donorErr) throw donorErr;
+      if (!donor) return null;
+
+      const { data: assignments, error: assignmentErr } = await tx
+        .from('fro_assignments').select('id').eq('donor_id', donorId);
+      if (assignmentErr) throw assignmentErr;
+      const assignmentIds = (assignments || []).map(a => a.id).filter(Boolean);
+
+      // Clear both direct and log-linked receipt references before deleting logs/profile.
+      const { error: receiptErr } = await tx.from('receipts').update({ donor_id: null }).eq('donor_id', donorId);
+      if (receiptErr) throw receiptErr;
+
+      let logsDeleted = 0;
+      if (assignmentIds.length > 0) {
+        const { data: logs, error: logFetchErr } = await tx.from('fro_donor_logs').select('id').in('assignment_id', assignmentIds);
+        if (logFetchErr) throw logFetchErr;
+        const logIds = (logs || []).map(l => l.id).filter(Boolean);
+        if (logIds.length > 0) {
+          const { error: linkedReceiptErr } = await tx.from('receipts').update({ donor_id: null, log_id: null }).in('log_id', logIds);
+          if (linkedReceiptErr) throw linkedReceiptErr;
+          const { error: logDeleteErr } = await tx.from('fro_donor_logs').delete().in('id', logIds);
+          if (logDeleteErr) throw logDeleteErr;
+          logsDeleted = logIds.length;
+        }
+        const { error: scheduleErr } = await tx.from('fro_scheduled_contacts').delete().in('assignment_id', assignmentIds);
+        if (scheduleErr) throw scheduleErr;
+        const { error: assignmentDeleteErr } = await tx.from('fro_assignments').delete().in('id', assignmentIds);
+        if (assignmentDeleteErr) throw assignmentDeleteErr;
+      }
+
+      const { error: profileErr } = await tx.from('donor_profiles').delete().eq('id', donorId);
+      if (profileErr) throw profileErr;
+      return { donor, assignments_deleted: assignmentIds.length, logs_deleted: logsDeleted };
+    });
+
+    if (!result) return res.status(404).json({ message: 'Donor not found' });
+    return res.json({ deleted: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ message: `Donor deletion failed: ${error.message}` });
+  }
+};
+
+export const createDonorAssignment = async (req, res) => {
+  try {
+    const { id: donorId } = req.params;
+    const { fro_worker_id: workerId, ngo_id: ngoId, station } = req.body || {};
+    const cleanStation = String(station || '').trim();
+    if (!workerId || !ngoId || !cleanStation) return res.status(400).json({ message: 'Agent, NGO, and station are required' });
+
+    const { data: donor, error: donorErr } = await db.from('donor_profiles').select('id').eq('id', donorId).maybeSingle();
+    if (donorErr) throw donorErr;
+    if (!donor) return res.status(404).json({ message: 'Donor not found' });
+
+    const { data: worker, error: workerErr } = await db.from('workers')
+      .select('id, name').eq('id', workerId).eq('department', 'FRO').eq('employment_status', 'active').maybeSingle();
+    if (workerErr) throw workerErr;
+    if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
+
+    const { data: existing, error: existingErr } = await db.from('fro_assignments')
+      .select('id').eq('donor_id', donorId).eq('ngo_id', ngoId).not('status', 'eq', 'reassigned').maybeSingle();
+    if (existingErr) throw existingErr;
+    if (existing) return res.status(409).json({ message: 'This donor already has an active assignment for this NGO; replace that assignment instead' });
+
+    const now = new Date().toISOString();
+    const { data: assignment, error: insertErr } = await db.from('fro_assignments').insert({
+      donor_id: donorId,
+      fro_worker_id: worker.id,
+      ngo_id: ngoId,
+      station: cleanStation,
+      assigned_by: req.user?.id || null,
+      status: 'pending',
+      assigned_at: now,
+    }).select().single();
+    if (insertErr) throw insertErr;
+    return res.status(201).json({ assignment, agent_name: worker.name, message: `Assigned to ${worker.name} · ${cleanStation}` });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4246,6 +4374,8 @@ export const deleteAssignment = async (req, res) => {
     if (logs && logs.length > 0) {
       await db.from('fro_donor_logs').delete().eq('assignment_id', row.id);
     }
+    const { error: scheduleErr } = await db.from('fro_scheduled_contacts').delete().eq('assignment_id', row.id);
+    if (scheduleErr) throw scheduleErr;
     await db.from('fro_assignments').delete().eq('id', row.id);
 
     return res.json({
@@ -5044,6 +5174,207 @@ export const getReportData = async (req, res) => {
       overallTarget: savedOverall,
       byNgoTargets: savedByNgo,
       holidayByNgo,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /accounts/report-agent-team  ->  { agents, teams, ngos, grandTotal, grandCount }
+// Agent-wise = per-FRO collection (mirrors the NGO-admin /collections/fro-wise report);
+// Team-wise  = same receipts grouped by workers.team (UFS1-UFS4). Both use the same
+// month / day / from-to range and NGO (bsct/aflf/mann) scope as /report-data, and count
+// each receipt once across the whole run so agent totals always sum to team totals.
+const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+export const getAgentTeamCollections = async (req, res) => {
+  try {
+    const requestedDate = (req.query.date || '').trim();
+    const requestedFrom = (req.query.from || '').trim();
+    const requestedTo = (req.query.to || '').trim();
+    let requestedMonth = (req.query.month || '').trim();
+    let dayMode = false;
+    let rangeMode = false;
+    let day = '';
+    if (requestedDate) {
+      dayMode = true;
+      day = requestedDate.slice(0, 10);
+      requestedMonth = day.slice(0, 7);
+    }
+    if (!dayMode && requestedFrom && requestedTo) {
+      rangeMode = true;
+      requestedMonth = String(requestedFrom).slice(0, 7);
+    }
+    if (!requestedMonth || !/^\d{4}-\d{2}$/.test(requestedMonth)) requestedMonth = new Date().toISOString().slice(0, 7);
+    const [y, m] = requestedMonth.split('-').map(Number);
+    const month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
+
+    let dateFrom;
+    let dateTo;
+    if (rangeMode) {
+      dateFrom = String(requestedFrom).slice(0, 10);
+      dateTo = String(requestedTo).slice(0, 10);
+      if (dateFrom > dateTo) [dateFrom, dateTo] = [dateTo, dateFrom];
+    } else if (dayMode) {
+      dateFrom = day;
+      dateTo = day;
+    } else {
+      const lastDay = new Date(y, m, 0).getDate();
+      dateFrom = `${month}-01`;
+      dateTo = `${month}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+    if (naErr) throw naErr;
+    const slugOf = (n) => {
+      if (!n) return null;
+      const code = String(n.code || '').trim().toLowerCase();
+      if (code) return code;
+      const name = String(n.name || '').trim().toLowerCase();
+      return name;
+    };
+    const ngoList = [];
+    const seen = {};
+    const uuidToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      uuidToSlug[String(n.id).toLowerCase()] = slug;
+      if (slug && !seen[slug] && ['bsct', 'aflf', 'mann'].includes(slug)) {
+        seen[slug] = true;
+        ngoList.push({ id: slug, name: n.name });
+      }
+    }
+    const ngoIds = ngoList.map((x) => x.id);
+    if (ngoIds.length === 0) {
+      for (const [slug, name] of [['bsct', 'BSCT'], ['aflf', 'AFLF'], ['mann', 'MANN']]) {
+        ngoList.push({ id: slug, name });
+        ngoIds.push(slug);
+      }
+    }
+    const slugSet = new Set(ngoIds);
+    const nameNormToSlug = {};
+    for (const n of allNgos || []) {
+      const slug = slugOf(n);
+      if (!slug || !slugSet.has(slug)) continue;
+      const nn = normKey(n.name);
+      if (nn) nameNormToSlug[nn] = slug;
+      if (nn.includes('sevak') || nn.includes('beingsevak')) nameNormToSlug['bsct'] = slug;
+      if (nn.includes('ashray')) nameNormToSlug['aflf'] = slug;
+      if (nn.includes('mann')) nameNormToSlug['mann'] = slug;
+    }
+    // Resolve a receipt's project_id (slug / ngo uuid / name) to a report NGO slug.
+    const resolveNgo = (pid) => {
+      if (!pid) return null;
+      const low = String(pid).toLowerCase().trim();
+      if (slugSet.has(low)) return low;
+      if (uuidToSlug[low] && slugSet.has(uuidToSlug[low])) return uuidToSlug[low];
+      const nn = normKey(pid);
+      if (nameNormToSlug[nn]) return nameNormToSlug[nn];
+      return null;
+    };
+
+    const { data: receipts, error: rErr } = await db
+      .from('receipts')
+      .select('id, project_id, amount, agent_name, receipt_no, donor_id, payment_id, receipt_date')
+      .not('receipt_no', 'is', null)
+      .gte('receipt_date', dateFrom)
+      .lte('receipt_date', dateTo);
+    if (rErr) throw rErr;
+
+    const { data: froWorkers, error: fwErr } = await db
+      .from('workers')
+      .select('id, name, team')
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active');
+    if (fwErr) throw fwErr;
+    const workerList = (froWorkers || []).filter((w) => w.id);
+    const workerByKey = {};
+    for (const w of workerList) {
+      const k = normKey(w.name);
+      if (k && !workerByKey[k]) workerByKey[k] = w;
+    }
+
+    const byNgo = (ngoIds) => {
+      const o = {};
+      for (const n of ngoIds) o[n] = 0;
+      return o;
+    };
+    const agents = {};
+    for (const w of workerList) {
+      agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    }
+    agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+
+    const seenReceipts = new Set();
+    for (const r of receipts || []) {
+      const amount = parseFloat(r.amount || 0);
+      if (!(amount > 0)) continue;
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${String(r.receipt_date || '').slice(0, 10)}|${r.payment_id || ''}`;
+      if (seenReceipts.has(dedupKey)) continue;
+      seenReceipts.add(dedupKey);
+
+      const ngo = resolveNgo(r.project_id);
+      if (!ngo) continue;
+
+      let agent = agents.__unassigned;
+      const rawAgent = String(r.agent_name || '').trim();
+      if (rawAgent) {
+        const canonical = await normalizeAgentName(rawAgent);
+        const found = workerByKey[normKey(canonical)];
+        if (found) agent = agents[found.id];
+      }
+
+      agent.byNgo[ngo] = (agent.byNgo[ngo] || 0) + amount;
+      agent.total += amount;
+      agent.count += 1;
+    }
+
+    const agentRows = workerList
+      .map((w) => agents[w.id])
+      .concat(agents.__unassigned)
+      .filter((a) => a)
+      .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));
+
+    // Team-wise rollup from the same agent data.
+    const teamMap = {};
+    for (const a of agentRows) {
+      const team = a.team && String(a.team).trim() !== '' ? String(a.team).trim().toUpperCase() : null;
+      if (!team) continue;
+      if (!teamMap[team]) teamMap[team] = { team, members: 0, byNgo: byNgo(ngoIds), total: 0, count: 0, memberNames: [] };
+      teamMap[team].members += 1;
+      teamMap[team].memberNames.push(a.name);
+      for (const n of ngoIds) teamMap[team].byNgo[n] += a.byNgo[n] || 0;
+      teamMap[team].total += a.total;
+      teamMap[team].count += a.count;
+    }
+    const unassignedAgents = agentRows.filter((a) => !(a.team && String(a.team).trim() !== '') && a.id != null);
+    let teams = Object.values(teamMap)
+      .map((t) => ({ ...t, memberNames: undefined }))
+      .sort((a, b) => b.total - a.total || String(a.team).localeCompare(String(b.team)));
+    if (unassignedAgents.length > 0) {
+      const u = { team: 'No Team', members: unassignedAgents.length, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+      for (const a of unassignedAgents) {
+        for (const n of ngoIds) u.byNgo[n] += a.byNgo[n] || 0;
+        u.total += a.total;
+        u.count += a.count;
+      }
+      teams = teams.concat(u);
+    }
+
+    const grandTotal = agentRows.reduce((s, a) => s + a.total, 0);
+    const grandCount = agentRows.reduce((s, a) => s + a.count, 0);
+
+    return res.json({
+      month,
+      mode: dayMode ? 'day' : (rangeMode ? 'range' : 'month'),
+      day: dayMode ? day : null,
+      from: rangeMode ? dateFrom : null,
+      to: rangeMode ? dateTo : null,
+      ngos: ngoList,
+      agents: agentRows,
+      teams,
+      grandTotal,
+      grandCount,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -71,6 +71,14 @@ BEGIN
       CONTINUE;
     END IF;
 
+    -- Skip receipts with no known NGO — never draw a number from the Being
+    -- Sevak counter for a receipt whose NGO is unknown (that is what mis-credited
+    -- Ashray receipts with Being Sevak numbers).
+    IF r.project_id IS NULL OR r.project_id = '' THEN
+      RAISE NOTICE 'SKIP #% no NGO "%"', r.id, r.donor_name;
+      CONTINUE;
+    END IF;
+
     -- Resolve worker from agent name (only if it is a real person)
     IF r.agent_name IS NOT NULL
        AND upper(trim(r.agent_name)) NOT IN ('', 'SUSPENSE', 'NA', 'N/A', 'NULL', '-') THEN
@@ -96,7 +104,7 @@ BEGIN
 
       IF v_log_status = 'verified' THEN
         -- Lead already verified: link the receipt only (no double credit)
-        SELECT next_receipt_no(COALESCE(r.project_id, 'bsct')) INTO v_receipt_no;
+        SELECT next_receipt_no(r.project_id) INTO v_receipt_no;
         UPDATE receipts
            SET donor_id = v_log_donor,
                log_id   = r.log_id,
@@ -113,7 +121,7 @@ BEGIN
            SET status = 'donation_collected', last_contacted_at = NOW()
          WHERE id = (SELECT assignment_id FROM fro_donor_logs WHERE id = r.log_id);
 
-        SELECT next_receipt_no(COALESCE(r.project_id, 'bsct')) INTO v_receipt_no;
+        SELECT next_receipt_no(r.project_id) INTO v_receipt_no;
         UPDATE receipts
            SET donor_id = v_log_donor,
                log_id   = r.log_id,
@@ -150,7 +158,7 @@ BEGIN
       IF v_donor_id IS NULL THEN
         INSERT INTO donor_profiles (name, mobile_number, project_supported, created_at, updated_at)
         VALUES (r.donor_name, 'NOCELL-' || floor(extract(epoch FROM NOW()) * 1000)::bigint,
-                COALESCE(r.project_id, 'bsct'), NOW(), NOW())
+                r.project_id, NOW(), NOW())
         RETURNING id INTO v_donor_id;
         v_donor_new := true;
       ELSE
@@ -197,7 +205,7 @@ BEGIN
       END IF;
 
       -- Allocate receipt number + link receipt
-      SELECT next_receipt_no(COALESCE(r.project_id, 'bsct')) INTO v_receipt_no;
+      SELECT next_receipt_no(r.project_id) INTO v_receipt_no;
       UPDATE receipts
          SET donor_id = v_donor_id,
              log_id   = v_log_id,

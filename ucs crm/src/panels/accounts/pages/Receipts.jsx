@@ -498,6 +498,7 @@ export default function Receipts() {
   const [sendingIndex, setSendingIndex] = useState(null)
   const [editingPhone, setEditingPhone] = useState(null)
   const [previewIndex, setPreviewIndex] = useState(null)
+  const [previewedIds, setPreviewedIds] = useState(() => new Set())
   const previewBodyRef = useRef(null)
   const [previewScale, setPreviewScale] = useState(0.7)
 
@@ -920,7 +921,7 @@ export default function Receipts() {
                 <div style={{ display:'flex', gap:8 }}>
                   <button className="btn btn-sm" style={{ background:'#059669', color:'#fff', border:'none' }}
                     onClick={handleSendAllWhatsApp}
-                    disabled={bulkState.active || getValidDonors().length === 0}>
+                    disabled={bulkState.active || getValidDonors().length === 0 || !getValidDonors().every(v => previewedIds.has(v.receipt_id))}>
                     Send All ({getValidDonors().length})
                   </button>
                   <button className="btn btn-sm" style={{ background:'#2563eb', color:'#fff', border:'none' }}
@@ -989,11 +990,13 @@ export default function Receipts() {
                         ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
                       </td>
                       <td style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
-                          onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
-                          disabled={sendingIndex === realIdx}>
-                          {sendingIndex === realIdx ? '...' : 'Send'}
-                        </button>
+                        {previewedIds.has(d.receipt_id) && (
+                          <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
+                            onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
+                            disabled={sendingIndex === realIdx}>
+                            {sendingIndex === realIdx ? '...' : 'Send'}
+                          </button>
+                        )}
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 6px', background:'#fff', color:'#6b7280', border:'1px solid #d1d5db', display:'flex', alignItems:'center', gap:4 }}
                           onClick={e => { e.stopPropagation(); handleEditReceipt(d) }}>
                           <Pencil size={11} strokeWidth={2} /> Edit
@@ -1003,7 +1006,8 @@ export default function Receipts() {
                           title='Undo and return to Bank Audit'>
                           {'\u21a9 Go Back'}
                         </button>
-                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }}>Preview</button>
+                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }}
+                          onClick={e => { e.stopPropagation(); if (d.receipt_id) setPreviewedIds(prev => new Set(prev).add(d.receipt_id)); setPreviewIndex(realIdx) }}>Preview</button>
                       </td>
                     </tr>
                   )})}
