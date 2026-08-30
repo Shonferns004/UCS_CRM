@@ -81,9 +81,8 @@ function findNextDonorIndex(donors, currentId) {
       if (donors[i].id !== currentId) return i;
     }
   }
-  for (let i = 0; i < donors.length; i++) {
-    if (donors[i].id !== currentId) return i;
-  }
+  // Strictly forward: never wrap last → first. If nothing after the current
+  // donor, the queue is complete for now (the backend is authoritative).
   return -1;
 }
 
@@ -920,15 +919,13 @@ export default function MyDonors() {
       suppressRealtimeUntilRef.current = Date.now() + 10000;
       if (debounceReloadRef.current) { clearTimeout(debounceReloadRef.current); debounceReloadRef.current = null; }
 
-      // DND donors disappear from the queue immediately — the backend keeps
-      // them hidden until the next month (see getMyDonors dnd filter).
-      // Not-connected dispositions now vanish permanently too (latest-ever
-      // rule in getMyDonors), so drop them locally as well: the just-worked
-      // lead must never linger on screen.
-      const removeLocally = !RETRYABLE_NOT_CONNECTED.has(selected);
-      const newDonors = removeLocally
-        ? filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)))
-        : applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: DISP_TO_STATUS[selected] || selected, is_new: false });
+      // Same-day suppression (backend-authoritative): a donor with ANY
+      // disposition today for this worker cannot be returned by /queue/current
+      // again today — even for a retryable (ringing/busy) disposition. The
+      // backend is the source of truth; here we just drop the just-worked lead
+      // from the local list as UX protection so stale UI can never re-show it.
+      // It becomes eligible again tomorrow per the existing retry rules.
+      const newDonors = filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)));
       setDonors(newDonors);
 
       if (returnToDonor) {
