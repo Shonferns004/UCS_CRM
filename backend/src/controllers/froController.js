@@ -1954,6 +1954,27 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
+    // ─── Same-day suppression (per worker + current work scope) ──────────────
+    // Business rule: if the donor already has ANY disposition TODAY (IST) for
+    // THIS worker, it must not be selectable again today — even for a retryable
+    // disposition (ringing/busy). Tomorrow, retryability is recalculated by the
+    // existing rules. Scoped to fro_worker_id (this worker) so disposing a donor
+    // under FRO-1 never blocks it for FRO-2.
+    const disposedTodayIds = new Set();
+    if (donorIds.length > 0) {
+      const { start, end } = istDayBounds();
+      const todayLogs = await chunkedInQuery(donorIds, chunk =>
+        db.from('fro_donor_logs')
+          .select('donor_id')
+          .in('donor_id', chunk)
+          .eq('fro_worker_id', workerId)
+          .eq('action', 'disposition')
+          .gte('created_at', start.toISOString())
+          .lt('created_at', end.toISOString())
+      );
+      for (const log of todayLogs) disposedTodayIds.add(log.donor_id);
+    }
+
     const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
       'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
     ]);
@@ -1974,6 +1995,11 @@ export const getMyDonors = async (req, res) => {
       baseFiltered = null;
     } else {
       baseFiltered = result.filter(r => {
+        // Same-day suppression (primary): if this donor already has ANY
+        // disposition today (IST) for this worker, it must not appear again in
+        // any queue view today — even for a retryable disposition (ringing/busy).
+        // Scoped per worker so it never blocks the donor for another FRO.
+        if (disposedTodayIds.has(r.donor_id)) return false;
         // Status is authoritative for hard-terminal dispositions: a donor already
         // marked not_interested / dnd / wrong_person / not_possible / wrong_number
         // etc. must NOT be workable even if its disposition log wasn't captured —
@@ -2024,32 +2050,19 @@ export const getMyDonors = async (req, res) => {
         const activeRows = await getActiveQueueRows({ workerId, station: queueStation, tab: queueTab });
         const byId = new Map(filtered.map(r => [r.donor_id, r]));
 
-        // Resume position from fro_live_status (per-tab) so reloads continue
-        // from where the FRO left off instead of jumping back to #1.
-        let resumeIndex = null;
-        let resumeId = null;
-        try {
-          const { data: prog } = await db
-            .from('fro_live_status')
-            .select('new_donor_index, old_donor_index, new_donor_id, old_donor_id')
-            .eq('worker_id', workerId)
-            .maybeSingle();
-          resumeIndex = queueTab === 'new' ? prog?.new_donor_index : prog?.old_donor_index;
-          resumeId = queueTab === 'new' ? prog?.new_donor_id : prog?.old_donor_id;
-        } catch (_) { /* ignore */ }
-
+        // The cursor is STRICTLY FORWARD — no wrap-around, never `% length`, never
+        // `idx<0 → idx=0`. `filtered` already excludes every donor with a
+        // disposition today for this worker (see baseFiltered), and the disposed
+        // donor is no longer in donorObjs, so `getActiveQueueRows` returns only
+        // DONORS STILL ELIGIBLE TODAY for this scope. The next donor is therefore
+        // simply the LOWEST-position remaining active row.
+        //
+        //   activeRows are ordered by stable position ASC. After A→RINGING:
+        //     activeRows = [B,C,D], serve B → C → D → (empty) -> QUEUE COMPLETE.
+        //   There is no valid path back to an earlier donor within the same day.
         let next = null;
         if (activeRows.length > 0) {
-          const resumePos = (num) => (Number.isFinite(num) ? num : -1);
-          let idx = resumeIndex != null ? activeRows.findIndex(r => r.position > resumePos(resumeIndex)) : 0;
-          if (idx < 0) idx = 0;
-          // Avoid immediately re-serving the resume donor unless it is the only one.
-          if (resumeId != null && activeRows[idx].donor_id === resumeId
-              && activeRows.length > 1
-              && resumeIndex != null && activeRows[idx].position <= resumePos(resumeIndex)) {
-            idx = (idx + 1) % activeRows.length;
-          }
-          next = activeRows[idx];
+          next = activeRows[0];
         }
 
         const totalActive = activeRows.length;
