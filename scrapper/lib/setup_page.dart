@@ -20,7 +20,6 @@ class _SetupPageState extends State<SetupPage> {
   final _gpayPin = TextEditingController();
   final _historyText = TextEditingController();
   final _maxTxCtl = TextEditingController();
-  final _scrollLoopsCtl = TextEditingController();
 
   bool _receivedOnly = true;
   String _gpayLockType = 'pin';
@@ -28,7 +27,6 @@ class _SetupPageState extends State<SetupPage> {
   String? _ngoError;
   List<Map<String, dynamic>> _ngos = [];
   bool _loadingNgos = false;
-  String _lastImportedDate = '';
 
   @override
   void initState() {
@@ -47,8 +45,6 @@ class _SetupPageState extends State<SetupPage> {
       _historyText.text = cfg['historyText']?.toString() ?? 'All activity';
       _receivedOnly = cfg['receivedOnly'] as bool? ?? true;
       _maxTxCtl.text = (cfg['maxTransactions'] as num?)?.toString() ?? '200';
-      _scrollLoopsCtl.text = (cfg['scrollLoops'] as num?)?.toString() ?? '8';
-      _lastImportedDate = cfg['lastImportedDate']?.toString() ?? '';
       final pid = cfg['projectId']?.toString() ?? '';
       if (pid.isNotEmpty) _setProjectId(pid);
     });
@@ -126,7 +122,6 @@ class _SetupPageState extends State<SetupPage> {
       'projectId': _selectedProjectId ?? '',
       'receivedOnly': _receivedOnly,
       'maxTransactions': int.tryParse(_maxTxCtl.text) ?? 200,
-      'scrollLoops': int.tryParse(_scrollLoopsCtl.text) ?? 8,
       'historyText': _historyText.text.trim(),
     };
     await setConfig(cfg);
@@ -247,30 +242,14 @@ class _SetupPageState extends State<SetupPage> {
                 const SizedBox(height: 20),
                 const Text('Run options', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _maxTxCtl,
-                        decoration: const InputDecoration(
-                          labelText: 'Max transactions',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _scrollLoopsCtl,
-                        decoration: const InputDecoration(
-                          labelText: 'Max scrolls',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                  ],
+                TextFormField(
+                  controller: _maxTxCtl,
+                  decoration: const InputDecoration(
+                    labelText: 'Max transactions to collect',
+                    helperText: 'Scrolls automatically and stops once it goes before yesterday.',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 12),
                 SwitchListTile(
@@ -279,24 +258,6 @@ class _SetupPageState extends State<SetupPage> {
                   value: _receivedOnly,
                   onChanged: (v) => setState(() => _receivedOnly = v),
                 ),
-                if (_lastImportedDate.isNotEmpty)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Already collected up to: $_lastImportedDate',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          await setConfig({'lastImportedDate': ''});
-                          setState(() => _lastImportedDate = '');
-                        },
-                        child: const Text('Reset cutoff'),
-                      ),
-                    ],
-                  ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _historyText,
