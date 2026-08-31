@@ -46,6 +46,24 @@ const HIDDEN_STATUSES = new Set([
   'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
   'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
 ]);
+// Status-group buckets for the MY LEADS list filter. Grouped so the FRO can scan
+// "what still needs a call" vs "already scheduled / done / rejected".
+const DONOR_STATUS_GROUPS = {
+  pending: ['pending', 'contacted', 'visit_donate', 'email_sent', 'whatsapp_sent', 'transferred_senior', 'query_complaint', 'receipt_request', 'wants_80g_details', 'wants_trust_documents', 'csr_inquiry', 'payment_pending', 'will_donate_online'],
+  retryable: ['ringing', 'busy', 'unreachable', 'switched_off', 'out_of_coverage', 'voicemail', 'call_waiting', 'incoming_out', 'temporary_network_issue', 'call_disconnected', 'language_barrier'],
+  scheduled: ['scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled'],
+  donated: ['lead_done', 'done', 'donation_collected', 'promise_to_pay', 'already_donated'],
+  rejected: ['not_interested', 'not_interested_now', 'dnd', 'wrong_number', 'wrong_person', 'invalid_number', 'rejected', 'payment_rejected', 'not_possible'],
+};
+const DONOR_STATUS_GROUP_LABELS = {
+  all: 'All statuses',
+  pending: 'Pending / New',
+  retryable: 'Retryable (ring / busy)',
+  scheduled: 'Scheduled / Callback',
+  donated: 'Donated / Done',
+  rejected: 'Not interested / Rejected',
+};
+
 function isNewDonor(d) {
   return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
 }
@@ -220,6 +238,11 @@ export default function MyDonors() {
   const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
   const [selectedStation, setSelectedStation] = useState(savedView?.selectedStation || 'all');
   const [selectedNgo, setSelectedNgo] = useState(savedView?.selectedNgo || null);
+  // MY LEADS list view: the currently opened lead (null = showing the list).
+  const [activeDonor, setActiveDonor] = useState(null);
+  const [listStatusFilter, setListStatusFilter] = useState('all');
+  const [listProjectFilter, setListProjectFilter] = useState('all');
+  const [listHideDonated, setListHideDonated] = useState(false);
   const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -360,11 +383,15 @@ export default function MyDonors() {
   }, [message]);
 
   useEffect(() => {
-    if (donors[index]) {
+    // Only track a "donor view" when a lead is actually open (list view has none).
+    const viewing = activeDonor || externalDonor;
+    if (!viewing) { endDonorView(false); return; }
+    const target = activeDonor || externalDonor;
+    if (target?.id) {
       endDonorView(false)
-      startDonorView(donors[index].id)
+      startDonorView(target.id)
     }
-  }, [index, donors, endDonorView, startDonorView]);
+  }, [index, donors, activeDonor, externalDonor, endDonorView, startDonorView]);
 
   useEffect(() => {
     getMyStations().then(s => {
@@ -481,7 +508,7 @@ export default function MyDonors() {
     setDataTab(tab);
   };
 
-  const donor = externalDonor || donors[index];
+  const donor = activeDonor || externalDonor || donors[index];
 
   useEffect(() => {
     if (!donor) return;
@@ -691,7 +718,8 @@ export default function MyDonors() {
 
   const cancelledRef = useRef(false);
   const loadDetail = useCallback(() => {
-    if (!donor) return;
+    // Only load detail for an OPENED lead (list view has no active donor).
+    if (!donor || (!activeDonor && !externalDonor)) { setDetail(null); return; }
     cancelledRef.current = false;
     const id = donor.id;
     const ngoId = donor.ngo_id;
@@ -706,7 +734,7 @@ export default function MyDonors() {
       }).catch(err => console.error('markDonorSeen error:', err));
     }
     getDonorDetail(id, ngoId).then(d => { if (!cancelledRef.current) { setDetail(d); setShowAllLogs(false); } }).catch(err => console.error('getDonorDetail error:', err)).finally(() => { if (!cancelledRef.current) setDetailLoading(false); });
-  }, [donor?.id, donor?.ngo_id]);
+  }, [donor?.id, donor?.ngo_id, activeDonor, externalDonor]);
 
   useEffect(() => { return () => { cancelledRef.current = true; }; }, [loadDetail]);
 
@@ -925,35 +953,21 @@ export default function MyDonors() {
       // backend is the source of truth; here we just drop the just-worked lead
       // from the local list as UX protection so stale UI can never re-show it.
       // It becomes eligible again tomorrow per the existing retry rules.
+      // Remove the just-worked lead locally (backend already enforces same-day
+      // suppression; this is UX so stale UI can never re-show it today).
       const newDonors = filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)));
       setDonors(newDonors);
 
-      if (returnToDonor) {
-        setResumeTo(null);
-        const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
-        if (returnIdx >= 0) {
-          setIndex(returnIdx);
-        } else {
-          setIndex(Math.min(returnToDonor.idx, Math.max(0, newDonors.length - 1)));
-        }
-        setReturnToDonor(null);
-      } else {
-        // Controlled advance: the BACKEND chooses the next donor (order, dedup,
-        // position all server-side) — the FRO only ever picks the disposition.
-        const advance = () => goToBackendNext(donor);
-        if (resumeTo) {
-          const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
-          setResumeTo(null);
-          if (ridx >= 0) {
-            setIndex(ridx);
-            saveProgress(dataTab, newDonors[ridx].id, ridx);
-          } else {
-            advance();
-          }
-        } else {
-          advance();
-        }
+      // No auto-advance: in the list flow we return to the list after saving.
+      // The FRO explicitly opens their next lead. There is no wrap / re-select,
+      // so a just-dispositioned donor cannot reappear.
+      setResumeTo(null);
+      setReturnToDonor(null);
+      if (activeDonor) {
+        setActiveDonor(null);
+        reloadDonors();
       }
+      setExternalDonor(null);
       clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
@@ -1200,6 +1214,177 @@ export default function MyDonors() {
     const label = status ? status.replace(/_/g, ' ') : 'unknown';
     return <span className={`pill ${STATUS_PILL_MAP[status] || 'pill-gray'}`}>{label}</span>;
   };
+
+  // ─────────────────────────── MY LEADS — LIST VIEW ─────────────────────────
+  // Shown by default. Each row is a donor already filtered by the backend
+  // (same-day suppression applied). The FRO picks any lead to open; there is no
+  // automatic "next" chain, so a dispositioned donor can never be re-selected
+  // by the UI. Client-side filters narrow the loaded list further.
+  if (!activeDonor) {
+    // NGO / station options derived from the assigned stations.
+    const ngoMap = {};
+    stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+    const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+    const stationList = stations
+      .filter(s => !selectedNgo || s.ngo_id === selectedNgo)
+      .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []);
+
+    const projectsInList = [...new Set(donors.map(d => d.donor_project).filter(Boolean))].sort();
+
+    // Apply client-side filters (server already handles tab / station / ngo).
+    const visible = donors.filter(d => {
+      if (listStatusFilter !== 'all' && !(DONOR_STATUS_GROUPS[listStatusFilter] || []).includes(d.status)) return false;
+      if (listProjectFilter !== 'all' && (d.donor_project || '') !== listProjectFilter) return false;
+      if (listHideDonated && d.has_donated_current_month) return false;
+      if (searchQuery && searchQuery.trim().length >= 2) {
+        const term = searchQuery.toLowerCase().trim();
+        const name = (d.donor_name || '').toLowerCase();
+        const mobile = String(d.donor_mobile || '');
+        if (!name.includes(term) && !mobile.includes(term)) return false;
+      }
+      return true;
+    });
+
+    const openLead = (d) => {
+      const found = donors.findIndex(x => x.id === d.id && x.ngo_id === d.ngo_id);
+      if (found >= 0) setIndex(found);
+      setActiveDonor(d);
+      setSelected(null); setNotes(''); setLeadAmount('');
+    };
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmtTrack = (d) => {
+      if (d.has_donated_current_month) return (
+        <span style={{ fontSize: 9, fontWeight: 700, color: d.has_verified_donation_current_month ? '#16a34a' : '#f59e0b' }}>
+          {d.has_verified_donation_current_month ? '✓ Donated' : '● Donated (unverified)'}
+        </span>
+      );
+      const s = d.status;
+      const isRetry = RETRYABLE_NOT_CONNECTED.has(s);
+      if (isRetry || !s || s === 'pending') return <span style={{ fontSize: 9, fontWeight: 700, color: '#16a34a' }}>Call now</span>;
+      return statusPill(s);
+    };
+
+    return (
+      <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* Filter bar */}
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: 3 }}>
+            <button onClick={() => switchTab('new')} className={`fro-tab-btn ${dataTab === 'new' ? 'fro-tab-active-new' : ''}`} style={{ fontSize: 10 }}>
+              New
+            </button>
+            <button onClick={() => switchTab('old')} className={`fro-tab-btn ${dataTab === 'old' ? 'fro-tab-active-old' : ''}`} style={{ fontSize: 10 }}>
+              Old
+            </button>
+          </div>
+          {ngoList.length > 1 && (
+            <select value={selectedNgo || ''} onChange={e => { setSelectedNgo(e.target.value || null); setSelectedStation('all'); }}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+              <option value="">All NGOs</option>
+              {ngoList.map(n => <option key={n.ngo_id} value={n.ngo_id}>{n.ngo_name}</option>)}
+            </select>
+          )}
+          {stationList.length > 1 && (
+            <select value={selectedStation || 'all'} onChange={e => setSelectedStation(e.target.value || 'all')}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+              <option value="all">All stations</option>
+              {stationList.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          {projectsInList.length > 1 && (
+            <select value={listProjectFilter} onChange={e => setListProjectFilter(e.target.value)}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+              <option value="all">All projects</option>
+              {projectsInList.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
+            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
+            {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={listHideDonated} onChange={e => setListHideDonated(e.target.checked)} />
+            Hide donated
+          </label>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: '3px 8px', minWidth: 200 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--ink-soft)' }}>search</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search name or mobile..."
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent', padding: '3px 0', minWidth: 0 }}
+            />
+            {searchQuery && (
+              <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setListStatusFilter('all'); }}>close</span>
+            )}
+          </div>
+        </div>
+
+        {message && (
+          <div className={`detail-message ${message.type}`} style={{ margin: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
+            {message.text}
+          </div>
+        )}
+
+        {/* List */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--card-bg)', zIndex: 2 }}>
+              <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Lead</th>
+                <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Mobile</th>
+                <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Station</th>
+                <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Project</th>
+                <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Status</th>
+                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 ? (
+                <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                  No leads match the current filters.
+                </td></tr>
+              ) : visible.map((d, i) => (
+                <tr key={`${d.id}-${d.ngo_id}`} onClick={() => openLead(d)}
+                  style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer', transition: 'background .1s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
+                  <td style={{ padding: '8px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
+                        {initials(d.donor_name)}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {d.donor_name || 'Unknown'}
+                          {d.is_new && <span style={{ marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 8, fontWeight: 700 }}>NEW</span>}
+                        </div>
+                        {d.ngo_names && d.ngo_names.length > 0 && (
+                          <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.ngo_names.join(', ')}</div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</td>
+                  <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
+                  <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_project || '—'}</td>
+                  <td style={{ padding: '8px 8px' }}>{fmtTrack(d)}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ padding: '8px 12px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
+          Showing {visible.length} of {total || donors.length} leads
+        </div>
+      </div>
+    );
+  }
 
   return (<>
     <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1771,37 +1956,22 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0 || saving} onClick={() => {
-        setResumeTo(null);
-        if (externalDonor) {
-          const backIdx = returnToDonor?.idx ?? 0;
-          const backDonor = donors[backIdx];
-          setExternalDonor(null);
-          setReturnToDonor(null);
-          setIndex(backIdx);
-          if (backDonor) saveProgress(dataTab, backDonor.id, backIdx);
-          return;
-        }
-        if (selected) {
-          prevActionRef.current = () => {
-            if (donor) saveProgress(dataTab, donor.id, index);
-            endDonorView(isOnCall && activeCall?.donorId === donor.id);
-            resetFormState();
-            setIndex(i => i - 1);
-          };
-          setShowConfirmPrev(true);
-          return;
-        }
-        if (donor) saveProgress(dataTab, donor.id, index);
-        endDonorView(isOnCall && activeCall?.donorId === donor.id);
+      <button className="btn-prev" disabled={saving} onClick={() => {
+        const hadUnsaved = !!selected;
+        endDonorView(isOnCall && activeCall?.donorId === donor?.id);
         resetFormState();
-        setIndex(i => i - 1);
+        setResumeTo(null);
+        setReturnToDonor(null);
+        setExternalDonor(null);
+        setShowConfirmPrev(false);
+        setActiveDonor(null);
+        if (hadUnsaved) setMessage({ type: 'info', text: 'Disposition not saved — select again and log it.' });
       }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>format_list_bulleted</span> Back to List
       </button>
 
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', paddingRight: 4 }}>
-        {isOnCall && activeCall?.donorId === donor.id ? (
+        {isOnCall && activeCall?.donorId === donor?.id ? (
           <button onClick={endCall} disabled={saving} className="fro-btn-end-call" style={saving ? { opacity: .5, cursor: 'not-allowed' } : undefined}>
             <span className="fro-pulse-dot" />
             End Call
@@ -1814,14 +1984,12 @@ export default function MyDonors() {
         )}
 
         <button className="btn-next"
-          disabled={saving || (!selected && !donor.has_donated_current_month)}
-          onClick={() => { endDonorView(isOnCall); handleButtonClick() }}>
+          disabled={saving || !selected}
+          onClick={() => { endDonorView(isOnCall); handleSave() }}>
           {saving ? 'Saving...' : selected ? (
-            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> Log {findDisp(selected)?.label || selected}</>
-          ) : donor.has_donated_current_month ? (
-            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT →</>
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>check</span> Log {findDisp(selected)?.label || selected}</>
           ) : (
-            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT</>
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>check</span> Save & Back to List</>
           )}
         </button>
       </div>
