@@ -1150,7 +1150,30 @@ export const importEvents = async (req, res) => {
     if (code) defaultNgo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === code);
     if (!defaultNgo && req.body.ngo_id) defaultNgo = ngos.find(n => String(n.id) === String(req.body.ngo_id));
 
-    const { rows } = parseEventSheet(file.buffer);
+    // Parse as an events sheet. If the sheet has NO "Event Name" and "Date"
+    // column but DOES have "Sector" + "Activity / Project", it is actually an
+    // activities catalog sheet (the MANN/AFLF/BSCT activity sheets the team
+    // uploads). Route that to the activities import so the uploaded rows
+    // populate the activity catalog instead of failing with an opaque error.
+    let rows;
+    try {
+      ({ rows } = parseEventSheet(file.buffer));
+    } catch (eventParseErr) {
+      try {
+        const act = parseActivitySheet(file.buffer);
+        if (act.rows && act.rows.length) {
+          // Activities sheet — needs an NGO to scope the catalog.
+          const actCode = String(req.body.ngo_code || '').trim().toUpperCase();
+          const actNgo = (actCode && ngos.find(n => String(n.code || n.name || '').toUpperCase() === actCode))
+            || (req.body.ngo_id && ngos.find(n => String(n.id) === String(req.body.ngo_id)));
+          if (!actNgo || !(actNgo.code || actNgo.name)) {
+            return res.status(400).json({ message: 'This sheet is an Activity catalog (Sector / Activity columns, no Event Name or Date). Please select the NGO (MANN / AFLF / BSCT) in the dropdown above and upload again.' });
+          }
+          return importActivities(req, res);
+        }
+      } catch (_) { /* not an activities sheet either — fall through */ }
+      throw eventParseErr;
+    }
     if (!rows.length) return res.status(400).json({ message: 'No events found in the sheet' });
 
     const [sectors, activities] = await Promise.all([
@@ -1206,10 +1229,10 @@ export const importEvents = async (req, res) => {
       const sectorId = sectorByName.get(canonical);
       if (!sectorId) { skipped.unknown_sector.push(`${row.name} (${row.sectorLabel || 'no sector'})`); continue; }
 
-      const activity = resolveActivity(sectorId, ngo.id, row.activityLabel);
-      if (!activity) { skipped.unknown_activity.push(`${row.name} (${row.activityLabel || 'no activity'})`); continue; }
+      const activity = row.activityLabel ? resolveActivity(sectorId, ngo.id, row.activityLabel) : null;
+      if (row.activityLabel && !activity) skipped.unknown_activity.push(`${row.name} (${row.activityLabel})`);
 
-      const dedupeKey = `${ngo.id}|${sectorId}|${activity.id}|${row.date}|${norm(row.name)}`;
+      const dedupeKey = `${ngo.id}|${sectorId}|${activity ? activity.id : 'none'}|${row.date}|${norm(row.name)}`;
       if (seen.has(dedupeKey)) { skipped.dup.push(row.name); continue; }
       seen.add(dedupeKey);
 
@@ -1218,7 +1241,7 @@ export const importEvents = async (req, res) => {
         date: row.date,
         ngo_id: ngo.id,
         sector_id: sectorId,
-        activity_id: activity.id,
+        activity_id: activity ? activity.id : null,
         venue: row.venue,
         start_time: row.startTime,
         end_time: row.endTime,
