@@ -1309,23 +1309,33 @@ export default function MyDonors() {
               <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchDropdown(false); }}>close</span>
             )}
             {showSearchDropdown && searchResults.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#fff', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, maxHeight: 260, overflowY: 'auto', marginTop: 2 }}>
-                {searchResults.map((r, i) => (
-                  <div key={`${r.id || r.donor_id}-${r.ngo_id || ''}`} onClick={() => handleSelectSearchResult(i)}
-                    style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: i < searchResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 8, transition: 'background .1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
-                      {initials(r.donor_name || r.name || '')}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#111827' }}>{r.donor_name || r.name || 'Unknown'}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {r.donor_mobile || r.mobile_number || ''}{r.ngo_name ? ` · ${r.ngo_name}` : ''}{r.status ? ` · ${String(r.status).replace(/_/g, ' ')}` : ''}
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 340, maxWidth: 420, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.14)', zIndex: 500, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg)', borderBottom: '1px solid var(--line)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)' }}>
+                  <span>Matches</span>
+                  <span>{searchResults.length} found</span>
+                </div>
+                <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                  {searchResults.map((r, i) => (
+                    <div key={`${r.id || r.donor_id}-${r.ngo_id || ''}`} onClick={() => handleSelectSearchResult(i)}
+                      style={{ padding: '9px 12px', cursor: 'pointer', borderBottom: i < searchResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 10, transition: 'background .1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
+                        {initials(r.donor_name || r.name || '')}
                       </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.donor_name || r.name || 'Unknown'}</div>
+                        <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 1 }}>
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.donor_mobile || r.mobile_number || '—'}</span>
+                          {r.ngo_name ? <span style={{ color: 'var(--ink-soft)' }}> · {r.ngo_name}</span> : null}
+                        </div>
+                      </div>
+                      <span className={`pill ${STATUS_PILL_MAP[r.status] || 'pill-gray'}`} style={{ fontSize: 8, padding: '2px 6px', flexShrink: 0 }}>
+                        {r.status ? String(r.status).replace(/_/g, ' ') : '—'}
+                      </span>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>
