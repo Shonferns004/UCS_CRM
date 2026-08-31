@@ -1398,7 +1398,8 @@ export default function MyDonors() {
     <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div className="detail-split">
         {/* LEFT PANEL — merged profile + details */}
-        <div className="detail-left" style={{ padding: 12 }}>
+        <div className="detail-left">
+          <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Profile header */}
             <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
@@ -1601,6 +1602,7 @@ export default function MyDonors() {
                 Payment rejected by Accounts
               </div>
             )}
+          </div>
           </div>
         </div>
 
