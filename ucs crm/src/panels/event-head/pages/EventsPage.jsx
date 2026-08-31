@@ -155,12 +155,13 @@ export default function EventsPage({ view } = {}) {
 
   const handleImportSubmit = async (e) => {
     e.preventDefault()
+    if (!importNgo) { setImportError('Please select the NGO (MANN / AFLF / BSCT) this sheet belongs to'); return }
     if (!importFile) { setImportError('Please choose an Excel/CSV file'); return }
     setImporting(true)
     setImportError('')
     setImportResult(null)
     try {
-      const ngoCode = importNgo ? ngos.find(n => String(n.id) === String(importNgo)) : null
+      const ngoCode = ngos.find(n => String(n.id) === String(importNgo))
       const result = await importEventsSheet({ id: importNgo || undefined, code: (ngoCode && (ngoCode.code || ngoCode.name)) || '' }, importFile)
       setImportResult(result)
       await reload()
@@ -323,13 +324,15 @@ export default function EventsPage({ view } = {}) {
             <form onSubmit={handleImportSubmit}>
               <div className="modal-body">
                 <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
-                  Upload an Excel/CSV sheet of events. Each row needs an event name and a date; Sector and Activity (or Project) are matched to the DB and NGO, so events can be created in one shot. Rows that can&apos;t be matched are listed under Skipped.
+                  1. Pick the <b>NGO</b> this sheet belongs to (MANN / AFLF / BSCT).<br />
+                  2. Upload an Excel/CSV sheet of events. Each row needs an <b>Event Name</b> and a <b>Date</b> column; Sector and Activity (or Project) are matched to the DB.
+                  A sheet with only <b>Sector / Activity (Project)</b> columns (e.g. Sector No. | Sector | Activity / Project) is treated as an <b>Activity catalog</b> and imported into the Activities section instead.
                 </p>
                 <div className="form-row" style={{ marginBottom: 12 }}>
-                  <div className="field"><label>NGO (optional — use if the sheet has no NGO column)</label>
-                    <select value={importNgo} onChange={e => { setImportNgo(e.target.value); setImportResult(null); setImportError('') }}>
-                      <option value="">Auto from sheet / All</option>
-                      {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
+                  <div className="field"><label>NGO * <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}>— your sheet has no NGO column, so pick the one this sheet belongs to</span></label>
+                    <select value={importNgo} onChange={e => { setImportNgo(e.target.value); setImportResult(null); setImportError('') }} style={{ fontWeight: 500 }}>
+                      <option value="">Select NGO…</option>
+                      {ngos.map(n => <option key={n.id} value={n.id}>{(n.code || n.name) + (n.code && n.name && n.name !== n.code ? ` — ${n.name}` : '')}</option>)}
                     </select>
                   </div>
                 </div>
@@ -359,19 +362,50 @@ export default function EventsPage({ view } = {}) {
                 </div>
                 {importResult && (
                   <div style={{ marginTop: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 12, background: 'var(--panel)', fontSize: 13 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 6, color: '#16a34a' }}>Imported {importResult.inserted || 0} events</div>
-                    <div style={{ color: 'var(--ink-soft)' }}>
-                      Parsed rows: {importResult.rows_parsed || 0} · Skipped — missing date: {importResult.skipped?.missing_date || 0}, unknown activity: {importResult.skipped?.unknown_activity || 0}, unknown sector: {importResult.skipped?.unknown_sector || 0}, unknown NGO: {importResult.skipped?.unknown_ngo || 0}, duplicates: {importResult.skipped?.duplicates || 0}
-                    </div>
-                    {
-                      importResult.skipped_details && (
-                        <div style={{ marginTop: 6 }}>
-                          {Object.entries(importResult.skipped_details).filter(([, v]) => Array.isArray(v) && v.length > 0).map(([k, v]) => (
-                            <div key={k} style={{ color: '#B5603A', marginTop: 4 }}>
-                              <span style={{ fontWeight: 600 }}>{k.replace(/_/g, ' ')}:</span> {v.join('; ')}
+                    {importResult.skipped_existing !== undefined || importResult.skipped_campaigns !== undefined
+                      ? (
+                        <>
+                          <div style={{ fontWeight: 600, marginBottom: 6, color: '#16a34a' }}>
+                            Imported {importResult.inserted || 0} activities{importResult.ngo?.code ? ` for ${importResult.ngo.code}` : ''}
+                          </div>
+                          <div style={{ color: 'var(--ink-soft)' }}>
+                            Parsed rows: {importResult.rows_parsed || 0} · Already existing (skipped): {importResult.skipped_existing || 0} · Campaign names skipped: {importResult.skipped_campaigns?.length || 0}
+                          </div>
+                          {Array.isArray(importResult.sectors) && importResult.sectors.length > 0 && (
+                            <div style={{ marginTop: 6 }}>
+                              <span style={{ fontWeight: 600 }}>Activity catalog by sector:</span>
+                              {importResult.sectors.map(s => <div key={s.sector_name}>{s.sector_name}: {s.count}</div>)}
                             </div>
-                          ))}
-                        </div>
+                          )}
+                          {Array.isArray(importResult.unknown_sectors) && importResult.unknown_sectors.length > 0 && (
+                            <div style={{ marginTop: 6, color: '#B5603A' }}>
+                              <span style={{ fontWeight: 600 }}>Unknown sector labels (not imported):</span>
+                              {importResult.unknown_sectors.map(u => `${u.sector} (${u.count})`).join('; ')}
+                            </div>
+                          )}
+                          <div style={{ marginTop: 8, color: 'var(--ink-soft)' }}>
+                            This sheet is an <b>Activity catalog</b> (Sector / Activity columns), so it was imported into the Activities section. View it under <b>Activities</b> in the event-head panel.
+                          </div>
+                        </>
+                      )
+                      : (
+                        <>
+                          <div style={{ fontWeight: 600, marginBottom: 6, color: '#16a34a' }}>Imported {importResult.inserted || 0} events</div>
+                          <div style={{ color: 'var(--ink-soft)' }}>
+                            Parsed rows: {importResult.rows_parsed || 0} · Skipped — missing date: {importResult.skipped?.missing_date || 0}, unknown activity: {importResult.skipped?.unknown_activity || 0}, unknown sector: {importResult.skipped?.unknown_sector || 0}, unknown NGO: {importResult.skipped?.unknown_ngo || 0}, duplicates: {importResult.skipped?.duplicates || 0}
+                          </div>
+                          {
+                            importResult.skipped_details && (
+                              <div style={{ marginTop: 6 }}>
+                                {Object.entries(importResult.skipped_details).filter(([, v]) => Array.isArray(v) && v.length > 0).map(([k, v]) => (
+                                  <div key={k} style={{ color: '#B5603A', marginTop: 4 }}>
+                                    <span style={{ fontWeight: 600 }}>{k.replace(/_/g, ' ')}:</span> {v.join('; ')}
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          }
+                        </>
                       )
                     }
                   </div>
@@ -380,7 +414,7 @@ export default function EventsPage({ view } = {}) {
               </div>
               <div className="modal-actions" style={{ padding: '0 18px 18px' }}>
                 <button type="button" className="btn btn-sm" onClick={() => setImportModal(false)} disabled={importing}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={importing || !importFile}>{importing ? 'Uploading...' : 'Upload & Import'}</button>
+                <button type="submit" className="btn btn-primary" disabled={importing || !importFile || !importNgo}>{importing ? 'Uploading...' : 'Upload & Import'}</button>
               </div>
             </form>
           </div>
