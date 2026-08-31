@@ -108,10 +108,10 @@ export default function EventDashboard() {
   }, [year])
 
   const open = (id) => navigate('/event-head/events/' + id)
+  const openMedia = (id) => navigate('/event-head/media-management?event=' + id)
 
   const k = stats?.kpis || {}
   const maxNgoCount = Math.max(1, ...(stats?.events_by_ngo || []).map(n => n.count))
-  const maxSectorCount = Math.max(1, ...(stats?.events_by_sector || []).map(s => s.event_count))
 
   const actions = (
     <>
@@ -123,7 +123,8 @@ export default function EventDashboard() {
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add Activity
       </button>
-      <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')}>View Calendar <Caret /></button>
+      <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')}>Open Calendar <Caret /></button>
+      <button className="eh-btn" onClick={() => navigate('/event-head/reports')}>Event Reports</button>
     </>
   )
 
@@ -186,24 +187,60 @@ export default function EventDashboard() {
             <MetricCard index={0} number={k.total_events ?? 0} label="Total Events"
               icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
               color="var(--eh-primary)" />
-            <MetricCard index={1} number={'₹' + (k.budget_total ?? 0).toLocaleString()} label="Budget Total"
-              icon={<Icon path={<><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9.5 9.5c0-.8.6-1.5 2.5-1.5 2 0 2.5.7 2.5 1.7 0 2.8-5 1.6-5 4.3 0 .8.6 1.5 2.5 1.5 1.9 0 2.5-.7 2.5-1.5"/></>} />}
-              color="var(--eh-success)" />
-            <MetricCard index={2} number={(k.beneficiaries_total ?? 0).toLocaleString()} label="Beneficiaries"
-              icon={<Icon path={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>} />}
+            <MetricCard index={1} number={k.upcoming_events ?? 0} label="Upcoming Events"
+              icon={<Icon path={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>} />}
               color="var(--eh-secondary)" />
-            <MetricCard index={3} number={stats.this_month?.total ?? 0} label="Events This Month"
+            <MetricCard index={2} number={k.today_events ?? 0} label="Today's Events"
               icon={<Icon path={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />}
               color="#eab308" />
+            <MetricCard index={3} number={k.completed_events ?? 0} label="Completed Events"
+              icon={<Icon path={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>} />}
+              color="var(--eh-success)" />
+            <MetricCard index={4} number={stats.this_month?.total ?? 0} label="This Month Events"
+              icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
+              color="var(--eh-primary)" />
+            <MetricCard index={5} number={'₹' + (k.budget_total ?? 0).toLocaleString()} label="Budget Total"
+              icon={<Icon path={<><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9.5 9.5c0-.8.6-1.5 2.5-1.5 2 0 2.5.7 2.5 1.7 0 2.8-5 1.6-5 4.3 0 .8.6 1.5 2.5 1.5 1.9 0 2.5-.7 2.5-1.5"/></>} />}
+              color="var(--eh-success)" />
           </div>
 
           <div className="eh-grid-2">
-            <SectionCard title="Calendar Preview" headRight={<button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')}>Open Calendar</button>}>
-              {(stats.this_week?.events || []).slice(0, 4).length === 0 ? (
-                <Empty>No events this week.</Empty>
+            <SectionCard title="Today's Events" sub="Real events happening today"
+              headRight={<button className="eh-btn" onClick={() => navigate('/event-head/events-today')}>Today's Events</button>}>
+              {(stats.today_events || []).length === 0 ? (
+                <Empty>No events found today.</Empty>
               ) : (
                 <div>
-                  {(stats.this_week?.events || []).slice(0, 4).map(ev => (
+                  {(stats.today_events || []).map(ev => (
+                    <div key={ev.id} onClick={() => open(ev.id)}
+                      className="eh-row"
+                      style={{ padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      <div style={{ width: 58, flexShrink: 0, textAlign: 'center', background: 'var(--eh-tint-1)', borderRadius: 10, padding: '3px 0', border: '1px solid var(--eh-line)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-primary)' }}>{fmtTime(ev.start_time)}</div>
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{[ev.ngo_name, ev.sector_name, ev.activity_name].filter(Boolean).join(' · ')}</div>
+                        {ev.venue && <div style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>📍 {ev.venue}</div>}
+                      </div>
+                      <StatusPill status={ev.status} />
+                      <button className="eh-btn" title="Manage this event's media & banners" style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
+                        onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage Media/Banners</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard title="Upcoming Events" sub="Next upcoming from the database"
+              headRight={<button className="eh-btn" onClick={() => navigate('/event-head/events')}>View All Events →</button>}>
+              {(stats.upcoming_events || []).length === 0 ? (
+                <Empty>No upcoming events found.</Empty>
+              ) : (
+                <div>
+                  {(stats.upcoming_events || []).slice(0, 8).map(ev => (
                     <div key={ev.id} onClick={() => open(ev.id)}
                       className="eh-row"
                       style={{ padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
@@ -215,19 +252,22 @@ export default function EventDashboard() {
                       </div>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.name || 'Untitled'}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{[ev.ngo_name, ev.sector_name].filter(Boolean).join(' · ')}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{[ev.ngo_name, ev.sector_name, ev.activity_name].filter(Boolean).join(' · ')}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>{[fmtTime(ev.start_time), ev.venue].filter(Boolean).join(' · ')}</div>
                       </div>
                       <StatusPill status={ev.status} />
+                      <button className="eh-btn" title="Manage this event's media & banners" style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
+                        onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>Manage Media/Banners</button>
                     </div>
                   ))}
-                  <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--eh-ink-soft)' }}>
-                    {stats.this_week?.count || 0} events this week total · <button className="eh-btn" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => navigate('/event-head/monthly-planner')}>Monthly Planner</button>
-                  </div>
                 </div>
               )}
             </SectionCard>
+          </div>
 
+          <div className="eh-grid-2">
             <SectionCard title="This Month"
+              sub={`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()} · from real event data`}
               headRight={<div className="eh-m-icon" style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)', fontSize: 12, fontWeight: 700 }}>{MONTHS[new Date().getMonth()]}</div>}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                 <div>
@@ -242,15 +282,29 @@ export default function EventDashboard() {
                   <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-success)' }}>{stats.this_month?.completed ?? 0}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Completed</div>
                 </div>
+                <div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-secondary)' }}>{'₹' + (k.budget_total ?? 0).toLocaleString()}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Budget (filtered)</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-ink)' }}>{stats.this_week?.count ?? 0}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>This week</div>
+                </div>
               </div>
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--eh-line)', fontSize: 12, color: 'var(--eh-ink-soft)' }}>
-                {['Total scheduled', 'Not done yet', 'Delivered this month'].join(' · ')}
+            </SectionCard>
+
+            <SectionCard title="Quick Actions">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 4 }}>
+                <button className="eh-btn eh-btn-primary" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/create')}>＋ Create Event</button>
+                <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/activities')}>＋ Add Activity</button>
+                <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/monthly-planner')}>▣ Open Calendar</button>
+                <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/reports')}>▣ Event Reports</button>
               </div>
             </SectionCard>
           </div>
 
           <div className="eh-grid-2">
-            <SectionCard title="Events by NGO" sub="Updates with Sector / Month filters">
+            <SectionCard title="NGO Performance" sub="Real event counts per NGO">
               {(stats.events_by_ngo || []).length === 0 ? (
                 <Empty>No NGO data available.</Empty>
               ) : (
@@ -344,6 +398,13 @@ export default function EventDashboard() {
                         <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)', marginTop: 1 }}>{fmtDate(ev.date)}{ev.venue ? ' · ' + ev.venue : ''}</div>
                       </div>
                       <span className="eh-badge" style={{ background: ev.attention_type === 'overdue' ? 'var(--eh-danger-soft)' : ev.attention_type === 'info' ? 'var(--eh-primary-soft)' : 'var(--eh-warn-soft)', color: ev.attention_type === 'overdue' ? 'var(--eh-danger)' : ev.attention_type === 'info' ? 'var(--eh-primary)' : '#9a8200', whiteSpace: 'nowrap' }}>{ev.attention_reason}</span>
+                      <button
+                        className="eh-btn"
+                        title="Manage this event's media & banners"
+                        style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
+                        onClick={(e) => { e.stopPropagation(); openMedia(ev.id) }}>
+                        Manage Media/Banners
+                      </button>
                     </div>
                   ))}
                 </div>

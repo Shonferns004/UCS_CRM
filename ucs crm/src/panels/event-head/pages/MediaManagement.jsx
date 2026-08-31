@@ -134,6 +134,7 @@ export default function MediaManagement() {
   const [dragging, setDragging] = useState(false)
   const uploadInput = useRef(null)
   const dragDepth = useRef(0)
+  const prefillUploadRef = useRef(null) // { eventId, ngoId, sectorId } to preserve when prefilling from the open event
 
   // Upload target selection (NGO → Sector → Activity → Event) — independent of filter bar
   const [uploadNgoId, setUploadNgoId] = useState('')
@@ -210,15 +211,29 @@ export default function MediaManagement() {
     return () => { cancelled = true }
   }, [uploadNgoId, uploadSectorId])
 
-  /* ── Upload modal: events for chosen NGO/Sector/Activity ── */
+  /* ── Upload modal: events for chosen NGO/Sector (activity is optional —
+        many events have no activity, so don't gate the event list on it) ── */
   useEffect(() => {
     let cancelled = false
-    setUpEvents([])
-    setUploadEventId('')
-    if (!uploadNgoId || !uploadSectorId || !uploadActivityId) return () => {}
-    fetchEvents({ ngo_id: uploadNgoId, sector_id: uploadSectorId, activity_id: uploadActivityId }).then(d => { if (!cancelled) setUpEvents(d || []) }).catch(() => {})
+    const keep = prefillUploadRef.current
+    const keepEvent = keep && String(keep.eventId) ? keep.event : null
+    if (!keep) setUpEvents([])
+    if (!keep) setUploadEventId('')
+    if (!uploadNgoId || !uploadSectorId) {
+      if (keepEvent) setUpEvents([keepEvent])
+      else { setUpEvents([]); setUploadEventId('') }
+      prefillUploadRef.current = null
+      return () => {}
+    }
+    fetchEvents({ ngo_id: uploadNgoId, sector_id: uploadSectorId }).then(d => {
+      if (cancelled) return
+      let list = d || []
+      if (keepEvent && !list.some(e => String(e.id) === String(keepEvent.id))) list = [keepEvent, ...list]
+      setUpEvents(list)
+    }).catch(() => { if (!cancelled && keepEvent) setUpEvents([keepEvent]) })
+    prefillUploadRef.current = null
     return () => { cancelled = true }
-  }, [uploadNgoId, uploadSectorId, uploadActivityId])
+  }, [uploadNgoId, uploadSectorId])
 
   /* ── Upload modal: select the event, watch its year to enrich the upload ── */
   const uploadYear = upEventInfo?.date ? yearOf(upEventInfo.date) : null
@@ -333,12 +348,14 @@ export default function MediaManagement() {
     setUploadMsg('')
     setUploadErr('')
     setUploadProgress(null)
-    // Prefill the NGO from the current filter; Sector/Activity/Event load
-    // dynamically as the user picks through the chain.
-    setUploadNgoId(ngoFilter || '')
-    setUploadSectorId('')
-    setUploadActivityId('')
-    setUploadEventId('')
+    // Prefill NGO/Sector/Activity/Event from the event currently being viewed
+    // in the filter bar, so the user can upload without re-navigating the chain.
+    const target = selectedEvent || null
+    setUploadNgoId(target?.ngo_id != null ? String(target.ngo_id) : (ngoFilter || ''))
+    setUploadSectorId(target?.sector_id != null ? String(target.sector_id) : '')
+    setUploadActivityId(target?.activity_id != null ? String(target.activity_id) : '')
+    setUploadEventId(target ? String(target.id) : '')
+    prefillUploadRef.current = target ? { eventId: String(target.id), ngoId: target?.ngo_id != null ? String(target.ngo_id) : null, sectorId: target?.sector_id != null ? String(target.sector_id) : null, event: target } : null
     setShowUpload(true)
   }
 
@@ -721,7 +738,7 @@ export default function MediaManagement() {
               <button style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => { if (!uploading) setShowUpload(false) }}>✕</button>
             </div>
             <div className="modal-body">
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>Choose the NGO → Sector → Activity → Event the files belong to.</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>Choose the NGO → Sector → Event the files belong to (Activity is optional). If an event is already open, it is pre-selected below.</div>
 
               <div className="form-row" style={{ marginBottom: 12 }}>
                 <div className="field"><label>NGO</label>
@@ -738,7 +755,7 @@ export default function MediaManagement() {
                 </div>
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>Activity</label>
+                <div className="field"><label>Activity (optional)</label>
                   <select value={uploadActivityId} onChange={e => setUploadActivityId(e.target.value)} disabled={!uploadSectorId}>
                     <option value="">Select Activity</option>
                     {upActivities.map(a => <option key={String(a.id)} value={a.id}>{a.name}</option>)}
@@ -748,7 +765,7 @@ export default function MediaManagement() {
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
                 <div className="field" style={{ flex: '1 1 100%' }}><label>Event</label>
-                  <select value={uploadEventId} onChange={e => setUploadEventId(e.target.value)} disabled={!uploadActivityId}>
+                  <select value={uploadEventId} onChange={e => setUploadEventId(e.target.value)} disabled={!uploadSectorId}>
                     <option value="">Select Event</option>
                     {upEvents.map(ev => <option key={String(ev.id)} value={ev.id}>{ev.name}{ev.date ? ` (${String(ev.date).slice(0, 7)})` : ''}</option>)}
                   </select>
@@ -815,9 +832,12 @@ export default function MediaManagement() {
             </div>
             <div className="modal-actions" style={{ padding: '0 18px 18px' }}>
               <button className="btn btn-sm" onClick={() => setShowUpload(false)} disabled={uploading}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || files.length === 0}>
+              <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || files.length === 0 || !uploadEventId}>
                 {uploading ? 'Uploading…' : files.length > 1 ? `Upload All (${files.length})` : 'Upload'}
               </button>
+              {!uploadEventId && (
+                <div style={{ fontSize: 12, color: '#B5603A', marginTop: 8 }}>Pick an event above to enable Upload — media always belongs to an event.</div>
+              )}
             </div>
           </div>
         </div>
