@@ -1613,118 +1613,14 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* MIDDLE PANEL — Tabs / Filters */}
+        {/* MIDDLE PANEL — Connection Status (filters live on the MY LEADS list) */}
         <div className="fro-mid-tabs">
-          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
-          {(() => {
-            const ngoMap = {};
-            stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
-            const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
-            if (ngoList.length <= 1) return null;
-            return (
-              <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
-                <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(null); setSelectedStation('all'); }}
-                  className={`fro-tab-btn ${!selectedNgo ? 'fro-tab-active-new' : ''}`}
-                  style={{ fontSize: 10 }}>
-                  All
-                </button>
-                {ngoList.map(n => (
-                  <button key={n.ngo_id} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(n.ngo_id); setSelectedStation('all'); }}
-                    className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
-                    style={{ fontSize: 10 }}>
-                    {n.ngo_name}
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
-          {/* Station Tabs */}
-          {(() => {
-            const allAssignedStations = [...new Set(stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station))];
-            const filteredStations = allAssignedStations;
-            if (filteredStations.length === 0) return null;
-            return (
-            <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
-              <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
-                className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
-                style={{ fontSize: 10 }}>
-                All Stations
-              </button>
-              {filteredStations.map(s => (
-                <button key={s} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation(s) }}
-                  className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
-                  style={{ fontSize: 10 }}>
-                  <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: selectedStation === s ? '#16a34a' : '#94a3b8', marginRight: 4, verticalAlign: 'middle' }} />
-                  {s}
-                </button>
-              ))}
-            </div>
-            );
-          })()}
-          {/* New/Old Data Tabs */}
-          <div className="fro-tab-segment">
-            <button onClick={() => switchTab('new')}
-              className={`fro-tab-btn ${dataTab === 'new' ? 'fro-tab-active-new' : ''}`}>
-              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>fiber_new</span>
-              New Data
-              <span className="fro-tab-count">{dataTab === 'new' ? donors.length : ''}</span>
-            </button>
-            <button onClick={() => switchTab('old')}
-              className={`fro-tab-btn ${dataTab === 'old' ? 'fro-tab-active-old' : ''}`}>
-              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
-              Old Data
-              <span className="fro-tab-count">{dataTab === 'old' ? donors.length : ''}</span>
-            </button>
-          </div>
-          {/* Search donor by mobile */}
-          <div ref={searchRef} style={{ position: 'relative', marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: '4px 8px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--ink-soft)' }}>search</span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => handleSearch(e.target.value)}
-                onFocus={() => { if (searchResults.length > 0) setShowSearchDropdown(true); }}
-                placeholder="Search donor by name or mobile..."
-                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent', padding: '4px 0' }}
-              />
-              {searchQuery && (
-                <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--ink-soft)', cursor: 'pointer' }}
-                  onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchDropdown(false); }}>close</span>
-              )}
-              <button onClick={handleSearchAll} disabled={searchingAll || searchQuery.trim().length < 2}
-                style={{ padding: '3px 8px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {searchingAll ? '...' : 'Search All'}
-              </button>
-            </div>
-            {showSearchDropdown && searchResults.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 100, maxHeight: 240, overflowY: 'auto', marginTop: 2 }}>
-                {searchResults.map((r, i) => (
-                  <div key={`${r.id || r.donor_id}-${r.ngo_id || ''}`} onClick={() => handleSelectSearchResult(i)}
-                    style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: i < searchResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 8, transition: 'background .1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
-                      {initials(r.donor_name || (r.donor_name ?? ''))}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#111827' }}>{r.donor_name || 'Unknown'}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{r.donor_mobile || ''}{r.ngo_name ? ` Â· ${r.ngo_name}` : ''}{r.status ? ` Â· ${r.status.replace(/_/g, ' ')}` : ''}</div>
-                    </div>
-                    <span className={`pill ${STATUS_PILL_MAP[r.status] || 'pill-gray'}`} style={{ fontSize: 8, padding: '1px 5px' }}>{r.status ? r.status.replace(/_/g, ' ') : ''}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           {message && (
             <div className={`detail-message ${message.type}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
               {message.text}
             </div>
           )}
-
           </div>
           <div className="fro-mid-connection">
           {/* Connection Status card */}
