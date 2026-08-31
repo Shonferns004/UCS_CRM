@@ -68,6 +68,7 @@ import {
   getFroSummary,
   seedStations,
   cleanupOrphanedStations,
+  bulkRenameStations,
   uploadOldData,
   uploadOldDataForStation,
   // NEW Dashboard APIs
@@ -188,6 +189,7 @@ router.get('/fro-hourly-performance', getFroHourlyPerformance);
 
 router.post('/stations/seed', seedStations);
 router.post('/stations/cleanup', cleanupOrphanedStations);
+router.post('/stations/bulk-rename', bulkRenameStations);
 router.post('/stations/:station/upload-old-data', upload.single('file'), uploadOldDataForStation);
 router.post('/old-data/upload', upload.single('file'), uploadOldData);
 
