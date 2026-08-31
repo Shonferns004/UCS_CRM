@@ -1158,7 +1158,7 @@ export default function MyDonors() {
     });
 
     // Searching an active query shows disposed leads (read-only) instead of the
-    // sequential queue. Sequential masking only applies when not searching.
+    // sequential queue.
     const searchingDisposed = searchQuery.trim().length >= 2;
     const listItems = searchingDisposed ? disposedResults.map(r => ({
       ...r,
@@ -1171,6 +1171,17 @@ export default function MyDonors() {
       disposition_detail: r.disposition_detail,
       disposed_at: r.disposed_at,
     })) : visible;
+
+    // Sequential masking (only the top row unlocked, lower rows masked+locked)
+    // applies ONLY to the pristine default queue: New tab, all stations/ngos,
+    // no status filter, no hide-donated. Once the FRO applies ANY filter, every
+    // matching row is shown normally (no masking) so the filtered results read
+    // as real data instead of "no data allotted".
+    const filterActive = dataTab !== 'new'
+      || (selectedStation && selectedStation !== 'all')
+      || !!selectedNgo
+      || listStatusFilter !== 'all'
+      || listHideDonated;
 
     const openLead = (d) => {
       if (searchingDisposed) return; // disposed results are read-only
@@ -1274,7 +1285,7 @@ export default function MyDonors() {
                   No leads match the current filters.
                 </td></tr>
               ) : listItems.map((d, i) => {
-                const masked = !searchingDisposed && i !== 0;
+                const masked = !searchingDisposed && !filterActive && i !== 0;
                 const locked = masked && !d.is_disposed;
                 return (
                   <tr key={`${d.id || d.donor_id}-${d.ngo_id || ''}`}
