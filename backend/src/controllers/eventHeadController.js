@@ -262,7 +262,8 @@ export const getEventHeadDashboardStats = async (req, res) => {
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     const inRange = (e, start, end) => !!e.date && e.date >= toYmd(start) && e.date < toYmd(end);
-    const isUpcoming = (e) => e.status === 'Approved' && !!e.date && e.date >= todayStr;
+    const NOT_UPCOMING_STATUS = ['Cancelled', 'Postponed', 'Completed', 'Rejected', 'Closed'];
+    const isUpcoming = (e) => !!e.date && e.date >= todayStr && !NOT_UPCOMING_STATUS.includes(e.status);
     const isToday = (e) => e.date === todayStr && !NOT_HAPPENING.includes(e.status);
     const byDate = (a, b) => (a.date || '').localeCompare(b.date || '');
     const byTime = (a, b) => (a.date || '').localeCompare(b.date || '') || (a.start_time || '').localeCompare(b.start_time || '');
@@ -934,7 +935,24 @@ export const generateEventReport = async (req, res) => {
     const media = await EventHead.getMediaByEvent(req.params.eventId);
     const checklist = await EventHead.getChecklistByEvent(req.params.eventId);
     const distributions = await EventHead.getDistributionsByEvent(req.params.eventId);
-    const report = { event, expenses, attendance, media, checklist, distributions, generated_at: new Date() };
+
+    const { ngoMap, sectorMap, activityMap } = await buildEventContextMaps();
+    const activitiesList = await EventHead.getAllActivities().catch(() => []);
+    const activityById = {}; for (const a of activitiesList) activityById[a.id] = a;
+    const evActivity = event.activity_id != null ? activityById[event.activity_id] : null;
+
+    const day = event.date ? new Date(String(event.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : null;
+
+    const enrichedEvent = {
+      ...event,
+      ngo_name: event.ngo_id != null ? ngoMap[event.ngo_id] || null : null,
+      sector_name: event.sector_id != null ? sectorMap[event.sector_id] || null : null,
+      activity_name: evActivity ? evActivity.name : (event.activity_id != null ? activityMap[event.activity_id] || null : null),
+      banner: evActivity ? evActivity.banner || null : null,
+      day,
+    };
+
+    const report = { event: enrichedEvent, expenses, attendance, media, checklist, distributions, generated_at: new Date() };
     return res.json(report);
   } catch (error) {
     return res.status(500).json({ message: error.message });
