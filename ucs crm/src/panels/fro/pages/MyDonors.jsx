@@ -241,7 +241,6 @@ export default function MyDonors() {
   // MY LEADS list view: the currently opened lead (null = showing the list).
   const [activeDonor, setActiveDonor] = useState(null);
   const [listStatusFilter, setListStatusFilter] = useState('all');
-  const [listProjectFilter, setListProjectFilter] = useState('all');
   const [listHideDonated, setListHideDonated] = useState(false);
   const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
@@ -1246,12 +1245,8 @@ export default function MyDonors() {
       .filter(s => !selectedNgo || s.ngo_id === selectedNgo)
       .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []);
 
-    const projectsInList = [...new Set(donors.map(d => d.donor_project).filter(Boolean))].sort();
-
-    // Apply client-side filters (server already handles tab / station / ngo).
     const visible = donors.filter(d => {
       if (listStatusFilter !== 'all' && !(DONOR_STATUS_GROUPS[listStatusFilter] || []).includes(d.status)) return false;
-      if (listProjectFilter !== 'all' && (d.donor_project || '') !== listProjectFilter) return false;
       if (listHideDonated && d.has_donated_current_month) return false;
       if (searchQuery && searchQuery.trim().length >= 2) {
         const term = searchQuery.toLowerCase().trim();
@@ -1308,13 +1303,6 @@ export default function MyDonors() {
               {stationList.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
-          {projectsInList.length > 1 && (
-            <select value={listProjectFilter} onChange={e => setListProjectFilter(e.target.value)}
-              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
-              <option value="all">All projects</option>
-              {projectsInList.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          )}
           <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
             style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff' }}>
             {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -1323,7 +1311,7 @@ export default function MyDonors() {
             <input type="checkbox" checked={listHideDonated} onChange={e => setListHideDonated(e.target.checked)} />
             Hide donated
           </label>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: '3px 8px', minWidth: 200 }}>
+          <div style={{ position: 'relative', marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--line)', padding: '3px 8px', minWidth: 200 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--ink-soft)' }}>search</span>
             <input
               type="text"
@@ -1333,7 +1321,27 @@ export default function MyDonors() {
               style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent', padding: '3px 0', minWidth: 0 }}
             />
             {searchQuery && (
-              <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setListStatusFilter('all'); }}>close</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchDropdown(false); }}>close</span>
+            )}
+            {showSearchDropdown && searchResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#fff', border: '1px solid var(--line)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, maxHeight: 260, overflowY: 'auto', marginTop: 2 }}>
+                {searchResults.map((r, i) => (
+                  <div key={`${r.id || r.donor_id}-${r.ngo_id || ''}`} onClick={() => handleSelectSearchResult(i)}
+                    style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: i < searchResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 8, transition: 'background .1s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
+                      {initials(r.donor_name || r.name || '')}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#111827' }}>{r.donor_name || r.name || 'Unknown'}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {r.donor_mobile || r.mobile_number || ''}{r.ngo_name ? ` · ${r.ngo_name}` : ''}{r.status ? ` · ${String(r.status).replace(/_/g, ' ')}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -1353,7 +1361,6 @@ export default function MyDonors() {
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Lead</th>
                 <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Mobile</th>
                 <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Station</th>
-                <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Project</th>
                 <th style={{ textAlign: 'left', padding: '8px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Status</th>
                 <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}></th>
               </tr>
@@ -1386,7 +1393,6 @@ export default function MyDonors() {
                   </td>
                   <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</td>
                   <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
-                  <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_project || '—'}</td>
                   <td style={{ padding: '8px 8px' }}>{fmtTrack(d)}</td>
                   <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>
@@ -1613,16 +1619,14 @@ export default function MyDonors() {
           </div>
         </div>
 
-        {/* MIDDLE PANEL — Connection Status (filters live on the MY LEADS list) */}
-        <div className="fro-mid-tabs">
+        {/* MIDDLE PANEL — Connection Status first (filters live on the MY LEADS list) */}
+        <div className="fro-mid-connection">
           {message && (
             <div className={`detail-message ${message.type}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
               {message.text}
             </div>
           )}
-          </div>
-          <div className="fro-mid-connection">
           {/* Connection Status card */}
           <div className="detail-card" style={{ flex: 1, minHeight: 0 }}>
             {donor.has_donated_current_month ? (
