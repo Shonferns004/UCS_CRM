@@ -475,6 +475,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
   const [result, setResult] = useState(null);
   const [showSkipped, setShowSkipped] = useState(false);
   const [rowFilter, setRowFilter] = useState('');
+  const [history, setHistory] = useState(null);    // rename-log batches
 
   const ngoNameById = (id) => ngos.find(n => String(n.id) === String(id))?.name || '';
   const ngoColor = (name) => NGO_NAME_COLORS[String(name || '').toLowerCase()] || '#6b7280';
@@ -573,6 +574,31 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
 
   const runPreview = () => runPreviewWith(rows);
 
+  // Rename history (for reverting): fetches the logged batches and shows the
+  // newest first; loading one queues its reverse mapping.
+  const loadHistory = async () => {
+    setBusy(true);
+    try {
+      const res = await apiGet('/ngo-admin/stations/rename-log');
+      setHistory(Array.isArray(res) ? res : []);
+      setStep('history');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadRevert = (b) => {
+    const reversed = b.entries.map(e => ({
+      ngo_name: e.ngo_name, old_station: e.new_station, new_station: e.old_station,
+    }));
+    setRows(reversed);
+    setRowFilter('');
+    setStep('input');
+    toast(`Loaded ${reversed.length} reverse rename(s) — review the queue, then Preview`, 'success');
+  };
+
   const removeFlagged = (r) => {
     const next = rows.filter(x =>
       !(x.ngo_name === r.ngo_name && x.old_station === r.old_station && x.new_station === r.new_station));
@@ -606,6 +632,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
 
   const title = step === 'input' ? 'Bulk Rename Stations'
     : step === 'preview' ? 'Bulk Rename — Preview'
+    : step === 'history' ? 'Revert a Rename'
     : step === 'confirm' ? 'Confirm Bulk Rename'
     : 'Rename Complete';
 
@@ -747,9 +774,69 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
 
               <div className="modal-actions" style={{ marginTop: 14 }}>
                 <button className="btn btn-outline" onClick={onClose}>Cancel</button>
+                <button className="btn btn-outline" onClick={loadHistory} disabled={busy}
+                  style={{ fontSize: 12, color: '#b45309', borderColor: '#fdba74' }}>
+                  ↩ Revert a rename…
+                </button>
                 <button className="btn btn-primary" onClick={runPreview} disabled={busy || rows.length === 0}>
                   {busy ? 'Checking…' : 'Preview Rename'}
                 </button>
+              </div>
+            </>
+          )}
+
+          {/* ---------------- STEP 1b: RENAME HISTORY / REVERT ---------------- */}
+          {step === 'history' && (
+            <>
+              <div style={{ fontSize: 12, color: '#6b7280', background: '#f9fafb', padding: '10px 12px', borderRadius: 6, marginBottom: 12 }}>
+                Every applied rename is logged below (newest first). Loading a run queues its
+                <strong> reverse mapping</strong> (new code → old code) — it then goes through the same
+                preview and confirmation as a normal rename, so nothing can be undone by accident.
+              </div>
+              <div style={{ maxHeight: 380, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(history || []).length === 0 && (
+                  <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', border: '1px dashed var(--line)', borderRadius: 8 }}>
+                    No renames have been applied yet.
+                  </div>
+                )}
+                {(history || []).map(b => (
+                  <div key={b.batch_id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>
+                        {b.performed_at ? new Date(b.performed_at).toLocaleString('en-IN') : '—'}
+                        <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}>
+                          {' '}· {b.entries.length} mapping{b.entries.length > 1 ? 's' : ''}
+                          {b.donor_assignments ? ` · ${b.donor_assignments.toLocaleString('en-IN')} donor rows` : ''}
+                          {b.performed_by?.includes('@') ? ` · by ${b.performed_by}` : ''}
+                        </span>
+                      </span>
+                      <button className="btn btn-sm btn-outline" onClick={() => loadRevert(b)}
+                        style={{ fontSize: 11, color: '#b45309', borderColor: '#fdba74', whiteSpace: 'nowrap' }}>
+                        ↩ Load reverse mapping
+                      </button>
+                    </div>
+                    {groupRows(b.entries).map(g => (
+                      <div key={g.ngo} style={{ marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: ngoColor(g.ngo), flexShrink: 0 }} />
+                          <strong style={{ fontSize: 11 }}>{g.ngo}</strong>
+                          <span className="pill" style={{ background: ngoColor(g.ngo), color: '#fff', fontSize: 9 }}>{g.items.length}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.8 }}>
+                          {g.items.map((e, i) => (
+                            <span key={`${e.old_station}-${e.new_station}-${i}`}>
+                              {e.old_station}→<strong style={{ color: 'var(--sage)' }}>{e.new_station}</strong>
+                              {i < g.items.length - 1 ? ' · ' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="modal-actions" style={{ marginTop: 14 }}>
+                <button className="btn btn-outline" onClick={() => setStep('input')}>Back</button>
               </div>
             </>
           )}
