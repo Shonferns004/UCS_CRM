@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES } from './helpers';
+import { effectiveStatus, dayClass, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES } from './helpers';
 import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from './Toast';
 
@@ -242,7 +242,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
                     {metaKeys.includes('signature') && <td>{c.signature || '—'}</td>}
                     <td>{formatDate(c.issue_date)}</td>
                     <td>{formatDate(c.expiry_date)}</td>
-                    <td className={`days-cell num ${dayClass(c.days_left)}`}>{dayLabel(c.days_left)}</td>
+                    <td className={`days-cell num ${dayClass(c.days_left)}`}>{c.days_left === null || c.days_left === undefined || Number.isNaN(c.days_left) ? '—' : `${c.days_left} days`}</td>
                     <td><span className={`pill ${pillForStatus(c._status)}`}>{c._status}</span></td>
                     <td className="num">{c.replacement_count || 0}</td>
                     {activeSimKeys.map((k) => <td key={k}>{c[k] || '—'}</td>)}
