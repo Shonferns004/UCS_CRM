@@ -1551,7 +1551,7 @@
 /* ── FRO Panel - Donor Detail Card Layout ── */
 .panel-fro .content-body { padding:16px; display:flex; flex-direction:column; flex:1; }
 .panel-fro .content-body:has(.whatsapp-chat-page) { padding:0; }
-.panel-fro .detail-split { display:grid; grid-template-columns:25% 55% 20%; gap:16px; flex:1; min-height:0; }
+.panel-fro .detail-split { display:grid; grid-template-columns:22% 56% 22%; gap:14px; flex:1; min-height:0; }
 .panel-fro .detail-left { display:flex; flex-direction:column; gap:10px; min-height:0; min-width:0; }
 .panel-fro .detail-mid { display:flex; flex-direction:column; gap:10px; min-height:0; min-width:0; }
 .panel-fro .detail-right { display:flex; flex-direction:column; gap:10px; min-height:0; min-width:0; }
