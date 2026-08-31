@@ -399,7 +399,7 @@ export const getEventHeadCalendar = async (req, res) => {
       const hasTime = Boolean(e.start_time || e.end_time);
       return {
         id: String(e.id),
-        title: e.name || 'Untitled Event',
+        title: (e.name || 'Untitled Event') + (e.ngo_name ? ` · ${e.ngo_name}` : ''),
         start: hasTime ? `${day}T${st}` : day,
         end: hasTime ? `${day}T${en}` : day,
         allDay: !hasTime,
