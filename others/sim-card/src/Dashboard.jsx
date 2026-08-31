@@ -61,8 +61,8 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
     const buckets = {
       expired,
       exp7: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d <= 7; }).length,
-      exp30: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d > 7 && d <= 30; }).length,
-      ok30: enriched.filter((c) => { const d = c.days_left; return d !== null && d > 30; }).length,
+      exp30: enriched.filter((c) => { const d = c.days_left; return c._status === 'Expiring Soon' && d !== null && d > 7 && d <= 28; }).length,
+      ok30: enriched.filter((c) => { const d = c.days_left; return d !== null && d > 28; }).length,
     };
 
     const urgent = enriched
@@ -116,7 +116,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const summary = [
     { label: 'Total SIM Cards', val: data.total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
     { label: 'Active SIM Cards', val: data.active, sub: 'Currently active', icon: 'sim', ic: { bg: '#f0fdf4', color: '#16a34a' }, bar: '#16a34a' },
-    { label: 'Expiring Soon', val: data.expiring, sub: 'Within 30 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
+    { label: 'Expiring Soon', val: data.expiring, sub: 'Within 28 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
     { label: 'Expired SIM Cards', val: data.expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
     { label: 'Replaced SIM Cards', val: data.replaced, sub: 'Total replacements', icon: 'replace', ic: { bg: '#f0f9ff', color: '#0284c7' }, bar: '#0284c7' },
   ];

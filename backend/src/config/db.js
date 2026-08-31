@@ -130,6 +130,15 @@ async function getColumns(table) {
   return columnCache[table];
 }
 
+// If a write references a column absent from the cached schema, the cache is
+// stale (e.g. a column was added to the live DB after this process started).
+// Drop it so the next read re-queries information_schema and picks up the new
+// column without requiring a process restart.
+async function ensureSchemaFresh(table, keys) {
+  const cached = await getColumns(table);
+  if (keys.some((k) => !cached.includes(k))) delete columnCache[table];
+}
+
 async function getJsonColumns(table) {
   if (jsonColumnCache[table]) return jsonColumnCache[table];
   const { rows } = await pool.query(
@@ -834,6 +843,7 @@ class QueryBuilder {
       }
     }
     if (cols.length === 0) throw new Error('Insert must contain at least one column');
+    await ensureSchemaFresh(this.table, cols);
 
     const values = [];
     const valueRows = [];
@@ -870,6 +880,7 @@ class QueryBuilder {
     }
     const cols = Object.keys(data);
     if (cols.length === 0) throw new Error('Update must contain at least one column');
+    await ensureSchemaFresh(this.table, cols);
 
     const params = [];
     const jsonCols = await getJsonColumns(this.table);
@@ -904,6 +915,7 @@ class QueryBuilder {
       }
     }
     if (cols.length === 0) throw new Error('Upsert must contain at least one column');
+    await ensureSchemaFresh(this.table, cols);
 
     let conflictCols = this.onConflict ? this.onConflict.split(',').map((s) => s.trim()) : await getPrimaryKey(this.table);
     if (conflictCols.length === 0) conflictCols = null;
