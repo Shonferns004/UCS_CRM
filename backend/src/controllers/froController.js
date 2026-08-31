@@ -3505,20 +3505,21 @@ export const saveMyProgress = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
-    const tab = data_tab || 'new';
     const payload = {
-      data_tab: tab,
       current_batch_id: current_batch_id || null,
       station: station || null,
       updated_at: new Date().toISOString(),
     };
-    if (tab === 'new') {
-      payload.new_donor_id = new_donor_id || null;
-      payload.new_donor_index = new_donor_index ?? null;
-    } else {
-      payload.old_donor_id = old_donor_id || null;
-      payload.old_donor_index = old_donor_index ?? null;
-    }
+    // data_tab is optional: it is ONLY written when explicitly provided (a manual
+    // tab switch). An auto-fallback Old<->New shunt omits it, so the FRO's saved
+    // tab is never overwritten by an automatic switch. The *_id/_index fields are
+    // written independently of data_tab so the worked tab's position is always
+    // persisted regardless of which one data_tab points at.
+    if (data_tab !== undefined && data_tab) payload.data_tab = data_tab;
+    if (new_donor_id !== undefined) payload.new_donor_id = new_donor_id || null;
+    if (new_donor_index !== undefined) payload.new_donor_index = new_donor_index ?? null;
+    if (old_donor_id !== undefined) payload.old_donor_id = old_donor_id || null;
+    if (old_donor_index !== undefined) payload.old_donor_index = old_donor_index ?? null;
 
     await db
       .from('fro_live_status')

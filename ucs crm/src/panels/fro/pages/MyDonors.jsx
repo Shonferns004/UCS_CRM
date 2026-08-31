@@ -224,6 +224,12 @@ export default function MyDonors() {
   const manualTabSwitchRef = useRef(false);
   const autoFallbackToOldRef = useRef(false);
   const autoFallbackAttemptedRef = useRef(false);
+  // True while the current tab was chosen by the empty-tab auto-fallback (not by
+  // an explicit FRO click). While true, saveProgress omits data_tab so an
+  // automatic Old<->New shunt never gets persisted as the FRO's permanent tab,
+  // which could otherwise pin them to the wrong tab next session (the "incognito
+  // shows data / Old tab empty" confusion). Cleared on a manual tab switch.
+  const autoTabRef = useRef(false);
   // Suppresses realtime-triggered reloads right after the FRO saves a
   // disposition. Logging a lead often causes the backend to INSERT/UPDATE a
   // fro_assignments row (findOrCreateAssignment), whose realtime event would
@@ -256,11 +262,30 @@ export default function MyDonors() {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
-        const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-        const sortedDonors = filterAndSortDonors(loaded);
+        let { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
+        let sortedDonors = filterAndSortDonors(loaded);
+        // Stale-filter escape: if this tab is filtered (NGO/station) and comes
+        // back EMPTY, but the SAME tab with no filter has data, the previously
+        // saved filter (localStorage view state) is stale — its leads were
+        // worked/disposed, and it is silently hiding the FRO's remaining leads
+        // (the classic "only shows after opening incognito" symptom). Drop the
+        // stale filter and surface the real queue instead of an empty list.
+        const staleFilterActive = !!((selectedStation && selectedStation !== 'all') || selectedNgo);
+        if (staleFilterActive && sortedDonors.length === 0) {
+          const br = await getMyDonors(null, null, { newOnly: tab === 'new', oldOnly: tab === 'old' });
+          if (cancelled) return;
+          const broad = filterAndSortDonors(normalizeDonorResponse(br).donors);
+          if (broad.length > 0) {
+            setSelectedStation('all');
+            setSelectedNgo(null);
+            sortedDonors = broad;
+            rTotal = broad.length;
+          }
+        }
         // Auto-fallback: if current tab is empty, try the other tab (new<->old) once.
         // Prevents bounce loop when both tabs are empty.
         if (sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
+          autoTabRef.current = true;
           if (tab === 'new') {
             autoFallbackToOldRef.current = true;
             autoFallbackAttemptedRef.current = true;
@@ -480,7 +505,12 @@ export default function MyDonors() {
 
   const saveProgress = useCallback((tab, donorId, donorIndex) => {
     if (!donorId) return;
-    const body = { data_tab: tab, station: selectedStation !== 'all' ? selectedStation : null };
+    // Don't persist an auto-fallback-chosen tab as the FRO's permanent tab. The
+    // empty-tab shunt is transient; only an explicit tab click should move the
+    // saved data_tab. Otherwise a shunted FRO stays pinned to the wrong tab on
+    // their next session.
+    const body = { station: selectedStation !== 'all' ? selectedStation : null };
+    if (!autoTabRef.current) body.data_tab = tab;
     if (tab === 'new') {
       body.new_donor_id = donorId;
       body.new_donor_index = donorIndex;
@@ -495,6 +525,7 @@ export default function MyDonors() {
 
   const switchTab = (tab) => {
     manualTabSwitchRef.current = true;
+    autoTabRef.current = false;
     autoFallbackAttemptedRef.current = false;
     autoFallbackToOldRef.current = false;
     if (donor) {
