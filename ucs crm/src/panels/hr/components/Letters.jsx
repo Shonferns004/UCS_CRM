@@ -59,6 +59,27 @@ const NGO_CONFIG = {
 
 function getNgo(key) { return NGO_CONFIG[key] || NGO_CONFIG.BSCT; }
 
+const LETTERHEAD_IMG = {
+  BSCT: '/Letter Head BSCT (1).png',
+  AFLF: '/Letter Head AFLF.png',
+  MANN: '/Letter Head MANN.png',
+};
+
+const LETTERHEAD_BODY = {
+  BSCT: { top: 13, bottom: 9, left: 5.5, right: 5.5 },
+  AFLF: { top: 17, bottom: 8, left: 6, right: 6 },
+  MANN: { top: 12, bottom: 5, left: 6, right: 6 },
+};
+
+function buildLetterheadLayout(ngoKey, innerHtml) {
+  const img = LETTERHEAD_IMG[ngoKey];
+  const b = LETTERHEAD_BODY[ngoKey];
+  return `<div style="width:900px;height:1273px;margin:0 auto;position:relative;overflow:hidden;background:#fff;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<img src="${img}" alt="" style="position:absolute;top:0;left:0;width:900px;height:1273px;display:block;z-index:0" />
+<div style="position:absolute;top:${b.top}%;bottom:${b.bottom}%;left:${b.left}%;right:${b.right}%;box-sizing:border-box;overflow:hidden;z-index:1;font-family:'Times New Roman',Times,serif;color:#111">${innerHtml}</div>
+</div>`;
+}
+
 function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
 function titleCase(s) { return String(s ?? '').replace(/\b\w/g, c => c.toUpperCase()); }
@@ -108,14 +129,24 @@ ${bodyHtml}
 </div>`;
 }
 
+function buildBSCTLetterhead(innerHtml) {
+  return buildLetterheadLayout('BSCT', innerHtml);
+}
+
+function buildAFLFLetterhead(innerHtml) {
+  return buildLetterheadLayout('AFLF', innerHtml);
+}
+
+function buildMANNLetterhead(innerHtml) {
+  return buildLetterheadLayout('MANN', innerHtml);
+}
+
 function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
   const subj = subjectText || 'NO OBJECTION & BASIC SALARY DECLARATION';
-  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:16px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
-<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">Subject:- ${subj}</div>
-<div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
+  const subjDiv = (mTop) => `<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:${mTop} 0 6px">Subject:- ${subj}</div>`;
+  const body = `<div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
 <p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer. I hereby declare and confirm the following:</p>
 <ol style="margin:0 0 10px 0;padding-left:26px;text-align:left">
@@ -141,6 +172,20 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">Management Approval</div>
 <div><strong>Authorized Signatory:</strong> _____________</div>
 </div>
+</div>`;
+  if (ngoKey === 'BSCT') {
+    return buildBSCTLetterhead(subjDiv('0') + body);
+  }
+  if (ngoKey === 'AFLF') {
+    return buildAFLFLetterhead(subjDiv('0') + body);
+  }
+  if (ngoKey === 'MANN') {
+    return buildMANNLetterhead(subjDiv('0') + body);
+  }
+  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:16px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
+${subjDiv('20')}
+${body}
 </div>
 </div>`;
 }
@@ -161,10 +206,8 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
   const jd = w.date_of_joining || w.created_at || '';
   const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
   const subj = subjectText || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
-  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:15.5px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
-<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
-<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">Subject:- ${subj}</div>
-<div style="padding:10px 0 24px;line-height:1.65;text-align:justify">
+  const subjDiv = (mTop) => `<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:${mTop} 0 6px">Subject:- ${subj}</div>`;
+  const body = `<div style="padding:10px 0 24px;line-height:1.65;text-align:justify">
 <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
 <tr><td style="padding:4px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
 <tr><td style="padding:4px 0"><strong>Date of Submission:</strong> ${dateText}</td></tr>
@@ -202,8 +245,45 @@ ${rowsHtml}
 <div style="margin-top:6px"><strong>Volunteer Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
 <div style="margin-top:6px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
 </div>
+</div>`;
+  if (ngoKey === 'BSCT') {
+    return buildBSCTLetterhead(subjDiv('0') + body);
+  }
+  if (ngoKey === 'AFLF') {
+    return buildAFLFLetterhead(subjDiv('0') + body);
+  }
+  if (ngoKey === 'MANN') {
+    return buildMANNLetterhead(subjDiv('0') + body);
+  }
+  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:15.5px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
+${subjDiv('20')}
+${body}
 </div>
 </div>`;
+}
+
+function LetterheadPreview({ ngoKey, children }) {
+  const img = LETTERHEAD_IMG[ngoKey];
+  const b = LETTERHEAD_BODY[ngoKey];
+  return (
+    <div style={{ width: 900, height: 1273, margin: '0 auto', position: 'relative', overflow: 'hidden', background: '#fff', boxSizing: 'border-box', fontFamily: "'Times New Roman', Times, serif", color: '#111', printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
+      <img src={img} alt="" style={{ position: 'absolute', top: 0, left: 0, width: 900, height: 1273, display: 'block', zIndex: 0 }} />
+      <div style={{ position: 'absolute', top: `${b.top}%`, bottom: `${b.bottom}%`, left: `${b.left}%`, right: `${b.right}%`, boxSizing: 'border-box', overflow: 'hidden', zIndex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+function MANNLetterheadPreview({ children }) {
+  return <LetterheadPreview ngoKey="MANN">{children}</LetterheadPreview>;
+}
+
+function AFLFLetterheadPreview({ children }) {
+  return <LetterheadPreview ngoKey="AFLF">{children}</LetterheadPreview>;
+}
+
+function BSCTLetterheadPreview({ children }) {
+  return <LetterheadPreview ngoKey="BSCT">{children}</LetterheadPreview>;
 }
 
 function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows, editing, onToggleEdit, onDocRowChange, onAddDocRow, onRemoveDocRow }) {
@@ -218,10 +298,13 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
   const thL = { ...th, textAlign: 'left' };
   const td = { border: '1px solid #999', padding: editing ? '5px 8px' : '10px 8px', textAlign: 'center' };
   const tdL = { ...td, textAlign: 'left' };
-  return (
-    <div style={{ width: 900, minHeight: 1273, margin: '0 auto', fontFamily: "'Times New Roman', Times, serif", fontSize: 15.5, lineHeight: 1.65, color: '#111', background: '#fff', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
-      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', flex: 1, padding: '24px 44px 0', position: 'relative', zIndex: 1 }}>
-      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#134987', textTransform: 'uppercase', letterSpacing: 0.5, margin: '20px 0 6px' }}>Subject:- {subj}</div>
+  const isBSCT = ngoKey === 'BSCT';
+  const isAFLF = ngoKey === 'AFLF';
+  const isMANN = ngoKey === 'MANN';
+  const subjMargin = (isBSCT || isAFLF || isMANN) ? '0 0 6px' : '20px 0 6px';
+  const bodyWrap = (
+      <>
+      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#134987', textTransform: 'uppercase', letterSpacing: 0.5, margin: subjMargin }}>Subject:- {subj}</div>
       <div style={{ padding: '10px 0 24px', textAlign: 'justify' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
         <tbody>
@@ -310,6 +393,20 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
         <div style={{ marginTop: 6 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
       </div>
       </div>
+  </>);
+  if (isBSCT) {
+    return <BSCTLetterheadPreview>{bodyWrap}</BSCTLetterheadPreview>;
+  }
+  if (isAFLF) {
+    return <AFLFLetterheadPreview>{bodyWrap}</AFLFLetterheadPreview>;
+  }
+  if (isMANN) {
+    return <MANNLetterheadPreview>{bodyWrap}</MANNLetterheadPreview>;
+  }
+  return (
+    <div style={{ width: 900, minHeight: 1273, margin: '0 auto', fontFamily: "'Times New Roman', Times, serif", fontSize: 15.5, lineHeight: 1.65, color: '#111', background: '#fff', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
+      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', flex: 1, padding: '24px 44px 0', position: 'relative', zIndex: 1 }}>
+        {bodyWrap}
       </div>
     </div>
   );
@@ -627,6 +724,7 @@ export default function Letters() {
             {type === 'ODAR' && out.odar ? (
               <ODARDocumentPreview
                 {...out.odar}
+                ngoKey={ngo}
                 docRows={docRows}
                 editing={editDocs}
                 onToggleEdit={() => setEditDocs(e => !e)}
