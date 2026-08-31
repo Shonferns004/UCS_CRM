@@ -32,6 +32,67 @@ const fmtTime = (t) => {
   return `${h}:${String(m).padStart(2, '0')} ${ap}`
 }
 
+/* ── Event category (derived client-side for coloring) ── */
+const CATEGORY_META = {
+  'international-day': { label: 'International Day', color: '#0ea5e9', icon: '🌐' },
+  'national-holiday': { label: 'National / Civic', color: '#f59e0b', icon: '🏛️' },
+  'ngo-campaign': { label: 'NGO Campaign', color: '#16a34a', icon: '🤝' },
+  'religious-observance': { label: 'Religious', color: '#8b5cf6', icon: '🕉️' },
+  'awareness-day': { label: 'Awareness Day', color: '#ec4899', icon: '🔔' },
+  'other': { label: 'Other', color: '#64748b', icon: '📌' },
+}
+
+const CATEGORY_KEYWORDS = [
+  ['international-day', ['international', 'world', 'day of', 'day for', 'universal', "engineer's day", "grandparents' day", 'ozone', 'literacy', 'democracy', 'peace', 'translation', 'languages', 'tourism', 'bamboo', 'heart', 'rabies', 'rivers', 'first aid', 'physical therapy', 'patient safety', 'pharmacists', 'environmental health', 'contraception', 'access to information', 'red panda', 'sign languages', 'chocolate', 'charity', 'pirate']],
+  ['national-holiday', ['independence', 'republic', 'national', 'teacher', 'diwas', 'antodaya', 'engineer', 'martyr', 'modi', 'google', 'digvijay']],
+  ['ngo-campaign', ['campaign', 'drive', 'ngo', 'awareness drive']],
+  ['religious-observance', ['puja', 'chaturdasi', 'janmashtami', 'diwali', 'holi', 'eid', 'navratri', 'vishwakarma', 'anant', 'religious', 'festival']],
+  ['awareness-day', ['day', 'awareness', 'welfare']],
+]
+
+const deriveCategory = (name = '') => {
+  const n = String(name).toLowerCase()
+  if (!n) return 'other'
+  // Religious keywords take priority over generic "Day" matches
+  for (const w of CATEGORY_KEYWORDS[3][1]) if (n.includes(w)) return 'religious-observance'
+  for (const w of CATEGORY_KEYWORDS[0][1]) if (n.includes(w)) return 'international-day'
+  if (n.includes('campaign') || n.includes('drive')) return 'ngo-campaign'
+  for (const w of CATEGORY_KEYWORDS[1][1]) if (n.includes(w)) return 'national-holiday'
+  if (n.includes('day') || n.includes('awareness') || n.includes('welfare')) return 'awareness-day'
+  return 'other'
+}
+
+const esc = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+// Strip the " · NGO" suffix the backend appends to titles so we can group by base name.
+const baseTitle = (title, ngoName) => {
+  const t = String(title || '')
+  const n = String(ngoName || '').trim()
+  if (n) {
+    const re = new RegExp(`\\s*·\\s*${esc(n)}\\s*$`, 'i')
+    return t.replace(re, '').trim()
+  }
+  return t
+}
+// Short NGO code: prefer the uppercased, whitespace-free code of the name.
+const ngoCode = (name) => String(name || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 5) || 'NGO'
+
+/* Group a list of calendar event objects by day + base title across NGOs. */
+const groupCalendarEvents = (list) => {
+  const map = new Map()
+  for (const ev of list || []) {
+    const p = ev.extendedProps || {}
+    const date = p.date || (ev.startStr || '').slice(0, 10) || ''
+    const bt = baseTitle(ev.title, p.ngoName)
+    const key = `${date}||${bt.toLowerCase()}`
+    if (!map.has(key)) {
+      map.set(key, { date, baseTitle: bt, category: deriveCategory(bt), raw: ev, members: [] })
+    }
+    map.get(key).members.push(ev)
+  }
+  return [...map.values()]
+}
+
 const FIELD = { border: '1px solid var(--eh-line)', borderRadius: 10, padding: '8px 10px', width: '100%', fontSize: 13, color: 'var(--eh-ink)', background: '#fff' }
 const LABEL = { display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)', marginBottom: 5 }
 
@@ -337,6 +398,7 @@ export default function MonthlyPlanner() {
   const [selected, setSelected] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [groupSel, setGroupSel] = useState(null)
 
   /* Load options (NGO → Sector → Activity cascade) */
   useEffect(() => {
@@ -389,6 +451,31 @@ export default function MonthlyPlanner() {
     })
   }, [events, search])
 
+  /* Group same-titled events across NGOs into one pill per day */
+  const groupedEvents = useMemo(() => {
+    return groupCalendarEvents(filteredEvents).map((g) => {
+      const p = g.raw.extendedProps || {}
+      const hasTime = Boolean(p.startTime || p.endTime)
+      const cat = CATEGORY_META[g.category] || CATEGORY_META.other
+      return {
+        id: g.raw.id,
+        title: g.baseTitle,
+        start: hasTime ? `${g.date}T${(p.startTime || '00:00').slice(0, 5)}` : g.date,
+        end: hasTime ? `${g.date}T${(p.endTime || '00:00').slice(0, 5)}` : g.date,
+        allDay: !hasTime,
+        editable: g.members.length === 1,
+        extendedProps: {
+          ...p,
+          category: g.category,
+          categoryColor: cat.color,
+          categoryIcon: cat.icon,
+          ngos: [...new Set(g.members.map(m => ngoCode(m.extendedProps?.ngoName)))],
+          members: g.members,
+        },
+      }
+    })
+  }, [filteredEvents])
+
   const applyFilterToCal = () => {} // eslint-disable-line
 
   const handleDateSelect = (info) => {
@@ -397,11 +484,22 @@ export default function MonthlyPlanner() {
   }
 
   const handleEventClick = (info) => {
+    const members = info.event.extendedProps?.members
+    if (Array.isArray(members) && members.length > 1) {
+      setGroupSel({ title: baseTitle(info.event.title, info.event.extendedProps?.ngoName), date: (info.event.extendedProps?.date || info.event.startStr || '').slice(0, 10), members })
+      return
+    }
     setSelected(info.event)
   }
 
   const handleEventDrop = async (info) => {
     const ev = info.event
+    const members = ev.extendedProps?.members
+    if (Array.isArray(members) && members.length > 1) {
+      info.revert()
+      showToast('This is a grouped event across NGOs — open it and edit each NGO separately.')
+      return
+    }
     const newDate = info.allDay ? toYmd(info.start) : ev.startStr.slice(0, 10)
     const label = ymdToLabel(newDate)
     const ok = window.confirm(`Move this event to ${label}?`)
@@ -423,6 +521,12 @@ export default function MonthlyPlanner() {
 
   const handleEventResize = async (info) => {
     const ev = info.event
+    const members = ev.extendedProps?.members
+    if (Array.isArray(members) && members.length > 1) {
+      info.revert()
+      showToast('This is a grouped event across NGOs — open it and edit each NGO separately.')
+      return
+    }
     const startTime = ev.startStr ? ev.startStr.slice(11, 16) : null
     const endTime = ev.endStr ? ev.endStr.slice(11, 16) : null
     try {
@@ -478,6 +582,22 @@ export default function MonthlyPlanner() {
 
       {toast && <div style={{ padding: '11px 16px', borderRadius: 12, background: 'var(--eh-success-soft)', color: 'var(--eh-success)', fontSize: 13, fontWeight: 600 }}>{toast}</div>}
 
+      <div className="card" style={{ marginBottom: 0 }}>
+        <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)' }}>Legend</span>
+          {Object.entries(CATEGORY_META).map(([k, m]) => (
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--eh-ink)' }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: m.color, display: 'inline-block' }} />
+              {m.icon} {m.label}
+            </span>
+          ))}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--eh-ink)' }}>
+            <span style={{ width: 12, height: 12, borderRadius: 3, background: '#e5e7eb', border: '1px solid #d1d5db', display: 'inline-block' }} />
+            NGO tags (lighter)
+          </span>
+        </div>
+      </div>
+
       <div className="card">
         <div className="card-pad">
           {loading && <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)', marginBottom: 8 }}>Loading calendar…</div>}
@@ -494,10 +614,26 @@ export default function MonthlyPlanner() {
             editable
             selectable
             selectMirror
-            dayMaxEvents={4}
+            dayMaxEvents={3}
+            moreLinkContent={(arg) => `${arg.num} more`}
             nowIndicator
-            events={filteredEvents}
-            eventClassNames={(arg) => ['ev-status-' + (arg.event.extendedProps?.status || '')].filter(Boolean)}
+            events={groupedEvents}
+            eventClassNames={(arg) => {
+              const p = arg.event.extendedProps || {}
+              return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
+            }}
+            eventContent={(arg) => {
+              const p = arg.event.extendedProps || {}
+              const cat = CATEGORY_META[p.category] || CATEGORY_META.other
+              const ngos = p.ngos || []
+              const title = baseTitle(arg.event.title, p.ngoName)
+              return {
+                html: `<div class="eh-pill" style="--pile-c:${cat.color}">
+                  <div class="eh-pill-row1"><span class="eh-pill-icon">${cat.icon}</span><span class="eh-pill-title">${escapeHtml(title)}${ngos.length > 1 ? ` <b class="eh-pill-count">(${ngos.length} NGOs)</b>` : ''}</span></div>
+                  <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag">${escapeHtml(n)}</span>`).join('')}</div>
+                </div>`,
+              }
+            }}
             datesSet={(info) => setRange(info)}
             dateClick={(info) => { setCreateDate(info.dateStr); setCreateOpen(true) }}
             select={handleDateSelect}
@@ -533,6 +669,28 @@ export default function MonthlyPlanner() {
           onClose={() => { setEditOpen(false); setSelected(null) }}
           onSaved={() => { setEditOpen(false); setSelected(null); refresh(); showToast('Event updated successfully.') }}
         />
+      )}
+      {groupSel && (
+        <ModalShell title={groupSel.title || 'Events'} onClose={() => setGroupSel(null)}>
+          <div style={{ fontSize: 13, color: 'var(--eh-ink-soft)', marginBottom: 12 }}>
+            {groupSel.members.length} events on {ymdToLabel(groupSel.date)} across different NGOs.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {groupSel.members.map((ev) => {
+              const p = ev.extendedProps || {}
+              return (
+                <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--eh-line)', borderRadius: 12, padding: '10px 12px' }}>
+                  <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,var(--eh-primary),var(--eh-secondary))', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{(p.ngoName || '')[0]}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--eh-ink)' }}>{p.ngoName || 'NGO'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}>{p.status || '—'}{p.sectorName ? ` · ${p.sectorName}` : ''}</div>
+                  </div>
+                  <button className="eh-btn eh-btn-sm" onClick={() => navigate('/event-head/events/' + ev.id)}>View</button>
+                </div>
+              )
+            })}
+          </div>
+        </ModalShell>
       )}
     </div>
   )
