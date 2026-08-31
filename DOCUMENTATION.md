@@ -145,10 +145,31 @@ Then open `http://192.168.1.60:5000` in any browser on the LAN.
 - Script: `backend/scripts/local-backup/local-backup.mjs` (+ `run-local-backup.bat`)
 - Uses AWS CLI default profile (`ucs-crm-backup-admin` IAM user).
 
+### 7c. Sync from AWS down to local — task `UCS CRM Sync-Down` (+ a button)
+- **Two automatic runs daily (06:00 and 18:00)**, plus a **double-click button**:
+  `backend/scripts/sync-down/run-sync-down.bat`.
+- Pulls the **latest AWS production data** down to this local server:
+  - **DB:** `pg_dump` from **AWS RDS** (`SYNC_DOWN_DATABASE_URL`) → takes a local
+    pre-backup → stops backend → restores into local `postgres` → restarts backend.
+  - **Media:** `aws s3 sync s3://ucs-crm-uploads-mumbai/` → `D:\UcsCrmMedia`
+    (**incremental** — only new/changed files, never deletes local).
+- Log: `database/logs/sync-down.log`
+- Script: `backend/scripts/sync-down/sync-down.mjs` (+ `run-sync-down.bat`)
+
+> **Whitelist warning:** the DB pull requires your **current office public IP** to be
+> in the RDS security group (`sg-0947f3d87e6807617`, port 5432). The IP is **dynamic**
+> and changes periodically; when it changes the DB step fails (media still works). The
+> script logs the current public IP to make re-whitelisting easy. Only an AWS admin can
+> update the security group. Line to add:
+> `aws ec2 authorize-security-group-ingress --region ap-south-1 --group-id sg-0947f3d87e6807617 --ip-permissions 'IpProtocol=tcp,FromPort=5432,ToPort=5432,IpRanges=[{CidrIp=<YOUR_IP>/32,Description=office-offline-sync}]'`
+> Related `.env` vars: `SYNC_DOWN_DATABASE_URL`, `SYNC_DOWN_LOCAL_DATABASE_URL`,
+> `SYNC_DOWN_DB`, `SYNC_DOWN_MEDIA`.
+
 ### To view/manage tasks:
 ```powershell
 schtasks /query /tn "UCS CRM Update"
 schtasks /query /tn "UCS CRM Local Backup"
+schtasks /query /tn "UCS CRM Sync-Down"
 ```
 
 ---
