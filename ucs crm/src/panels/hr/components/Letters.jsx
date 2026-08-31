@@ -80,6 +80,8 @@ function buildLetterheadLayout(ngoKey, innerHtml) {
 </div>`;
 }
 
+const HAS_LH = (k) => k === 'BSCT' || k === 'AFLF' || k === 'MANN';
+
 function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
 function titleCase(s) { return String(s ?? '').replace(/\b\w/g, c => c.toUpperCase()); }
@@ -111,14 +113,25 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const signatureHtml = ucs
     ? `<p style="margin:0 0 2px 0">Regards,</p><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${company}</strong></p>`
     : `<p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p>`;
+  const centerTitle = `${ucs ? subj : `Subject: ${subj}`}`;
+  if (HAS_LH(ngoKey)) {
+    const inner = `<div style="padding:10px 0 24px;text-align:justify">
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">${centerTitle}</div>
+<div style="margin:0 0 6px 0"><strong>Date:</strong> ${dateText}</div>
+<div style="margin-bottom:6px"><strong>Dear ${titleCase(w.name)},</strong></div>
+${bodyHtml}
+<div style="margin-top:14px">${signatureHtml}</div>
+</div>`;
+    return buildLetterheadLayout(ngoKey, inner);
+  }
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
 <img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
-<div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
+<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
 </div>
 <svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
 <div style="height:2px;background:#F58220;margin-bottom:12px"></div>
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${ucs ? subj : `Subject: ${subj}`}</div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${centerTitle}</div>
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="margin-bottom:6px"><strong>Dear ${titleCase(w.name)},</strong></div>
 <div style="text-align:justify">
@@ -415,6 +428,19 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
 function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation, ngoKey) {
   const ngo = getNgo(ngoKey);
   const r = designation || 'Team Member';
+  if (HAS_LH(ngoKey)) {
+    const inner = `<div style="padding:10px 0 24px;text-align:justify">
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">EXPERIENCE LETTER</div>
+<div style="margin-bottom:6px"><strong>TO WHOM IT MAY CONCERN</strong></div>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>${ngo.name}</strong> from <strong>${joiningDate}</strong> to <strong>${lastWorkingDate}</strong> as a <strong>${r}</strong>.</p>
+<p style="margin:0 0 6px 0">During the tenure with our organization, they performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. They consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
+<p style="margin:0 0 6px 0">Throughout the period of employment, they maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
+<p style="margin:0 0 6px 0">We appreciate the contributions made to ${ngo.name} and thank them for their services. We wish them every success in their future professional endeavors.</p>
+<p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Contact No.: +91 8879035035<br />Email: being.sevak@gmail.com</p><p style="margin:8px 0 0 0"><strong>Company Seal &amp; Signature</strong><br /><strong>${ngo.name}</strong></p></div>
+</div>`;
+    return buildLetterheadLayout(ngoKey, inner);
+  }
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
 <img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
@@ -439,6 +465,14 @@ function buildWarningLetterHTML(w, dateText, joiningDate, subjectText, ngoKey) {
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
   const body = `<strong>TO WHOM IT MAY CONCERN</strong>\n\nThis is to inform <strong>${w.name}</strong>, serving with <strong>${ngo.name}</strong> as a <strong>${subjectText || r}</strong> since <strong>${joiningDate}</strong>, regarding the following matter.\n\nIt has come to the notice of the management that on <strong>[date of incident]</strong>, the following conduct/issue was observed:\n\nThis is a violation of the standards of conduct expected from a Sevak of this organization, specifically with regard to <strong>[nature of violation — e.g., attendance, discipline, work conduct]</strong>. Despite prior guidance/counseling on this matter, the concerned conduct has continued, which is a matter of serious concern to the organization.\n\nThey are hereby cautioned to refrain from such conduct going forward.\n\nThis letter should be treated as a formal warning. Any recurrence of similar conduct, or failure to improve within <strong>[timeframe]</strong>, may result in further action, including but not limited to suspension or removal from the Sevak role.\n\nThe organization values the association and hopes this warning will be taken in the right spirit, with a renewed commitment to sincerity and discipline going forward.`;
+  if (HAS_LH(ngoKey)) {
+    const inner = `<div style="padding:10px 0 24px;text-align:justify">
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">WARNING LETTER</div>
+<div style="text-align:justify;white-space:pre-wrap">${body.replace(/\n/g, '<br />')}</div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Contact No.: +91 8879035035<br />Email: being.sevak@gmail.com</p><p style="margin:8px 0 0 0"><strong>Company Seal &amp; Signature</strong><br />${ngo.name}</p></div>
+</div>`;
+    return buildLetterheadLayout(ngoKey, inner);
+  }
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
 <img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
@@ -471,6 +505,15 @@ function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, su
   const r = w.role || w.department || 'Team Member';
   const title = letterType.charAt(0).toUpperCase() + letterType.slice(1).toLowerCase();
   const bodyHtml = bodyText.replace(/\n/g, '<br />');
+  if (HAS_LH(ngoKey)) {
+    const inner = `<div style="padding:10px 0 24px;text-align:justify">
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">${title}</div>
+${showDate ? `<div style="margin:0 0 6px 0"><strong>Date:</strong> ${dateText}</div>` : ''}
+<div style="text-align:justify;white-space:pre-wrap">${bodyHtml}</div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p></div>
+</div>`;
+    return buildLetterheadLayout(ngoKey, inner);
+  }
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
 <img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
@@ -489,6 +532,19 @@ function buildVolunteerTerminationLetterHTML(w, dateText, hrNameText, ngoKey) {
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
   const subj = 'Termination of Volunteer Engagement';
+  if (HAS_LH(ngoKey)) {
+    const inner = `<div style="padding:10px 0 24px;text-align:justify">
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">Termination of Volunteer Engagement</div>
+<div style="margin:0 0 6px 0"><strong>Date:</strong> ${dateText}</div>
+<div style="margin-bottom:6px"><strong>Dear ${titleCase(w.name)},</strong></div>
+<p style="margin:0 0 6px 0">This is to formally inform you that your volunteer engagement with <strong>${ngo.name}</strong> is terminated with effect from <strong>${dateText}</strong> due to organizational requirements/non-compliance with Trust policies.</p>
+<p style="margin:0 0 6px 0">Please note that your association was strictly on a voluntary basis. Therefore, the Trust shall not be liable for any volunteer compensation, termination benefits, expenses, reimbursements, allowances, or other financial claims arising from your termination.</p>
+<p style="margin:0 0 6px 0">You are requested to return all Trust property, documents, ID cards, and other materials if any in your possession and discontinue representing the Trust after the effective date.</p>
+<p style="margin:0 0 6px 0">We thank you for your contribution and wish you all the best for your future.</p>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Name: __________________<br />Designation: _____________<br />Signature: ______________</p></div>
+</div>`;
+    return buildLetterheadLayout(ngoKey, inner);
+  }
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
 <img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
@@ -629,7 +685,7 @@ export default function Letters() {
     }
     setOut({ today, body, type, odar });
     setShowDownload(false);
-    await capturePdf(body, type, type === 'ODAR' || type === 'NOBSD');
+    await capturePdf(body, type, type === 'ODAR' || type === 'NOBSD' || HAS_LH(ngo));
     setShowDownload(true);
   };
 
