@@ -3681,12 +3681,16 @@ export const searchDonors = async (req, res) => {
 
     const searchTerm = `%${q.trim()}%`;
 
-    // Disposed-only mode: return donors this FRO has already dispositioned
+    // Disposed-only mode: return donors this FRO has already dispositioned.
+    // FRO dispositions are written to fro_donor_logs (not donor_logs), and the
+    // "disposed leads of today also" requirement means today's dispositions
+    // must show up too. All dispositions (today + past) are returned, enriched
+    // with station + latest disposition detail.
     if (disposed === 'true') {
       const { data: disposedLogs, error: logErr } = await db
-        .from('donor_logs')
-        .select('donor_id, created_at')
-        .eq('user_id', workerId)
+        .from('fro_donor_logs')
+        .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
+        .eq('fro_worker_id', workerId)
         .eq('action', 'disposition')
         .order('created_at', { ascending: false });
       if (logErr) throw logErr;
@@ -3717,19 +3721,14 @@ export const searchDonors = async (req, res) => {
 
       const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
 
-      // Fetch latest disposition per donor for display
-      const { data: latestDispositions } = await db
-        .from('donor_logs')
-        .select('donor_id, disposition_detail, disposition_category, created_at')
-        .eq('user_id', workerId)
-        .eq('action', 'disposition')
-        .in('donor_id', matchedIds)
-        .order('created_at', { ascending: false });
-
+      // Latest disposition per donor (from the same fro_donor_logs source so
+      // today's dispositions — including lead_done/donation — are included).
       const latestDispMap = {};
-      (latestDispositions || []).forEach(dl => {
-        if (!latestDispMap[dl.donor_id]) latestDispMap[dl.donor_id] = dl;
-      });
+      for (const dl of disposedLogs || []) {
+        if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
+          latestDispMap[dl.donor_id] = dl;
+        }
+      }
 
       const result = [];
       const seen = new Set();
