@@ -1416,7 +1416,7 @@ export default function MyDonors() {
     <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div className="detail-split">
         {/* LEFT PANEL — merged profile + details */}
-        <div className="detail-left">
+        <div className="detail-left" style={{ padding: '12px 0 12px 12px' }}>
           <div className="detail-card" style={{ flex: '1 1 0%', minHeight: 0 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Profile header */}
