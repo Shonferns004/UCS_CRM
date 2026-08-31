@@ -82,13 +82,11 @@ const resolveActivityIds = (body) => {
 const validateEventRelations = async (body) => {
   const missing = [];
   if (!body.name) missing.push('event name');
-  if (!body.date) missing.push('event date');
   if (!body.ngo_id) missing.push('NGO');
   if (!body.sector_id) missing.push('sector');
-  const activityIds = resolveActivityIds(body);
-  if (!activityIds.length) missing.push('activity');
   if (missing.length) return { error: { message: `Required fields missing: ${missing.join(', ')}` } };
 
+  const activityIds = resolveActivityIds(body);
   const activities = await Promise.all(activityIds.map(id => EventHead.getActivityById(id)));
   for (const activity of activities) {
     if (!activity) return { error: { message: 'Selected activity does not exist' } };
@@ -118,7 +116,7 @@ export const createEventHandler = async (req, res) => {
     const timeErr = validateEventTimes(body);
     if (timeErr) return res.status(400).json({ message: timeErr.message });
     const activityIds = resolveActivityIds(body);
-    const insert = { ...body, activity_id: Number(activityIds[0]), created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
+    const insert = { ...body, activity_id: activityIds.length ? Number(activityIds[0]) : null, created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
     delete insert.activity_ids;
     const event = await EventHead.createEventHeadEvent(insert);
     if (activityIds.length) await EventHead.setEventHeadActivities(event.id, activityIds);
