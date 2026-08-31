@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchEvents, updateEventStatus, deleteEvent, EVENT_STATUSES, fetchWorkspaceNgos, fetchSectors, fetchActivities, importEventsSheet, exportEventsSheet } from '../store'
+import { fetchEvents, updateEventStatus, deleteEvent, cleanupEvents, EVENT_STATUSES, fetchWorkspaceNgos, fetchSectors, fetchActivities, importEventsSheet, exportEventsSheet } from '../store'
 import { EnhancedTable } from '../components/Table'
 
 const statusColor = (s) => {
@@ -89,7 +89,7 @@ export default function EventsPage({ view } = {}) {
   }, [allActivities, ngoFilter, sectorFilter, activityFilter])
 
   // Sectors/activities of the NGO chosen for the sheet upload (derived client-side).
-  const upNgo = useMemo(() => ngos.find(n => String(n.id) === String(importNgo)) || null, [ngos, importNgo])
+  const upNgo = useMemo(() => (importNgo && importNgo !== '__ALL__') ? ngos.find(n => String(n.id) === String(importNgo)) || null : null, [ngos, importNgo])
   const uploadScopedSectors = useMemo(() => {
     const set = new Set()
     for (const a of allActivities) {
@@ -155,14 +155,18 @@ export default function EventsPage({ view } = {}) {
 
   const handleImportSubmit = async (e) => {
     e.preventDefault()
-    if (!importNgo) { setImportError('Please select the NGO (MANN / AFLF / BSCT) this sheet belongs to'); return }
     if (!importFile) { setImportError('Please choose an Excel/CSV file'); return }
     setImporting(true)
     setImportError('')
     setImportResult(null)
     try {
-      const ngoCode = ngos.find(n => String(n.id) === String(importNgo))
-      const result = await importEventsSheet({ id: importNgo || undefined, code: (ngoCode && (ngoCode.code || ngoCode.name)) || '' }, importFile)
+      let result
+      if (importNgo === '__ALL__') {
+        result = await importEventsSheet({ all: true }, importFile)
+      } else {
+        const ngoCode = importNgo ? ngos.find(n => String(n.id) === String(importNgo)) : null
+        result = await importEventsSheet({ id: importNgo || undefined, code: (ngoCode && (ngoCode.code || ngoCode.name)) || '' }, importFile)
+      }
       setImportResult(result)
       await reload()
       if (fileRef.current) fileRef.current.value = ''
@@ -187,6 +191,37 @@ export default function EventsPage({ view } = {}) {
       }, name)
     } catch (err) {
       alert('Export failed: ' + (err.message || 'Unknown error')); console.error('EventsPage export:', err)
+    }
+  }
+
+  const handleCleanup = async () => {
+    let start, end
+    if (month && year) {
+      const m = String(month).padStart(2, '0')
+      start = `${year}-${m}-01`
+      end = `${year}-${Number(month) + 1}-01`
+    } else if (year) {
+      start = `${year}-01-01`
+      end = `${Number(year) + 1}-01-01`
+    }
+    const ngoSel = ngos.find(n => String(n.id) === String(ngoFilter))
+    const ngoCode = ngoSel ? (ngoSel.code || ngoSel.name) : (ngoFilter ? ngoFilter : 'All NGOs')
+    const scope = (start ? `${String(start).slice(0, 10)} to ${String(end).slice(0, 10)}` : 'all dates')
+    const msg =
+      `Delete ALL events for ${ngoCode} (${scope}) where the activity is "Awareness Campaign"?\n\n` +
+      `This permanently removes the generic sheet-imported events so the real per-NGO calendar data can be loaded.`
+    if (!confirm(msg)) return
+    try {
+      const res = await cleanupEvents({
+        ngo_id: ngoFilter ? String(ngoFilter) : undefined,
+        activity_name: 'Awareness Campaign',
+        start,
+        end,
+      })
+      alert(`Cleaned up ${res.removed || 0} event(s).`)
+      await reload()
+    } catch (err) {
+      alert('Cleanup failed: ' + (err.message || 'Unknown error')); console.error('EventsPage cleanup:', err)
     }
   }
 
@@ -260,6 +295,7 @@ export default function EventsPage({ view } = {}) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-sm" onClick={handleExport} disabled={loading}>Export Sheet</button>
           <button className="btn btn-sm" onClick={openImport}>Upload Sheet</button>
+          <button className="btn btn-sm" onClick={handleCleanup} style={{ color: 'var(--eh-danger, #dc2626)', borderColor: 'var(--eh-danger, #dc2626)' }}>Clean imported</button>
           <button className="btn btn-primary" onClick={() => navigate('/event-head/create')}>+ New Event</button>
         </div>
       </div>
@@ -324,14 +360,16 @@ export default function EventsPage({ view } = {}) {
             <form onSubmit={handleImportSubmit}>
               <div className="modal-body">
                 <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
-                  1. Pick the <b>NGO</b> this sheet belongs to (MANN / AFLF / BSCT).<br />
-                  2. Upload an Excel/CSV sheet of events. Each row needs an <b>Event Name</b> and a <b>Date</b> column; Sector and Activity (or Project) are matched to the DB.
-                  A sheet with only <b>Sector / Activity (Project)</b> columns (e.g. Sector No. | Sector | Activity / Project) is treated as an <b>Activity catalog</b> and imported into the Activities section instead.
+                  Two sheet formats are supported — each row carries its own <b>NGO</b> (BSCT / MANN / AFLF), so it routes to the right NGO automatically.<br />
+                  <b>① All-Events catalog:</b> <code>NGO | Sector | Activity | Event</code> — builds the NGO → Sector → Activity → Event list.<br />
+                  <b>② Calendar sheet:</b> <code>NGO | Event | Date | Day</code> — dated events for the Calendar (Day is optional).<br />
+                  The NGO dropdown below is just a fallback for sheets with no NGO column.
                 </p>
                 <div className="form-row" style={{ marginBottom: 12 }}>
-                  <div className="field"><label>NGO * <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}>— your sheet has no NGO column, so pick the one this sheet belongs to</span></label>
+                  <div className="field"><label>NGO * <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}>— your sheet has no NGO column, so pick the one this sheet belongs to, or all three</span></label>
                     <select value={importNgo} onChange={e => { setImportNgo(e.target.value); setImportResult(null); setImportError('') }} style={{ fontWeight: 500 }}>
                       <option value="">Select NGO…</option>
+                      <option value="__ALL__">All NGOs — BSCT · MANN · AFLF</option>
                       {ngos.map(n => <option key={n.id} value={n.id}>{(n.code || n.name) + (n.code && n.name && n.name !== n.code ? ` — ${n.name}` : '')}</option>)}
                     </select>
                   </div>
@@ -391,6 +429,15 @@ export default function EventsPage({ view } = {}) {
                       : (
                         <>
                           <div style={{ fontWeight: 600, marginBottom: 6, color: '#16a34a' }}>Imported {importResult.inserted || 0} events</div>
+                          {importResult.all_ngos && Array.isArray(importResult.inserted_by_ngo) && (
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                              {importResult.inserted_by_ngo.map(ib => (
+                                <span key={ib.code} style={{ background: 'var(--tint)', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 600, color: '#7B5EA7' }}>
+                                  {ib.code}: {ib.count}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <div style={{ color: 'var(--ink-soft)' }}>
                             Parsed rows: {importResult.rows_parsed || 0} · Skipped — missing date: {importResult.skipped?.missing_date || 0}, unknown activity: {importResult.skipped?.unknown_activity || 0}, unknown sector: {importResult.skipped?.unknown_sector || 0}, unknown NGO: {importResult.skipped?.unknown_ngo || 0}, duplicates: {importResult.skipped?.duplicates || 0}
                           </div>

@@ -27,6 +27,7 @@ export const fetchEventById = (id) => apiGet('/event-head/events/' + id)
 export const createEvent = (data) => apiPost('/event-head/events', data)
 export const updateEvent = (id, data) => apiPut('/event-head/events/' + id, data)
 export const deleteEvent = (id) => apiDelete('/event-head/events/' + id)
+export const cleanupEvents = (filters) => apiPost('/event-head/events/cleanup', filters)
 export const fetchEventDashboard = () => apiGet('/event-head/events/dashboard')
 
 /* ── Dashboard ──
@@ -340,6 +341,7 @@ export const updateEventStatus = (id, status) => apiPut('/event-head/events/' + 
 /* ── Events sheet import / export ── */
 export const importEventsSheet = (opts = {}, file) => {
   const fd = new FormData()
+  if (opts.all) fd.append('all_ngos', '1')
   const ngoCode = opts.code || opts.ngoCode || ''
   if (ngoCode) fd.append('ngo_code', ngoCode)
   if (opts.id) fd.append('ngo_id', opts.id)
