@@ -3746,13 +3746,104 @@ export const getLiveStatuses = async (req, res) => {
 export const searchDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { q } = req.query;
+    const { q, disposed } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
+    const searchTerm = `%${q.trim()}%`;
+
+    // Disposed-only mode: return donors this FRO has already dispositioned
+    if (disposed === 'true') {
+      const { data: disposedLogs, error: logErr } = await db
+        .from('donor_logs')
+        .select('donor_id, created_at')
+        .eq('user_id', workerId)
+        .eq('action', 'disposition')
+        .order('created_at', { ascending: false });
+      if (logErr) throw logErr;
+
+      const disposedDonorIds = [...new Set((disposedLogs || []).map(l => l.donor_id).filter(Boolean))];
+      if (disposedDonorIds.length === 0) return res.json([]);
+
+      const { data: donors, error } = await db
+        .from('donor_profiles')
+        .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
+        .in('id', disposedDonorIds)
+        .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
+        .limit(20);
+      if (error) throw error;
+      if (!donors || donors.length === 0) return res.json([]);
+
+      const matchedIds = donors.map(d => d.id);
+
+      const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+      const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+
+      const { data: assignments } = await db
+        .from('fro_assignments')
+        .select('*, ngos!inner(name)')
+        .in('donor_id', matchedIds)
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned');
+
+      const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
+
+      // Fetch latest disposition per donor for display
+      const { data: latestDispositions } = await db
+        .from('donor_logs')
+        .select('donor_id, disposition_detail, disposition_category, created_at')
+        .eq('user_id', workerId)
+        .eq('action', 'disposition')
+        .in('donor_id', matchedIds)
+        .order('created_at', { ascending: false });
+
+      const latestDispMap = {};
+      (latestDispositions || []).forEach(dl => {
+        if (!latestDispMap[dl.donor_id]) latestDispMap[dl.donor_id] = dl;
+      });
+
+      const result = [];
+      const seen = new Set();
+      for (const d of donors) {
+        const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
+        for (const a of matchingAssignments) {
+          const key = `${d.id}-${a.ngo_id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const disp = latestDispMap[d.id];
+          result.push({
+            donor_id: d.id,
+            ngo_id: a.ngo_id,
+            ngo_name: a.ngos?.name || 'Unknown',
+            assignment_id: a.id,
+            station: a.station || '',
+            batch_type: a.batch_type || '',
+            donor_name: d.name || 'Unknown',
+            donor_mobile: d.mobile_number || '',
+            donor_city: d.city || '',
+            donor_amount: d.amount || 0,
+            donor_email: d.email || '',
+            donor_pan: d.pan_number || '',
+            donor_project: d.project_supported || '',
+            donor_dob: d.birth_date || '',
+            donor_type: d.donor_type || '',
+            donor_address: d.address_1 || '',
+            donation_count: d.donation_count || 0,
+            total_donated: d.total_amount || 0,
+            has_donated_current_month: false,
+            has_verified_donation_current_month: false,
+            status: 'disposed',
+            disposition_detail: disp?.disposition_detail || '',
+            disposition_category: disp?.disposition_category || '',
+            disposed_at: disp?.created_at || null,
+          });
+        }
+      }
+      return res.json(result);
+    }
+
+    // Default: search all donors in scope (not disposed-filtered)
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
-
-    const searchTerm = `%${q.trim()}%`;
 
     const { data: donorIdsFromStation } = await db
       .from('fro_assignments')
