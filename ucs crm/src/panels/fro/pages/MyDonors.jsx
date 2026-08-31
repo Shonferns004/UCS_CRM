@@ -1052,28 +1052,13 @@ export default function MyDonors() {
     if (actualIdx >= 0) {
       setReturnToDonor(curDonor ? { id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index } : null);
       setIndex(actualIdx);
-    } else if (donorId && (r?.batch_type || r?.station || r?.ngo_id)) {
-      const targetTab = r.batch_type === 'old_data' ? 'old' : 'new';
-      const targetNgo = r.ngo_id || selectedNgo;
-      const validStation = r.station && stations.some(s => s.station === r.station && (!targetNgo || s.ngo_id === targetNgo));
-      const targetStation = validStation ? r.station : 'all';
-      const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
+    } else if (donorId) {
       if (r.has_donated_current_month) {
         makeExternal({ has_donated_current_month: true, has_verified_donation_current_month: !!r.has_verified_donation_current_month, status: r.status || 'donation_collected' });
         setMessage({ type: 'success', text: 'This donor already donated this month.' });
-      } else if (!needsReload) {
-        const found = await jumpToDonor(donorId, r.ngo_id);
-        if (!found) {
-          makeExternal({ ngo_id: r?.ngo_id ?? targetNgo, station: r?.station || targetStation, batch_type: r?.batch_type || (targetTab === 'old' ? 'old_data' : 'new_data'), status: r?.status || 'pending' });
-          setMessage({ type: 'info', text: 'This donor was already disposed — opened it here for your reference.' });
-        }
       } else {
-        if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
-        pendingSelectRef.current = { donorId, ngoId: targetNgo };
-        if (curDonor) { saveProgress(dataTab, curDonor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: curDonor.id, idx: index })); }
-        if (targetNgo !== selectedNgo) setSelectedNgo(targetNgo);
-        if (targetStation !== selectedStation) setSelectedStation(targetStation);
-        if (targetTab !== dataTab) switchTab(targetTab);
+        makeExternal({ ngo_id: r?.ngo_id ?? r?.ngo_id, station: r?.station || 'all', batch_type: r?.batch_type || (r?.batch_type === 'old_data' ? 'old_data' : 'new_data'), status: r?.status || 'pending' });
+        setMessage({ type: 'info', text: 'This donor is already marked done — opened it here for your reference.' });
       }
     } else {
       makeExternal();
@@ -1620,7 +1605,7 @@ export default function MyDonors() {
         </div>
 
         {/* MIDDLE PANEL — Connection Status first (filters live on the MY LEADS list) */}
-        <div className="fro-mid-connection">
+        <div className="fro-mid-connection" style={{ paddingTop: 6 }}>
           {message && (
             <div className={`detail-message ${message.type}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
