@@ -733,7 +733,24 @@ export default function MyDonors() {
         }
       }).catch(err => console.error('markDonorSeen error:', err));
     }
-    getDonorDetail(id, ngoId).then(d => { if (!cancelledRef.current) { setDetail(d); setShowAllLogs(false); } }).catch(err => console.error('getDonorDetail error:', err)).finally(() => { if (!cancelledRef.current) setDetailLoading(false); });
+    getDonorDetail(id, ngoId).then(d => {
+      if (cancelledRef.current) return;
+      setDetail(d); setShowAllLogs(false);
+      // Prefill the Notes / Remark fields from the donor's most recent saved
+      // log (latest first). The FRO's saved notes must show when a lead returns.
+      const logs = d?.logs || [];
+      let lastNotes = '';
+      let lastRemark = '';
+      for (const l of logs) {
+        if (!lastNotes && l.notes) lastNotes = l.notes;
+        if (!lastRemark && l.remark) lastRemark = l.remark;
+        if (lastNotes && lastRemark) break;
+      }
+      // Only prefill from stored history, never clobber a fresh local note the
+      // FRO already typed this session.
+      setNotes(prev => (prev && prev.trim()) ? prev : lastNotes);
+      setLeadRemark(prev => (prev && prev.trim()) ? prev : lastRemark);
+    }).catch(err => console.error('getDonorDetail error:', err)).finally(() => { if (!cancelledRef.current) setDetailLoading(false); });
   }, [donor?.id, donor?.ngo_id, activeDonor, externalDonor]);
 
   useEffect(() => { return () => { cancelledRef.current = true; }; }, [loadDetail]);
