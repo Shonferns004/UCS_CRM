@@ -1468,13 +1468,13 @@ export default function MyDonors() {
             </div>
             {/* Fields */}
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="detail-field-row">
+              <div className="detail-field-row detail-info-row">
                 <div className="fld">
                   <label>City</label>
                   <div>{donor.donor_city || 'NA'}</div>
                 </div>
               </div>
-              <div className="detail-field-row">
+              <div className="detail-field-row detail-info-row">
                 <div className="fld">
                   <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>saving…</span>}</label>
                   <select value={donor.donor_type || ''} onChange={handleDonorTypeChange} disabled={donorTypeSaving}>
@@ -1539,13 +1539,13 @@ export default function MyDonors() {
                   )}
                 </div>
               </div>
-              <div className="detail-field-row">
+              <div className="detail-field-row detail-info-row">
                 <div className="fld">
                   <label>Email</label>
                   <div style={{ fontStyle: donor.donor_email ? 'normal' : 'italic', color: donor.donor_email ? 'inherit' : 'var(--ink-soft)' }}>{donor.donor_email || 'No email'}</div>
                 </div>
               </div>
-              <div className="detail-field-row">
+              <div className="detail-field-row detail-info-row">
                 <div className="fld">
                   <label>Donations</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch' }}>
@@ -1571,14 +1571,14 @@ export default function MyDonors() {
                   </div>
                 </div>
               </div>
-              <div className="detail-field-row">
+              <div className="detail-field-row detail-info-row">
                 <div className="fld">
                   <label>Address</label>
                   <div style={{ fontStyle: detail?.donor_address ? 'normal' : 'italic', color: detail?.donor_address ? 'inherit' : 'var(--ink-soft)' }}>{detail?.donor_address || donor.donor_address || 'No address'}</div>
                 </div>
               </div>
               {donor.donor_pan && (
-                <div className="detail-field-row">
+                <div className="detail-field-row detail-info-row">
                   <div className="fld">
                     <label>PAN</label>
                     <div>{donor.donor_pan}</div>
@@ -1586,7 +1586,7 @@ export default function MyDonors() {
                 </div>
               )}
               {donor.donor_dob && (
-                <div className="detail-field-row">
+                <div className="detail-field-row detail-info-row">
                   <div className="fld">
                     <label>DOB</label>
                     <div>{donor.donor_dob}</div>
