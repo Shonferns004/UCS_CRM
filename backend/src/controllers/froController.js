@@ -1671,9 +1671,13 @@ export const getMyDonors = async (req, res) => {
     // nothing — including acting sessions whose claimed stations have no
     // workable rows right now (e.g. the New batch is exhausted). The pool is
     // always NGO-partitioned: an acting session is narrowed to the NGOs of its
-    // claimed pairs; everyone else to their token NGO. Only fires for plain
-    // queue requests so filtered views never get surprise rows. Dispositioning
-    // a pooled donor claims it via findOrCreateAssignment.
+    // claimed pairs; everyone else to their token NGO. IMPORTANT: when the
+    // worker has assigned stations, the pool is ALSO restricted to those exact
+    // stations so an FRO can never see donors outside their allotted station(s).
+    // Only a worker with no station assignment at all falls back to the full
+    // NGO-wide pool. Only fires for plain queue requests so filtered views never
+    // get surprise rows. Dispositioning a pooled donor claims it via
+    // findOrCreateAssignment.
     if (!assignments || assignments.length === 0) {
       const plainQueue = !req.query.status_group && !req.query.status
         && req.query.verified_only !== 'true'
@@ -1685,12 +1689,20 @@ export const getMyDonors = async (req, res) => {
           .select('*, ngos(name)')
           .is('fro_worker_id', null)
           .eq('status', 'pending');
-        const claimedNgos = act ? [...new Set(act.map(p => p?.ngo_id).filter(Boolean))] : [];
-        if (claimedNgos.length > 0) {
-          poolQ = poolQ.in('ngo_id', claimedNgos);
+        // Restrict to the worker's assigned stations when available (each with
+        // its (station, ngo_id) pair), so the FRO only ever sees their own
+        // station's unclaimed leads.
+        if (effectiveStations.length > 0) {
+          poolQ = poolQ.in('station', effectiveStations);
+          poolQ = withStationNgoPairs(poolQ, effectiveScope);
         } else {
-          const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
-          if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
+          const claimedNgos = act ? [...new Set(act.map(p => p?.ngo_id).filter(Boolean))] : [];
+          if (claimedNgos.length > 0) {
+            poolQ = poolQ.in('ngo_id', claimedNgos);
+          } else {
+            const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
+            if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
+          }
         }
         poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
         try {
