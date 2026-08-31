@@ -1215,10 +1215,16 @@ export default function MyDonors() {
       || listHideDonated;
 
     const openLead = (d) => {
-      if (searchingDisposed) return; // disposed results are read-only
+      // Disposed search results can be opened to update their disposition.
+      // When a hit also exists in the current queue, snap to that exact donor so
+      // the detail panel receives the full (live) record; otherwise render the
+      // search result record directly.
+      const keyed = searchingDisposed
+        ? donors.find(x => x.id === d.id && x.ngo_id === d.ngo_id)
+        : null;
       const found = donors.findIndex(x => x.id === d.id && x.ngo_id === d.ngo_id);
       if (found >= 0) setIndex(found);
-      setActiveDonor(d);
+      setActiveDonor(keyed || d);
       setSelected(null); setNotes(''); setLeadAmount('');
     };
 
