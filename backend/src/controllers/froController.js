@@ -1580,12 +1580,17 @@ export const getMyDonors = async (req, res) => {
     const offset = parseInt(req.query.offset, 10);
     let assignments = null;
 
-    // Primary: donors assigned to the worker's stations (fro_station_assignments scope)
+    // Primary: ALL available leads in the FRO's assigned (station, ngo) scope.
+    // Scoped by station/ngo pair (NOT by fro_worker_id) so the FRO sees their
+    // full station allotment even when individual assignment rows carry a null
+    // or otherwise un-stamped fro_worker_id. Safe because each (ngo, station)
+    // maps to exactly one FRO in fro_station_assignments; already-worked /
+    // disposed / terminal leads are filtered out downstream by baseFiltered so
+    // only unclaimed, available rows surface in the queue.
     if (effectiveStations.length > 0) {
       let query = db
         .from('fro_assignments')
         .select('*, ngos(name)')
-        .eq('fro_worker_id', workerId)
         .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
@@ -1608,7 +1613,7 @@ export const getMyDonors = async (req, res) => {
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
-          query = db.from('fro_assignments').select('*, ngos(name)').eq('fro_worker_id', workerId).in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
           query = withStationNgoPairs(query, effectiveScope);
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
@@ -1630,86 +1635,11 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    // Fallback: the worker's own assignments. This covers workers who have data
-    // assigned via fro_assignments.fro_worker_id but no matching row in
-    // fro_station_assignments (e.g. station assignment missing/mismatched),
-    // which previously made both tabs always empty.
-    if (!assignments || assignments.length === 0) {
-      let byWorkerQ = db
-        .from('fro_assignments')
-        .select('*, ngos(name)')
-        .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned');
-      if (effectiveStations.length > 0) {
-        byWorkerQ = byWorkerQ.in('station', effectiveStations);
-        byWorkerQ = withStationNgoPairs(byWorkerQ, effectiveScope);
-      } else {
-        if (req.query.station) byWorkerQ = byWorkerQ.eq('station', req.query.station);
-        if (req.query.ngo_id) byWorkerQ = byWorkerQ.eq('ngo_id', req.query.ngo_id);
-      }
-      if (statusGroup === 'not_connected') {
-        byWorkerQ = byWorkerQ.in('status', NOT_CONNECTED_STATUSES);
-      } else if (statusGroup === 'connected') {
-        byWorkerQ = byWorkerQ.in('status', CONNECTED_STATUSES);
-      } else if (statusFilter) {
-        byWorkerQ = byWorkerQ.eq('status', statusFilter);
-      }
-      const { data: byWorkerRaw } = await byWorkerQ;
-      let byWorker = byWorkerRaw || [];
-      if (req.query.new_only === 'true') {
-        byWorker = byWorker.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
-      } else if (req.query.old_only === 'true') {
-        byWorker = byWorker.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
-      }
-      if (byWorker && byWorker.length > 0) {
-        assignments = byWorker;
-      }
-    }
-
-    // Last-resort fallback so no session dead-ends into a blank screen: serve
-    // the claimable pool (pending, unclaimed rows) when a worker ends up with
-    // nothing — including acting sessions whose claimed stations have no
-    // workable rows right now (e.g. the New batch is exhausted). The pool is
-    // always NGO-partitioned: an acting session is narrowed to the NGOs of its
-    // claimed pairs; everyone else to their token NGO. Only fires for plain
-    // queue requests so filtered views never get surprise rows. Dispositioning
-    // a pooled donor claims it via findOrCreateAssignment.
-    if (!assignments || assignments.length === 0) {
-      const plainQueue = !req.query.status_group && !req.query.status
-        && req.query.verified_only !== 'true'
-        && req.query.active_only !== 'true' && req.query.inactive_only !== 'true';
-      if (plainQueue) {
-        const act = froActPairs(req);
-        let poolQ = db
-          .from('fro_assignments')
-          .select('*, ngos(name)')
-          .is('fro_worker_id', null)
-          .eq('status', 'pending');
-        const claimedNgos = act ? [...new Set(act.map(p => p?.ngo_id).filter(Boolean))] : [];
-        if (claimedNgos.length > 0) {
-          poolQ = poolQ.in('ngo_id', claimedNgos);
-        } else {
-          const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
-          if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
-        }
-        poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
-        try {
-          const { data: poolRowsRaw, error: poolErr } = await poolQ;
-          let poolRows = poolRowsRaw || [];
-          if (!poolErr && poolRows.length > 0) {
-            if (req.query.new_only === 'true') {
-              poolRows = poolRows.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
-            } else if (req.query.old_only === 'true') {
-              poolRows = poolRows.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
-            }
-            if (poolRows.length > 0) assignments = poolRows;
-          }
-        } catch (poolEx) {
-          console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
-        }
-      }
-    }
-
+    // NO fallback. The FRO must only ever be served donors strictly within
+    // their assigned (station, ngo_id) scope. If the assigned-scope query above
+    // returns nothing, the queue is simply empty — we never pull in leads from
+    // other stations or NGOs as a "claimable pool", because that would expose
+    // donors outside the FRO's allotment.
     if (!assignments || assignments.length === 0) return res.json([]);
 
     const oneYearAgo = new Date();
@@ -3575,20 +3505,21 @@ export const saveMyProgress = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
-    const tab = data_tab || 'new';
     const payload = {
-      data_tab: tab,
       current_batch_id: current_batch_id || null,
       station: station || null,
       updated_at: new Date().toISOString(),
     };
-    if (tab === 'new') {
-      payload.new_donor_id = new_donor_id || null;
-      payload.new_donor_index = new_donor_index ?? null;
-    } else {
-      payload.old_donor_id = old_donor_id || null;
-      payload.old_donor_index = old_donor_index ?? null;
-    }
+    // data_tab is optional: it is ONLY written when explicitly provided (a manual
+    // tab switch). An auto-fallback Old<->New shunt omits it, so the FRO's saved
+    // tab is never overwritten by an automatic switch. The *_id/_index fields are
+    // written independently of data_tab so the worked tab's position is always
+    // persisted regardless of which one data_tab points at.
+    if (data_tab !== undefined && data_tab) payload.data_tab = data_tab;
+    if (new_donor_id !== undefined) payload.new_donor_id = new_donor_id || null;
+    if (new_donor_index !== undefined) payload.new_donor_index = new_donor_index ?? null;
+    if (old_donor_id !== undefined) payload.old_donor_id = old_donor_id || null;
+    if (old_donor_index !== undefined) payload.old_donor_index = old_donor_index ?? null;
 
     await db
       .from('fro_live_status')
@@ -3746,13 +3677,103 @@ export const getLiveStatuses = async (req, res) => {
 export const searchDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { q } = req.query;
+    const { q, disposed } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
+    const searchTerm = `%${q.trim()}%`;
+
+    // Disposed-only mode: return donors this FRO has already dispositioned.
+    // FRO dispositions are written to fro_donor_logs (not donor_logs), and the
+    // "disposed leads of today also" requirement means today's dispositions
+    // must show up too. All dispositions (today + past) are returned, enriched
+    // with station + latest disposition detail.
+    if (disposed === 'true') {
+      const { data: disposedLogs, error: logErr } = await db
+        .from('fro_donor_logs')
+        .select('donor_id, assignment_id, disposition_detail, disposition_category, created_at')
+        .eq('fro_worker_id', workerId)
+        .eq('action', 'disposition')
+        .order('created_at', { ascending: false });
+      if (logErr) throw logErr;
+
+      const disposedDonorIds = [...new Set((disposedLogs || []).map(l => l.donor_id).filter(Boolean))];
+      if (disposedDonorIds.length === 0) return res.json([]);
+
+      const { data: donors, error } = await db
+        .from('donor_profiles')
+        .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
+        .in('id', disposedDonorIds)
+        .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
+        .limit(20);
+      if (error) throw error;
+      if (!donors || donors.length === 0) return res.json([]);
+
+      const matchedIds = donors.map(d => d.id);
+
+      const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+      const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+
+      const { data: assignments } = await db
+        .from('fro_assignments')
+        .select('*, ngos!inner(name)')
+        .in('donor_id', matchedIds)
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned');
+
+      const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
+
+      // Latest disposition per donor (from the same fro_donor_logs source so
+      // today's dispositions — including lead_done/donation — are included).
+      const latestDispMap = {};
+      for (const dl of disposedLogs || []) {
+        if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
+          latestDispMap[dl.donor_id] = dl;
+        }
+      }
+
+      const result = [];
+      const seen = new Set();
+      for (const d of donors) {
+        const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
+        for (const a of matchingAssignments) {
+          const key = `${d.id}-${a.ngo_id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const disp = latestDispMap[d.id];
+          result.push({
+            donor_id: d.id,
+            ngo_id: a.ngo_id,
+            ngo_name: a.ngos?.name || 'Unknown',
+            assignment_id: a.id,
+            station: a.station || '',
+            batch_type: a.batch_type || '',
+            donor_name: d.name || 'Unknown',
+            donor_mobile: d.mobile_number || '',
+            donor_city: d.city || '',
+            donor_amount: d.amount || 0,
+            donor_email: d.email || '',
+            donor_pan: d.pan_number || '',
+            donor_project: d.project_supported || '',
+            donor_dob: d.birth_date || '',
+            donor_type: d.donor_type || '',
+            donor_address: d.address_1 || '',
+            donation_count: d.donation_count || 0,
+            total_donated: d.total_amount || 0,
+            has_donated_current_month: false,
+            has_verified_donation_current_month: false,
+            status: 'disposed',
+            disposition_detail: disp?.disposition_detail || '',
+            disposition_category: disp?.disposition_category || '',
+            disposed_at: disp?.created_at || null,
+          });
+        }
+      }
+      return res.json(result);
+    }
+
+    // Default: search all donors in scope (not disposed-filtered)
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
-
-    const searchTerm = `%${q.trim()}%`;
 
     const { data: donorIdsFromStation } = await db
       .from('fro_assignments')

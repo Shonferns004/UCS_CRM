@@ -10,7 +10,7 @@ export default function Expiring({ onView, onEdit, onReplace, tab = 'all' }) {
   const list = useMemo(() => {
     let l = enriched.filter((c) => c._status === 'Expiring Soon' || c._status === 'Expired');
     if (tab === '7') l = l.filter((c) => c.days_left !== null && c.days_left >= 1 && c.days_left <= 7);
-    if (tab === '30') l = l.filter((c) => c.days_left !== null && c.days_left >= 1 && c.days_left <= 30);
+    if (tab === '30') l = l.filter((c) => c.days_left !== null && c.days_left >= 1 && c.days_left <= 28);
     if (tab === 'expired') l = l.filter((c) => c._status === 'Expired');
     return l.sort((a, b) => (a.days_left ?? 9999) - (b.days_left ?? 9999));
   }, [enriched, tab]);
@@ -23,7 +23,7 @@ export default function Expiring({ onView, onEdit, onReplace, tab = 'all' }) {
         {[
           ['all', 'All Expiring / Expired'],
           ['7', 'Within 7 Days'],
-          ['30', 'Within 30 Days'],
+          ['30', 'Within 28 Days'],
           ['expired', 'Expired'],
         ].map(([t, label]) => (
           <button key={t} className={`sim-btn ${tab === t ? 'primary' : ''}`} onClick={() => { /* handled by nav */ }}>{label}</button>
