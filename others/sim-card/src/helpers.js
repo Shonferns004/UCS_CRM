@@ -34,12 +34,13 @@ export function daysLeft(expiryDate) {
 
 export function effectiveStatus(card) {
   const base = card.status || 'Active';
-  if (base === 'Replaced' || base === 'Inactive') return base;
+  if (base === 'Replaced') return base;
   const dl = card.days_left !== undefined && card.days_left !== null ? card.days_left : daysLeft(card.expiry_date);
   if (dl === null) return 'Inactive';
+  if (dl < 1) return 'Expired';
+  if (base === 'Inactive') return base;
   if (dl > 30) return 'Active';
-  if (dl >= 1) return 'Expiring Soon';
-  return 'Expired';
+  return 'Expiring Soon';
 }
 
 export function dayClass(dl) {

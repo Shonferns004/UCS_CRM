@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
-import { SkeletonProfile } from '../../../components/Skeleton';
+import { SkeletonMyLeads } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
@@ -211,14 +211,12 @@ export default function MyDonors() {
   const [donationFilter, setDonationFilter] = useState('all');
   const [donationLoading, setDonationLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
-  const [searchingAll, setSearchingAll] = useState(false);
+  const [disposedResults, setDisposedResults] = useState([]);
+  const [disposedSearchLoading, setDisposedSearchLoading] = useState(false);
   const [returnToDonor, setReturnToDonor] = useState(null);
   const [resumeTo, setResumeTo] = useState(null);
   const [showAllLogs, setShowAllLogs] = useState(false);
   const [externalDonor, setExternalDonor] = useState(null);
-  const searchRef = useRef(null);
   const backendSearchTimerRef = useRef(null);
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
@@ -226,6 +224,12 @@ export default function MyDonors() {
   const manualTabSwitchRef = useRef(false);
   const autoFallbackToOldRef = useRef(false);
   const autoFallbackAttemptedRef = useRef(false);
+  // True while the current tab was chosen by the empty-tab auto-fallback (not by
+  // an explicit FRO click). While true, saveProgress omits data_tab so an
+  // automatic Old<->New shunt never gets persisted as the FRO's permanent tab,
+  // which could otherwise pin them to the wrong tab next session (the "incognito
+  // shows data / Old tab empty" confusion). Cleared on a manual tab switch.
+  const autoTabRef = useRef(false);
   // Suppresses realtime-triggered reloads right after the FRO saves a
   // disposition. Logging a lead often causes the backend to INSERT/UPDATE a
   // fro_assignments row (findOrCreateAssignment), whose realtime event would
@@ -258,11 +262,30 @@ export default function MyDonors() {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
-        const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-        const sortedDonors = filterAndSortDonors(loaded);
+        let { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
+        let sortedDonors = filterAndSortDonors(loaded);
+        // Stale-filter escape: if this tab is filtered (NGO/station) and comes
+        // back EMPTY, but the SAME tab with no filter has data, the previously
+        // saved filter (localStorage view state) is stale — its leads were
+        // worked/disposed, and it is silently hiding the FRO's remaining leads
+        // (the classic "only shows after opening incognito" symptom). Drop the
+        // stale filter and surface the real queue instead of an empty list.
+        const staleFilterActive = !!((selectedStation && selectedStation !== 'all') || selectedNgo);
+        if (staleFilterActive && sortedDonors.length === 0) {
+          const br = await getMyDonors(null, null, { newOnly: tab === 'new', oldOnly: tab === 'old' });
+          if (cancelled) return;
+          const broad = filterAndSortDonors(normalizeDonorResponse(br).donors);
+          if (broad.length > 0) {
+            setSelectedStation('all');
+            setSelectedNgo(null);
+            sortedDonors = broad;
+            rTotal = broad.length;
+          }
+        }
         // Auto-fallback: if current tab is empty, try the other tab (new<->old) once.
         // Prevents bounce loop when both tabs are empty.
         if (sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
+          autoTabRef.current = true;
           if (tab === 'new') {
             autoFallbackToOldRef.current = true;
             autoFallbackAttemptedRef.current = true;
@@ -482,7 +505,12 @@ export default function MyDonors() {
 
   const saveProgress = useCallback((tab, donorId, donorIndex) => {
     if (!donorId) return;
-    const body = { data_tab: tab, station: selectedStation !== 'all' ? selectedStation : null };
+    // Don't persist an auto-fallback-chosen tab as the FRO's permanent tab. The
+    // empty-tab shunt is transient; only an explicit tab click should move the
+    // saved data_tab. Otherwise a shunted FRO stays pinned to the wrong tab on
+    // their next session.
+    const body = { station: selectedStation !== 'all' ? selectedStation : null };
+    if (!autoTabRef.current) body.data_tab = tab;
     if (tab === 'new') {
       body.new_donor_id = donorId;
       body.new_donor_index = donorIndex;
@@ -497,6 +525,7 @@ export default function MyDonors() {
 
   const switchTab = (tab) => {
     manualTabSwitchRef.current = true;
+    autoTabRef.current = false;
     autoFallbackAttemptedRef.current = false;
     autoFallbackToOldRef.current = false;
     if (donor) {
@@ -994,118 +1023,22 @@ export default function MyDonors() {
     setSearchQuery(q);
     if (backendSearchTimerRef.current) { clearTimeout(backendSearchTimerRef.current); backendSearchTimerRef.current = null; }
     if (!q || q.trim().length < 2) {
-      setSearchResults([]);
-      setShowSearchDropdown(false);
+      setDisposedResults([]);
       return;
     }
-    const term = q.toLowerCase().trim();
-    // Always query the backend (debounced) so the suggestion dropdown covers the
-    // full assigned scope of donors — not just the currently loaded list window —
-    // and merge any in-list matches on top (deduped by id + ngo).
+    const term = q.trim();
     backendSearchTimerRef.current = setTimeout(async () => {
-      setSearchingAll(true);
+      setDisposedSearchLoading(true);
       try {
-        const localMatches = donors.filter(d =>
-          (d.donor_name || '').toLowerCase().includes(term) ||
-          String(d.donor_mobile || '').includes(term)
-        );
-        const [backendResults] = await Promise.all([
-          searchDonorsByMobile(term).catch(() => []),
-          Promise.resolve(localMatches),
-        ]);
-        const seen = new Set();
-        const merged = [];
-        const push = (item, toResult) => {
-          const key = `${item.id || item.donor_id}|${item.ngo_id || ''}`;
-          if (seen.has(key)) return;
-          seen.add(key);
-          merged.push(toResult(item));
-        };
-        localMatches.forEach(d => push(d, d => ({ id: d.id, donor_id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, status: d.status })));
-        (backendResults || []).forEach(d => push(d, d => d));
-        setSearchResults(merged);
-        setShowSearchDropdown(merged.length > 0);
-      } catch (err) {
-        const localMatches = donors.filter(d =>
-          (d.donor_name || '').toLowerCase().includes(term) ||
-          String(d.donor_mobile || '').includes(term)
-        );
-        setSearchResults(localMatches);
-        setShowSearchDropdown(localMatches.length > 0);
+        const results = await searchDonorsByMobile(term, { disposed: true });
+        setDisposedResults(results || []);
+      } catch {
+        setDisposedResults([]);
       } finally {
-        setSearchingAll(false);
+        setDisposedSearchLoading(false);
       }
-    }, 250);
+    }, 300);
   };
-
-  const handleSelectSearchResult = async (resultIdx) => {
-    setResumeTo(null);
-    const r = searchResults[resultIdx];
-    const donorId = r?.id || r?.donor_id;
-    const curDonor = donors[index];
-    const actualIdx = donors.findIndex(d => d.id === donorId);
-    const makeExternal = (extra = {}) => {
-      if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
-      setExternalDonor({
-        id: donorId,
-        ngo_id: r?.ngo_id ?? extra.ngo_id,
-        donor_name: r?.donor_name || r?.name || null,
-        donor_mobile: r?.donor_mobile || r?.mobile_number || null,
-        status: r?.status || 'pending',
-        is_new: r?.batch_type === 'new_data',
-        hidden: true,
-        ...extra,
-      });
-    };
-    if (actualIdx >= 0) {
-      setReturnToDonor(curDonor ? { id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index } : null);
-      setIndex(actualIdx);
-    } else if (donorId) {
-      if (r.has_donated_current_month) {
-        makeExternal({ has_donated_current_month: true, has_verified_donation_current_month: !!r.has_verified_donation_current_month, status: r.status || 'donation_collected' });
-        setMessage({ type: 'success', text: 'This donor already donated this month.' });
-      } else {
-        makeExternal({ ngo_id: r?.ngo_id ?? r?.ngo_id, station: r?.station || 'all', batch_type: r?.batch_type || (r?.batch_type === 'old_data' ? 'old_data' : 'new_data'), status: r?.status || 'pending' });
-        setMessage({ type: 'info', text: 'This donor is already marked done — opened it here for your reference.' });
-      }
-    } else {
-      makeExternal();
-      setMessage({ type: 'info', text: 'Donor opened for reference.' });
-    }
-    setSearchQuery('');
-    setSearchResults([]);
-    setShowSearchDropdown(false);
-  };
-
-  const handleSearchAll = async () => {
-    if (!searchQuery || searchQuery.trim().length < 2) return;
-    setSearchingAll(true);
-    try {
-      const backendResults = await searchDonorsByMobile(searchQuery.trim());
-      if (backendResults && backendResults.length > 0) {
-        setSearchResults(backendResults);
-        setShowSearchDropdown(true);
-      } else {
-        setMessage({ type: 'error', text: 'No donors found with this mobile number' });
-        setShowSearchDropdown(false);
-      }
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Search failed: ' + err.message });
-    } finally {
-      setSearchingAll(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!showSearchDropdown) return;
-    const handler = (e) => {
-      if (searchRef.current && !searchRef.current.contains(e.target)) {
-        setShowSearchDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showSearchDropdown]);
 
   const handleButtonClick = () => {
     if (selected) { handleSave(); return; }
@@ -1155,7 +1088,7 @@ export default function MyDonors() {
     return [y, y - 1, y - 2, y - 3, y - 4, y - 5];
   })();
 
-  if (loading) return <SkeletonProfile />;
+  if (loading) return <SkeletonMyLeads />;
 
   if (donors.length === 0) {
     return (
@@ -1225,10 +1158,12 @@ export default function MyDonors() {
   };
 
   // ─────────────────────────── MY LEADS — LIST VIEW ─────────────────────────
-  // Shown by default. Each row is a donor already filtered by the backend
-  // (same-day suppression applied). The FRO picks any lead to open; there is no
-  // automatic "next" chain, so a dispositioned donor can never be re-selected
-  // by the UI. Client-side filters narrow the loaded list further.
+  // Shown by default. Leads are processed one at a time: only the FIRST row is
+  // active (clickable, full data). All other rows are masked (name/mobile
+  // partially hidden) and locked (unclickable). After the FRO disposes the
+  // active lead it is removed from the list and the next one becomes active.
+  // Typing in the search bar switches the list to a read-only view of already-
+  // disposed leads (client-side suggestion dropdown removed).
   if (!activeDonor) {
     // NGO / station options derived from the assigned stations.
     const ngoMap = {};
@@ -1238,26 +1173,61 @@ export default function MyDonors() {
       .filter(s => !selectedNgo || s.ngo_id === selectedNgo)
       .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []);
 
+    // Mask a value for locked leads: keep the first N chars, replace the rest
+    // with X. e.g. "Shon" -> "SXXX", "9876543210" -> "987XXXXXXX".
+    const maskText = (val, keep = 3) => {
+      const s = String(val || '');
+      if (!s) return '—';
+      if (s.length <= keep) return s[0] + 'XX';
+      return s.slice(0, keep) + 'X'.repeat(s.length - keep);
+    };
+
     const visible = donors.filter(d => {
       if (listStatusFilter !== 'all' && !(DONOR_STATUS_GROUPS[listStatusFilter] || []).includes(d.status)) return false;
       if (listHideDonated && d.has_donated_current_month) return false;
-      if (searchQuery && searchQuery.trim().length >= 2) {
-        const term = searchQuery.toLowerCase().trim();
-        const name = (d.donor_name || '').toLowerCase();
-        const mobile = String(d.donor_mobile || '');
-        if (!name.includes(term) && !mobile.includes(term)) return false;
-      }
       return true;
     });
 
+    // Searching an active query shows disposed leads (read-only) instead of the
+    // sequential queue.
+    const searchingDisposed = searchQuery.trim().length >= 2;
+    const listItems = searchingDisposed ? disposedResults.map(r => ({
+      ...r,
+      id: r.donor_id,
+      ngo_id: r.ngo_id,
+      donor_name: r.donor_name,
+      donor_mobile: r.donor_mobile,
+      station: r.station,
+      is_disposed: true,
+      disposition_detail: r.disposition_detail,
+      disposed_at: r.disposed_at,
+    })) : visible;
+
+    // Sequential masking (only the top row unlocked, lower rows masked+locked)
+    // applies ONLY to the pristine default queue: New tab, all stations/ngos,
+    // no status filter, no hide-donated. Once the FRO applies ANY filter, every
+    // matching row is shown normally (no masking) so the filtered results read
+    // as real data instead of "no data allotted".
+    const filterActive = dataTab !== 'new'
+      || (selectedStation && selectedStation !== 'all')
+      || !!selectedNgo
+      || listStatusFilter !== 'all'
+      || listHideDonated;
+
     const openLead = (d) => {
+      // Disposed search results can be opened to update their disposition.
+      // When a hit also exists in the current queue, snap to that exact donor so
+      // the detail panel receives the full (live) record; otherwise render the
+      // search result record directly.
+      const keyed = searchingDisposed
+        ? donors.find(x => x.id === d.id && x.ngo_id === d.ngo_id)
+        : null;
       const found = donors.findIndex(x => x.id === d.id && x.ngo_id === d.ngo_id);
       if (found >= 0) setIndex(found);
-      setActiveDonor(d);
+      setActiveDonor(keyed || d);
       setSelected(null); setNotes(''); setLeadAmount('');
     };
 
-    const pad = (n) => String(n).padStart(2, '0');
     const fmtTrack = (d) => {
       if (d.has_donated_current_month) return (
         <span style={{ fontSize: 9, fontWeight: 700, color: d.has_verified_donation_current_month ? '#16a34a' : '#f59e0b' }}>
@@ -1314,37 +1284,7 @@ export default function MyDonors() {
               style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent', padding: '3px 0', minWidth: 0 }}
             />
             {searchQuery && (
-              <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchDropdown(false); }}>close</span>
-            )}
-            {showSearchDropdown && searchResults.length > 0 && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 340, maxWidth: 420, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.14)', zIndex: 500, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg)', borderBottom: '1px solid var(--line)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)' }}>
-                  <span>Matches</span>
-                  <span>{searchResults.length} found</span>
-                </div>
-                <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                  {searchResults.map((r, i) => (
-                    <div key={`${r.id || r.donor_id}-${r.ngo_id || ''}`} onClick={() => handleSelectSearchResult(i)}
-                      style={{ padding: '9px 12px', cursor: 'pointer', borderBottom: i < searchResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 10, transition: 'background .1s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
-                      onMouseLeave={e => e.currentTarget.style.background = ''}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
-                        {initials(r.donor_name || r.name || '')}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.donor_name || r.name || 'Unknown'}</div>
-                        <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 1 }}>
-                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.donor_mobile || r.mobile_number || '—'}</span>
-                          {r.ngo_name ? <span style={{ color: 'var(--ink-soft)' }}> · {r.ngo_name}</span> : null}
-                        </div>
-                      </div>
-                      <span className={`pill ${STATUS_PILL_MAP[r.status] || 'pill-gray'}`} style={{ fontSize: 8, padding: '2px 6px', flexShrink: 0 }}>
-                        {r.status ? String(r.status).replace(/_/g, ' ') : '—'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => { setSearchQuery(''); setDisposedResults([]); }}>close</span>
             )}
           </div>
         </div>
@@ -1369,44 +1309,59 @@ export default function MyDonors() {
               </tr>
             </thead>
             <tbody>
-              {visible.length === 0 ? (
+              {searchingDisposed && disposedSearchLoading ? (
+                <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                  Searching disposed leads…
+                </td></tr>
+              ) : searchingDisposed && listItems.length === 0 ? (
+                <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                  No disposed leads match "{searchQuery.trim()}". Clear the search to return to your queue.
+                </td></tr>
+              ) : listItems.length === 0 ? (
                 <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
                   No leads match the current filters.
                 </td></tr>
-              ) : visible.map((d, i) => (
-                <tr key={`${d.id}-${d.ngo_id}`} onClick={() => openLead(d)}
-                  style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer', transition: 'background .1s' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
-                  <td style={{ padding: '8px 12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
-                        {initials(d.donor_name)}
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {d.donor_name || 'Unknown'}
-                          {d.is_new && <span style={{ marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 8, fontWeight: 700 }}>NEW</span>}
+              ) : listItems.map((d, i) => {
+                const masked = !searchingDisposed && !filterActive && i !== 0;
+                const locked = masked && !d.is_disposed;
+                return (
+                  <tr key={`${d.id || d.donor_id}-${d.ngo_id || ''}`}
+                    onClick={() => openLead(d)}
+                    style={{ borderBottom: '1px solid var(--line)', cursor: locked ? 'default' : 'pointer', transition: 'background .1s', opacity: locked ? 0.5 : 1, pointerEvents: locked ? 'none' : undefined }}
+                    onMouseEnter={locked ? undefined : e => { e.currentTarget.style.background = '#f3f4f6'; }}
+                    onMouseLeave={locked ? undefined : e => { e.currentTarget.style.background = ''; }}>
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
+                          {masked ? '?' : initials(d.donor_name || '')}
                         </div>
-                        {d.ngo_names && d.ngo_names.length > 0 && (
-                          <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.ngo_names.join(', ')}</div>
-                        )}
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {masked ? `${maskText(d.donor_name)}${d.is_disposed ? '' : ' (Locked)'}` : (d.donor_name || 'Unknown')}
+                            {!masked && d.is_new && <span style={{ marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 8, fontWeight: 700 }}>NEW</span>}
+                          </div>
+                          {d.ngo_names && d.ngo_names.length > 0 && (
+                            <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.ngo_names.join(', ')}</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</td>
-                  <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
-                  <td style={{ padding: '8px 8px' }}>{fmtTrack(d)}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{masked ? maskText(d.donor_mobile) : (d.donor_mobile || '—')}</td>
+                    <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
+                    <td style={{ padding: '8px 8px' }}>{d.is_disposed ? 'Disposed' : (masked ? 'Locked' : fmtTrack(d))}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {!masked && <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         <div style={{ padding: '8px 12px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
-          Showing {visible.length} of {total || donors.length} leads
+          {searchingDisposed
+            ? `${listItems.length} disposed lead(s) found`
+            : `Showing ${listItems.length} of ${total || donors.length} leads`}
         </div>
       </div>
     );
@@ -1442,7 +1397,7 @@ export default function MyDonors() {
             </div>
 
             {/* Unified Call + WhatsApp action bar (merged, responsive) */}
-            <div style={{ margin: '10px 0', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+            <div style={{ margin: '10px 12px', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
               {isOnCall && activeCall?.donorId === donor.id ? (
                 <button onClick={(e) => { e.stopPropagation(); endCall() }} disabled={saving}
                   style={{ flex: 1, width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .5 : 1, display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>

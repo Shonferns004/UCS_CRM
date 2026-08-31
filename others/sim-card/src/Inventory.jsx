@@ -6,7 +6,7 @@ import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from './Toast';
 
 const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
-const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 30 Days', 'More than 30 Days'];
+const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 28 Days', 'More than 28 Days'];
 const SIM_NAME_FILTERS = ['All', 'Android', 'Nokia'];
 const SORTABLE = ['mobile_id', 'device_model', 'imei', 'team', 'sim_type', 'issue_date', 'expiry_date', 'days_left', 'status', 'replacement_count'];
 
@@ -15,8 +15,8 @@ const COLUMNS = [
   { key: 'device_model', label: 'Device & Model Name' },
   { key: 'imei', label: 'IMEI No.' },
   { key: 'team', label: 'Owner' },
-  { key: 'sim_type', label: 'SIM Type' },
-  { key: 'signature', label: 'Signature' },
+  { key: 'sim_type', label: 'SIM Type', dynamic: true },
+  { key: 'signature', label: 'Signature', dynamic: true },
   { key: 'issue_date', label: 'Issue Date' },
   { key: 'expiry_date', label: 'Auto Expiry Date' },
   { key: 'days_left', label: 'Expiry Days Left', num: true },
@@ -44,10 +44,22 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
 
   const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: effectiveStatus(c) })), [cards]);
 
+  const brandList = useMemo(() => {
+    let list = enriched;
+    if (simName === 'Nokia') list = list.filter((c) => (c.mobile_id || '').toLowerCase().startsWith('ufrs'));
+    else if (simName !== 'All') list = list.filter((c) => (c.mobile_id || '').toLowerCase().startsWith(simName.toLowerCase()));
+    return list;
+  }, [enriched, simName]);
+
   const activeSimKeys = useMemo(() => {
     const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== '';
-    return SIM_KEYS.filter((k) => enriched.some((c) => hasValue(c[k])));
-  }, [enriched]);
+    return SIM_KEYS.filter((k) => brandList.some((c) => hasValue(c[k])));
+  }, [brandList]);
+
+  const metaKeys = useMemo(() => {
+    const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+    return ['sim_type', 'signature'].filter((k) => brandList.some((c) => hasValue(c[k])));
+  }, [brandList]);
 
   const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
   const devices = useMemo(() => [...new Set(enriched.map((c) => c.device_model).filter(Boolean))].sort(), [enriched]);
@@ -68,14 +80,18 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
     if (team !== 'All') list = list.filter((c) => c.team === team);
     if (simType !== 'All') list = list.filter((c) => c.sim_type === simType);
     if (device !== 'All') list = list.filter((c) => c.device_model === device);
-    if (simName !== 'All') list = list.filter((c) => (c.mobile_id || '').toLowerCase().startsWith(simName.toLowerCase()));
+    if (simName === 'Nokia') {
+      list = list.filter((c) => (c.mobile_id || '').toLowerCase().startsWith('ufrs'));
+    } else if (simName !== 'All') {
+      list = list.filter((c) => (c.mobile_id || '').toLowerCase().startsWith(simName.toLowerCase()));
+    }
     if (expiry !== 'All') {
       list = list.filter((c) => {
         const d = c.days_left;
         if (expiry === 'Expired') return c._status === 'Expired';
         if (expiry === 'Within 7 Days') return d !== null && d >= 0 && d <= 7;
-        if (expiry === 'Within 30 Days') return d !== null && d >= 0 && d <= 30;
-        if (expiry === 'More than 30 Days') return d !== null && d > 30;
+        if (expiry === 'Within 28 Days') return d !== null && d >= 0 && d <= 28;
+        if (expiry === 'More than 28 Days') return d !== null && d > 28;
         return true;
       });
     }
@@ -199,7 +215,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
                   <th className="check-cell">
                     <input type="checkbox" checked={selectedCount === pageRows.length && selectedCount > 0} onChange={toggleAll} />
                   </th>
-                  {COLUMNS.map((col) => (
+                  {COLUMNS.filter((col) => !col.dynamic || metaKeys.includes(col.key)).map((col) => (
                     <th key={col.key} className={SORTABLE.includes(col.key) ? `sortable ${col.num ? 'num' : ''}` : (col.num ? 'num' : '')} onClick={() => SORTABLE.includes(col.key) && toggleSort(col.key)}>
                       {col.label}
                       {col.key === sortKey && <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
@@ -222,14 +238,14 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
                     <td>{c.device_model || '—'}</td>
                     <td>{c.imei || '—'}</td>
                     <td>{c.team || '—'}</td>
-                    <td>{c.sim_type || '—'}</td>
-                    <td>{c.signature || '—'}</td>
+                    {metaKeys.includes('sim_type') && <td>{c.sim_type || '—'}</td>}
+                    {metaKeys.includes('signature') && <td>{c.signature || '—'}</td>}
                     <td>{formatDate(c.issue_date)}</td>
                     <td>{formatDate(c.expiry_date)}</td>
                     <td className={`days-cell num ${dayClass(c.days_left)}`}>{dayLabel(c.days_left)}</td>
                     <td><span className={`pill ${pillForStatus(c._status)}`}>{c._status}</span></td>
-                    {activeSimKeys.map((k) => <td key={k}>{c[k] || '—'}</td>)}
                     <td className="num">{c.replacement_count || 0}</td>
+                    {activeSimKeys.map((k) => <td key={k}>{c[k] || '—'}</td>)}
                     <td>
                       <div className="cell-actions" style={{ gap: 4 }}>
                         <button className="mini-btn" onClick={() => onEdit(c)}>Edit</button>

@@ -77,6 +77,33 @@ export function SkeletonProfile() {
   )
 }
 
+export function SkeletonMyLeads() {
+  return (
+    <div className="detail-card" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--card-bg, #fff)', borderRadius: 12 }}>
+      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line, #e5e7eb)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <div className="sk" style={{ width: 58, height: 28, borderRadius: 8 }} />
+        <div className="sk" style={{ width: 58, height: 28, borderRadius: 8 }} />
+        <div className="sk" style={{ width: 80, height: 28, borderRadius: 8 }} />
+        <div className="sk" style={{ width: 70, height: 28, borderRadius: 8 }} />
+        <div className="sk" style={{ marginLeft: 'auto', width: 200, height: 28, borderRadius: 8 }} />
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '2px 0' }}>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+            <div className="sk" style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <S height={10} width={`${45 + (i % 3) * 10}%`} style={{ marginBottom: 4 }} />
+              <S height={8} width="32%" style={{ marginBottom: 3 }} />
+              <S height={8} width="20%" />
+            </div>
+            <div className="sk" style={{ width: 50, height: 18, borderRadius: 9, flexShrink: 0 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function SkeletonDashboard() {
   const StatCard = ({ compact = false, index = 0 }) => (
     <div style={{ background: 'var(--card-bg, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 10, padding: compact ? '14px 16px' : '16px 18px', minHeight: compact ? 64 : 82, boxSizing: 'border-box' }}>
