@@ -150,8 +150,10 @@ export async function getMyStations() {
   return api('/fro/my-stations', { _prefix: 'ucs' })
 }
 
-export async function searchDonorsByMobile(q) {
-  return api(`/fro/search-donors?q=${encodeURIComponent(q)}`, { _prefix: 'ucs' })
+export async function searchDonorsByMobile(q, opts = {}) {
+  const params = new URLSearchParams({ q });
+  if (opts.disposed) params.set('disposed', 'true');
+  return api(`/fro/search-donors?${params}`, { _prefix: 'ucs' })
 }
 
 export async function searchSuspenseDonors(q) {
