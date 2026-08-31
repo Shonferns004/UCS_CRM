@@ -1299,7 +1299,7 @@ export default function MyDonors() {
                       </div>
                     </td>
                     <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{masked ? maskText(d.donor_mobile) : (d.donor_mobile || '—')}</td>
-                    <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{masked ? '—' : (d.station || '—')}</td>
+                    <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
                     <td style={{ padding: '8px 8px' }}>{d.is_disposed ? 'Disposed' : (masked ? 'Locked' : fmtTrack(d))}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {!masked && <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>}
