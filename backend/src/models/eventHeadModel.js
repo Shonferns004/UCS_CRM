@@ -12,7 +12,7 @@ export const createEventHeadEvent = async (data) => {
 export const insertEventHeadEventsBulk = async (rows) => {
   if (!rows || !rows.length) return [];
   const withTs = rows.map(r => ({ ...r, updated_at: new Date() }));
-  const { data, error } = await db.from('event_head_events').insert(withTs).select('id');
+  const { data, error } = await db.from('event_head_events').insert(withTs).select('id, ngo_id');
   if (error) throw error;
   return data || [];
 };
@@ -52,6 +52,13 @@ export const deleteEventHeadEvent = async (id) => {
   const { error } = await db.from('event_head_events').delete().eq('id', id);
   if (error) throw error;
   return { message: 'Event deleted' };
+};
+
+export const deleteEventHeadEventsBulk = async (ids) => {
+  if (!ids || !ids.length) return 0;
+  const { data, error } = await db.from('event_head_events').delete().in('id', ids).select('id');
+  if (error) throw error;
+  return Array.isArray(data) ? data.length : 0;
 };
 
 export const getEventHeadEventsByMonth = async (month, year, ngo_id) => {
@@ -483,7 +490,7 @@ export const insertActivitiesBulk = async (rows) => {
   if (!rows || !rows.length) return [];
   const { data, error } = await db.from('event_head_activities')
     .upsert(rows, { onConflict: 'ngo_id,sector_id,name', ignoreDuplicates: true })
-    .select('id');
+    .select('id, ngo_id, sector_id, name');
   if (error) throw error;
   return data || [];
 };
