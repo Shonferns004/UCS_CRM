@@ -57,10 +57,11 @@ function ImportModal({ open, onClose, onDone }) {
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState('');
+  const [fileName, setFileName] = useState('');
 
   if (!open) return null;
 
-  function reset() { setValid([]); setInvalid([]); setDone(false); setErr(''); }
+  function reset() { setValid([]); setInvalid([]); setDone(false); setErr(''); setFileName(''); }
 
   function parseFile(file) {
     const name = file.name.toLowerCase();
@@ -158,10 +159,21 @@ function ImportModal({ open, onClose, onDone }) {
             </div>
           ) : (
             <div>
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files[0]; if (f) parseFile(f); e.target.value = ''; }} />
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <div style={{ fontSize: 14, color: 'var(--sim-ink-soft)', marginBottom: 16 }}>Upload an Excel or CSV file with SIM card data.</div>
-                <button className="sim-btn primary" onClick={() => fileRef.current.click()}>Choose File</button>
+                <label className="sim-btn primary" htmlFor="sim-import-file-input" style={{ cursor: 'pointer', display: 'inline-block' }}>
+                  Choose File
+                </label>
+                &nbsp;
+                {fileName && <span style={{ fontSize: 12, color: 'var(--sim-blue-dark)', fontWeight: 600 }}>{fileName}</span>}
+                <input
+                  id="sim-import-file-input"
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  style={{ position: 'absolute', width: 1, height: 1, clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)', overflow: 'hidden', whiteSpace: 'nowrap' }}
+                  onChange={(e) => { const f = e.target.files[0]; if (f) { setFileName(f.name); parseFile(f); } e.target.value = ''; }}
+                />
               </div>
             </div>
           )}

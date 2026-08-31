@@ -158,6 +158,78 @@
 .stat-g .fill { height: 100%; border-radius: 99px; }
 .stat-g .val { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--sim-ink); }
 
+/* --- SIM reports: summary stat tiles --- */
+.summary-block { margin-bottom: 16px; }
+.summary-block .tb { border-bottom: 1px solid var(--sim-line); }
+.sum-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; padding: 18px;
+}
+.sum-tile {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 11px;
+  padding: 14px; display: flex; flex-direction: column; gap: 6px;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.sum-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15, 23, 42, .08); border-color: #c7d6f0; background: #fff; }
+.sum-n { font-size: 26px; font-weight: 800; color: var(--sim-ink); line-height: 1; }
+.sum-lab { font-size: 11px; color: var(--sim-ink-soft); }
+.sum-bar { height: 5px; border-radius: 99px; background: #e8edf5; overflow: hidden; margin-top: 2px; }
+.sum-bar > span { display: block; height: 100%; border-radius: 99px; }
+
+/* --- SIM reports: team breakdown chips --- */
+.team-chip {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 12px;
+  padding: 12px 13px; display: flex; flex-direction: column; gap: 10px;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.team-chip:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15, 23, 42, .08); border-color: #c7d6f0; background: #fff; }
+.team-chip-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.team-avatar {
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue-soft); color: var(--sim-blue-dark);
+  font-size: 12px; font-weight: 800;
+}
+.team-meta { min-width: 0; }
+.team-name { font-size: 12px; font-weight: 700; color: var(--sim-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-count { font-size: 11px; color: var(--sim-ink-soft); margin-top: 2px; }
+.team-progress { height: 5px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
+.team-progress > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #60a5fa, #2563eb); }
+
+/* --- SIM reports: status breakdown line graph --- */
+.status-graph { padding: 18px; }
+.sg-line-wrap { width: 100%; }
+.sg-line-wrap svg { display: block; }
+.sg-labels { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; }
+.sg-xlab {
+  display: flex; align-items: center; gap: 7px; padding: 8px 10px;
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 9px;
+}
+.sg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.sg-name { font-size: 11px; color: var(--sim-ink-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-count { font-size: 13px; font-weight: 700; color: var(--sim-ink); }
+
+/* --- SIM reports: detailed report cards --- */
+.sim-report-card {
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: 12px;
+  box-shadow: var(--sim-shadow); overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.sim-report-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, .09); border-color: #c7d6f0; }
+.src-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 11px 13px; border-bottom: 1px solid var(--sim-line);
+  background: var(--sim-blue-soft);
+}
+.src-id { font-size: 13px; font-weight: 800; color: var(--sim-blue-dark); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src-body { padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; }
+.src-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.src-k { color: var(--sim-ink-soft); }
+.src-v { color: var(--sim-ink); font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.src-v.src-days { font-weight: 700; }
+
+
 .table-wrap { overflow-x: auto; }
 .sim-table {
   width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1200px;
