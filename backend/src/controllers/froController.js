@@ -1630,98 +1630,11 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    // Fallback: the worker's own assignments. This covers workers who have data
-    // assigned via fro_assignments.fro_worker_id but no matching row in
-    // fro_station_assignments (e.g. station assignment missing/mismatched),
-    // which previously made both tabs always empty.
-    if (!assignments || assignments.length === 0) {
-      let byWorkerQ = db
-        .from('fro_assignments')
-        .select('*, ngos(name)')
-        .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned');
-      if (effectiveStations.length > 0) {
-        byWorkerQ = byWorkerQ.in('station', effectiveStations);
-        byWorkerQ = withStationNgoPairs(byWorkerQ, effectiveScope);
-      } else {
-        if (req.query.station) byWorkerQ = byWorkerQ.eq('station', req.query.station);
-        if (req.query.ngo_id) byWorkerQ = byWorkerQ.eq('ngo_id', req.query.ngo_id);
-      }
-      if (statusGroup === 'not_connected') {
-        byWorkerQ = byWorkerQ.in('status', NOT_CONNECTED_STATUSES);
-      } else if (statusGroup === 'connected') {
-        byWorkerQ = byWorkerQ.in('status', CONNECTED_STATUSES);
-      } else if (statusFilter) {
-        byWorkerQ = byWorkerQ.eq('status', statusFilter);
-      }
-      const { data: byWorkerRaw } = await byWorkerQ;
-      let byWorker = byWorkerRaw || [];
-      if (req.query.new_only === 'true') {
-        byWorker = byWorker.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
-      } else if (req.query.old_only === 'true') {
-        byWorker = byWorker.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
-      }
-      if (byWorker && byWorker.length > 0) {
-        assignments = byWorker;
-      }
-    }
-
-    // Last-resort fallback so no session dead-ends into a blank screen: serve
-    // the claimable pool (pending, unclaimed rows) when a worker ends up with
-    // nothing — including acting sessions whose claimed stations have no
-    // workable rows right now (e.g. the New batch is exhausted). The pool is
-    // always NGO-partitioned: an acting session is narrowed to the NGOs of its
-    // claimed pairs; everyone else to their token NGO. IMPORTANT: when the
-    // worker has assigned stations, the pool is ALSO restricted to those exact
-    // stations so an FRO can never see donors outside their allotted station(s).
-    // Only a worker with no station assignment at all falls back to the full
-    // NGO-wide pool. Only fires for plain queue requests so filtered views never
-    // get surprise rows. Dispositioning a pooled donor claims it via
-    // findOrCreateAssignment.
-    if (!assignments || assignments.length === 0) {
-      const plainQueue = !req.query.status_group && !req.query.status
-        && req.query.verified_only !== 'true'
-        && req.query.active_only !== 'true' && req.query.inactive_only !== 'true';
-      if (plainQueue) {
-        const act = froActPairs(req);
-        let poolQ = db
-          .from('fro_assignments')
-          .select('*, ngos(name)')
-          .is('fro_worker_id', null)
-          .eq('status', 'pending');
-        // Restrict to the worker's assigned stations when available (each with
-        // its (station, ngo_id) pair), so the FRO only ever sees their own
-        // station's unclaimed leads.
-        if (effectiveStations.length > 0) {
-          poolQ = poolQ.in('station', effectiveStations);
-          poolQ = withStationNgoPairs(poolQ, effectiveScope);
-        } else {
-          const claimedNgos = act ? [...new Set(act.map(p => p?.ngo_id).filter(Boolean))] : [];
-          if (claimedNgos.length > 0) {
-            poolQ = poolQ.in('ngo_id', claimedNgos);
-          } else {
-            const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
-            if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
-          }
-        }
-        poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
-        try {
-          const { data: poolRowsRaw, error: poolErr } = await poolQ;
-          let poolRows = poolRowsRaw || [];
-          if (!poolErr && poolRows.length > 0) {
-            if (req.query.new_only === 'true') {
-              poolRows = poolRows.filter(a => a.batch_type === 'new_data' || (a.batch_type == null && a.is_new !== false));
-            } else if (req.query.old_only === 'true') {
-              poolRows = poolRows.filter(a => a.batch_type === 'old_data' || (a.batch_type == null && a.is_new === false));
-            }
-            if (poolRows.length > 0) assignments = poolRows;
-          }
-        } catch (poolEx) {
-          console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
-        }
-      }
-    }
-
+    // NO fallback. The FRO must only ever be served donors strictly within
+    // their assigned (station, ngo_id) scope. If the assigned-scope query above
+    // returns nothing, the queue is simply empty — we never pull in leads from
+    // other stations or NGOs as a "claimable pool", because that would expose
+    // donors outside the FRO's allotment.
     if (!assignments || assignments.length === 0) return res.json([]);
 
     const oneYearAgo = new Date();
