@@ -999,35 +999,43 @@ export default function MyDonors() {
       return;
     }
     const term = q.toLowerCase().trim();
-    const filtered = donors.filter(d =>
-      (d.donor_name || '').toLowerCase().includes(term) ||
-      (d.donor_mobile || '').includes(term)
-    );
-    if (filtered.length > 0) {
-      setSearchResults(filtered);
-      setShowSearchDropdown(true);
-      return;
-    }
-    // No match in the loaded page(s) — search the full backend stack (covers
-    // donors beyond the loaded window, e.g. a donor at position 800+).
+    // Always query the backend (debounced) so the suggestion dropdown covers the
+    // full assigned scope of donors — not just the currently loaded list window —
+    // and merge any in-list matches on top (deduped by id + ngo).
     backendSearchTimerRef.current = setTimeout(async () => {
       setSearchingAll(true);
       try {
-        const backendResults = await searchDonorsByMobile(term);
-        if (backendResults && backendResults.length > 0) {
-          setSearchResults(backendResults);
-          setShowSearchDropdown(true);
-        } else {
-          setSearchResults([]);
-          setShowSearchDropdown(false);
-        }
+        const localMatches = donors.filter(d =>
+          (d.donor_name || '').toLowerCase().includes(term) ||
+          String(d.donor_mobile || '').includes(term)
+        );
+        const [backendResults] = await Promise.all([
+          searchDonorsByMobile(term).catch(() => []),
+          Promise.resolve(localMatches),
+        ]);
+        const seen = new Set();
+        const merged = [];
+        const push = (item, toResult) => {
+          const key = `${item.id || item.donor_id}|${item.ngo_id || ''}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          merged.push(toResult(item));
+        };
+        localMatches.forEach(d => push(d, d => ({ id: d.id, donor_id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, status: d.status })));
+        (backendResults || []).forEach(d => push(d, d => d));
+        setSearchResults(merged);
+        setShowSearchDropdown(merged.length > 0);
       } catch (err) {
-        setSearchResults([]);
-        setShowSearchDropdown(false);
+        const localMatches = donors.filter(d =>
+          (d.donor_name || '').toLowerCase().includes(term) ||
+          String(d.donor_mobile || '').includes(term)
+        );
+        setSearchResults(localMatches);
+        setShowSearchDropdown(localMatches.length > 0);
       } finally {
         setSearchingAll(false);
       }
-    }, 300);
+    }, 250);
   };
 
   const handleSelectSearchResult = async (resultIdx) => {
