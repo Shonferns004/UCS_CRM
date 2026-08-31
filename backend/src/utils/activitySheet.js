@@ -231,13 +231,15 @@ export function parseEventSheet(buffer) {
     return -1;
   };
 
-  const NAME_EXCLUDE = /date|time|status|venue|budget|benef|sector|activity|\bngo\b|count|number|\bno\b/;
+  // The "Event/Name" column must not match a date/sector/activity/ngo-like column.
+  const NAME_EXCLUDE = /date|time|status|venue|budget|benef|sector|activity|\bngo\b|count|number|\bno\b|day/;
   let headerRow = -1;
   let cols = null;
   for (let r = 0; r < Math.min(rawRows.length, 30); r++) {
     const row = rawRows[r];
     const nameCol = pick(row, [/^event(\s|$)/, /^name(\s|$)/, /name of the event/], NAME_EXCLUDE);
-    const dateCol = pick(row, [/^date/, /^day(\s|$)/]);
+    const dateCol = pick(row, [/^date/]);
+    const dayCol = pick(row, [/^day(\s|$)/]);
     const sectorCol = pick(row, [/^sector/], /\bno\b|number|count/);
     const activityCol = pick(row, [/activity|project/], /\bno\b|number|count|type/);
     const ngoCol = pick(row, [/^ngo/], /activity/);
@@ -247,16 +249,26 @@ export function parseEventSheet(buffer) {
     const statusCol = pick(row, [/status/]);
     const budgetCol = pick(row, [/budget/]);
     const benCol = pick(row, [/beneficiar/]);
-    if (nameCol !== -1 && dateCol !== -1) {
+    if (nameCol !== -1) {
       headerRow = r;
-      cols = { nameCol, dateCol, sectorCol, activityCol, ngoCol, venueCol, timeCol, endCol, statusCol, budgetCol, benCol };
+      cols = { nameCol, dateCol, dayCol, sectorCol, activityCol, ngoCol, venueCol, timeCol, endCol, statusCol, budgetCol, benCol };
       break;
     }
   }
 
   if (!cols) {
-    throw new Error('Could not find an "Event Name" and "Date" column in the uploaded sheet');
+    throw new Error('Could not find an "Event" (or "Name") column in the uploaded sheet');
   }
+
+  // Detect the sheet layout:
+  //  - calendar:  NGO | Event | Date | Day      (dated events, no catalog)
+  //  - catalog:   NGO | Sector | Activity | Event (no dates -> builds All Events cascade + activities)
+  //  - date:      full sheet with Event + Date (+ optional Sector/Activity/NGO)
+  const hasDate = cols.dateCol !== -1;
+  const hasCatalog = cols.sectorCol !== -1 && cols.activityCol !== -1;
+  let format = 'date';
+  if (hasDate && !hasCatalog) format = 'calendar';
+  else if (!hasDate && hasCatalog) format = 'catalog';
 
   const rows = [];
   let lastSector = '';
@@ -274,24 +286,24 @@ export function parseEventSheet(buffer) {
 
     const name = cell(cols.nameCol);
     if (!name || /^(total|grand\s+total|sub\s+total)/i.test(name)) continue;
-    const date = excelDateToISO(row[cols.dateCol]);
-    if (!date && !lastSector && !lastActivity) continue;
+    const date = excelDateToISO(cols.dateCol !== -1 ? row[cols.dateCol] : null);
 
-    const status = cell(cols.statusCol) || 'Draft';
+    const status = cell(cols.statusCol) || (hasDate ? 'Draft' : 'Approved');
     rows.push({
       name,
       date,
+      format,
       sectorLabel: lastSector,
       activityLabel: lastActivity,
       ngoLabel: lastNgo,
       venue: cell(cols.venueCol) || null,
-      startTime: excelTimeToHM(row[cols.timeCol]),
-      endTime: excelTimeToHM(row[cols.endCol]),
-      status: EVENT_STATI.has(status) ? status : 'Draft',
-      budget: row[cols.budgetCol] !== undefined && row[cols.budgetCol] !== '' ? Number(row[cols.budgetCol]) : null,
-      expectedBeneficiaries: row[cols.benCol] !== undefined && row[cols.benCol] !== '' ? Number(row[cols.benCol]) : null,
+      startTime: excelTimeToHM(cols.timeCol !== -1 ? row[cols.timeCol] : null),
+      endTime: excelTimeToHM(cols.endCol !== -1 ? row[cols.endCol] : null),
+      status: EVENT_STATI.has(status) ? status : (hasDate ? 'Draft' : 'Approved'),
+      budget: cols.budgetCol !== -1 && row[cols.budgetCol] !== undefined && row[cols.budgetCol] !== '' ? Number(row[cols.budgetCol]) : null,
+      expectedBeneficiaries: cols.benCol !== -1 && row[cols.benCol] !== undefined && row[cols.benCol] !== '' ? Number(row[cols.benCol]) : null,
     });
   }
 
-  return { rows, sheetName };
+  return { rows, sheetName, format };
 }
