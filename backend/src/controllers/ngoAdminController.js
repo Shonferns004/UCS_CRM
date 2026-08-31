@@ -5487,10 +5487,14 @@ async function ensureStationRenameLogTable() {
       counts         jsonb NOT NULL DEFAULT '{}',
       skipped_donors integer NOT NULL DEFAULT 0,
       performed_by   text,
-      performed_at   timestamptz NOT NULL DEFAULT now()
+      performed_at   timestamptz NOT NULL DEFAULT now(),
+      batch_id       uuid
     )`);
+  // Self-heal installs created before batch_id existed (e.g. production).
+  await sql(`ALTER TABLE station_rename_log ADD COLUMN IF NOT EXISTS batch_id uuid`);
   await sql(`CREATE INDEX IF NOT EXISTS idx_station_rename_log_ngo_time ON station_rename_log(ngo_id, performed_at DESC)`);
   await sql(`CREATE INDEX IF NOT EXISTS idx_station_rename_log_old_station ON station_rename_log(old_station)`);
+  await sql(`CREATE INDEX IF NOT EXISTS idx_station_rename_log_batch ON station_rename_log(batch_id)`);
   _renameLogTableReady = true;
 }
 
@@ -5702,7 +5706,8 @@ export const bulkRenameStations = async (req, res) => {
     }
 
     // ---- APPLY: one transaction, all-or-nothing ---------------------------
-    const performedBy = String(req.user?.id || req.user?.email || 'unknown');
+    const performedBy = String(req.user?.email || req.user?.id || 'unknown');
+    const batchId = crypto.randomUUID();
     const summary = await db.transaction(async () => {
       await ensureStationRenameLogTable();
 
@@ -5818,9 +5823,9 @@ export const bulkRenameStations = async (req, res) => {
           donor_profiles: du ? du.updated_donors : 0,
         };
         await sql(
-          `INSERT INTO station_rename_log (ngo_id, ngo_name, old_station, new_station, counts, skipped_donors, performed_by)
-           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-          [r.ngo_id, r.ngo_name, r.old_station, r.new_station, JSON.stringify(counts), ambiguousForRow, performedBy]
+          `INSERT INTO station_rename_log (ngo_id, ngo_name, old_station, new_station, counts, skipped_donors, performed_by, batch_id)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+          [r.ngo_id, r.ngo_name, r.old_station, r.new_station, JSON.stringify(counts), ambiguousForRow, performedBy, batchId]
         );
       }
       // NOTE: regIds/assignIds/queueIds lengths above are batch totals; the
@@ -5861,6 +5866,7 @@ export const bulkRenameStations = async (req, res) => {
 
       return {
         applied: okRows.length,
+        batch_id: batchId,
         rows: donorUpdates,
         totals: {
           fro_station_assignments: regIds.length,
@@ -5875,6 +5881,43 @@ export const bulkRenameStations = async (req, res) => {
     });
 
     return res.json(summary);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Rename history for the bulk-rename revert UI: the last 20 applied batches,
+// grouped by batch_id (rows logged before batch_id existed fall back to
+// single-entry groups). Scoped to the caller's NGO access.
+export const getStationRenameLog = async (req, res) => {
+  try {
+    await ensureStationRenameLogTable();
+
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    let scopeSql = '';
+    let params = [];
+    if (!isSuperAdmin) {
+      const allowed = (await getUserNgoIds(req.user)).map(String);
+      if (allowed.length === 0) return res.json([]);
+      scopeSql = 'WHERE ngo_id::text = ANY($1::text[])';
+      params = [allowed];
+    }
+
+    const batches = await sql(
+      `SELECT COALESCE(batch_id::text, 'legacy-' || id::text) AS batch_id,
+              max(performed_at) AS performed_at,
+              max(performed_by) AS performed_by,
+              json_agg(json_build_object('ngo_name', ngo_name, 'old_station', old_station, 'new_station', new_station) ORDER BY id) AS entries,
+              sum((counts->>'fro_assignments')::int)::int AS donor_assignments,
+              sum(skipped_donors)::int AS skipped_donors
+         FROM station_rename_log
+         ${scopeSql}
+        GROUP BY 1
+        ORDER BY max(performed_at) DESC
+        LIMIT 20`,
+      params
+    );
+    return res.json(batches);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
