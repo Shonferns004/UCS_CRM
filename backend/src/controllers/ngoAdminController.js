@@ -5837,11 +5837,11 @@ export const bulkRenameStations = async (req, res) => {
       const checkPairs = [ngoIds, olds];
       const unnestChk = 'unnest($1::text[], $2::text[]) AS t(ngo_id, station)';
       const checks = [
-        ['fro_station_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_station_assignments x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
-        ['fro_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_assignments x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
-        ['fro_transfers.station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
-        ['fro_transfers.target_station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.target_station = t.station`],
-        ['work_queue', `SELECT COUNT(*)::int AS cnt FROM work_queue x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_station_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_station_assignments x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_assignments x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_transfers.station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_transfers.target_station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.target_station = t.station`],
+        ['work_queue', `SELECT COUNT(*)::int AS cnt FROM work_queue x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
       ];
       for (const [label, query] of checks) {
         const [{ cnt }] = await sql(query, checkPairs);
