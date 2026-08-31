@@ -50,6 +50,7 @@ router.get('/events', eh, ctrl.listEventHeadEvents);
 router.get('/events/:id', eh, ctrl.getEventHeadEvent);
 router.put('/events/:id', eh, ctrl.updateEventHeadEvent);
 router.put('/events/:id/status', eh, ctrl.updateEventHeadStatus);
+router.post('/events/cleanup', eh, ctrl.cleanupEvents);
 router.delete('/events/:id', eh, ctrl.deleteEventHeadEvent);
 
 // Approval flow

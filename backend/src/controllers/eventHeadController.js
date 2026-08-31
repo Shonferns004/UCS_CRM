@@ -200,6 +200,43 @@ export const deleteEventHeadEvent = async (req, res) => {
   }
 };
 
+// Bulk cleanup of events matching NGO + activity-name + date range. Used to
+// remove generic sheet-imported events (e.g. BSCT "Awareness Campaign" rows)
+// before loading the real per-NGO calendar data. Scope-limited: caller must
+// provide at least one filter.
+export const cleanupEvents = async (req, res) => {
+  try {
+    const { ngo_id, activity_name, start, end } = req.body || {};
+    if (!ngo_id && !activity_name) {
+      return res.status(400).json({ message: 'Provide at least one of ngo_id or activity_name to scope the cleanup.' });
+    }
+
+    let activityIds = null;
+    if (activity_name) {
+      const activities = await EventHead.getAllActivities().catch(() => []);
+      const q = String(activity_name).toLowerCase();
+      activityIds = new Set(
+        (activities || [])
+          .filter(a => String(a.name || '').toLowerCase().includes(q))
+          .map(a => Number(a.id))
+      );
+    }
+
+    const events = await EventHead.getEventHeadEventsByRange({ ngo_id, start, end });
+    const targets = events.filter(ev => {
+      if (activityIds && activityIds.size && !activityIds.has(Number(ev.activity_id))) return false;
+      if (ngo_id && ev.ngo_id != null && String(ev.ngo_id) !== String(ngo_id)) return false;
+      return true;
+    });
+
+    const removed = await EventHead.deleteEventHeadEventsBulk(targets.map(t => t.id));
+    return res.json({ removed, matched: targets.length });
+  } catch (error) {
+    console.error('cleanupEvents error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const updateEventHeadStatus = async (req, res) => {
   try {
     const event = await EventHead.updateEventHeadEvent(req.params.id, { status: sanitize(req.body).status });
@@ -1168,19 +1205,29 @@ export const importEvents = async (req, res) => {
     if (code) defaultNgo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === code);
     if (!defaultNgo && req.body.ngo_id) defaultNgo = ngos.find(n => String(n.id) === String(req.body.ngo_id));
 
+    // All-NGO mode: one sheet is imported for every event-head NGO at once
+    // (BSCT + MANN + AFLF) so the user doesn't upload the same file 3 times.
+    const allNgos = String(req.body.all_ngos || '').toLowerCase() === '1' || code === 'ALL';
+
     // Parse as an events sheet. If the sheet has NO "Event Name" and "Date"
     // column but DOES have "Sector" + "Activity / Project", it is actually an
     // activities catalog sheet (the MANN/AFLF/BSCT activity sheets the team
     // uploads). Route that to the activities import so the uploaded rows
     // populate the activity catalog instead of failing with an opaque error.
     let rows;
+    let sheetFormat = null;
     try {
-      ({ rows } = parseEventSheet(file.buffer));
+      const parsed = parseEventSheet(file.buffer);
+      rows = parsed.rows;
+      sheetFormat = parsed.format || 'date';
     } catch (eventParseErr) {
       try {
         const act = parseActivitySheet(file.buffer);
         if (act.rows && act.rows.length) {
-          // Activities sheet — needs an NGO to scope the catalog.
+          // Activities sheet — needs a single NGO to scope the catalog.
+          if (allNgos) {
+            return res.status(400).json({ message: "This sheet is an Activity catalog (Sector / Activity columns, no Event Name or Date). Activity catalogs apply to a single NGO, so pick one NGO (BSCT / MANN / AFLF) - 'All NGOs' is only for event sheets." });
+          }
           const actCode = String(req.body.ngo_code || '').trim().toUpperCase();
           const actNgo = (actCode && ngos.find(n => String(n.code || n.name || '').toUpperCase() === actCode))
             || (req.body.ngo_id && ngos.find(n => String(n.id) === String(req.body.ngo_id)));
@@ -1229,60 +1276,158 @@ export const importEvents = async (req, res) => {
     for (const n of ngos) ngoByKey.set(normNgoKey(n.code || n.name), n);
 
     const prepared = [];
-    const skipped = { no_date: [], unknown_activity: [], unknown_sector: [], unknown_ngo: [], dup: [] };
+    const skipped = { no_date: [], unknown_activity: [], unknown_sector: [], unknown_ngo: [], missing_activity: [], dup: [] };
     const seen = new Set();
     let parsed = 0;
+
+    // Catalog sheets need to find-or-create the activity each event belongs to.
+    const activityKey = (ngoId, sectorId, name) => `${ngoId}|${sectorId}|${String(name || '').toLowerCase().replace(/\s+/g, ' ').trim()}`;
+    const existingActivityByKey = new Map();
+    for (const a of activities || []) {
+      const k = activityKey(a.ngo_id, a.sector_id, a.name);
+      if (!existingActivityByKey.has(k)) existingActivityByKey.set(k, a);
+    }
+    const createdActivities = new Map(); // key -> row to bulk-insert
+    const createdActivityId = new Map(); // key -> id (filled after insert)
+
+    const resolveNgos = (label) => {
+      if (allNgos) return ngos;
+      let ngo = defaultNgo;
+      if (label) ngo = ngoByKey.get(normNgoKey(label)) || defaultNgo;
+      return ngo ? [ngo] : [];
+    };
 
     for (const row of rows) {
       if (!row.name) continue;
       parsed++;
 
-      let ngo = defaultNgo;
-      if (row.ngoLabel) ngo = ngoByKey.get(normNgoKey(row.ngoLabel)) || defaultNgo;
-      if (!ngo) { skipped.unknown_ngo.push(`${row.name} (${row.ngoLabel || 'no NGO'})`); continue; }
+      // ── Catalog sheet: NGO | Sector | Activity | Event (builds All-Events cascade) ──
+      if (row.format === 'catalog') {
+        const canonical = canonicalizeSector(row.sectorLabel, sectorNames);
+        const sectorId = sectorByName.get(canonical);
+        if (!sectorId) { skipped.unknown_sector.push(`${row.name} (${row.sectorLabel || 'no sector'})`); continue; }
+        const actName = normalizeName(row.activityLabel);
+        if (!actName) { skipped.missing_activity.push(row.name); continue; }
+
+        let na = null;
+        if (row.ngoLabel) na = ngoByKey.get(normNgoKey(row.ngoLabel));
+        if (!na) { skipped.unknown_ngo.push(`${row.name} (${row.ngoLabel || 'no NGO'})`); continue; }
+
+        const key = activityKey(na.id, sectorId, actName);
+        const activity = existingActivityByKey.get(key);
+        if (!activity && !createdActivities.has(key)) {
+          createdActivities.set(key, { ngo_id: na.id, sector_id: sectorId, name: actName, status: 'Active', created_by: String(req.user.id || '') });
+        }
+
+        const dedupeKey = `${na.id}|${sectorId}|${key}|${norm(row.name)}|catalog`;
+        if (seen.has(dedupeKey)) { skipped.dup.push(row.name); continue; }
+        seen.add(dedupeKey);
+
+        prepared.push({
+          name: row.name,
+          date: null,
+          ngo_id: na.id,
+          sector_id: sectorId,
+          activity_id: activity ? activity.id : null,
+          _actKey: activity ? null : key,
+          venue: row.venue,
+          start_time: row.startTime,
+          end_time: row.endTime,
+          status: 'Approved',
+          approval_status: 'Approved',
+          budget: row.budget,
+          expected_beneficiaries: row.expectedBeneficiaries,
+          created_by: String(req.user.id || ''),
+        });
+        continue;
+      }
+
+      // ── Date-driven sheet: NGO | Event | Date | Day  (calendar)  or  legacy format ──
+      const ngoList = resolveNgos(row.ngoLabel);
+      if (!ngoList.length) { skipped.unknown_ngo.push(`${row.name} (${row.ngoLabel || 'no NGO'})`); continue; }
 
       if (!row.date) { skipped.no_date.push(row.name); continue; }
 
       const canonical = canonicalizeSector(row.sectorLabel, sectorNames);
-      const sectorId = sectorByName.get(canonical);
-      if (!sectorId) { skipped.unknown_sector.push(`${row.name} (${row.sectorLabel || 'no sector'})`); continue; }
+      const sectorId = row.sectorLabel ? sectorByName.get(canonical) : null;
+      if (row.sectorLabel && !sectorId) { skipped.unknown_sector.push(`${row.name} (${row.sectorLabel})`); continue; }
 
-      const activity = row.activityLabel ? resolveActivity(sectorId, ngo.id, row.activityLabel) : null;
-      if (row.activityLabel && !activity) skipped.unknown_activity.push(`${row.name} (${row.activityLabel})`);
+      for (const ngo of ngoList) {
+        const activity = row.activityLabel && sectorId ? resolveActivity(sectorId, ngo.id, row.activityLabel) : null;
+        if (row.activityLabel && !activity) skipped.unknown_activity.push(`${row.name} (${row.activityLabel})`);
 
-      const dedupeKey = `${ngo.id}|${sectorId}|${activity ? activity.id : 'none'}|${row.date}|${norm(row.name)}`;
-      if (seen.has(dedupeKey)) { skipped.dup.push(row.name); continue; }
-      seen.add(dedupeKey);
+        const dedupeKey = `${ngo.id}|${sectorId || 'none'}|${activity ? activity.id : 'none'}|${row.date}|${norm(row.name)}`;
+        if (seen.has(dedupeKey)) { skipped.dup.push(row.name); continue; }
+        seen.add(dedupeKey);
 
-      prepared.push({
-        name: row.name,
-        date: row.date,
-        ngo_id: ngo.id,
-        sector_id: sectorId,
-        activity_id: activity ? activity.id : null,
-        venue: row.venue,
-        start_time: row.startTime,
-        end_time: row.endTime,
-        status: row.status,
-        approval_status: row.status === 'Approved' ? 'Approved' : 'Draft',
-        budget: row.budget,
-        expected_beneficiaries: row.expectedBeneficiaries,
-        created_by: String(req.user.id || ''),
-      });
+        prepared.push({
+          name: row.name,
+          date: row.date,
+          ngo_id: ngo.id,
+          sector_id: sectorId,
+          activity_id: activity ? activity.id : null,
+          venue: row.venue,
+          start_time: row.startTime,
+          end_time: row.endTime,
+          status: row.status,
+          approval_status: row.status === 'Approved' ? 'Approved' : 'Draft',
+          budget: row.budget,
+          expected_beneficiaries: row.expectedBeneficiaries,
+          created_by: String(req.user.id || ''),
+        });
+      }
+    }
+
+    // Insert newly-created catalog activities and backfill their ids into events.
+    let newActivityCount = 0;
+    if (createdActivities.size) {
+      const acts = await EventHead.insertActivitiesBulk([...createdActivities.values()]);
+      for (const a of acts || []) createdActivityId.set(activityKey(a.ngo_id, a.sector_id, a.name), a.id);
+      newActivityCount = (acts || []).length;
+      for (const p of prepared) {
+        if (p._actKey && createdActivityId.has(p._actKey)) p.activity_id = createdActivityId.get(p._actKey);
+        delete p._actKey;
+      }
     }
 
     const inserted = await EventHead.insertEventHeadEventsBulk(prepared);
 
+    const perNgo =
+      Object.values(prepared.reduce((acc, p) => {
+        if (!acc[p.ngo_id]) acc[p.ngo_id] = { ngo_id: p.ngo_id, count: 0 };
+        acc[p.ngo_id].count++;
+        return acc;
+      }, {}));
+    const withCode = perNgo.map(pn => {
+      const n = ngos.find(n => String(n.id) === String(pn.ngo_id));
+      return { code: n ? (n.code || n.name) : pn.ngo_id, count: pn.count };
+    });
+    const insertedByNgo =
+      Object.values(inserted.reduce((acc, p) => {
+        if (!acc[p.ngo_id]) acc[p.ngo_id] = { ngo_id: p.ngo_id, count: 0 };
+        acc[p.ngo_id].count++;
+        return acc;
+      }, {}));
+
     return res.json({
       ngo: defaultNgo ? { id: defaultNgo.id, code: defaultNgo.code || defaultNgo.name, name: defaultNgo.name } : null,
+      all_ngos: allNgos || null,
+      format: sheetFormat || 'date',
+      activities_created: newActivityCount,
       sheet: file.originalname,
       rows_parsed: parsed,
       inserted: inserted.length,
+      inserted_by_ngo: insertedByNgo.map(ib => {
+        const n = ngos.find(n => String(n.id) === String(ib.ngo_id));
+        return { code: n ? (n.code || n.name) : ib.ngo_id, count: ib.count };
+      }),
+      per_ngo: withCode,
       skipped: {
         missing_date: skipped.no_date.length,
         unknown_activity: skipped.unknown_activity.length,
         unknown_sector: skipped.unknown_sector.length,
         unknown_ngo: skipped.unknown_ngo.length,
+        missing_activity: skipped.missing_activity.length,
         duplicates: skipped.dup.length,
       },
       skipped_details: {
@@ -1290,6 +1435,7 @@ export const importEvents = async (req, res) => {
         unknown_activity: skipped.unknown_activity.slice(0, 20),
         unknown_sector: skipped.unknown_sector.slice(0, 20),
         unknown_ngo: skipped.unknown_ngo.slice(0, 20),
+        missing_activity: skipped.missing_activity.slice(0, 20),
         dup: skipped.dup.slice(0, 20),
       },
     });
