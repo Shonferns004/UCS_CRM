@@ -1580,12 +1580,17 @@ export const getMyDonors = async (req, res) => {
     const offset = parseInt(req.query.offset, 10);
     let assignments = null;
 
-    // Primary: donors assigned to the worker's stations (fro_station_assignments scope)
+    // Primary: ALL available leads in the FRO's assigned (station, ngo) scope.
+    // Scoped by station/ngo pair (NOT by fro_worker_id) so the FRO sees their
+    // full station allotment even when individual assignment rows carry a null
+    // or otherwise un-stamped fro_worker_id. Safe because each (ngo, station)
+    // maps to exactly one FRO in fro_station_assignments; already-worked /
+    // disposed / terminal leads are filtered out downstream by baseFiltered so
+    // only unclaimed, available rows surface in the queue.
     if (effectiveStations.length > 0) {
       let query = db
         .from('fro_assignments')
         .select('*, ngos(name)')
-        .eq('fro_worker_id', workerId)
         .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
@@ -1608,7 +1613,7 @@ export const getMyDonors = async (req, res) => {
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
-          query = db.from('fro_assignments').select('*, ngos(name)').eq('fro_worker_id', workerId).in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
           query = withStationNgoPairs(query, effectiveScope);
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
