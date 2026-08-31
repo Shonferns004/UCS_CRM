@@ -5502,20 +5502,22 @@ async function countRenameImpact(okRows) {
   const ngoIds = okRows.map(r => r.ngo_id);
   const olds = okRows.map(r => r.old_station);
   const params = [ords, ngoIds, olds];
-  const unnest = 'unnest($1::int[], $2::uuid[], $3::text[]) AS t(ord, ngo_id, station)';
+  // ngo_id columns are NOT uniform across these tables (some uuid, some text —
+  // they predate the tracked migrations), so compare as text everywhere.
+  const unnest = 'unnest($1::int[], $2::text[], $3::text[]) AS t(ord, ngo_id, station)';
 
   const [reg, assign, transfer, queue, sessions] = await Promise.all([
     sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
-         LEFT JOIN fro_station_assignments x ON x.ngo_id = t.ngo_id AND x.station = t.station
+         LEFT JOIN fro_station_assignments x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
          GROUP BY t.ord`, params),
     sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
-         LEFT JOIN fro_assignments x ON x.ngo_id = t.ngo_id AND x.station = t.station
+         LEFT JOIN fro_assignments x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
          GROUP BY t.ord`, params),
     sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
-         LEFT JOIN fro_transfers x ON x.ngo_id = t.ngo_id AND (x.station = t.station OR x.target_station = t.station)
+         LEFT JOIN fro_transfers x ON x.ngo_id::text = t.ngo_id AND (x.station = t.station OR x.target_station = t.station)
          GROUP BY t.ord`, params),
     sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
-         LEFT JOIN work_queue x ON x.ngo_id = t.ngo_id AND x.station = t.station
+         LEFT JOIN work_queue x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
          GROUP BY t.ord`, params),
     sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
          LEFT JOIN work_as_sessions x
@@ -5708,7 +5710,7 @@ export const bulkRenameStations = async (req, res) => {
       const olds = okRows.map(r => r.old_station);
       const news = okRows.map(r => r.new_station);
       const upd = [ngoIds, olds, news];
-      const unnestUpd = 'unnest($1::uuid[], $2::text[], $3::text[]) AS t(ngo_id, old_station, new_station)';
+      const unnestUpd = 'unnest($1::text[], $2::text[], $3::text[]) AS t(ngo_id, old_station, new_station)';
 
       // Donor classification must run BEFORE assignments are renamed.
       const oldStations = [...new Set(olds)];
@@ -5727,37 +5729,37 @@ export const bulkRenameStations = async (req, res) => {
         `UPDATE fro_station_assignments x
             SET station = t.new_station
            FROM ${unnestUpd}
-          WHERE x.ngo_id = t.ngo_id AND x.station = t.old_station
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
           RETURNING x.id`, upd);
       // (b) Donor assignments (also drives the FRO queue)
       const assignIds = await sql(
         `UPDATE fro_assignments x
             SET station = t.new_station
            FROM ${unnestUpd}
-          WHERE x.ngo_id = t.ngo_id AND x.station = t.old_station
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
           RETURNING x.id`, upd);
       // (c) Transfer history — both columns, independently scoped
       const tFrom = await sql(
         `UPDATE fro_transfers x
             SET station = t.new_station
            FROM ${unnestUpd}
-          WHERE x.ngo_id = t.ngo_id AND x.station = t.old_station
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
           RETURNING x.id`, upd);
       const tTo = await sql(
         `UPDATE fro_transfers x
             SET target_station = t.new_station
            FROM ${unnestUpd}
-          WHERE x.ngo_id = t.ngo_id AND x.target_station = t.old_station
+          WHERE x.ngo_id::text = t.ngo_id AND x.target_station = t.old_station
           RETURNING x.id`, upd);
       const transferIds = new Set([...tFrom.map(x => x.id), ...tTo.map(x => x.id)]);
       // (d) Work queue — station + the cycle_key station segment
       //     (cycle_key format: `${ngo|all}:${station|all}:${tab}:${month}`)
-      const queueIds = await sql(
-        `UPDATE work_queue x
-            SET station = t.new_station,
-                cycle_key = replace(x.cycle_key, ':' || t.old_station || ':', ':' || t.new_station || ':')
-           FROM ${unnestUpd}
-          WHERE x.ngo_id = t.ngo_id AND x.station = t.old_station
+       const queueIds = await sql(
+         `UPDATE work_queue x
+             SET station = t.new_station,
+                 cycle_key = replace(x.cycle_key, ':' || t.old_station || ':', ':' || t.new_station || ':')
+            FROM ${unnestUpd}
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
           RETURNING x.id`, upd);
       // (e) Active work-as (acting FRO) sessions — rewrite the jsonb pairs
       const allSessions = await sql(`SELECT id, stations FROM work_as_sessions WHERE stations != '[]'::jsonb`);
@@ -5828,13 +5830,13 @@ export const bulkRenameStations = async (req, res) => {
       // (h) Post-verify: scoped old codes must be gone from every table.
       //     Any leftover throws, which rolls the whole transaction back.
       const checkPairs = [ngoIds, olds];
-      const unnestChk = 'unnest($1::uuid[], $2::text[]) AS t(ngo_id, station)';
+      const unnestChk = 'unnest($1::text[], $2::text[]) AS t(ngo_id, station)';
       const checks = [
-        ['fro_station_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_station_assignments x JOIN ${unnestChk} t ON x.ngo_id = t.ngo_id AND x.station = t.station`],
-        ['fro_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_assignments x JOIN ${unnestChk} t ON x.ngo_id = t.ngo_id AND x.station = t.station`],
-        ['fro_transfers.station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} t ON x.ngo_id = t.ngo_id AND x.station = t.station`],
-        ['fro_transfers.target_station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} t ON x.ngo_id = t.ngo_id AND x.target_station = t.station`],
-        ['work_queue', `SELECT COUNT(*)::int AS cnt FROM work_queue x JOIN ${unnestChk} t ON x.ngo_id = t.ngo_id AND x.station = t.station`],
+        ['fro_station_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_station_assignments x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_assignments x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_transfers.station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_transfers.target_station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.target_station = t.station`],
+        ['work_queue', `SELECT COUNT(*)::int AS cnt FROM work_queue x JOIN ${unnestChk} t ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
       ];
       for (const [label, query] of checks) {
         const [{ cnt }] = await sql(query, checkPairs);
