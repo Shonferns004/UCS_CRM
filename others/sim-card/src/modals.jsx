@@ -100,7 +100,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
             <Field label="Signature" value={extra.signature} onChange={(v) => setE('signature', v)} />
             <div className="form-row">
-              <label>SIM Type *</label>
+              <label>SIM Type</label>
               <select value={extra.sim_type} onChange={(e) => setE('sim_type', e.target.value)}>
                 <option value="">Select SIM Type</option>
                 {SIM_TYPES.map((s) => <option key={s} value={s}>{s}</option>)}
