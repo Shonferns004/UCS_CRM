@@ -169,46 +169,44 @@ export function ScheduleForm({ title, editing, initial, candidates, candidateOpt
         <button type="button" className="btn btn-icon" onClick={onClose}><X width={16} /></button>
       </div>
       <form className="card-pad" onSubmit={submit} style={{ padding: '16px 20px' }}>
-        <div className="form-row" style={{ gap: 16 }}>
-          <label className="field" style={{ flex: 1.4 }}>
+        <div className="form-row lead-sched" style={{ display:'grid', gap:12, gridTemplateColumns:'repeat(4,minmax(0,1fr))', alignItems:'flex-start' }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Stage</span>
             <Dropdown value={currentStage} onChange={e => set('stage', e.target.value)} options={[{ value: '', label: 'No change' }, ...CANDIDATE_STAGES.map(s => ({ value: s, label: s }))]} placeholder="Select stage" />
           </label>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Position *</span>
             <Dropdown value={f.jobRole} onChange={e => set('jobRole', e.target.value)} options={jobOptions} customTrigger="Other" customValue={customJob} onCustomChange={setCustomJob} placeholder="Select position" />
             {errBox('jobRole')}
           </label>
-        </div>
-        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Round *</span>
             <Dropdown value={f.round} onChange={e => set('round', e.target.value)} options={INTERVIEW_ROUNDS.map(r => ({ value: r, label: r }))} placeholder="Select round" />
             {errBox('round')}
           </label>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Interviewer *</span>
             <input value={f.interviewer} onChange={e => set('interviewer', e.target.value)} placeholder="Interviewer name" style={{ height: 42 }} />
             {errBox('interviewer')}
           </label>
         </div>
-        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
-          <label className="field" style={{ flex: 1 }}>
+        <div className="form-row lead-sched" style={{ display:'grid', gap:12, gridTemplateColumns:'repeat(4,minmax(0,1fr))', alignItems:'flex-start', marginTop:12 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Date *</span>
             <input type="date" value={f.date} onChange={e => set('date', e.target.value)} style={{ height: 42 }} />
             {errBox('date')}
           </label>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Start time *</span>
             <input type="time" value={f.startTime} onChange={e => set('startTime', e.target.value)} style={{ height: 42 }} />
             {errBox('startTime')}
           </label>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>End time *</span>
             <input type="time" value={f.endTime} onChange={e => set('endTime', e.target.value)} style={{ height: 42 }} />
             {errBox('endTime')}
           </label>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span style={{ fontSize: 12, marginBottom: 4 }}>Mode *</span>
             <Dropdown value={f.mode} onChange={e => set('mode', e.target.value)} options={INTERVIEW_MODES.map(m => ({ value: m, label: m }))} />
           </label>
@@ -222,14 +220,14 @@ export function ScheduleForm({ title, editing, initial, candidates, candidateOpt
             </label>
           </div>
         )}
-        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
-          <label className="field" style={{ flex: 1 }}>
+        <div className="form-row" style={{ display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:12, alignItems:'flex-start', marginTop:12 }}>
+          <label className="field" style={{ gridColumn:'1 / -1' }}>
             <span style={{ fontSize: 12, marginBottom: 4 }}>Reminder</span>
             <Dropdown value={f.reminder} onChange={e => set('reminder', e.target.value)} options={REMINDER_OPTIONS} />
           </label>
         </div>
-        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
-          <label className="field" style={{ flex: 1 }}>
+        <div className="form-row" style={{ display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:12, alignItems:'flex-start', marginTop:12 }}>
+          <label className="field" style={{ gridColumn:'1 / -1' }}>
             <span style={{ fontSize: 12, marginBottom: 4 }}>Notes</span>
             <textarea rows={3} value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="Preparation notes, instructions…" style={{ minHeight: 80, resize: 'vertical' }} />
           </label>

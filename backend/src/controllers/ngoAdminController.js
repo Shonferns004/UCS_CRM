@@ -22,7 +22,7 @@ import {
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
 import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
-import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 
 async function getFroWorkersByNgo(ngoId) {
   const workerIds = await getWorkersByNgo(ngoId);
@@ -3103,6 +3103,8 @@ export const getIncentives = async (req, res) => {
     const lastDay = new Date(Date.UTC(y, parseInt(m), 0)).getUTCDate();
     const endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
 
+    const ranges = await getAKISlabs();
+
     const { data: allAchievements } = await db
       .from('daily_achievements')
       .select('*')
@@ -3154,7 +3156,7 @@ export const getIncentives = async (req, res) => {
       const monthlyTarget = parseFloat(target.target_amount);
       const totalAKI = workerAchs.reduce((sum, r) => {
         const dayName = getDayName(r.date);
-        return sum + calculateAKI(parseFloat(r.amount), dayName);
+        return sum + calculateAKI(parseFloat(r.amount), dayName, ranges);
       }, 0);
 
       const monthsEmployed = getMonthsEmployed(worker.created_at);

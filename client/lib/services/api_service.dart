@@ -79,15 +79,41 @@ class ApiService {
     httpClient.connectionFactory = (uri, proxyHost, proxyPort) {
       final port = uri.port;
       Future<Socket> connect() async {
-        final socket = await Socket.connect(ip, port);
+        final socket = await Socket.connect(ip, port)
+            .timeout(_connectTimeout);
         if (uri.scheme == 'https') {
-          return await SecureSocket.secure(socket, host: origHost);
+          return await SecureSocket.secure(socket, host: origHost)
+              .timeout(_defaultTimeout);
         }
         return socket;
       }
       return Future.value(ConnectionTask.fromSocket(connect(), () {}));
     };
     return IOClient(httpClient);
+  }
+
+  static bool? _preferStandardClient;
+
+  static Future<http.Client> _createClient() async {
+    // Prefer the standard client (uses platform DNS/TLS). Fall back to the
+    // DoH + direct-IP client only if normal networking fails, and always cap
+    // socket connection attempts with a timeout so a stalled network can never
+    // hang the UI forever. The decision is probed once and cached.
+    if (_preferStandardClient == null) {
+      try {
+        final probe = http.Client();
+        final resp = await probe
+            .get(Uri.parse('https://$_host/'), headers: {'accept': 'text/html'})
+            .timeout(const Duration(seconds: 8));
+        probe.close();
+        _preferStandardClient =
+            resp.statusCode >= 200 && resp.statusCode < 600;
+      } catch (_) {
+        _preferStandardClient = false;
+      }
+    }
+    if (_preferStandardClient == true) return http.Client();
+    return _createDohClient();
   }
 
   static Future<bool> checkConnectivity() async {
@@ -99,16 +125,22 @@ class ApiService {
     }
   }
 
+  static Future<http.Response> _send(
+    Future<http.Response> Function(http.Client client) run,
+  ) async {
+    final client = await _createClient();
+    try {
+      return await run(client).timeout(_defaultTimeout);
+    } finally {
+      client.close();
+    }
+  }
+
   static Future<http.Response> _get(
     Uri uri, {
     Map<String, String>? headers,
   }) async {
-    final client = await _createDohClient();
-    try {
-      return await client.get(uri, headers: headers).timeout(_defaultTimeout);
-    } finally {
-      client.close();
-    }
+    return _send((client) => client.get(uri, headers: headers));
   }
 
   static Future<http.Response> _post(
@@ -116,14 +148,7 @@ class ApiService {
     Map<String, String>? headers,
     Object? body,
   }) async {
-    final client = await _createDohClient();
-    try {
-      return await client
-          .post(uri, headers: headers, body: body)
-          .timeout(_defaultTimeout);
-    } finally {
-      client.close();
-    }
+    return _send((client) => client.post(uri, headers: headers, body: body));
   }
 
   static Future<http.Response> _put(
@@ -131,26 +156,14 @@ class ApiService {
     Map<String, String>? headers,
     Object? body,
   }) async {
-    final client = await _createDohClient();
-    try {
-      return await client
-          .put(uri, headers: headers, body: body)
-          .timeout(_defaultTimeout);
-    } finally {
-      client.close();
-    }
+    return _send((client) => client.put(uri, headers: headers, body: body));
   }
 
   static Future<http.Response> _delete(
     Uri uri, {
     Map<String, String>? headers,
   }) async {
-    final client = await _createDohClient();
-    try {
-      return await client.delete(uri, headers: headers).timeout(_defaultTimeout);
-    } finally {
-      client.close();
-    }
+    return _send((client) => client.delete(uri, headers: headers));
   }
 
   static Future<String?> getToken() async {

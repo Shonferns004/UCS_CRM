@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { computePaidDays, getISTToday } from '../utils/salaryDays.js';
 
 export const getSalariesByWorker = async (workerId) => {
@@ -130,6 +130,7 @@ export const getPayrollData = async (month, extended = false) => {
   let achievedByWorker = {};
   let akiByWorker = {};
   if (extended) {
+    const ranges = await getAKISlabs();
     const { data: targets, error: tErr } = await db
       .from('incentive_targets')
       .select('worker_id, target_amount')
@@ -150,7 +151,7 @@ export const getPayrollData = async (month, extended = false) => {
       for (const a of achievements) {
         achievedByWorker[a.worker_id] = (achievedByWorker[a.worker_id] || 0) + parseFloat(a.amount || 0);
         const dayName = getDayName(a.date);
-        akiByWorker[a.worker_id] = (akiByWorker[a.worker_id] || 0) + calculateAKI(parseFloat(a.amount || 0), dayName);
+        akiByWorker[a.worker_id] = (akiByWorker[a.worker_id] || 0) + calculateAKI(parseFloat(a.amount || 0), dayName, ranges);
       }
     }
   }
@@ -429,6 +430,8 @@ export const getPagarExportData = async (month) => {
   const isCurrentMonth = (year === ist.year && monthIdx === ist.month);
   const viewingToday = isCurrentMonth ? ist.day : daysInMonth + 1;
 
+  const akiranges = await getAKISlabs();
+
   // 1. Workers with basic info
   const { data: workers, error: wErr } = await db
     .from('workers')
@@ -644,7 +647,7 @@ export const getPagarExportData = async (month) => {
       const amount = daily[d] || 0;
       if (amount > 0) {
         const dayName = getDayName(`${year}-${pad(monthIdx + 1)}-${pad(d)}`);
-        totalAKI += calculateAKI(amount, dayName);
+        totalAKI += calculateAKI(amount, dayName, akiranges);
       }
     }
     const akiPayout = (target > 0 && achieved >= target)

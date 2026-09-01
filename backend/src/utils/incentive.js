@@ -1,4 +1,8 @@
+import { getSetting, upsertSetting } from '../models/settingsModel.js';
+
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export const SETTINGS_KEY = 'aki_slabs';
 
 export const AKI_RANGES = {
   Sunday: [
@@ -64,10 +68,10 @@ export function getDayName(dateStr) {
   return DAY_NAMES[new Date(y, m - 1, d).getDay()];
 }
 
-export function calculateAKI(amount, dayName) {
-  const ranges = AKI_RANGES[dayName];
-  if (!ranges) return 0;
-  const range = ranges.find(r => amount >= r.min && amount <= r.max);
+export function calculateAKI(amount, dayName, ranges) {
+  const dayRanges = (ranges || AKI_RANGES)[dayName];
+  if (!dayRanges) return 0;
+  const range = dayRanges.find(r => amount >= r.min && amount <= r.max);
   return range ? range.incentive : 0;
 }
 
@@ -77,4 +81,35 @@ export function getMonthsEmployed(createdAt, refDate = new Date()) {
   const months = (refDate.getFullYear() - join.getFullYear()) * 12 + (refDate.getMonth() - join.getMonth());
   const isAfterJoinDay = refDate.getDate() >= join.getDate();
   return isAfterJoinDay ? months + 1 : months;
+}
+
+export function normalizeAKISlabs(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const out = {};
+  for (const day of DAY_NAMES) {
+    let list = Array.isArray(source[day]) ? source[day] : [];
+    list = list
+      .filter(r => r && typeof r === 'object')
+      .map(r => ({
+        min: Number.isFinite(Number(r.min)) ? Number(r.min) : null,
+        max: r.max === Infinity || r.max === null || Number(r.max) === Infinity ? Infinity : (Number.isFinite(Number(r.max)) ? Number(r.max) : null),
+        incentive: Number.isFinite(Number(r.incentive)) ? Number(r.incentive) : null,
+      }))
+      .filter(r => r.min != null && r.incentive != null);
+    out[day] = list.length ? list : AKI_RANGES[day];
+  }
+  return out;
+}
+
+export async function getAKISlabs() {
+  const stored = await getSetting(SETTINGS_KEY);
+  let parsed = null;
+  try { parsed = stored ? JSON.parse(stored) : null; } catch { parsed = null; }
+  return normalizeAKISlabs(parsed);
+}
+
+export async function persistAKISlabs(slabs) {
+  const normalized = normalizeAKISlabs(slabs);
+  await upsertSetting(SETTINGS_KEY, JSON.stringify(normalized));
+  return normalized;
 }

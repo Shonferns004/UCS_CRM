@@ -349,19 +349,19 @@ export default function Leads() {
         <div className="card" style={{marginBottom:20}}>
         <div className="card-head"><h3><Users width={18}/> {editingLead ? 'Edit lead' : 'Add new lead'}</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
           <form className="card-pad" onSubmit={handleSubmit}>
-            <div className="form-row">
-              <label className="field">Name
+            <div className="form-row lead-basics" style={{display:'grid',gap:12,gridTemplateColumns:'repeat(4,minmax(0,1fr))',alignItems:'flex-start'}}>
+              <label className="field" style={{flex:1,minWidth:0}}>Name
                 <input value={name} onChange={e=>handleNameChange(e.target.value)} placeholder="e.g. Arun Sharma" style={nameError ? {borderColor:'#dc2626'} : undefined} required />
                 {nameError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{nameError}</span>}
               </label>
-              <label className="field">Phone
+              <label className="field" style={{flex:1,minWidth:0}}>Phone
                 <input value={phone} onChange={e=>handlePhoneChange(e.target.value)} placeholder="e.g. 9876543210" style={phoneError ? {borderColor:'#dc2626'} : undefined} required />
                 {phoneError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{phoneError}</span>}
               </label>
-              <label className="field">DOB
+              <label className="field" style={{flex:1,minWidth:0}}>DOB
                 <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
               </label>
-              <label className="field">Source
+              <label className="field" style={{flex:1,minWidth:0}}>Source
                 <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={sourceOptions} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
               </label>
             </div>
@@ -440,19 +440,19 @@ export default function Leads() {
       <div className="card" style={{marginBottom:20}}>
         <div className="card-head"><h3><Users width={18}/> Add new lead</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
         <form className="card-pad" onSubmit={handleSubmit}>
-          <div className="form-row">
-            <label className="field">Name
+          <div className="form-row lead-basics" style={{display:'grid',gap:12,gridTemplateColumns:'repeat(4,minmax(0,1fr))',alignItems:'flex-start'}}>
+            <label className="field" style={{flex:1,minWidth:0}}>Name
               <input value={name} onChange={e=>handleNameChange(e.target.value)} placeholder="e.g. Arun Sharma" style={nameError ? {borderColor:'#dc2626'} : undefined} required />
               {nameError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{nameError}</span>}
             </label>
-            <label className="field">Phone
+            <label className="field" style={{flex:1,minWidth:0}}>Phone
               <input value={phone} onChange={e=>handlePhoneChange(e.target.value)} placeholder="e.g. 9876543210" style={phoneError ? {borderColor:'#dc2626'} : undefined} required />
               {phoneError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{phoneError}</span>}
             </label>
-            <label className="field">DOB
+            <label className="field" style={{flex:1,minWidth:0}}>DOB
               <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
             </label>
-            <label className="field">Source
+            <label className="field" style={{flex:1,minWidth:0}}>Source
               <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={sourceOptions} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
             </label>
           </div>
