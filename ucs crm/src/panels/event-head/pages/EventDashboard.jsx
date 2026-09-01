@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchDashboardStats, fetchDashboardOptions } from '../store'
+import { fetchDashboardStats, fetchDashboardOptions, fetchDeadlineNotifs, deadlineLabel } from '../store'
 import { PageHeader, MetricCard, SectionCard, SearchInput, StatusPill, Empty } from '../components/ui'
 import RecentNotices from '../../../components/RecentNotices'
 
@@ -44,6 +44,7 @@ export default function EventDashboard() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [deadlines, setDeadlines] = useState([])
 
   useEffect(() => {
     let cancelled = false
@@ -72,6 +73,15 @@ export default function EventDashboard() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [ngoFilter, sectorFilter, activityFilter, month, year])
+
+  /* Dynamic upcoming-deadline notifications (next 3 days), refreshed live. */
+  useEffect(() => {
+    let cancelled = false
+    const load = () => fetchDeadlineNotifs().then(d => { if (!cancelled) setDeadlines(d || []) }).catch(() => {})
+    load()
+    const timer = setInterval(load, 60 * 1000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
 
   const relevantSectors = useMemo(() => {
     if (!ngoFilter) return sectors
@@ -199,10 +209,32 @@ export default function EventDashboard() {
             <MetricCard index={4} number={stats.this_month?.total ?? 0} label="This Month Events"
               icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
               color="var(--eh-primary)" />
-            <MetricCard index={5} number={'₹' + (k.budget_total ?? 0).toLocaleString()} label="Budget Total"
-              icon={<Icon path={<><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9.5 9.5c0-.8.6-1.5 2.5-1.5 2 0 2.5.7 2.5 1.7 0 2.8-5 1.6-5 4.3 0 .8.6 1.5 2.5 1.5 1.9 0 2.5-.7 2.5-1.5"/></>} />}
-              color="var(--eh-success)" />
           </div>
+
+          {deadlines.length > 0 && (
+            <SectionCard title="Upcoming Deadlines" sub="Events due within the next 3 days · auto-updates"
+              headRight={
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{deadlines.length} approaching</span>
+                  <button className="eh-btn" onClick={() => navigate('/event-head/notifications')}>View Notifications</button>
+                </div>
+              }>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {deadlines.map(d => (
+                  <div key={d.key} onClick={() => open(d.eventId)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: d.urgent ? 'var(--eh-danger)' : 'var(--eh-primary)', color: '#fff', whiteSpace: 'nowrap' }}>{d.label}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.title}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{d.body} · {d.date}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
 
           <div className="eh-grid-2">
             <SectionCard title="Today's Events" sub="Real events happening today"
@@ -281,10 +313,6 @@ export default function EventDashboard() {
                 <div>
                   <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-success)' }}>{stats.this_month?.completed ?? 0}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Completed</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-secondary)' }}>{'₹' + (k.budget_total ?? 0).toLocaleString()}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>Budget (filtered)</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--eh-ink)' }}>{stats.this_week?.count ?? 0}</div>

@@ -12,6 +12,7 @@ export default function CreateEvent() {
   const [form, setForm] = useState({
     name:'', category:'', ngo_id: searchParams.get('ngo_id') || '', sector_id: searchParams.get('sector_id') || '', activityName:'',
     date:'', start_time:'', end_time:'', venue:'', priority:'Medium', banner:'',
+    gps_location:'', district:'', state:'', organizer:'', event_manager:'', coordinator:'',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -88,13 +89,23 @@ export default function CreateEvent() {
       const activity_id = typedActivity ? await resolveActivity() : null
       if (typedActivity && !activity_id) { setError('Could not resolve the Activity. Please pick an existing sector and try again.'); setSaving(false); return }
       const payload = {
-        ...form,
+        name: form.name,
+        category: form.category || null,
         ngo_id: form.ngo_id,
         sector_id: Number(form.sector_id),
         activity_id: activity_id ? Number(activity_id) : null,
-      }
-      for (const k of Object.keys(payload)) {
-        if (payload[k] === '' || payload[k] === null || payload[k] === undefined) payload[k] = null
+        date: form.date || null,
+        start_time: form.start_time || null,
+        end_time: form.end_time || null,
+        venue: form.venue || null,
+        priority: form.priority || 'Medium',
+        banner: form.banner || null,
+        gps_location: form.gps_location || null,
+        district: form.district || null,
+        state: form.state || null,
+        organizer: form.organizer || null,
+        event_manager: form.event_manager || null,
+        coordinator: form.coordinator || null,
       }
       await createEvent(payload)
       navigate('/event-head/events')

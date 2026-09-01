@@ -4,11 +4,8 @@ import { useUcs } from '../../store'
 import { Grid, Cal, Plus, Clock, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
-import NotificationDrawer from '../../components/NotificationDrawer'
-import { api } from '../../api/auth'
-import { markNotifRead, deleteNotif } from './store'
+import { fetchDeadlineNotifs } from './store'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
-import { useRealtime } from '../../hooks/useRealtime'
 import Overview from './components/Overview'
 import EventDashboard from './pages/EventDashboard'
 import CreateEvent from './pages/CreateEvent'
@@ -96,43 +93,53 @@ export default function EventHeadPanel() {
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('eh_theme') || 'sky')
-  const [allNotifs, setAllNotifs] = useState([])
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [deadlines, setDeadlines] = useState([])
+  const [bellOpen, setBellOpen] = useState(false)
+  const [toast, setToast] = useState(null)
   const menuRef = useRef(null)
+  const bellRef = useRef(null)
+  const toastTimer = useRef(null)
+  const firstLoad = useRef(true)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('eh_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
-  let _initClearedNotifs = []; try { _initClearedNotifs = JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]'); } catch { /* corrupted */ }
-  const clearedNotifIds = useRef(new Set(_initClearedNotifs))
 
-  const loadNotifications = () => {
-    const uid = user?.id;
-    if (!uid) return;
-    api(`/notifications/${uid}`, { _prefix: 'ucs' })
-      .then(data => {
-        const all = (data || []).filter(n => !clearedNotifIds.current.has(n.id));
-        setAllNotifs(all);
-        const unread = all.filter(n => !n.read_at);
-        unread.forEach(n => {
-          if (!seenNotifIds.current.has(n.id)) {
-            seenNotifIds.current.add(n.id);
+  /* Auto pop-up banner when the panel loads with any due deadline. */
+  const showDeadlineToast = (all) => {
+    if (!all || all.length === 0) return
+    setToast(all.slice(0, 3))
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 10000)
+  }
+
+  /* Dynamic event-head deadline notifications — computed from event data,
+   * refreshed live. No generic/global notification sources. */
+  const loadDeadlines = () => {
+    fetchDeadlineNotifs(30)
+      .then(all => {
+        setDeadlines(all);
+        if (firstLoad.current) {
+          firstLoad.current = false;
+          showDeadlineToast(all);
+        }
+        all.forEach(n => {
+          if (!seenNotifIds.current.has(n.key)) {
+            seenNotifIds.current.add(n.key);
             localStorage.setItem('eh_seen_notifs', JSON.stringify([...seenNotifIds.current]));
-            showDesktopNotification(n.title, n.body);
+            showDesktopNotification(`${n.label}: ${n.title}`, n.body || 'Event deadline approaching', '/event-head/events/' + n.eventId);
           }
         });
       })
-      .catch((err) => { console.error('Error:', err.message); });
+      .catch((err) => { console.error('Deadline notifications error:', err.message || err); });
   };
 
   useEffect(() => {
-    loadNotifications();
+    loadDeadlines();
     requestNotifPermission();
-  }, [user?.id]);
-
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadNotifications(),
-    enabled: !!user?.id,
-  });
+    const timer = setInterval(loadDeadlines, 60 * 1000);
+    const onFocus = () => loadDeadlines();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(timer); window.removeEventListener('focus', onFocus); if (toastTimer.current) clearTimeout(toastTimer.current) };
+  }, [])
 
   useEffect(() => {
     if (themes[themeName]) {
@@ -145,36 +152,18 @@ export default function EventHeadPanel() {
   }, [themeName])
 
   useEffect(() => {
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false) }
-    if (showMenu) document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showMenu])
-
-  const handleMarkRead = async (id) => {
-    try {
-      await markNotifRead(id)
-      loadNotifications()
-    } catch (e) { console.error('markNotifRead:', e) }
-  }
-
-  const handleClear = async (id) => {
-    clearedNotifIds.current.add(id)
-    localStorage.setItem('eh_cleared_notifs', JSON.stringify([...clearedNotifIds.current]))
-    setAllNotifs(all => all.filter(n => n.id !== id))
-    try {
-      await deleteNotif(id)
-    } catch (e) {
-      console.error('deleteNotif failed, falling back to markAsRead:', e)
-      try { await markNotifRead(id) } catch (e2) { console.error('markNotifRead fallback also failed:', e2) }
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
+      if (bellRef.current && !bellRef.current.contains(e.target)) setBellOpen(false)
     }
-  }
+    if (showMenu || bellOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showMenu, bellOpen])
 
   const meta = [...NAV].reverse().find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))
   const userName = user?.name || 'Event Manager'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const drawerSections = [
-    { label: 'Notifications', type: 'notifications', items: allNotifs },
-  ];
+  const urgentCount = deadlines.filter(d => d.urgent).length
 
   return (
     <div className="app">
@@ -199,6 +188,36 @@ export default function EventHeadPanel() {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Create Event
             </button>
+            <div className="topbar-user" ref={bellRef} style={{ position: 'relative' }} onClick={() => setBellOpen(!bellOpen)}>
+              <button className="eh-btn" aria-label="Deadline notifications" style={{ padding: '8px', position: 'relative' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                {deadlines.length > 0 && (
+                  <span style={{ position: 'absolute', top: 2, right: 2, minWidth: 15, height: 15, borderRadius: 999, background: urgentCount > 0 ? 'var(--eh-danger, #dc2626)' : 'var(--eh-primary, #3b82f6)', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{deadlines.length}</span>
+                )}
+              </button>
+              {bellOpen && (
+                <div className="user-menu" style={{ right: 0, left: 'auto', width: 320, maxHeight: 420, overflowY: 'auto' }}>
+                  <div className="user-menu-item" style={{ cursor: 'default', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>Upcoming Event Notifications</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{deadlines.length} upcoming event{deadlines.length === 1 ? '' : 's'} · live</div>
+                  </div>
+                  <div className="user-menu-divider" />
+                  {deadlines.length === 0 && (
+                    <div className="user-menu-item" style={{ cursor: 'default', fontSize: 12, color: 'var(--ink-soft)' }}>No upcoming events in the next 30 days.</div>
+                  )}
+                  {deadlines.map(d => (
+                    <div key={d.key} className="user-menu-item" style={{ cursor: 'pointer', alignItems: 'flex-start', flexDirection: 'column', gap: 2 }}
+                      onClick={() => { setBellOpen(false); navigate('/event-head/events/' + d.eventId) }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: 12.5 }}>{d.title}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: d.urgent ? 'var(--eh-danger, #dc2626)' : 'var(--eh-primary, #3b82f6)', color: '#fff', whiteSpace: 'nowrap' }}>{d.label}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{d.body} · {d.date}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
             <div className="avatar">{initials}</div>
             {showMenu && (
@@ -221,14 +240,6 @@ export default function EventHeadPanel() {
             )}
           </div>
           </div>
-          <NotificationDrawer
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            sections={drawerSections}
-            onItemClick={(item) => { if (!item.read_at) handleMarkRead(item.id); setDrawerOpen(false) }}
-            onMarkRead={handleMarkRead}
-            onClear={handleClear}
-          />
           <SettingsDrawer
             open={showSettings}
             onClose={() => setShowSettings(false)}
@@ -237,6 +248,30 @@ export default function EventHeadPanel() {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
+        {toast && (
+          <div style={{
+            margin: '12px 16px 0', padding: '13px 16px', borderRadius: 14,
+            background: 'var(--eh-danger-soft)', border: '1px solid var(--eh-danger)',
+            color: 'var(--eh-ink)', boxShadow: '0 10px 30px rgba(0,0,0,.12)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--eh-danger)', flexShrink: 0 }} />
+              <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--eh-danger)' }}>{deadlines.some(d => d.urgent) ? 'Event deadlines due today!' : 'Upcoming event deadlines (3 days)'}</span>
+              <button className="eh-btn eh-btn-sm" style={{ marginLeft: 'auto' }} onClick={() => navigate('/event-head/notifications')}>View all</button>
+              <button className="eh-btn eh-btn-sm" onClick={() => setToast(null)} aria-label="Dismiss">✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              {toast.map(d => (
+                <div key={d.key} onClick={() => { setToast(null); navigate('/event-head/events/' + d.eventId) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 10, background: 'rgba(255,255,255,.65)', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: d.urgent ? 'var(--eh-danger)' : 'var(--eh-primary)', color: '#fff', whiteSpace: 'nowrap', flexShrink: 0 }}>{d.label}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.title}</span>
+                  <span style={{ fontSize: 11, color: 'var(--eh-ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.date}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="content-body">
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
