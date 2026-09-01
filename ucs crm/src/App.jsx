@@ -142,7 +142,7 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/hr/*" element={
-          <ProtectedRoute role={['hr', 'HR']}>
+          <ProtectedRoute role={['hr', 'HR', 'super_admin']}>
             <PanelWrapper roleKey="hr" />
           </ProtectedRoute>
         } />
