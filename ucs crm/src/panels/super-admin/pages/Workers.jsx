@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext'
+import ResetPasswordModal from '../components/ResetPasswordModal'
 
 const PAGE_SIZES = [10, 20, 50, 100]
 
@@ -14,6 +15,7 @@ export default function Workers({ onViewWorker }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [err, setErr] = useState('')
+  const [resetWorker, setResetWorker] = useState(null)
 
   const load = () => {
     api('/workers').then(setWorkers).catch(e => setErr(e.message))
@@ -68,7 +70,7 @@ export default function Workers({ onViewWorker }) {
 
       <div className="sa-card" style={{overflowX:'auto'}}>
         <table className="sa-table">
-          <thead><tr><th>Name</th><th>Login ID</th><th>Department</th><th>NGO</th><th>Salary</th><th>Status</th><th style={{width:120}}></th></tr></thead>
+          <thead><tr><th>Name</th><th>Login ID</th><th>Department</th><th>NGO</th><th>Salary</th><th>Status</th><th style={{width:175}}></th></tr></thead>
           <tbody>
             {paginated.map(w => {
               const ngo = ngos.find(n => n.id === w.ngo_id)
@@ -84,6 +86,7 @@ export default function Workers({ onViewWorker }) {
                   </span></td>
                   <td>
                     <button className="btn btn-sm" onClick={() => onViewWorker(w.id)}>View</button>
+                    <button className="btn btn-sm" onClick={() => setResetWorker(w)} style={{marginLeft:4}}>Reset Pwd</button>
                     <button className="btn btn-sm btn-danger" onClick={() => remove(w.id)} style={{marginLeft:4}}>Del</button>
                   </td>
                 </tr>
@@ -115,6 +118,8 @@ export default function Workers({ onViewWorker }) {
           </select>
         </div>
       )}
+
+      {resetWorker && <ResetPasswordModal worker={resetWorker} onClose={() => setResetWorker(null)} />}
     </div>
   )
 }
