@@ -4,7 +4,7 @@ import { useSim } from './store';
 import { Icon } from './components';
 import { toast } from './Toast';
 import { fetchReplacements } from './api';
-import { effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
+import { effectiveStatus, dayClass, formatDate, pillForStatus } from './helpers';
 import './dashboard.css';
 
 function Donut({ segments, total }) {
@@ -273,7 +273,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
                       <td style={{ fontWeight: 600 }}>{c.mobile_id}</td>
                       <td>{c.team || '—'}</td>
                       <td>{formatDate(c.expiry_date)}</td>
-                      <td className={`days-cell ${dayClass(c.days_left)}`}>{dayLabel(c.days_left)}</td>
+                      <td className={`days-cell num ${dayClass(c.days_left)}`}>{c.days_left === null || c.days_left === undefined || Number.isNaN(c.days_left) ? '—' : `${c.days_left} days`}</td>
                       <td><span className={`pill ${pillForStatus(c._status)}`}>{c._status}</span></td>
                       <td><button className="mini-btn" onClick={() => onView(c)}>View</button></td>
                     </tr>

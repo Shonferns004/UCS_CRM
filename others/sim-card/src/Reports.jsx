@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSim } from './store';
 import { effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
-import { exportToCSV, exportToExcel } from './helpers';
 
 const STATUS_COLORS = {
   Active: '#16a34a',
@@ -129,13 +128,6 @@ export default function Reports({ cards }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="toolbar" style={{ padding: 0, border: 'none', background: 'transparent', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="sim-btn" onClick={() => exportToCSV(data.enriched)}>Export CSV</button>
-          <button className="sim-btn" onClick={() => exportToExcel(data.enriched)}>Export Excel</button>
-        </div>
-      </div>
-
       <div className="card-block summary-block">
         <div className="tb">
           <h3>SIM Summary</h3>
@@ -252,7 +244,7 @@ export default function Reports({ cards }) {
           <h3>Detailed SIM Report</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <select className="sim-select" value={teamFilter} onChange={(e) => { setTeamFilter(e.target.value); setReportPage(1); }}>
-              {teamOptions.map((t) => <option key={t} value={t}>{t === 'All' ? 'All Teams' : t}</option>)}
+              {teamOptions.map((t) => <option key={t} value={t}>{t === 'All' ? 'All Owner' : t}</option>)}
             </select>
             <span className="ln">{filteredReport.length} record(s)</span>
           </div>

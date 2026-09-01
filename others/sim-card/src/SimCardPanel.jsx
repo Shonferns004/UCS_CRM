@@ -58,10 +58,13 @@ function ImportModal({ open, onClose, onDone }) {
   const [done, setDone] = useState(false);
   const [err, setErr] = useState('');
   const [fileName, setFileName] = useState('');
+  const [importedIds, setImportedIds] = useState([]);
+  const [deletingImported, setDeletingImported] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!open) return null;
 
-  function reset() { setValid([]); setInvalid([]); setDone(false); setErr(''); setFileName(''); }
+  function reset() { setValid([]); setInvalid([]); setDone(false); setErr(''); setFileName(''); setImportedIds([]); setConfirmDelete(false); }
 
   function parseFile(file) {
     const name = file.name.toLowerCase();
@@ -113,11 +116,28 @@ function ImportModal({ open, onClose, onDone }) {
     try {
       const res = await importSimCards(valid.map((r) => ({ ...r, status: r.status || 'Active' })));
       toast(res.message || 'Import complete', 'success');
+      setImportedIds(Array.isArray(res.inserted) ? res.inserted : []);
       await refresh();
       setDone(true);
       onDone();
     } catch (e) { toast(e.message || 'Import failed', 'error'); }
     finally { setImporting(false); }
+  }
+
+  async function doDeleteImported() {
+    if (!importedIds.length) return;
+    setDeletingImported(true);
+    try {
+      await Promise.all(importedIds.map((id) => deleteSimCard(id)));
+      await refresh();
+      toast(`${importedIds.length} imported SIM card(s) removed`, 'success');
+      reset();
+    } catch (e) {
+      toast(e.message || 'Failed to delete imported SIM cards. Please try again.', 'error');
+      setConfirmDelete(false);
+    } finally {
+      setDeletingImported(false);
+    }
   }
 
   return (
@@ -132,8 +152,29 @@ function ImportModal({ open, onClose, onDone }) {
           {done ? (
             <div className="empty-state" style={{ padding: 24 }}>
               <div className="big">Import Complete</div>
-              <div className="small">{valid.length} valid row(s) imported.</div>
-              <button className="sim-btn" onClick={reset} style={{ marginTop: 12 }}>Import Another File</button>
+              <div className="small" style={{ marginTop: 4 }}>{valid.length} SIM card(s) were added successfully to <b>{"All SIM Cards"}</b>.</div>
+              {!confirmDelete ? (
+                <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button className="sim-btn" onClick={reset}>Import Another File</button>
+                  {importedIds.length > 0 && (
+                    <button className="sim-btn danger" onClick={() => setConfirmDelete(true)} disabled={deletingImported}>
+                      Delete Imported SIM(s)
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ marginTop: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 13, color: 'var(--sim-ink)', marginBottom: 12 }}>
+                    Delete {importedIds.length} imported SIM card(s)? This cannot be undone.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button className="sim-btn" onClick={() => setConfirmDelete(false)} disabled={deletingImported}>Cancel</button>
+                    <button className="sim-btn danger" onClick={doDeleteImported} disabled={deletingImported}>
+                      {deletingImported ? 'Deleting...' : 'Yes, Delete'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : valid.length > 0 ? (
             <div>
@@ -191,6 +232,30 @@ function ImportModal({ open, onClose, onDone }) {
   );
 }
 
+function DeleteConfirmModal({ card, deleting, onClose, onConfirm }) {
+  if (!card) return null;
+  const label = card.mobile_id || card.sim_number || 'this item';
+  return (
+    <div className="modal-overlay dc-overlay" onClick={onClose}>
+      <div className="dc-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="dc-icon">
+          <Icon name="trash" size={22} />
+        </div>
+        <div className="dc-title">Delete Notice?</div>
+        <div className="dc-desc">
+          Are you sure you want to delete <strong>&ldquo;{label}&rdquo;</strong>? This action cannot be undone.
+        </div>
+        <div className="dc-foot">
+          <button className="dc-btn cancel" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button className="dc-btn delete" onClick={onConfirm} disabled={deleting}>
+            {deleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const NAV = [
   { id: 'dashboard', path: '/sim/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'inventory', path: '/sim/inventory', label: 'All SIM Cards', icon: 'simcard' },
@@ -218,6 +283,8 @@ function PanelInner() {
   const [viewCard, setViewCard] = useState(null);
   const [replaceCard, setReplaceCard] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [deleteCard, setDeleteCard] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { sim.refresh(); /* eslint-disable-next-line */ }, []);
 
@@ -228,8 +295,17 @@ function PanelInner() {
   function openEdit(c) { setEditing(c); setFormKey((k) => k + 1); setFormOpen(true); }
 
   async function doDelete(c) {
-    try { await deleteSimCard(c.id); sim.refresh(); toast('SIM card deleted', 'success'); }
-    catch (e) { toast(e.message || 'Delete failed', 'error'); }
+    setDeleting(true);
+    try {
+      await deleteSimCard(c.id);
+      sim.refresh();
+      toast('SIM Card deleted successfully', 'success');
+      setDeleteCard(null);
+    } catch (e) {
+      toast(e.message || 'Failed to delete SIM Card. Please try again.', 'error');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function handleSaved() {
@@ -276,7 +352,6 @@ function PanelInner() {
               <button className="sim-btn" onClick={() => setImportOpen(true)}>Import</button>
               <button className="sim-btn" onClick={() => exportToCSV(sim.cards)}>Export CSV</button>
               <button className="sim-btn" onClick={() => exportToExcel(sim.cards)}>Export</button>
-              <button className="sim-btn primary" onClick={openAdd}>+ Add SIM Card</button>
             </div>
           </header>
 
@@ -284,7 +359,7 @@ function PanelInner() {
             <Routes>
               <Route index element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
               <Route path="dashboard" element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
-              <Route path="inventory" element={<Inventory onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={doDelete} />} />
+              <Route path="inventory" element={<Inventory onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={(c) => setDeleteCard(c)} />} />
               <Route path="cards" element={<SimInventory />} />
               <Route path="expiring" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onAdd={openAdd} />} />
               <Route path="expiring/:tab" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onAdd={openAdd} />} />
@@ -299,6 +374,7 @@ function PanelInner() {
       <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard); }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null); } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => setImportOpen(false)} />
+      <DeleteConfirmModal card={deleteCard} deleting={deleting} onClose={() => { if (!deleting) setDeleteCard(null); }} onConfirm={() => deleteCard && doDelete(deleteCard)} />
     </div>
   );
 }
