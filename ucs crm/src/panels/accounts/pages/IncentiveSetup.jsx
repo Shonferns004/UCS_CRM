@@ -290,50 +290,68 @@ export default function IncentiveSetup() {
                 const list = slabs[day] || [];
                 const st = ds(day);
                 const nv = newVal[day] || { min: '', max: '', incentive: '' };
+                const rTopMax = list.some(r => r.max === Infinity);
                 return (
-                  <div key={day} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, background: 'linear-gradient(180deg, #fff 0%, #fcfcfd 100%)' }}>
-                    <div className="ic-day-head" style={{ marginBottom: 10 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: st.fg, display: 'inline-block' }} />
-                      <span style={{ color: st.fg }}>{day}</span>
-                      <span style={{ color: 'var(--ink-soft)', fontWeight: 600, fontSize: 12 }}>{list.length} slabs</span>
+                  <div key={day} style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: st.bg, borderBottom: '1px solid var(--line)' }}>
+                      <div className="ic-day-head" style={{ color: st.fg }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: st.fg, display: 'inline-block' }} />
+                        <span style={{ fontSize: 13 }}>{day}</span>
+                      </div>
+                      <span className="pill" style={{ background: '#fff', color: st.fg, fontWeight: 700, padding: '2px 8px', fontSize: 11 }}>{list.length} slabs</span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10, minHeight: 26 }}>
-                      {list.length === 0 && <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No slabs — add one below.</span>}
-                      {list.map((r, index) => (
-                        editing?.day === day && editing?.index === index ? (
-                          <div key={index} className="ic-tag" style={{ borderColor: 'var(--sage)', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                              <input className="ic-input" value={editVal.min} onChange={e => setInput('min', e.target.value)} placeholder="min" />
-                              <span>–</span>
-                              <input className="ic-input" value={editVal.max} onChange={e => setInput('max', e.target.value)} placeholder="∞" />
-                              <span>→</span>
-                              <input className="ic-input" value={editVal.incentive} onChange={e => setInput('incentive', e.target.value)} placeholder="₹" />
+
+                    <div style={{ padding: 10 }}>
+                      {/* Header row */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 58px', gap: 6, padding: '0 2px 6px', fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                        <span>Min (₹)</span>
+                        <span>Max (₹)</span>
+                        <span>Incentive</span>
+                        <span style={{ textAlign: 'right' }}>Act</span>
+                      </div>
+
+                      {/* Slab rows */}
+                      {list.length === 0 && (
+                        <div style={{ padding: '14px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No slabs yet — add one below.</div>
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {list.map((r, index) => (
+                          editing?.day === day && editing?.index === index ? (
+                            <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 58px', gap: 6, alignItems: 'center', padding: '6px 8px', background: '#F3FBF6', border: '1px solid var(--sage)', borderRadius: 8 }}>
+                              <input className="ic-input" style={{ width: '100%' }} value={editVal.min} onChange={e => setInput('min', e.target.value)} placeholder="e.g. 3750" />
+                              <input className="ic-input" style={{ width: '100%' }} value={editVal.max} onChange={e => setInput('max', e.target.value)} placeholder="e.g. 6999" />
+                              <input className="ic-input" style={{ width: '100%' }} value={editVal.incentive} onChange={e => setInput('incentive', e.target.value)} placeholder="e.g. 200" />
+                              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                                <button className="ic-btn" onClick={saveEdit} title="Save" style={{ color: '#1B7A3D', background: '#B9EFCE' }}><IcCheck size={14} /></button>
+                                <button className="ic-btn" onClick={() => setEditing(null)} title="Cancel" style={{ background: '#FBDBD6', color: '#B3392B' }}><IcX size={14} /></button>
+                              </div>
                             </div>
-                            <div style={{ display: 'flex', gap: 2 }}>
-                              <button className="ic-btn" onClick={saveEdit} title="Save slab" style={{ color: '#1B7A3D' }}><IcCheck /></button>
-                              <button className="ic-btn" onClick={() => setEditing(null)} title="Cancel"><IcX /></button>
+                          ) : (
+                            <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 58px', gap: 6, alignItems: 'center', padding: '6px 8px', background: '#f9fafb', border: '1px solid var(--line)', borderRadius: 8 }}>
+                              <span style={{ fontWeight: 600, fontSize: 13 }}>₹{fmt(r.min)}</span>
+                              <span style={{ fontWeight: 600, fontSize: 13 }}>{r.max === Infinity ? '∞' : `₹${fmt(r.max)}`}</span>
+                              <span className="pill" style={{ background: st.bg, color: st.fg, fontWeight: 700, padding: '2px 8px', justifySelf: 'start' }}>₹{Number(r.incentive).toLocaleString('en-IN')}</span>
+                              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                                <button className="ic-btn" onClick={() => startEdit(day, index, r)} title="Edit slab"><IcPencil size={14} /></button>
+                                <button className="ic-btn" onClick={() => removeSlab(day, index)} title="Remove slab" style={{ color: '#dc2626' }}><IcTrash size={14} /></button>
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <div key={index} className="ic-tag">
-                            <span style={{ fontWeight: 700, color: st.fg }}>
-                              ₹{fmt(r.min)}–{fmt(r.max)}
-                            </span>
-                            <span style={{ color: '#6b7280' }}>→</span>
-                            <span className="pill" style={{ background: st.bg, color: st.fg, fontWeight: 700, padding: '2px 8px' }}>₹{Number(r.incentive).toLocaleString('en-IN')}</span>
-                            <button className="ic-btn" onClick={() => startEdit(day, index, r)} title="Edit slab"><IcPencil /></button>
-                            <button className="ic-btn" onClick={() => removeSlab(day, index)} title="Remove slab" style={{ color: '#dc2626' }}><IcTrash /></button>
-                          </div>
-                        )
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                      <input type="number" className="ic-input" value={nv.min} placeholder="min" onChange={e => setNewVal(prev => ({ ...prev, [day]: { ...prev[day], min: e.target.value } }))} />
-                      <span style={{ color: '#9ca3af' }}>–</span>
-                      <input type="number" className="ic-input" value={nv.max} placeholder="∞" onChange={e => setNewVal(prev => ({ ...prev, [day]: { ...prev[day], max: e.target.value } }))} />
-                      <span style={{ color: '#9ca3af' }}>→</span>
-                      <input type="number" className="ic-input" value={nv.incentive} placeholder="₹" onChange={e => setNewVal(prev => ({ ...prev, [day]: { ...prev[day], incentive: e.target.value } }))} />
-                      <button className="btn btn-primary btn-sm" onClick={() => addSlab(day)} title="Add slab" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px' }}><IcPlus size={14} /> Add</button>
+                          )
+                        ))}
+                      </div>
+
+                      {/* Add form */}
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--line)' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 6 }}>Add slab</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
+                          <input type="number" className="ic-input" style={{ width: '100%' }} value={nv.min} placeholder="Min" onChange={e => setNewVal(prev => ({ ...prev, [day]: { ...prev[day], min: e.target.value } }))} />
+                          <input type="number" className="ic-input" style={{ width: '100%' }} value={nv.max} placeholder={rTopMax ? 'Max' : '∞ (top)'} onChange={e => setNewVal(prev => ({ ...prev, [day]: { ...prev[day], max: e.target.value } }))} />
+                          <input type="number" className="ic-input" style={{ width: '100%' }} value={nv.incentive} placeholder="Incentive" onChange={e => setNewVal(prev => ({ ...prev, [day]: { ...prev[day], incentive: e.target.value } }))} />
+                        </div>
+                        <button className="btn btn-primary btn-sm" onClick={() => addSlab(day)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, width: '100%' }}>
+                          <IcPlus size={14} /> Add slab
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
