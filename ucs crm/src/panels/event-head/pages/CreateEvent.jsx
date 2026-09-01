@@ -66,7 +66,7 @@ export default function CreateEvent() {
     )
     if (match) return match.id
     try {
-      const created = await createActivity({ ngo_id: Number(form.ngo_id), sector_id: Number(form.sector_id), name, status: 'Active' })
+      const created = await createActivity({ ngo_id: form.ngo_id, sector_id: Number(form.sector_id), name, status: 'Active' })
       return created ? created.id : null
     } catch (err) {
       // Duplicate (409) — try to find it again, else surface the error.
@@ -80,6 +80,7 @@ export default function CreateEvent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true); setError('')
+    if (!form.name.trim()) { setError('Please enter an Event Name'); setSaving(false); return }
     if (!form.ngo_id) { setError('Please choose an NGO'); setSaving(false); return }
     if (!form.sector_id) { setError('Please choose a Sector'); setSaving(false); return }
     try {
@@ -88,7 +89,7 @@ export default function CreateEvent() {
       if (typedActivity && !activity_id) { setError('Could not resolve the Activity. Please pick an existing sector and try again.'); setSaving(false); return }
       const payload = {
         ...form,
-        ngo_id: Number(form.ngo_id),
+        ngo_id: form.ngo_id,
         sector_id: Number(form.sector_id),
         activity_id: activity_id ? Number(activity_id) : null,
       }
@@ -152,7 +153,7 @@ export default function CreateEvent() {
 
             {section('Event Details')}
             <div className="form-row">
-              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" /></div>
+              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required /></div>
               <div className="field"><label>Event Date</label><input type="date" name="date" value={form.date} onChange={handleChange} /></div>
             </div>
             <div className="form-row">

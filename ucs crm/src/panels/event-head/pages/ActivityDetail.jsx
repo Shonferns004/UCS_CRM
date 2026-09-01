@@ -43,7 +43,7 @@ export default function ActivityDetail() {
     try {
       const updated = await updateActivity(id, {
         name: form.name.trim(),
-        ngo_id: form.ngo_id ? Number(form.ngo_id) : null,
+        ngo_id: form.ngo_id ? String(form.ngo_id) : null,
         sector_id: Number(form.sector_id),
         description: form.description || null,
         banner: form.banner || null,
