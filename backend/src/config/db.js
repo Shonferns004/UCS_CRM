@@ -1170,6 +1170,49 @@ const auth = {
 // ---------------------------------------------------------------------------
 const safeBucket = (name) => String(name).replace(/[^a-zA-Z0-9._-]/g, '_');
 
+// Multi-account S3 registry: 'head' (dev) and 'upstream' (production).
+// Code selects an account via db.storage.from(account, bucket) or
+// db.storage.fromAccount(account, bucket). Backward-compatible single-arg
+// calls (db.storage.from(bucket)) resolve to the valid account: 'head' if its
+// credentials are configured, otherwise the legacy AWS_*/S3_* env pair.
+const S3_ACCOUNTS = {
+  head: {
+    accessKeyId: process.env.HEAD_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.HEAD_AWS_SECRET_ACCESS_KEY,
+    bucket: process.env.HEAD_S3_BUCKET,
+    region: process.env.HEAD_S3_REGION || 'ap-south-1',
+  },
+  upstream: {
+    accessKeyId: process.env.UPSTREAM_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.UPSTREAM_AWS_SECRET_ACCESS_KEY,
+    bucket: process.env.UPSTREAM_S3_BUCKET,
+    region: process.env.UPSTREAM_S3_REGION || 'ap-south-1',
+  },
+};
+
+const _s3Clients = {};
+
+function getS3Client(account) {
+  if (_s3Clients[account]) return _s3Clients[account];
+  const cfg = S3_ACCOUNTS[account];
+  if (!cfg || !cfg.accessKeyId || !cfg.bucket) return null;
+  try {
+    const client = new S3Client({
+      region: cfg.region,
+      credentials: {
+        accessKeyId: cfg.accessKeyId,
+        secretAccessKey: cfg.secretAccessKey,
+      },
+    });
+    const entry = { client, region: cfg.region, bucket: cfg.bucket };
+    _s3Clients[account] = entry;
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+// Legacy single-account client (uses AWS_ACCESS_KEY_ID / S3_BUCKET env pair).
 let _s3 = null;
 function getS3() {
   if (!process.env.S3_BUCKET) return null;
@@ -1189,16 +1232,34 @@ function getS3() {
     return null;
   }
 }
+
 const s3Key = (bucket, fileName) => `${safeBucket(bucket)}/${String(fileName)}`;
 
 const STORAGE_NOT_CONFIGURED = 'S3 storage is not configured. Set S3_BUCKET (and AWS credentials) to enable file uploads.';
 
+// Resolve which named account (or legacy client) a storage call targets.
+// db.storage.from('head', 'receipts') / db.storage.from('upstream', 'receipts')
+// pick an explicit account; db.storage.from('receipts') falls back to the
+// active (head) account when configured, else the legacy AWS_*/S3_* pair.
+function resolveS3(accountOrBucket, maybeBucket) {
+  const explicit = maybeBucket != null;
+  const account = explicit ? accountOrBucket : null;
+  const bucket = explicit ? maybeBucket : accountOrBucket;
+  let s3 = null;
+  if (account) {
+    s3 = getS3Client(account) || (account === 'head' ? getS3() : null);
+  } else {
+    s3 = getS3Client('head') || getS3();
+  }
+  return { s3, bucket };
+}
+
 const storage = {
-  from(bucket) {
+  from(accountOrBucket, maybeBucket) {
+    const { s3, bucket } = resolveS3(accountOrBucket, maybeBucket);
     const b = safeBucket(bucket);
     return {
       async upload(fileName, buffer, opts = {}) {
-        const s3 = getS3();
         if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
         try {
           await s3.client.send(new PutObjectCommand({
@@ -1213,13 +1274,11 @@ const storage = {
         }
       },
       getPublicUrl(fileName) {
-        const s3 = getS3();
         if (!s3) return { data: { publicUrl: '' } };
         return { data: { publicUrl: `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${s3Key(b, fileName)}` } };
       },
       async remove(paths) {
         const list = Array.isArray(paths) ? paths : [paths];
-        const s3 = getS3();
         if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
         try {
           await Promise.all(list.map((p) => s3.client.send(new DeleteObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, p) }))));
@@ -1230,16 +1289,19 @@ const storage = {
       },
     };
   },
+  fromAccount(account, bucket) {
+    return this.from(account, bucket);
+  },
   async createBucket(name, opts = {}) {
-    const s3 = getS3();
-    if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+    const target = opts.account ? getS3Client(opts.account) : (getS3Client('head') || getS3());
+    if (!target) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
     try {
-      await s3.client.send(new HeadBucketCommand({ Bucket: s3.bucket }));
+      await target.client.send(new HeadBucketCommand({ Bucket: target.bucket }));
     } catch {
       try {
-        await s3.client.send(new CreateBucketCommand({
-          Bucket: s3.bucket,
-          ...(s3.region !== 'us-east-1' ? { CreateBucketConfiguration: { LocationConstraint: s3.region } } : {}),
+        await target.client.send(new CreateBucketCommand({
+          Bucket: target.bucket,
+          ...(target.region !== 'us-east-1' ? { CreateBucketConfiguration: { LocationConstraint: target.region } } : {}),
         }));
       } catch (e) {
         return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
@@ -1247,8 +1309,8 @@ const storage = {
     }
     return { data: { name: String(name) }, error: null };
   },
-  async listBuckets() {
-    const s3 = getS3();
+  async listBuckets(account) {
+    const s3 = account ? getS3Client(account) : (getS3Client('head') || getS3());
     if (!s3) return { data: [], error: null };
     try {
       const r = await s3.client.send(new ListObjectsV2Command({ Bucket: s3.bucket, Delimiter: '/' }));

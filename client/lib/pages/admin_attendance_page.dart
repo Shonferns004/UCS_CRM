@@ -52,7 +52,10 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   Future<void> _load({bool silent = false}) async {
     if (!silent) setState(() { _loading = true; _error = null; });
     try {
-      final results = await Future.wait([ApiService.getAllAttendance(), ApiService.getAllWorkers()]);
+      final results = await Future.wait([
+        ApiService.getAllAttendance(),
+        ApiService.getAllWorkers(),
+      ]).timeout(const Duration(seconds: 25));
       if (mounted) {
         setState(() {
           _records = results[0];
@@ -64,9 +67,13 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString().replaceFirst('Exception: ', '');
+          _error = e is TimeoutException
+              ? 'Request timed out. Check your connection and retry.'
+              : e.toString().replaceFirst('Exception: ', '');
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
