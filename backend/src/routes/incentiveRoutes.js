@@ -26,8 +26,10 @@ const router = Router();
 const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
 // Volunteer detail page is also rendered inside the Accounts panel.
 const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
+// AKI config can be read by FROs (for the "Aaj Ka Incentive" banner) but only written by admin/accounts.
+const akiConfigRead = authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'worker', 'fro');
 
-router.get('/aki-config', adminHrAccounts, getAkiConfig);
+router.get('/aki-config', akiConfigRead, getAkiConfig);
 router.put('/aki-slabs', adminHrAccounts, putAkiSlabs);
 router.put('/incentive-rules', adminHrAccounts, putIncentiveRules);
 router.post('/aki-config/reset', adminOrHrOrHo, resetAkiConfig);

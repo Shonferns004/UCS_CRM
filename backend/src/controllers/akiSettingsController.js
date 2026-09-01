@@ -33,6 +33,10 @@ export async function getIncentiveRules() {
 export const getAkiConfig = async (req, res) => {
   try {
     const slabs = await getAKISlabs();
+    // FROs/workers only need the slabs for the banner; rules are internal admin config.
+    if (req.user && req.user.role && req.user.role !== 'accounts' && req.user.role !== 'super_admin' && req.user.role !== 'admin' && req.user.role !== 'hr') {
+      return res.json({ slabs, days: DAY_NAMES });
+    }
     const rules = await getIncentiveRules();
     return res.json({ slabs, rules, days: DAY_NAMES });
   } catch (error) {
