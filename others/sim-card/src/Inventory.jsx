@@ -154,7 +154,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
   }
 
   const handleDelete = (c) => {
-    if (window.confirm(`Delete SIM card ${c.mobile_id || ''}? This cannot be undone.`)) onDelete(c);
+    onDelete(c);
   };
 
   return (
@@ -249,13 +249,13 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
                     <td>
                       <div className="cell-actions" style={{ gap: 4 }}>
                         <button className="mini-btn" onClick={() => onEdit(c)}>Edit</button>
-                        <div style={{ position: 'relative' }}>
+                        <div className="kebab" style={{ position: 'relative' }}>
                           <button className="mini-btn" onClick={() => setShowActions(showActions === c.id ? null : c.id)}>⋯</button>
-                            {showActions === c.id && (
-                            <div style={{ position: 'absolute', right: 0, top: 26, background: '#fff', border: '1px solid var(--sim-line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 30, minWidth: 130, padding: 4 }}>
-                              {[['View', () => onView(c)], ['Edit', () => onEdit(c)], ['Replace', () => onReplace(c)], ['Delete', () => handleDelete(c)]].map(([label, fn]) => (
-                                <button key={label} className="mini-btn" style={{ width: '100%', textAlign: 'left', border: 'none', background: 'transparent', padding: '8px 10px', borderRadius: 6 }} onClick={() => { setShowActions(null); fn(); }}>
-                                  <span style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }}>{label}</span>
+                          {showActions === c.id && (
+                            <div className="kebab-menu">
+                              {[['Add', () => onAdd()], ['View', () => onView(c)], ['Edit', () => onEdit(c)], ['Replace', () => onReplace(c)], ['Delete', () => handleDelete(c)]].map(([label, fn]) => (
+                                <button key={label} className="kebab-item" style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }} onClick={() => { setShowActions(null); fn(); }}>
+                                  {label}
                                 </button>
                               ))}
                             </div>
