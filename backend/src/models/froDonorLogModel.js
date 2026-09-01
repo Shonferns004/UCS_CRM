@@ -1,6 +1,26 @@
 import db, { sql } from '../config/db.js';
 
+// Keep the id sequence ahead of the highest existing id before inserting, so a
+// default-sequence insert never collides with a row that was written earlier
+// with an explicit id (e.g. a data migration/import that didn't reset the
+// sequence). This prevents "duplicate key value violates unique constraint
+// fro_donor_logs_pkey". Runs inside a single statement so it is atomic; if it
+// ever fails it is non-fatal (best-effort) and the insert still proceeds.
+export const ensureLogSequenceHealth = async () => {
+  try {
+    await sql(`
+      SELECT setval('fro_donor_logs_id_seq',
+             GREATEST((SELECT COALESCE(MAX(id), 0) FROM fro_donor_logs),
+                      (SELECT last_value FROM fro_donor_logs_id_seq)),
+             true)
+    `);
+  } catch (e) {
+    console.error('fro_donor_logs sequence resync failed:', e.message);
+  }
+};
+
 export const createDonorLog = async (data) => {
+  await ensureLogSequenceHealth();
   const { data: result, error } = await db
     .from('fro_donor_logs')
     .insert([data])

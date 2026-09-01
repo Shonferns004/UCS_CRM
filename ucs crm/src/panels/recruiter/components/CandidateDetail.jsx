@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useRec } from '../store';
 import { getCandidateProfile, parseNotes, buildCandidateNotes } from '../store';
 import { ArrowLeft, Pencil, ArrowRight, Trash, Download, Eye, Check } from '../icons';
+import usePasteImage from '../../../utils/usePasteImage';
 import { Avatar } from './ui';
 
 const fmtDate = (v) => {
@@ -63,10 +64,9 @@ export default function CandidateDetail({ candidate, onBack, onEdit, onMoveStage
     } catch (err) { alert(err.message); }
   };
 
-  const replaceResume = (e) => {
-    const f = e.target.files && e.target.files[0];
+  const applyResumeFile = (f) => {
     if (!f) return;
-    if (f.size > 2 * 1024 * 1024) { alert('Resume must be under 2 MB.'); e.target.value = ''; return; }
+    if (f.size > 2 * 1024 * 1024) { alert('Resume must be under 2 MB.'); return; }
     const reader = new FileReader();
     reader.onload = async () => {
       const profile = { ...getCandidateProfile(candidate._raw), resume: { name: f.name, data: reader.result } };
@@ -75,6 +75,15 @@ export default function CandidateDetail({ candidate, onBack, onEdit, onMoveStage
     };
     reader.readAsDataURL(f);
   };
+
+  const replaceResume = (e) => {
+    applyResumeFile(e.target.files && e.target.files[0]);
+    if (e.target) e.target.value = '';
+  };
+
+  const onResumePaste = usePasteImage(({ file }) => {
+    if (file) applyResumeFile(file);
+  });
 
   const downloadResume = () => {
     if (!p.resume) return;
@@ -160,7 +169,7 @@ export default function CandidateDetail({ candidate, onBack, onEdit, onMoveStage
             <a className="btn btn-sm" href={p.resume.data} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}><Eye width={13}/> View</a>
             <button className="btn btn-sm" onClick={downloadResume}><Download width={13}/> Download</button>
             {replacing ? (
-              <label className="btn btn-sm" style={{ cursor: 'pointer', color: 'var(--clay)', borderColor: 'var(--clay)' }}>
+              <label className="btn btn-sm" style={{ cursor: 'pointer', color: 'var(--clay)', borderColor: 'var(--clay)' }} onPaste={onResumePaste} title="Upload or paste (Ctrl+V)">
                 Choose file
                 <input type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={replaceResume} />
               </label>
@@ -171,7 +180,7 @@ export default function CandidateDetail({ candidate, onBack, onEdit, onMoveStage
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>No resume uploaded.</span>
-            <label className="btn btn-sm" style={{ cursor: 'pointer' }}>
+            <label className="btn btn-sm" style={{ cursor: 'pointer' }} onPaste={onResumePaste} title="Upload or paste (Ctrl+V)">
               Upload resume
               <input type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={replaceResume} />
             </label>

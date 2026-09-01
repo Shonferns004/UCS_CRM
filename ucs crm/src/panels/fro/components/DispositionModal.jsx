@@ -5,6 +5,7 @@ import { TimePicker } from './TimePicker';
 import { useCall } from '../CallContext';
 import { toast } from '../../../components/Toast';
 import { extractTransactionData } from '../utils/ocr';
+import usePasteImage from '../../../utils/usePasteImage';
 import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { istDateString, istDateTimeToIso } from '../utils/time';
@@ -84,8 +85,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
 
-  const handleScreenshotChange = (e) => {
-    const file = e.target.files[0];
+  const processScreenshotFile = (file) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
@@ -110,6 +110,31 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
     };
     reader.readAsDataURL(file);
   };
+
+  const handleScreenshotChange = (e) => {
+    processScreenshotFile(e.target.files[0]);
+  };
+
+  const handlePasteScreenshot = usePasteImage(({ base64, mime, file }) => {
+    setLeadScreenshot({ base64, mime });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setScreenshotPreview(reader.result);
+      setOcrLoading(true);
+      try {
+        const { upiTransactionId, transactionDatetime, amount, fromName } = await extractTransactionData(reader.result);
+        if (upiTransactionId) setUpiTransactionId(upiTransactionId);
+        if (transactionDatetime) {
+          const dt = new Date(transactionDatetime);
+          if (!isNaN(dt.getTime())) setTransactionDatetime(dt.toISOString().slice(0, 16));
+        }
+        if (amount && !leadAmount) setLeadAmount(amount);
+        if (fromName) setOcrFromName(fromName);
+      } catch (e) { console.error('Error:', e.message); }
+      setOcrLoading(false);
+    };
+    reader.readAsDataURL(file);
+  });
 
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
@@ -341,8 +366,9 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                   </div>
                         <div className="detail-field-row">
                           <div className="fld">
-                            <label>Screenshot</label>
-                            <label htmlFor="dm-ss-input" className="ss-upload">
+                            <label>Screenshot / Proof image</label>
+                            <label htmlFor="dm-ss-input" className="ss-upload" onPaste={handlePasteScreenshot}
+                              title="Upload a file or paste an image (Ctrl+V)">
                               {screenshotPreview ? (
                                 <div style={{ position: 'relative' }}>
                                   <img src={screenshotPreview} alt="preview" className="ss-preview"
@@ -353,11 +379,11 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                               ) : (
                                 <div className="ss-placeholder">
                                   <span className="material-symbols-outlined">upload</span>
-                                  <span>Upload screenshot</span>
+                                  <span>Upload or paste (Ctrl+V)</span>
                                 </div>
                               )}
                             </label>
-                            <input id="dm-ss-input" type="file" accept="image/*" onChange={handleScreenshotChange} />
+                            <input id="dm-ss-input" type="file" accept="image/*" onChange={handleScreenshotChange} onPaste={handlePasteScreenshot} />
                           </div>
                         </div>
                         <div className="detail-field-row">

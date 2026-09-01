@@ -5453,3 +5453,472 @@ export const getFroHourlyPerformance = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// ---------------------------------------------------------------------------
+// BULK STATION RENAME
+//
+// Rewrites a station code in place across every table that stores it, scoped
+// per NGO so one old code can become different new codes per NGO (e.g.
+// M-2 -> BOD-1 / AOD-1 / MOD-1). Rows are only relabelled — donors stay
+// assigned to the same FRO, NGO and status; nothing is moved or deleted.
+// Old codes are erased everywhere and the mapping is preserved in
+// station_rename_log.
+//
+// Body: { renames: [{ ngo_name, old_station, new_station }], dry_run, confirm }
+//   dry_run (default true)  -> validate + per-table affected counts, no writes
+//   dry_run false + confirm -> apply everything inside ONE transaction with a
+//                              post-verify (any leftover old code rolls back)
+//
+// donor_profiles rows whose old code is shared across multiple NGOs (NGO
+// attribution is ambiguous there) are skipped and reported — their
+// fro_assignments are still renamed correctly per NGO.
+// ---------------------------------------------------------------------------
+
+let _renameLogTableReady = false;
+async function ensureStationRenameLogTable() {
+  if (_renameLogTableReady) return;
+  await sql(`
+    CREATE TABLE IF NOT EXISTS station_rename_log (
+      id             bigserial PRIMARY KEY,
+      ngo_id         uuid,
+      ngo_name       text,
+      old_station    text NOT NULL,
+      new_station    text NOT NULL,
+      counts         jsonb NOT NULL DEFAULT '{}',
+      skipped_donors integer NOT NULL DEFAULT 0,
+      performed_by   text,
+      performed_at   timestamptz NOT NULL DEFAULT now(),
+      batch_id       uuid
+    )`);
+  // Self-heal installs created before batch_id existed (e.g. production).
+  await sql(`ALTER TABLE station_rename_log ADD COLUMN IF NOT EXISTS batch_id uuid`);
+  await sql(`CREATE INDEX IF NOT EXISTS idx_station_rename_log_ngo_time ON station_rename_log(ngo_id, performed_at DESC)`);
+  await sql(`CREATE INDEX IF NOT EXISTS idx_station_rename_log_old_station ON station_rename_log(old_station)`);
+  await sql(`CREATE INDEX IF NOT EXISTS idx_station_rename_log_batch ON station_rename_log(batch_id)`);
+  _renameLogTableReady = true;
+}
+
+// Per-table affected-row counts for all valid rows in one query each, via
+// unnest arrays: (ord, ngo_id, old_station).
+async function countRenameImpact(okRows) {
+  if (okRows.length === 0) return new Map();
+  const ords = okRows.map((_, i) => i);
+  const ngoIds = okRows.map(r => r.ngo_id);
+  const olds = okRows.map(r => r.old_station);
+  const params = [ords, ngoIds, olds];
+  // ngo_id columns are NOT uniform across these tables (some uuid, some text —
+  // they predate the tracked migrations), so compare as text everywhere.
+  const unnest = 'unnest($1::int[], $2::text[], $3::text[]) AS t(ord, ngo_id, station)';
+
+  const [reg, assign, transfer, queue, sessions] = await Promise.all([
+    sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
+         LEFT JOIN fro_station_assignments x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
+         GROUP BY t.ord`, params),
+    sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
+         LEFT JOIN fro_assignments x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
+         GROUP BY t.ord`, params),
+    sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
+         LEFT JOIN fro_transfers x ON x.ngo_id::text = t.ngo_id AND (x.station = t.station OR x.target_station = t.station)
+         GROUP BY t.ord`, params),
+    sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
+         LEFT JOIN work_queue x ON x.ngo_id::text = t.ngo_id AND x.station = t.station
+         GROUP BY t.ord`, params),
+    sql(`SELECT t.ord, COUNT(x.id)::int AS cnt FROM ${unnest}
+         LEFT JOIN work_as_sessions x
+           ON x.stations @> jsonb_build_array(jsonb_build_object('ngo_id', t.ngo_id, 'station', t.station))
+         GROUP BY t.ord`, params),
+  ]);
+
+  const byOrd = (list) => {
+    const m = new Map();
+    for (const r of list) m.set(r.ord, r.cnt);
+    return m;
+  };
+  const regM = byOrd(reg), assignM = byOrd(assign), transferM = byOrd(transfer);
+  const queueM = byOrd(queue), sessM = byOrd(sessions);
+
+  const counts = new Map();
+  okRows.forEach((r, i) => {
+    counts.set(i, {
+      fro_station_assignments: regM.get(i) || 0,
+      fro_assignments: assignM.get(i) || 0,
+      fro_transfers: transferM.get(i) || 0,
+      work_queue: queueM.get(i) || 0,
+      work_as_sessions: sessM.get(i) || 0,
+    });
+  });
+  return counts;
+}
+
+// Donor-profile classification per DISTINCT old station code, computed BEFORE
+// the assignments are renamed (the NGO attribution comes from fro_assignments
+// rows that still carry the old code). Returns:
+//   Map<oldStation, [{ id, name, ngos: string[] | null }]>
+async function classifyDonorProfiles(oldStations) {
+  if (oldStations.length === 0) return new Map();
+  const rows = await sql(
+    `SELECT dp.id, dp.name, dp.station,
+            (SELECT array_agg(DISTINCT fa.ngo_id::text)
+               FROM fro_assignments fa
+              WHERE fa.donor_id = dp.id AND fa.station = dp.station) AS ngos
+       FROM donor_profiles dp
+      WHERE dp.station = ANY($1::text[])`,
+    [oldStations]
+  );
+  const byStation = new Map();
+  for (const r of rows) {
+    if (!byStation.has(r.station)) byStation.set(r.station, []);
+    byStation.get(r.station).push({ id: r.id, name: r.name, ngos: r.ngos || null });
+  }
+  return byStation;
+}
+
+export const bulkRenameStations = async (req, res) => {
+  try {
+    const renames = Array.isArray(req.body?.renames) ? req.body.renames : null;
+    const dryRun = req.body?.dry_run !== false;
+    const confirmed = req.body?.confirm === true;
+
+    if (!renames || renames.length === 0) {
+      return res.status(400).json({ message: 'No renames provided' });
+    }
+    if (renames.length > 500) {
+      return res.status(400).json({ message: 'Too many renames (max 500 per batch)' });
+    }
+    if (!dryRun && !confirmed) {
+      return res.status(400).json({ message: 'Confirmation required: send confirm: true to apply' });
+    }
+
+    // ---- Normalize input -------------------------------------------------
+    const rows = renames.map(r => ({
+      ngo_name: String(r?.ngo_name ?? '').trim(),
+      old_station: String(r?.old_station ?? '').trim(),
+      new_station: String(r?.new_station ?? '').trim(),
+    }));
+    for (const r of rows) {
+      if (!r.ngo_name || !r.old_station || !r.new_station) {
+        return res.status(400).json({ message: 'Each rename needs ngo_name, old_station and new_station' });
+      }
+      if (r.old_station === r.new_station) {
+        return res.status(400).json({ message: `old_station and new_station must differ (${r.old_station})` });
+      }
+    }
+
+    // ---- Resolve NGO names -> ids ----------------------------------------
+    const ngoNames = [...new Set(rows.map(r => r.ngo_name.toLowerCase()))];
+    const ngoRows = await sql(`SELECT id, name FROM ngos WHERE lower(name) = ANY($1::text[])`, [ngoNames]);
+    const ngoByName = new Map(ngoRows.map(n => [n.name.toLowerCase(), n]));
+    const missing = ngoNames.filter(n => !ngoByName.has(n));
+    if (missing.length > 0) {
+      return res.status(400).json({ message: `Unknown NGO(s): ${missing.join(', ')}` });
+    }
+
+    // ---- Access: every NGO in the batch must be accessible to the caller --
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    if (!isSuperAdmin) {
+      const allowed = new Set((await getUserNgoIds(req.user)).map(String));
+      for (const n of ngoNames) {
+        if (!allowed.has(String(ngoByName.get(n).id))) {
+          return res.status(403).json({ message: `Access denied for NGO ${ngoByName.get(n).name}` });
+        }
+      }
+    }
+
+    // ---- Validate against the live station registry -----------------------
+    const involvedNgoIds = [...new Set(ngoRows.map(n => String(n.id)))];
+    const registry = await sql(
+      `SELECT ngo_id::text AS ngo_id, station FROM fro_station_assignments WHERE ngo_id::text = ANY($1::text[])`,
+      [involvedNgoIds]
+    );
+    const registryKeys = new Set(registry.map(s => `${s.ngo_id}|${s.station}`));
+
+    const results = rows.map(r => {
+      const ngo = ngoByName.get(r.ngo_name.toLowerCase());
+      return {
+        ngo_name: ngo.name,
+        ngo_id: ngo.id,
+        old_station: r.old_station,
+        new_station: r.new_station,
+      };
+    });
+
+    // All (ngo, old) pairs in the batch — used to detect chained renames
+    // (A -> B while B itself is being renamed), which are not allowed.
+    const oldKeys = new Set(results.map(r => `${r.ngo_id}|${r.old_station}`));
+    const seenOld = new Set();
+    const seenNew = new Set();
+    for (const r of results) {
+      const oldKey = `${r.ngo_id}|${r.old_station}`;
+      const newKey = `${r.ngo_id}|${r.new_station}`;
+      r.status = 'ok';
+      r.reason = null;
+      if (!registryKeys.has(oldKey)) {
+        r.status = 'old_not_found'; r.reason = `Station "${r.old_station}" is not registered for ${r.ngo_name}`;
+      } else if (registryKeys.has(newKey)) {
+        r.status = oldKeys.has(newKey) ? 'chain' : 'new_taken';
+        r.reason = oldKeys.has(newKey)
+          ? `"${r.new_station}" is itself being renamed — chained renames are not allowed`
+          : `Station "${r.new_station}" already exists for ${r.ngo_name}`;
+      } else if (seenOld.has(oldKey)) {
+        r.status = 'duplicate'; r.reason = `Duplicate rename for ${r.ngo_name} ${r.old_station}`;
+      } else if (seenNew.has(newKey)) {
+        r.status = 'duplicate'; r.reason = `Duplicate target "${r.new_station}" for ${r.ngo_name}`;
+      }
+      if (r.status === 'ok') { seenOld.add(oldKey); seenNew.add(newKey); }
+    }
+
+    const okRows = results.filter(r => r.status === 'ok');
+    const ready = okRows.length > 0 && results.every(r => r.status === 'ok');
+
+    // ---- DRY RUN: counts only, no writes ----------------------------------
+    if (dryRun) {
+      const impact = await countRenameImpact(okRows);
+      const oldStations = [...new Set(okRows.map(r => r.old_station))];
+      const donorMap = await classifyDonorProfiles(oldStations);
+      // Claim logic mirrors the apply path: a profile is renamable when it is
+      // attributable to exactly one NGO that has a rename row for that code.
+      // Donors owned by another NGO in the same batch (shared old codes, e.g.
+      // M-2 for all three NGOs) are NOT ambiguous — that NGO's row renames them.
+      const ngosByOld = new Map();
+      for (const r of okRows) {
+        if (!ngosByOld.has(r.old_station)) ngosByOld.set(r.old_station, new Set());
+        ngosByOld.get(r.old_station).add(String(r.ngo_id));
+      }
+      okRows.forEach((r) => {
+        const c = impact.get(results.indexOf(r)) || {};
+        const donors = donorMap.get(r.old_station) || [];
+        const batchNgos = ngosByOld.get(r.old_station) || new Set();
+        const claimed = (d) => !!(d.ngos && d.ngos.length === 1 && batchNgos.has(d.ngos[0]));
+        r.counts = {
+          ...c,
+          donor_profiles_renamable: donors.filter(d => claimed(d) && d.ngos[0] === String(r.ngo_id)).length,
+          donor_profiles_ambiguous: donors.filter(d => !claimed(d)).length,
+        };
+      });
+      return res.json({ dry_run: true, ready, rows: results });
+    }
+
+    if (okRows.length === 0) {
+      return res.status(400).json({ message: 'No valid renames to apply — fix the flagged rows and retry' });
+    }
+    if (!ready) {
+      return res.status(400).json({ message: 'Cannot apply while some renames are flagged — remove the flagged rows and retry' });
+    }
+
+    // ---- APPLY: one transaction, all-or-nothing ---------------------------
+    const performedBy = String(req.user?.email || req.user?.id || 'unknown');
+    const batchId = crypto.randomUUID();
+    const summary = await db.transaction(async () => {
+      await ensureStationRenameLogTable();
+
+      const ngoIds = okRows.map(r => r.ngo_id);
+      const olds = okRows.map(r => r.old_station);
+      const news = okRows.map(r => r.new_station);
+      const upd = [ngoIds, olds, news];
+      const unnestUpd = 'unnest($1::text[], $2::text[], $3::text[]) AS t(ngo_id, old_station, new_station)';
+
+      // Donor classification must run BEFORE assignments are renamed.
+      const oldStations = [...new Set(olds)];
+      const donorMap = await classifyDonorProfiles(oldStations);
+      // ngoId|oldStation -> newStation, for the work_as_sessions rewrite.
+      const renameByKey = new Map(okRows.map(r => [`${r.ngo_id}|${r.old_station}`, r.new_station]));
+      // Which NGOs have a rename row for a given old station code.
+      const ngosByOld = new Map();
+      for (const r of okRows) {
+        if (!ngosByOld.has(r.old_station)) ngosByOld.set(r.old_station, new Set());
+        ngosByOld.get(r.old_station).add(String(r.ngo_id));
+      }
+
+      // (a) Station registry
+      const regIds = await sql(
+        `UPDATE fro_station_assignments x
+            SET station = t.new_station
+           FROM ${unnestUpd}
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
+          RETURNING x.id`, upd);
+      // (b) Donor assignments (also drives the FRO queue)
+      const assignIds = await sql(
+        `UPDATE fro_assignments x
+            SET station = t.new_station
+           FROM ${unnestUpd}
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
+          RETURNING x.id`, upd);
+      // (c) Transfer history — both columns, independently scoped
+      const tFrom = await sql(
+        `UPDATE fro_transfers x
+            SET station = t.new_station
+           FROM ${unnestUpd}
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
+          RETURNING x.id`, upd);
+      const tTo = await sql(
+        `UPDATE fro_transfers x
+            SET target_station = t.new_station
+           FROM ${unnestUpd}
+          WHERE x.ngo_id::text = t.ngo_id AND x.target_station = t.old_station
+          RETURNING x.id`, upd);
+      const transferIds = new Set([...tFrom.map(x => x.id), ...tTo.map(x => x.id)]);
+      // (d) Work queue — station + the cycle_key station segment
+      //     (cycle_key format: `${ngo|all}:${station|all}:${tab}:${month}`)
+       const queueIds = await sql(
+         `UPDATE work_queue x
+             SET station = t.new_station,
+                 cycle_key = replace(x.cycle_key, ':' || t.old_station || ':', ':' || t.new_station || ':')
+            FROM ${unnestUpd}
+          WHERE x.ngo_id::text = t.ngo_id AND x.station = t.old_station
+          RETURNING x.id`, upd);
+      // (e) Active work-as (acting FRO) sessions — rewrite the jsonb pairs
+      const allSessions = await sql(`SELECT id, stations FROM work_as_sessions WHERE stations != '[]'::jsonb`);
+      let sessionsUpdated = 0;
+      for (const s of allSessions) {
+        let changed = false;
+        const pairs = (Array.isArray(s.stations) ? s.stations : []).map(p => {
+          const key = `${String(p?.ngo_id ?? '')}|${String(p?.station ?? '').trim()}`;
+          const target = renameByKey.get(key);
+          if (target && target !== p.station) { changed = true; return { ...p, station: target }; }
+          return p;
+        });
+        if (!changed) continue;
+        await sql(`UPDATE work_as_sessions SET stations = $1::jsonb WHERE id = $2`, [JSON.stringify(pairs), s.id]);
+        sessionsUpdated++;
+      }
+      // (f) Donor profiles — only where the NGO attribution is unambiguous
+      const skippedDonors = [];
+      for (const [station, donors] of donorMap) {
+        for (const d of donors) {
+          const batchNgos = ngosByOld.get(station) || new Set();
+          if (d.ngos && d.ngos.length === 1 && batchNgos.has(d.ngos[0])) continue; // claimed by its NGO's row
+          let reason;
+          if (!d.ngos || d.ngos.length === 0) reason = 'no NGO assignment';
+          else if (d.ngos.length > 1) reason = 'assignments under multiple NGOs';
+          else reason = 'no rename row for its NGO';
+          skippedDonors.push({ donor_id: d.id, name: d.name, station, reason });
+        }
+      }
+      const donorUpdates = [];
+      for (const r of okRows) {
+        const donors = donorMap.get(r.old_station) || [];
+        const mine = donors
+          .filter(d => d.ngos && d.ngos.length === 1 && d.ngos[0] === String(r.ngo_id))
+          .map(d => d.id);
+        if (mine.length === 0) { donorUpdates.push({ ...r, updated_donors: 0 }); continue; }
+        const updated = await sql(
+          `UPDATE donor_profiles SET station = $1 WHERE id = ANY($2::int[]) RETURNING id`,
+          [r.new_station, mine]
+        );
+        donorUpdates.push({ ...r, updated_donors: updated.length });
+      }
+      // (g) Audit log — one row per applied rename
+      for (const r of okRows) {
+        const donors = donorMap.get(r.old_station) || [];
+        const ambiguousForRow = donors.filter(
+          d => d.ngos && d.ngos.length > 1 && d.ngos.includes(String(r.ngo_id))
+        ).length;
+        const du = donorUpdates.find(u => u.ngo_id === r.ngo_id && u.old_station === r.old_station);
+        const counts = {
+          fro_station_assignments: regIds.length,
+          fro_assignments: assignIds.length,
+          fro_transfers: transferIds.size,
+          work_queue: queueIds.length,
+          work_as_sessions: sessionsUpdated,
+          donor_profiles: du ? du.updated_donors : 0,
+        };
+        await sql(
+          `INSERT INTO station_rename_log (ngo_id, ngo_name, old_station, new_station, counts, skipped_donors, performed_by, batch_id)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+          [r.ngo_id, r.ngo_name, r.old_station, r.new_station, JSON.stringify(counts), ambiguousForRow, performedBy, batchId]
+        );
+      }
+      // NOTE: regIds/assignIds/queueIds lengths above are batch totals; the
+      // audit rows repeat them per-row on purpose — each log entry records
+      // the full batch impact for its (ngo, old -> new) mapping.
+
+      // (h) Post-verify: scoped old codes must be gone from every table.
+      //     Any leftover throws, which rolls the whole transaction back.
+      const checkPairs = [ngoIds, olds];
+      const unnestChk = 'unnest($1::text[], $2::text[]) AS t(ngo_id, station)';
+      const checks = [
+        ['fro_station_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_station_assignments x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_assignments', `SELECT COUNT(*)::int AS cnt FROM fro_assignments x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_transfers.station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+        ['fro_transfers.target_station', `SELECT COUNT(*)::int AS cnt FROM fro_transfers x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.target_station = t.station`],
+        ['work_queue', `SELECT COUNT(*)::int AS cnt FROM work_queue x JOIN ${unnestChk} ON x.ngo_id::text = t.ngo_id AND x.station = t.station`],
+      ];
+      for (const [label, query] of checks) {
+        const [{ cnt }] = await sql(query, checkPairs);
+        if (cnt > 0) throw new Error(`Post-verify failed: ${cnt} row(s) still carry an old code in ${label} — rolling back`);
+      }
+      // donor_profiles leftovers must be exactly the intentionally skipped ones
+      const [{ cnt: profileLeft }] = await sql(
+        `SELECT COUNT(*)::int AS cnt FROM donor_profiles WHERE station = ANY($1::text[])`, [oldStations]
+      );
+      if (profileLeft !== skippedDonors.length) {
+        throw new Error(`Post-verify failed: ${profileLeft} donor profile(s) still carry an old code, expected ${skippedDonors.length} — rolling back`);
+      }
+      // Informational: rows with a NULL ngo_id keep old codes (pre-existing
+      // orphans / all-station queue cycles); the queue rebuilds these itself.
+      const [unscoped] = await sql(
+        `SELECT
+           (SELECT COUNT(*)::int FROM fro_assignments WHERE ngo_id IS NULL AND station = ANY($1::text[])) AS assignments,
+           (SELECT COUNT(*)::int FROM fro_transfers WHERE ngo_id IS NULL AND (station = ANY($1::text[]) OR target_station = ANY($1::text[]))) AS transfers,
+           (SELECT COUNT(*)::int FROM work_queue WHERE ngo_id IS NULL AND station = ANY($1::text[])) AS queue`,
+        [oldStations]
+      );
+
+      return {
+        applied: okRows.length,
+        batch_id: batchId,
+        rows: donorUpdates,
+        totals: {
+          fro_station_assignments: regIds.length,
+          fro_assignments: assignIds.length,
+          fro_transfers: transferIds.size,
+          work_queue: queueIds.length,
+          work_as_sessions: sessionsUpdated,
+        },
+        skipped_donors: skippedDonors,
+        post_verify: { old_codes_remaining: 0, unscoped_old_rows: unscoped },
+      };
+    });
+
+    return res.json(summary);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Rename history for the bulk-rename revert UI: the last 20 applied batches,
+// grouped by batch_id (rows logged before batch_id existed fall back to
+// single-entry groups). Scoped to the caller's NGO access.
+export const getStationRenameLog = async (req, res) => {
+  try {
+    await ensureStationRenameLogTable();
+
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    let scopeSql = '';
+    let params = [];
+    if (!isSuperAdmin) {
+      const allowed = (await getUserNgoIds(req.user)).map(String);
+      if (allowed.length === 0) return res.json([]);
+      scopeSql = 'WHERE ngo_id::text = ANY($1::text[])';
+      params = [allowed];
+    }
+
+    const batches = await sql(
+      `SELECT COALESCE(batch_id::text, 'legacy-' || id::text) AS batch_id,
+              max(performed_at) AS performed_at,
+              max(performed_by) AS performed_by,
+              json_agg(json_build_object('ngo_name', ngo_name, 'old_station', old_station, 'new_station', new_station) ORDER BY id) AS entries,
+              sum((counts->>'fro_assignments')::int)::int AS donor_assignments,
+              sum(skipped_donors)::int AS skipped_donors
+         FROM station_rename_log
+         ${scopeSql}
+        GROUP BY 1
+        ORDER BY max(performed_at) DESC
+        LIMIT 20`,
+      params
+    );
+    return res.json(batches);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};

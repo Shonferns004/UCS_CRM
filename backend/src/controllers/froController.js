@@ -15,6 +15,7 @@ import {
 import { getTargetByWorker } from '../models/froTargetModel.js';
 import {
   createDonorLog,
+  ensureLogSequenceHealth,
   findDispositionLogToday,
   updateDonorLog,
   findLogsByDonorAndWorker,
@@ -1424,6 +1425,10 @@ export const claimSuspenseReceipt = async (req, res) => {
       if (asgErr) throw asgErr;
       assignmentId = created.id;
     }
+
+    // Never collide with an explicit-id row from a data migration/import: keep
+    // the id sequence ahead of the table's max id before this insert.
+    await ensureLogSequenceHealth();
 
     const { data: log, error: logErr } = await db
       .from('fro_donor_logs')
