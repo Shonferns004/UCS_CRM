@@ -72,8 +72,20 @@ function filterDonors(list) {
   return list.filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month);
 }
 
+function dedupeDonors(list) {
+  const seen = new Set();
+  const out = [];
+  for (const d of list || []) {
+    const key = `${d.id ?? d.donor_id}|${d.ngo_id ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(d);
+  }
+  return out;
+}
+
 function filterAndSortDonors(list) {
-  return filterDonors(list).sort((a, b) => {
+  return filterDonors(dedupeDonors(list)).sort((a, b) => {
       const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
       const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
       // tier: 0 = new workable, 1 = old workable, 2 = retryable tail
@@ -457,11 +469,32 @@ export default function MyDonors() {
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
       const fresh = filterAndSortDonors(loaded);
+      // Preserve the current on-screen order so a background reload after a
+      // save never re-sorts the queue and snaps the "#N of M" cursor to a
+      // random value. Walk the existing list first (refreshing in place), then
+      // append any genuinely new donors in the server's order.
+      const existing = donorsRef.current;
+      const freshMap = new Map(fresh.map(d => [`${d.id ?? d.donor_id}|${d.ngo_id ?? ''}`, d]));
+      const keyOf = (d) => `${d.id ?? d.donor_id}|${d.ngo_id ?? ''}`;
+      const merged = [];
+      const mergedKeys = new Set();
+      for (const d of existing) {
+        const k = keyOf(d);
+        if (mergedKeys.has(k)) continue;
+        mergedKeys.add(k);
+        if (freshMap.has(k)) merged.push(freshMap.get(k));
+      }
+      for (const d of dedupeDonors(fresh)) {
+        const k = keyOf(d);
+        if (mergedKeys.has(k)) continue;
+        mergedKeys.add(k);
+        merged.push(d);
+      }
       if (currentId != null) {
-        const newIdx = fresh.findIndex(d => d.id === currentId && d.ngo_id === currentNgo);
+        const newIdx = merged.findIndex(x => x.id === currentId && x.ngo_id === currentNgo);
         if (newIdx >= 0 && indexRef.current !== newIdx) setIndex(newIdx);
       }
-      setDonors(fresh);
+      setDonors(merged);
       setTotal(rTotal);
     }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation, selectedNgo]);
@@ -1008,14 +1041,15 @@ export default function MyDonors() {
       if (selected === 'done') {
         logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
       }
-      await addDonorLog(donor.id, logData);
-      if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
-
-      // Suppress realtime-triggered reloads for a short window so the INSERT
-      // produced by this log's findOrCreateAssignment doesn't refetch/re-sort
-      // the list and snap the "#N of M" position to a random value.
+      // Suppress realtime-triggered reloads BEFORE the log is written so the
+      // INSERT produced by this log's findOrCreateAssignment is always ignored —
+      // the local list removal below is authoritative and a mid-save reload must
+      // never refetch/re-sort the list and snap the "#N of M" position.
       suppressRealtimeUntilRef.current = Date.now() + 10000;
       if (debounceReloadRef.current) { clearTimeout(debounceReloadRef.current); debounceReloadRef.current = null; }
+
+      await addDonorLog(donor.id, logData);
+      if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       // Same-day suppression (backend-authoritative): a donor with ANY
       // disposition today for this worker cannot be returned by /queue/current
@@ -1055,7 +1089,11 @@ export default function MyDonors() {
     backendSearchTimerRef.current = setTimeout(async () => {
       setDisposedSearchLoading(true);
       try {
-        const results = await searchDonorsByMobile(term, { disposed: true });
+        // Search the FRO's whole station scope (active + already dispositioned)
+        // — NOT just disposed leads. The backend's default search mode (no
+        // disposed flag) searches every donor assigned to the worker's
+        // stations, so an active/new lead like the one on screen matches too.
+        const results = await searchDonorsByMobile(term);
         setDisposedResults(results || []);
       } catch {
         setDisposedResults([]);
@@ -1183,12 +1221,12 @@ export default function MyDonors() {
   };
 
   // ─────────────────────────── MY LEADS — LIST VIEW ─────────────────────────
-  // Shown by default. Leads are processed one at a time: only the FIRST row is
-  // active (clickable, full data). All other rows are masked (name/mobile
-  // partially hidden) and locked (unclickable). After the FRO disposes the
-  // active lead it is removed from the list and the next one becomes active.
-  // Typing in the search bar switches the list to a read-only view of already-
-  // disposed leads (client-side suggestion dropdown removed).
+  // Shown by default. Every lead row is fully visible (name/mobile) and
+  // clickable in both the New and Old tabs — the old "first row unlocked, rest
+  // masked + locked" model has been removed so the FRO can scan all their
+  // leads. After a lead is dispositioned it is removed from the list. Typing in
+  // the search bar swaps in read-only results across the FRO's whole station
+  // scope (active + already dispositioned leads).
   if (!activeDonor) {
     // NGO / station options derived from the assigned stations.
     const ngoMap = {};
@@ -1198,53 +1236,32 @@ export default function MyDonors() {
       .filter(s => !selectedNgo || s.ngo_id === selectedNgo)
       .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []);
 
-    // Mask a value for locked leads: keep the first N chars, replace the rest
-    // with X. e.g. "Shon" -> "SXXX", "9876543210" -> "987XXXXXXX".
-    const maskText = (val, keep = 3) => {
-      const s = String(val || '');
-      if (!s) return '—';
-      if (s.length <= keep) return s[0] + 'XX';
-      return s.slice(0, keep) + 'X'.repeat(s.length - keep);
-    };
-
     const visible = donors.filter(d => {
       if (listStatusFilter !== 'all' && !(DONOR_STATUS_GROUPS[listStatusFilter] || []).includes(d.status)) return false;
       if (listHideDonated && d.has_donated_current_month) return false;
       return true;
     });
 
-    // Searching an active query shows disposed leads (read-only) instead of the
-    // sequential queue.
-    const searchingDisposed = searchQuery.trim().length >= 2;
-    const listItems = searchingDisposed ? disposedResults.map(r => ({
+    // Searching an active query swaps the sequential queue for read-only results
+    // across the FRO's whole station scope (active + already dispositioned).
+    const searching = searchQuery.trim().length >= 2;
+    const listItems = searching ? disposedResults.map(r => ({
       ...r,
       id: r.donor_id,
       ngo_id: r.ngo_id,
       donor_name: r.donor_name,
       donor_mobile: r.donor_mobile,
       station: r.station,
-      is_disposed: true,
+      is_disposed: !!r.disposed_at || r.status === 'disposed',
       disposition_detail: r.disposition_detail,
       disposed_at: r.disposed_at,
     })) : visible;
 
-    // Sequential masking (only the top row unlocked, lower rows masked+locked)
-    // applies ONLY to the pristine default queue: New tab, all stations/ngos,
-    // no status filter, no hide-donated. Once the FRO applies ANY filter, every
-    // matching row is shown normally (no masking) so the filtered results read
-    // as real data instead of "no data allotted".
-    const filterActive = dataTab !== 'new'
-      || (selectedStation && selectedStation !== 'all')
-      || !!selectedNgo
-      || listStatusFilter !== 'all'
-      || listHideDonated;
-
     const openLead = (d) => {
-      // Disposed search results can be opened to update their disposition.
-      // When a hit also exists in the current queue, snap to that exact donor so
-      // the detail panel receives the full (live) record; otherwise render the
-      // search result record directly.
-      const keyed = searchingDisposed
+      // Search results can be opened to view/update the lead. When a hit also
+      // exists in the current live queue, snap to that exact donor so the detail
+      // panel receives the full (live) record; otherwise render the result record.
+      const keyed = searching
         ? donors.find(x => x.id === d.id && x.ngo_id === d.ngo_id)
         : null;
       const found = donors.findIndex(x => x.id === d.id && x.ngo_id === d.ngo_id);
@@ -1334,36 +1351,34 @@ export default function MyDonors() {
               </tr>
             </thead>
             <tbody>
-              {searchingDisposed && disposedSearchLoading ? (
+              {searching && disposedSearchLoading ? (
                 <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
-                  Searching disposed leads…
+                  Searching leads…
                 </td></tr>
-              ) : searchingDisposed && listItems.length === 0 ? (
+              ) : searching && listItems.length === 0 ? (
                 <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
-                  No disposed leads match "{searchQuery.trim()}". Clear the search to return to your queue.
+                  No leads match "{searchQuery.trim()}". Clear the search to return to your queue.
                 </td></tr>
               ) : listItems.length === 0 ? (
                 <tr><td colSpan="6" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
                   No leads match the current filters.
                 </td></tr>
               ) : listItems.map((d, i) => {
-                const masked = !searchingDisposed && !filterActive && i !== 0;
-                const locked = masked && !d.is_disposed;
                 return (
                   <tr key={`${d.id || d.donor_id}-${d.ngo_id || ''}`}
                     onClick={() => openLead(d)}
-                    style={{ borderBottom: '1px solid var(--line)', cursor: locked ? 'default' : 'pointer', transition: 'background .1s', opacity: locked ? 0.5 : 1, pointerEvents: locked ? 'none' : undefined }}
-                    onMouseEnter={locked ? undefined : e => { e.currentTarget.style.background = '#f3f4f6'; }}
-                    onMouseLeave={locked ? undefined : e => { e.currentTarget.style.background = ''; }}>
+                    style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer', transition: 'background .1s' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
                     <td style={{ padding: '8px 12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--md-primary-container, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--md-on-primary-container, #4338ca)', flexShrink: 0 }}>
-                          {masked ? '?' : initials(d.donor_name || '')}
+                          {initials(d.donor_name || '')}
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {masked ? `${maskText(d.donor_name)}${d.is_disposed ? '' : ' (Locked)'}` : (d.donor_name || 'Unknown')}
-                            {!masked && d.is_new && <span style={{ marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 8, fontWeight: 700 }}>NEW</span>}
+                            {d.donor_name || 'Unknown'}
+                            {d.is_new && <span style={{ marginLeft: 6, padding: '1px 5px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 8, fontWeight: 700 }}>NEW</span>}
                           </div>
                           {d.ngo_names && d.ngo_names.length > 0 && (
                             <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.ngo_names.join(', ')}</div>
@@ -1371,11 +1386,11 @@ export default function MyDonors() {
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{masked ? maskText(d.donor_mobile) : (d.donor_mobile || '—')}</td>
+                    <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.donor_mobile || '—'}</td>
                     <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>{d.station || '—'}</td>
-                    <td style={{ padding: '8px 8px' }}>{d.is_disposed ? 'Disposed' : (masked ? 'Locked' : fmtTrack(d))}</td>
+                    <td style={{ padding: '8px 8px' }}>{d.is_disposed ? 'Disposed' : fmtTrack(d)}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {!masked && <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>}
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--sage)' }}>chevron_right</span>
                     </td>
                   </tr>
                 );
@@ -1384,8 +1399,8 @@ export default function MyDonors() {
           </table>
         </div>
         <div style={{ padding: '8px 12px', borderTop: '1px solid var(--line)', fontSize: 10, color: 'var(--ink-soft)' }}>
-          {searchingDisposed
-            ? `${listItems.length} disposed lead(s) found`
+          {searching
+            ? `${listItems.length} lead(s) found`
             : `Showing ${listItems.length} of ${total || donors.length} leads`}
         </div>
       </div>
