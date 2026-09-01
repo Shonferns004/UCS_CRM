@@ -726,14 +726,41 @@ export const getMyCollections = async (req, res) => {
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
-    const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+    let monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
     const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
-    const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
+    let monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
 
     const creditWorkerName = req.user.impersonation && req.user.imposter_name ? String(req.user.imposter_name).trim() : (worker.name || '').trim();
     const workerName = creditWorkerName;
-    const monthStartDay = monthStart.slice(0, 10);
-    const monthEndDay = monthEnd.slice(0, 10);
+    let monthStartDay = monthStart.slice(0, 10);
+    let monthEndDay = monthEnd.slice(0, 10);
+
+    const monthParam = String(req.query.month || '').trim();
+    if (monthParam && monthParam !== 'current') {
+      let y;
+      let m;
+      if (monthParam === 'prev' || monthParam === 'last' || monthParam === 'previous') {
+        const d = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1));
+        d.setUTCMonth(d.getUTCMonth() - 1);
+        y = d.getUTCFullYear();
+        m = d.getUTCMonth();
+      } else {
+        const mt = /^(\d{4})-(\d{2})$/.exec(monthParam);
+        if (!mt) return res.status(400).json({ message: 'Invalid month. Use YYYY-MM, "current", or "prev".' });
+        y = Number(mt[1]);
+        m = Number(mt[2]) - 1;
+      }
+      if (!(y >= 2000 && y <= 2100 && m >= 0 && m <= 11)) {
+        return res.status(400).json({ message: 'Invalid month' });
+      }
+      const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+      const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+      const end = new Date(Date.UTC(y, m, lastDay, 23, 59, 59, 999));
+      monthStartDay = start.toISOString().slice(0, 10);
+      monthEndDay = end.toISOString().slice(0, 10);
+      monthStart = start.toISOString();
+      monthEnd = end.toISOString();
+    }
 
     const { data: receipts, error } = await db
       .from('receipts')
