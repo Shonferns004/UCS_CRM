@@ -24,6 +24,25 @@ const ownNgoId = (req) => {
   return null;
 };
 
+// Only pass through known event_head_events columns. Frontends occasionally
+// submit form-marker keys (e.g. `activityName`) that are not DB columns; a
+// strict whitelist keeps the insert from failing on Postgres' unknown-column
+// error while still accepting every real field.
+const EVENT_COLUMNS = new Set([
+  'name', 'category', 'activity_name', 'ngo_id', 'date', 'start_time', 'end_time',
+  'venue', 'gps_location', 'district', 'state', 'organizer', 'event_manager',
+  'coordinator', 'csr_partner', 'donor', 'funding_source', 'expected_beneficiaries',
+  'budget', 'description', 'notes', 'status', 'approval_status', 'priority', 'banner',
+  'sector_id', 'activity_id',
+]);
+const pickEventColumns = (obj) => {
+  const out = {};
+  for (const k of Object.keys(obj || {})) {
+    if (EVENT_COLUMNS.has(k)) out[k] = obj[k];
+  }
+  return out;
+};
+
 // Load NGO/Sector/Activity lookup maps once, shared by event views.
 const buildEventContextMaps = async () => {
   const [ngos, sectors, activities] = await Promise.all([
@@ -119,7 +138,7 @@ export const createEventHandler = async (req, res) => {
     const timeErr = validateEventTimes(body);
     if (timeErr) return res.status(400).json({ message: timeErr.message });
     const activityIds = resolveActivityIds(body);
-    const insert = { ...body, activity_id: activityIds.length ? Number(activityIds[0]) : null, created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
+    const insert = { ...pickEventColumns(body), activity_id: activityIds.length ? Number(activityIds[0]) : null, created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
     delete insert.activity_ids;
     const event = await EventHead.createEventHeadEvent(insert);
     if (activityIds.length) await EventHead.setEventHeadActivities(event.id, activityIds);
@@ -177,7 +196,7 @@ export const updateEventHeadEvent = async (req, res) => {
     }
     const timeErr = validateEventTimes(body);
     if (timeErr) return res.status(400).json({ message: timeErr.message });
-    const updates = { ...body };
+    const updates = { ...pickEventColumns(body) };
     delete updates.activity_ids;
     if (activityIds.length) updates.activity_id = Number(activityIds[0]);
     const event = await EventHead.updateEventHeadEvent(req.params.id, updates);
