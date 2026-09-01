@@ -116,7 +116,7 @@ export default function EventDetail() {
       setError('End time must be after start time'); setSaving(false); return
     }
     try {
-      const payload = { ...form, ngo_id: Number(form.ngo_id), sector_id: Number(form.sector_id), activity_id: Number(form.activity_id) }
+      const payload = { ...form, ngo_id: form.ngo_id, sector_id: Number(form.sector_id), activity_id: Number(form.activity_id) }
       for (const k of Object.keys(payload)) {
         if (payload[k] === '' || payload[k] === null || payload[k] === undefined) payload[k] = null
       }

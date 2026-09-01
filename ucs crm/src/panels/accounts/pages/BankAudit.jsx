@@ -90,6 +90,19 @@ function monthBounds(ym){
   const last=new Date(Date.UTC(y,m,0)).getUTCDate();
   return {from:ym+'-01',to:ym+'-'+String(last).padStart(2,'0')};
 }
+// For the 'unverified' (pending) status, surface unclaimed entries across the
+// month boundary: window from the start of the PREVIOUS month to the end of the
+// current month. Otherwise Aug-31 entries (seen on suspense, no month limit)
+// stay hidden in the current-month default audit view.
+function unverifiedWindow(ym){
+  const [y,m]=ym.split('-').map(Number);
+  const prevY = m===1 ? y-1 : y;
+  const prevM = m===1 ? 12 : m-1;
+  const prevPad = String(prevM).padStart(2,'0');
+  const curLast = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: prevY+'-'+prevPad+'-01',
+           to:   y+'-'+String(m).padStart(2,'0')+'-'+String(curLast).padStart(2,'0') };
+}
 
 function Sk({h=14,w='100%'}){return <div style={{height:h,width:typeof w==='number'?w:w,borderRadius:6,background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}}/>}
 
@@ -488,6 +501,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     try{
       const p=new URLSearchParams();
       if(day){p.set('date_from',day);p.set('date_to',day)}
+      else if(dt&&s==='unverified'){const w=unverifiedWindow(dt);p.set('date_from',w.from);p.set('date_to',w.to)}
       else if(dt){const b=monthBounds(dt);p.set('date_from',b.from);p.set('date_to',b.to)}
       p.set('status',s);
       const q=p.toString();

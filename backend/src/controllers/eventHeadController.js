@@ -1,7 +1,10 @@
 import * as EventHead from '../models/eventHeadModel.js';
 import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName, isCampaignName } from '../utils/activitySheet.js';
 
-const numericFields = ['budget', 'expected_beneficiaries', 'amount', 'quantity', 'purchase_cost', 'cost', 'opening_stock', 'received', 'issued', 'balance', 'available_qty', 'issued_qty', 'damaged_qty', 'kilometer_reading', 'ngo_id', 'sector_id', 'activity_id'];
+// ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
+// must pass through unchanged as a string. sector_id / activity_id are always
+// SERIAL ints and stay in the numeric list.
+const numericFields = ['budget', 'expected_beneficiaries', 'amount', 'quantity', 'purchase_cost', 'cost', 'opening_stock', 'received', 'issued', 'balance', 'available_qty', 'issued_qty', 'damaged_qty', 'kilometer_reading', 'sector_id', 'activity_id'];
 const sanitize = (data) => {
   const clean = { ...data };
   for (const k of Object.keys(clean)) {
@@ -82,13 +85,11 @@ const resolveActivityIds = (body) => {
 const validateEventRelations = async (body) => {
   const missing = [];
   if (!body.name) missing.push('event name');
-  if (!body.date) missing.push('event date');
   if (!body.ngo_id) missing.push('NGO');
   if (!body.sector_id) missing.push('sector');
-  const activityIds = resolveActivityIds(body);
-  if (!activityIds.length) missing.push('activity');
   if (missing.length) return { error: { message: `Required fields missing: ${missing.join(', ')}` } };
 
+  const activityIds = resolveActivityIds(body);
   const activities = await Promise.all(activityIds.map(id => EventHead.getActivityById(id)));
   for (const activity of activities) {
     if (!activity) return { error: { message: 'Selected activity does not exist' } };
@@ -118,7 +119,7 @@ export const createEventHandler = async (req, res) => {
     const timeErr = validateEventTimes(body);
     if (timeErr) return res.status(400).json({ message: timeErr.message });
     const activityIds = resolveActivityIds(body);
-    const insert = { ...body, activity_id: Number(activityIds[0]), created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
+    const insert = { ...body, activity_id: activityIds.length ? Number(activityIds[0]) : null, created_by: String(req.user.id), status: body.status || 'Draft', approval_status: body.approval_status || 'Draft' };
     delete insert.activity_ids;
     const event = await EventHead.createEventHeadEvent(insert);
     if (activityIds.length) await EventHead.setEventHeadActivities(event.id, activityIds);
@@ -1115,20 +1116,28 @@ export const createActivity = async (req, res) => {
 
 // ─── ACTIVITIES SHEET IMPORT / EXPORT ───
 // Upload an Excel/CSV sheet of the user's NGO activities; rows go straight
-// into the DB under the selected NGO's activity catalog (per-sector).
+// into the DB under each activity's NGO catalog (per-sector). When the sheet
+// carries its own "NGO" column (e.g. the combined BSCT/MANN/AFLF team sheet),
+// each row is assigned to the NGO named in that column. Otherwise the activity
+// is assigned to the NGO selected in the dropdown / passed as ngo_code.
 export const importActivities = async (req, res) => {
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ message: 'No file uploaded' });
 
     const ngos = await EventHead.getAllEventHeadNgos();
-    let ngo = null;
+    let defaultNgo = null;
     const code = String(req.body.ngo_code || '').trim().toUpperCase();
-    if (code) ngo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === code);
-    if (!ngo && req.body.ngo_id) ngo = ngos.find(n => String(n.id) === String(req.body.ngo_id));
-    if (!ngo) return res.status(404).json({ message: `NGO not found. Use BSCT, MANN or AFLF.` });
+    if (code) defaultNgo = ngos.find(n => String(n.code || n.name || '').toUpperCase() === code);
+    if (!defaultNgo && req.body.ngo_id) defaultNgo = ngos.find(n => String(n.id) === String(req.body.ngo_id));
 
-    const { rows } = parseActivitySheet(file.buffer);
+    const ngoByCode = new Map();
+    for (const n of ngos) ngoByCode.set(String(n.code || n.name || '').toUpperCase(), n);
+    const normNgoKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ');
+    const ngoByKey = new Map();
+    for (const n of ngos) ngoByKey.set(normNgoKey(n.code || n.name), n);
+
+    const { rows, hasNgoColumn } = parseActivitySheet(file.buffer);
     if (!rows.length) return res.status(400).json({ message: 'No activities found in the sheet' });
 
     const sectors = await EventHead.getAllEventHeadSectors();
@@ -1138,7 +1147,9 @@ export const importActivities = async (req, res) => {
     const prepared = [];
     const skippedCampaigns = new Set();
     const unknownSectors = new Map();
+    const unknownNgos = new Map();
     const sectorCounts = {};
+    const ngoCounts = {};
     const seen = new Set();
     let rowsParsed = 0;
 
@@ -1146,6 +1157,21 @@ export const importActivities = async (req, res) => {
       const name = normalizeName(row.name);
       if (!name) continue;
       rowsParsed++;
+
+      // Resolve the target NGO. Prefer a per-row NGO column when present;
+      // otherwise fall back to the single NGO selected in the dropdown.
+      let ngo;
+      if (hasNgoColumn && row.ngoLabel) {
+        ngo = ngoByKey.get(normNgoKey(row.ngoLabel)) || ngoByCode.get(String(row.ngoLabel).toUpperCase());
+        if (!ngo) {
+          unknownNgos.set(row.ngoLabel, (unknownNgos.get(row.ngoLabel) || 0) + 1);
+          continue;
+        }
+      } else {
+        ngo = defaultNgo;
+      }
+      if (!ngo) return res.status(404).json({ message: `NGO not found. Use BSCT, MANN or AFLF.` });
+
       if (isCampaignName(name)) { skippedCampaigns.add(name); continue; }
       const canonical = canonicalizeSector(row.sectorLabel, sectorNames);
       const sectorId = sectorByName.get(canonical);
@@ -1153,7 +1179,7 @@ export const importActivities = async (req, res) => {
         unknownSectors.set(row.sectorLabel, (unknownSectors.get(row.sectorLabel) || 0) + 1);
         continue;
       }
-      const key = `${sectorId}\u0000${name.toLowerCase()}`;
+      const key = `${ngo.id}\u0000${sectorId}\u0000${name.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
       prepared.push({
@@ -1165,18 +1191,27 @@ export const importActivities = async (req, res) => {
         created_by: String(req.user.id || ''),
       });
       sectorCounts[canonical] = (sectorCounts[canonical] || 0) + 1;
+      ngoCounts[String(ngo.id)] = (ngoCounts[String(ngo.id)] || 0) + 1;
     }
 
     const inserted = await EventHead.insertActivitiesBulk(prepared);
 
+    const perNgo = Object.entries(ngoCounts).map(([ngoId, count]) => {
+      const n = ngos.find(x => String(x.id) === String(ngoId));
+      return { ngo: n ? (n.code || n.name) : `NGO ${ngoId}`, count };
+    });
+
     return res.json({
-      ngo: { id: ngo.id, code: ngo.code || ngo.name, name: ngo.name },
+      ngo: { id: defaultNgo ? defaultNgo.id : null, code: defaultNgo ? (defaultNgo.code || defaultNgo.name) : '—', name: defaultNgo ? defaultNgo.name : '—' },
+      ngo_from_file: !!hasNgoColumn,
+      per_ngo: perNgo,
       sheet: file.originalname,
       rows_parsed: rowsParsed,
       inserted: inserted.length,
       skipped_existing: prepared.length - inserted.length,
       skipped_campaigns: [...skippedCampaigns],
       unknown_sectors: [...unknownSectors.entries()].map(([label, count]) => ({ sector: label, count })),
+      unknown_ngos: [...unknownNgos.entries()].map(([label, count]) => ({ ngo: label, count })),
       sectors: Object.entries(sectorCounts)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([sector_name, count]) => ({ sector_name, count })),
