@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
+import { isFreshStation } from '../../../lib/stations';
 
 const NGO_NAME_COLORS = {
   bsct: '#2563eb',
@@ -1206,8 +1207,8 @@ export default function StationManagement() {
   const historyTransfers = transfers.filter(t => t.returned);
 
   const filteredStations = stations.filter(s => {
-    if (stationTab === 'fresh') return s.station?.startsWith('FD-');
-    if (stationTab === 'old') return !s.station?.startsWith('FD-');
+    if (stationTab === 'fresh') return isFreshStation(s.station);
+    if (stationTab === 'old') return !isFreshStation(s.station);
     return true;
   });
 
@@ -1383,7 +1384,7 @@ export default function StationManagement() {
                 style={{ padding: '4px 12px', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: stationTab === tab.key ? '#fff' : 'transparent', color: stationTab === tab.key ? 'var(--ink)' : 'var(--ink-soft)', boxShadow: stationTab === tab.key ? '0 1px 3px rgba(0,0,0,.1)' : 'none' }}>
                 {tab.label}
                 <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 400, opacity: .6 }}>
-                  ({stationTab === tab.key ? filteredStations.length : stations.filter(s => tab.key === 'all' ? true : tab.key === 'fresh' ? s.station?.startsWith('FD-') : !s.station?.startsWith('FD-')).length})
+                  ({stationTab === tab.key ? filteredStations.length : stations.filter(s => tab.key === 'all' ? true : tab.key === 'fresh' ? isFreshStation(s.station) : !isFreshStation(s.station)).length})
                 </span>
               </button>
             ))}
@@ -1416,7 +1417,7 @@ export default function StationManagement() {
                   <tr key={s.station}>
                     <td>
                       <strong>{s.station}</strong>
-                      {s.station?.startsWith('FD-') && <span style={{ marginLeft: 4, fontSize: 10, padding: '1px 5px', borderRadius: 4, background: '#dbeafe', color: '#1e40af', fontWeight: 600 }}>FRESH</span>}
+                      {isFreshStation(s.station) && <span style={{ marginLeft: 4, fontSize: 10, padding: '1px 5px', borderRadius: 4, background: '#dbeafe', color: '#1e40af', fontWeight: 600 }}>FRESH</span>}
                       {(() => {
                         const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
                         return at ? <span style={{ marginLeft: 6, fontSize: 13, color: '#b45309', fontWeight: 500 }}>→ {at.target_station}</span> : null;
