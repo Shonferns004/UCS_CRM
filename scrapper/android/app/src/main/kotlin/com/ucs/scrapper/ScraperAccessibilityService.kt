@@ -64,6 +64,7 @@ class ScraperAccessibilityService : AccessibilityService() {
     private var scrollCount = 0
     private var listEntered = false
     private var detailPhase = 0
+    private var detailWaitTicks = 0
     private var pendingDetail: ScrapedTxn? = null
     private var blockedNotified = false
     private var blockedSince = 0L
@@ -205,7 +206,7 @@ class ScraperAccessibilityService : AccessibilityService() {
             if (remote.isNotEmpty()) handler.post { knownRefs.addAll(remote) }
         }.start()
         pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0; revisitCount = 0
-        listEntered = false; detailPhase = 0; pendingDetail = null
+        listEntered = false; detailPhase = 0; detailWaitTicks = 0; pendingDetail = null
         lastHeaderDate = null
         trainedFlow = TrainedStep.load(ScraperConfig.get("trainedFlow"))
         replayIdx = 0; stepCooldown = 0; flowDone = false; linkCooldown = 0
@@ -412,11 +413,15 @@ class ScraperAccessibilityService : AccessibilityService() {
 
             val ref = txn.paymentId?.filterNot { it == ' ' }
             val refOk = !ref.isNullOrBlank() && ref.length >= 12 && !ref.uppercase().contains("X")
-            if (refOk) {
+            val alreadySeen = refOk && (ref in seenRefs || ref in knownRefs)
+            // Open every transaction's detail page so the full detail (date, UPI
+            // ref, payer) is always extracted from the screen rather than relying
+            // on the list header date, which is frequently missing.
+            if (!alreadySeen && pendingDetail == null && txn.received) {
+                pendingDetail = txn
+            } else if (refOk) {
                 seenRefs.add(ref)
                 collected.add(txn)
-            } else if (pendingDetail == null && txn.received) {
-                pendingDetail = txn
             }
         }
 
@@ -540,9 +545,19 @@ class ScraperAccessibilityService : AccessibilityService() {
                 detailPhase = 1
             }
             1 -> {
+                // Wait on the transaction detail page and keep re-parsing until
+                // the date (and any other detail) has been extracted, or a max
+                // number of retries is reached. Do NOT press back before the
+                // page has been given time to render its content.
                 parseDetail(root, pendingDetail)
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                detailPhase = 2
+                val hasDate = !pendingDetail?.transactionDate.isNullOrBlank()
+                detailWaitTicks++
+                if (hasDate || detailWaitTicks >= 6) {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    detailWaitTicks = 0
+                    detailPhase = 2
+                }
+                // else: stay on the detail page, retry next tick.
             }
             2 -> {
                 val raw = pendingDetail?.paymentId
