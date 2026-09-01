@@ -2,7 +2,6 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
 import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
 import { Component } from 'react'
-import PrivacyShell from './components/PrivacyShell'
 import Login from './pages/Login'
 import SuperAdminPanel from './panels/super-admin/SuperAdminPanel'
 import HRPanel from './panels/hr/HRPanel'
@@ -133,7 +132,6 @@ export default function App() {
     <ErrorBoundary>
     <UcsProvider>
     <SalaryPrivacyProvider>
-      <PrivacyShell />
       <Routes>
         <Route path="/login" element={<LoginWrapper />} />
         <Route path="/" element={<RootRedirect />} />

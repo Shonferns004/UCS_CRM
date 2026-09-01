@@ -290,7 +290,7 @@ export default function Reports() {
       r.name, r.receiptCount || 0, r.total,
       ...sourceOrder.map(s => (data?.byNgo?.[r.id]?.sources?.[s]) || 0),
       r.sourceTotal || 0, r.monthlyTarget, r.workingDaysSoFar,
-      round2(r.targetDaily), round2(r.actualAvg), round2(r.diff),
+      round2(r.targetDaily), round2(r.actualAvg), round2((r.monthlyTarget || 0) - (r.total || 0)),
     ]);
     const all = [header, ...body];
     if (atc) {
@@ -506,7 +506,8 @@ export default function Reports() {
                 </thead>
                 <tbody>
                   {rows.map(r => {
-                    const diffColor = r.diff >= 0 ? '#1B7A3D' : '#B3392B';
+                    const diffTotal = round2((r.monthlyTarget || 0) - (r.total || 0));
+                    const diffColor = diffTotal >= 0 ? '#1B7A3D' : '#B3392B';
                     return (
                       <tr key={r.id} style={{ borderTop: '1px solid var(--line)', background: r.id === sourceTab ? '#F3FBF6' : 'transparent' }}>
                         <td style={{ padding: '9px 12px', fontWeight: 600 }}>{r.name}</td>
@@ -516,7 +517,7 @@ export default function Reports() {
                         <td style={{ padding: '9px 12px' }}>{mask(r.workingDaysSoFar)}</td>
                         <td style={{ padding: '9px 12px' }}>{mask(currency(round2(r.targetDaily)))}</td>
                         <td style={{ padding: '9px 12px' }}>{mask(currency(round2(r.actualAvg)))}</td>
-                        <td style={{ padding: '9px 12px', fontWeight: 700, color: diffColor }}>{mask((round2(r.diff) >= 0 ? '+' : '') + currency(round2(r.diff)))}</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 700, color: diffColor }}>{mask((diffTotal >= 0 ? '+' : '') + currency(diffTotal))}</td>
                       </tr>
                     );
                   })}
