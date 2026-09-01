@@ -1308,4 +1308,6 @@ export const sql = async (text, params = []) => {
   return rows;
 };
 
+export const getTableColumns = async (table) => getColumns(table);
+
 export default db;
