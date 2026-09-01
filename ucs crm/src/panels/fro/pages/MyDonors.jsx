@@ -9,6 +9,7 @@ import { TimePicker } from '../components/TimePicker';
 import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
+import usePasteImage from '../../../utils/usePasteImage';
 import { API_BASE } from '../../../lib/apiBase';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
@@ -830,8 +831,7 @@ export default function MyDonors() {
     showDonationPrompt, donationEntering, donationAmt, donationDt,
   };
 
-  const handleScreenshotChange = (e) => {
-    const file = e.target.files[0];
+  const processScreenshotFile = (file) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
@@ -856,6 +856,31 @@ export default function MyDonors() {
     };
     reader.readAsDataURL(file);
   };
+
+  const handleScreenshotChange = (e) => {
+    processScreenshotFile(e.target.files[0]);
+  };
+
+  const handlePasteScreenshot = usePasteImage(({ base64, mime, file }) => {
+    setLeadScreenshot({ base64, mime });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setScreenshotPreview(reader.result);
+      setOcrLoading(true);
+      try {
+        const { upiTransactionId, transactionDatetime, amount, fromName } = await extractTransactionData(reader.result);
+        if (upiTransactionId) setUpiTransactionId(upiTransactionId);
+        if (transactionDatetime) {
+          const dt = new Date(transactionDatetime);
+          if (!isNaN(dt.getTime())) setTransactionDatetime(dt.toISOString().slice(0, 16));
+        }
+        if (amount) setLeadAmount(prev => prev || amount);
+        if (fromName) setOcrFromName(fromName);
+      } catch (e) { console.error('Error:', e.message); }
+      setOcrLoading(false);
+    };
+    reader.readAsDataURL(file);
+  });
 
   const filterDonations = (list, filter) => {
     if (!list) return [];
@@ -1672,8 +1697,9 @@ export default function MyDonors() {
                   </div>
                   <div className="detail-field-row">
                     <div className="fld">
-                      <label>Screenshot</label>
-                      <label htmlFor="ss-input" className="ss-upload">
+                      <label>Screenshot / Proof image</label>
+                      <label htmlFor="ss-input" className="ss-upload" onPaste={handlePasteScreenshot}
+                        title="Upload a file or paste an image (Ctrl+V)">
                         {screenshotPreview ? (
                           <div style={{ position: 'relative' }}>
                             <img src={screenshotPreview} alt="preview" className="ss-preview"
@@ -1684,11 +1710,11 @@ export default function MyDonors() {
                         ) : (
                           <div className="ss-placeholder">
                             <span className="material-symbols-outlined">upload</span>
-                            <span>Upload screenshot</span>
+                            <span>Upload or paste (Ctrl+V)</span>
                           </div>
                         )}
                       </label>
-                      <input id="ss-input" type="file" accept="image/*" onChange={handleScreenshotChange} />
+                      <input id="ss-input" type="file" accept="image/*" onChange={handleScreenshotChange} onPaste={handlePasteScreenshot} />
                     </div>
                   </div>
                   <div className="detail-field-row">

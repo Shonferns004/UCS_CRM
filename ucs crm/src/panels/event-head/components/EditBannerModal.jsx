@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { replaceMedia, updateMedia, updateEvent } from '../store'
+import usePasteImage from '../../../utils/usePasteImage'
 
 const pad2 = (n) => String(n).padStart(2, '0')
 const fmtDay = (d) => d ? String(d).slice(0, 10) : ''
@@ -28,6 +29,8 @@ export default function EditBannerModal({ media, event, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef(null)
+  const pickFile = (f) => { setNewFile(f); setConfirmReplace(!!f) }
+  const onFilePaste = usePasteImage(({ file }) => { if (file) pickFile(file) })
 
   useEffect(() => {
     const h = (e) => { if (e.key === 'Escape') { if (!confirmReplace) onClose() } }
@@ -70,8 +73,6 @@ export default function EditBannerModal({ media, event, onClose, onSaved }) {
     } finally { setSaving(false) }
   }
 
-  const pickFile = (f) => { setNewFile(f); setConfirmReplace(!!f) }
-
   return (
     <div className="modal-overlay" onClick={() => { if (!saving && !confirmReplace) onClose() }} style={{ zIndex: 2200, padding: 20 }}>
       <div className="modal" style={{ maxWidth: 700, borderRadius: 16, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(0,0,0,0.24)' }} onClick={e => e.stopPropagation()}>
@@ -106,7 +107,7 @@ export default function EditBannerModal({ media, event, onClose, onSaved }) {
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Replace Banner</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button className="btn btn-sm" type="button" onClick={() => fileRef.current?.click()} disabled={!!newFile}>{newFile ? newFile.name : 'Choose New File'}</button>
+              <button className="btn btn-sm" type="button" onPaste={onFilePaste} onClick={() => fileRef.current?.click()} disabled={!!newFile} title="Choose a file or paste an image (Ctrl+V)">{newFile ? newFile.name : 'Choose New File'}</button>
               {newFile && <button className="btn btn-sm btn-icon" onClick={() => { setNewFile(null); setConfirmReplace(false); if (fileRef.current) fileRef.current.value = '' }}>✕</button>}
               <input ref={fileRef} type="file" hidden onChange={e => pickFile(e.target.files[0] || null)} accept="image/*,.pdf,.doc,.docx" />
               <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Optional — only if you want a new banner image/file.</span>

@@ -623,6 +623,15 @@ app.get('/api/customer/list', async (req, res) => {
 const bankImportDist = path.resolve(__dirname, '../public/bank-import');
 app.use('/bank-import', express.static(bankImportDist));
 
+// Security headers: block in-browser screen-share/camera/mic capture of the
+// CRM web panels and harden referrer leakage on the SPA responses.
+app.use((req, res, next) => {
+  res.set('Permissions-Policy', "display-capture=(), camera=(), microphone=()");
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
+
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
   app.get('/whatsapp*', (req, res) => {
