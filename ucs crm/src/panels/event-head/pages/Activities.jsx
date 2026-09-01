@@ -59,7 +59,7 @@ export default function Activities() {
     setError('')
     const payload = {
       name: form.name.trim(),
-      ngo_id: form.ngo_id ? Number(form.ngo_id) : null,
+      ngo_id: form.ngo_id ? String(form.ngo_id) : null,
       sector_id: Number(form.sector_id),
       description: form.description || null,
       banner: form.banner || null,
@@ -102,13 +102,12 @@ export default function Activities() {
 
   const handleImportSubmit = async (e) => {
     e.preventDefault()
-    if (!importNgo) { setImportError('Please select an NGO for this sheet'); return }
     if (!importFile) { setImportError('Please choose an Excel/CSV file'); return }
     setImporting(true)
     setImportError('')
     setImportResult(null)
     try {
-      const ngoCode = ngos.find(n => String(n.id) === String(importNgo))
+      const ngoCode = importNgo ? ngos.find(n => String(n.id) === String(importNgo)) : null
       const result = await importActivitiesSheet((ngoCode && (ngoCode.code || ngoCode.name)) || importNgo, importFile)
       setImportResult(result)
       await loadActivities()
@@ -211,10 +210,10 @@ export default function Activities() {
             <form onSubmit={handleImportSubmit}>
               <div className="modal-body">
                 <p style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
-                  Select the NGO this sheet belongs to and upload the Excel/CSV file. Rows from the sheet go straight into that NGO&apos;s activity catalog, matched to your sectors.
+                  Select the NGO this sheet belongs to, then upload the Excel/CSV file. Rows from the sheet go straight into that NGO&apos;s activity catalog, matched to your sectors. If your sheet has its own &quot;NGO&quot; column (e.g. the combined BSCT / MANN / AFLF team sheet), each row is assigned to the NGO named in that column and the dropdown is optional.
                 </p>
                 <div className="form-row" style={{ marginBottom: 12 }}>
-                  <div className="field"><label>NGO *</label>
+                  <div className="field"><label>NGO <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>(optional if sheet has an NGO column)</span></label>
                     <select value={importNgo} onChange={e => { setImportNgo(e.target.value); setImportResult(null); setImportError('') }}>
                       <option value="">Select NGO</option>
                       {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
@@ -228,8 +227,18 @@ export default function Activities() {
                 </div>
                 {importResult && (
                   <div style={{ marginTop: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 12, background: 'var(--panel)', fontSize: 13 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 6, color: '#16a34a' }}>Imported {importResult.inserted || 0} activities for {importResult.ngo?.name || importResult.ngo?.code}</div>
+                    <div style={{ fontWeight: 600, marginBottom: 6, color: '#16a34a' }}>
+                      {importResult.ngo_from_file
+                        ? `Imported ${importResult.inserted || 0} activities across NGOs from the sheet`
+                        : `Imported ${importResult.inserted || 0} activities for ${importResult.ngo?.name || importResult.ngo?.code || 'selected NGO'}`}
+                    </div>
                     <div style={{ color: 'var(--ink-soft)' }}>Parsed rows: {importResult.rows_parsed || 0} · Already existing (skipped): {importResult.skipped_existing || 0}</div>
+                    {Array.isArray(importResult.per_ngo) && importResult.per_ngo.length > 0 && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ fontWeight: 600 }}>Per NGO:</div>
+                        {importResult.per_ngo.map(p => <div key={p.ngo}>{p.ngo}: {p.count}</div>)}
+                      </div>
+                    )}
                     {Array.isArray(importResult.sectors) && importResult.sectors.length > 0 && (
                       <div style={{ marginTop: 6 }}>
                         <div style={{ fontWeight: 600 }}>Per sector:</div>
@@ -238,6 +247,11 @@ export default function Activities() {
                     )}
                     {Array.isArray(importResult.skipped_campaigns) && importResult.skipped_campaigns.length > 0 && (
                       <div style={{ marginTop: 6 }}><span style={{ fontWeight: 600 }}>Skipped event/campaign names:</span> {importResult.skipped_campaigns.join(', ')}</div>
+                    )}
+                    {Array.isArray(importResult.unknown_ngos) && importResult.unknown_ngos.length > 0 && (
+                      <div style={{ marginTop: 6, color: '#B5603A' }}>
+                        <span style={{ fontWeight: 600 }}>Unknown NGO labels (not imported):</span> {importResult.unknown_ngos.map(u => `${u.ngo} (${u.count})`).join(', ')}
+                      </div>
                     )}
                     {Array.isArray(importResult.unknown_sectors) && importResult.unknown_sectors.length > 0 && (
                       <div style={{ marginTop: 6, color: '#B5603A' }}>
@@ -250,7 +264,7 @@ export default function Activities() {
               </div>
               <div className="modal-actions" style={{ padding: '0 18px 18px' }}>
                 <button type="button" className="btn btn-sm" onClick={() => setImportModal(false)} disabled={importing}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={importing || !importFile || !importNgo}>{importing ? 'Uploading...' : 'Upload & Import'}</button>
+                <button type="submit" className="btn btn-primary" disabled={importing || !importFile}>{importing ? 'Uploading...' : 'Upload & Import'}</button>
               </div>
             </form>
           </div>

@@ -160,6 +160,17 @@
   padding: 1px 6px;
   line-height: 1.4;
 }
+.eh-tag[data-ngo-id] {
+  cursor: pointer;
+  transition: box-shadow .12s ease, transform .06s ease, background .12s ease;
+}
+.eh-tag[data-ngo-id]:hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pile-c, #64748b) 55%, transparent);
+  background: color-mix(in srgb, var(--pile-c, #64748b) 30%, #ffffff);
+}
+.eh-tag[data-ngo-id]:active {
+  transform: scale(.94);
+}
 
 /* Time grid */
 .fc .fc-timegrid-slot { height: 2.2em; }
