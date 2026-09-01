@@ -120,9 +120,11 @@ export function parseActivitySheet(buffer) {
 
   const isSectorHeader = (h) => /^sector/.test(h) && !/\bno\b|number|count/i.test(h);
   const isNameHeader = (h) => /activity|project/.test(h) && !/\bno\b|number|count|type/i.test(h) && !/^\s*no\b/i.test(h);
+  const isNgoHeader = (h) => /^ngo/.test(h) && !/activity/.test(h);
 
   let sectorCol = -1;
   let nameCol = -1;
+  let ngoCol = -1;
   let headerRow = -1;
   for (let r = 0; r < Math.min(aoa.length, 30); r++) {
     const row = aoa[r] || [];
@@ -131,6 +133,7 @@ export function parseActivitySheet(buffer) {
       if (!cell) continue;
       if (sectorCol === -1 && isSectorHeader(cell)) sectorCol = c;
       if (nameCol === -1 && isNameHeader(cell)) nameCol = c;
+      if (ngoCol === -1 && isNgoHeader(cell)) ngoCol = c;
     }
     if (sectorCol !== -1 && nameCol !== -1) { headerRow = r; break; }
   }
@@ -141,18 +144,21 @@ export function parseActivitySheet(buffer) {
 
   const rows = [];
   let lastSector = '';
+  let lastNgo = '';
   for (let r = headerRow + 1; r < aoa.length; r++) {
     const row = aoa[r] || [];
     const sectorCell = String(row[sectorCol] ?? '').replace(/\s+/g, ' ').trim();
     const nameCell = String(row[nameCol] ?? '').replace(/\s+/g, ' ').trim();
+    const ngoCell = ngoCol !== -1 ? String(row[ngoCol] ?? '').replace(/\s+/g, ' ').trim() : '';
     if (sectorCell) lastSector = sectorCell;
+    if (ngoCell) lastNgo = ngoCell;
     if (!nameCell) continue;
     if (/^(total|grand\s+total|sub\s+total)/i.test(nameCell)) continue;
     if (!lastSector) continue;
-    rows.push({ sectorLabel: lastSector, name: nameCell });
+    rows.push({ sectorLabel: lastSector, name: nameCell, ngoLabel: lastNgo || null });
   }
 
-  return { rows, sheetName };
+  return { rows, sheetName, hasNgoColumn: ngoCol !== -1 };
 }
 
 // ─── Events sheet ───────────────────────────────────────────────────────────

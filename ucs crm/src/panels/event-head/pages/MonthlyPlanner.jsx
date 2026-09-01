@@ -76,6 +76,21 @@ const baseTitle = (title, ngoName) => {
 }
 // Short NGO code: prefer the uppercased, whitespace-free code of the name.
 const ngoCode = (name) => String(name || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 5) || 'NGO'
+// Build the clickable NGO tag list for a grouped pill: [{ code, id }], deduped.
+const groupNgoTags = (members) => {
+  const out = []
+  const seen = new Set()
+  for (const m of members || []) {
+    const p = m.extendedProps || {}
+    const mid = p.ngoId
+    const code = ngoCode(p.ngoName)
+    const key = mid || code
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ code, id: mid })
+  }
+  return out
+}
 
 /* Group a list of calendar event objects by day + base title across NGOs. */
 const groupCalendarEvents = (list) => {
@@ -201,7 +216,7 @@ function EventFormModal({ mode, initial, defaultDate, onClose, onSaved }) {
 
     const payload = {
       name: form.name,
-      ngo_id: Number(form.ngo_id),
+      ngo_id: form.ngo_id,
       sector_id: Number(form.sector_id),
       activity_ids: form.activities.map(Number),
       date: form.date,
@@ -436,6 +451,15 @@ export default function MonthlyPlanner() {
   const changeNgo = (v) => { setFilterNgo(v); setFilterSector(''); setFilterActivity('') }
   const changeSector = (v) => { setFilterSector(v); setFilterActivity('') }
 
+  /* Clicking an NGO tag on a calendar pill filters the calendar to that NGO. */
+  const handleTagClick = (e) => {
+    const t = e.target.closest('.eh-tag')
+    if (!t) return
+    const id = t.getAttribute('data-ngo-id')
+    if (!id) return
+    changeNgo(filterNgo === id ? '' : id)
+  }
+
   const refresh = () => setLoadKey(k => k + 1)
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2600) }
 
@@ -469,7 +493,7 @@ export default function MonthlyPlanner() {
           category: g.category,
           categoryColor: cat.color,
           categoryIcon: cat.icon,
-          ngos: [...new Set(g.members.map(m => ngoCode(m.extendedProps?.ngoName)))],
+          ngos: groupNgoTags(g.members),
           members: g.members,
         },
       }
@@ -593,12 +617,12 @@ export default function MonthlyPlanner() {
           ))}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--eh-ink)' }}>
             <span style={{ width: 12, height: 12, borderRadius: 3, background: '#e5e7eb', border: '1px solid #d1d5db', display: 'inline-block' }} />
-            NGO tags (lighter)
+            NGO tags (click to filter)
           </span>
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" onClick={handleTagClick}>
         <div className="card-pad">
           {loading && <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)', marginBottom: 8 }}>Loading calendar…</div>}
           <FullCalendar
@@ -630,7 +654,7 @@ export default function MonthlyPlanner() {
               return {
                 html: `<div class="eh-pill" style="--pile-c:${cat.color}">
                   <div class="eh-pill-row1"><span class="eh-pill-icon">${cat.icon}</span><span class="eh-pill-title">${escapeHtml(title)}${ngos.length > 1 ? ` <b class="eh-pill-count">(${ngos.length} NGOs)</b>` : ''}</span></div>
-                  <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag">${escapeHtml(n)}</span>`).join('')}</div>
+                  <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag" data-ngo-id="${escapeHtml(n.id || '')}">${escapeHtml(n.code)}</span>`).join('')}</div>
                 </div>`,
               }
             }}
