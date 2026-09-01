@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchEvents, fetchEventById, fetchMedia, uploadMedia, replaceMedia, updateMedia, deleteMedia } from '../store'
 import { useUcs } from '../../../store'
+import usePasteImage from '../../../utils/usePasteImage'
 import { EnhancedTable } from '../components/Table'
 import EditBannerModal from '../components/EditBannerModal'
 
@@ -135,6 +136,7 @@ export default function MediaManagement() {
   const uploadInput = useRef(null)
   const dragDepth = useRef(0)
   const prefillUploadRef = useRef(null) // { eventId, ngoId, sectorId } to preserve when prefilling from the open event
+  const onUploadPaste = usePasteImage(({ file }) => { if (file) onPickFiles([file]) })
 
   // Upload target selection (NGO → Sector → Activity → Event) — independent of filter bar
   const [uploadNgoId, setUploadNgoId] = useState('')
@@ -794,6 +796,7 @@ export default function MediaManagement() {
                 onDragEnter={e => { e.preventDefault(); dragDepth.current++ }}
                 onDragLeave={e => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragging(false) }}
                 onDrop={onDrop}
+                onPaste={onUploadPaste}
                 style={{ border: `2px dashed ${dragging ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 'var(--radius-sm)', padding: 22, textAlign: 'center', background: dragging ? 'var(--sage-light, #f3f6ef)' : 'var(--bg)', transition: 'border-color .15s, background .15s' }}
               >
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Drag &amp; drop files here</div>

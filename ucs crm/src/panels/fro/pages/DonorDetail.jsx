@@ -3,6 +3,7 @@ import { getDonorDetail, addDonorLog, uploadPaymentScreenshot } from '../api/don
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 import { extractTransactionData } from '../utils/ocr';
+import usePasteImage from '../../../utils/usePasteImage';
 import { toast } from '../../../components/Toast';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { NOT_CONNECTED, CONNECTED, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
@@ -86,8 +87,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
     }
   };
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
+  const processScreenshotFile = (file) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
@@ -110,6 +110,30 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
     };
     reader.readAsDataURL(file);
   };
+
+  const handleFileChange = (e) => {
+    processScreenshotFile(e.target.files[0]);
+  };
+
+  const handlePasteScreenshot = usePasteImage(({ base64, mime, file }) => {
+    setPaymentScreenshot({ base64, mime_type: mime });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setOcrLoading(true);
+      try {
+        const { upiTransactionId, transactionDatetime, amount, fromName } = await extractTransactionData(reader.result);
+        if (upiTransactionId) setUpiTransactionId(upiTransactionId);
+        if (transactionDatetime) {
+          const dt = new Date(transactionDatetime);
+          if (!isNaN(dt.getTime())) setTransactionDatetime(dt.toISOString().slice(0, 16));
+        }
+        if (amount && !paymentAmount) setPaymentAmount(amount);
+        if (fromName) setOcrFromName(fromName);
+      } catch (e) { console.error('Error:', e.message); }
+      setOcrLoading(false);
+    };
+    reader.readAsDataURL(file);
+  });
 
   const handleSave = async () => {
     if (!selected) {
@@ -351,9 +375,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
                 <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} min="1" placeholder="Enter amount" style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Payment Screenshot (optional) {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)'}}>OCR…</span>}</label>
-                <input type="file" accept="image/*" onChange={handleFileChange} style={{ fontSize: 13, width: '100%' }} />
-                {paymentScreenshot && <span style={{ fontSize: 11, color: 'var(--primary)' }}>File selected</span>}
+                <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Payment Screenshot / Proof (optional, upload or paste Ctrl+V) {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)'}}>OCR…</span>}</label>
+                <input type="file" accept="image/*" onChange={handleFileChange} onPaste={handlePasteScreenshot} style={{ fontSize: 13, width: '100%' }} />
+                {paymentScreenshot && <span style={{ fontSize: 11, color: 'var(--primary)' }}>Image captured</span>}
               </div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>UPI Transaction ID</label>

@@ -3,6 +3,7 @@ import { useHR, avatarColor, avatarTint, initials, DEPTS } from '../store';
 import { useTeams } from '../../../components/useTeams';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { api } from '../../../api/auth';
+import usePasteImage from '../../../utils/usePasteImage';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
 import { API_BASE } from '../../../lib/apiBase';
@@ -84,32 +85,35 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoInputRef = useRef(null);
 
+  const uploadPhotoBase64 = async (base64, mime_type) => {
+    setPhotoUploading(true);
+    try {
+      const res = await api(`/onboarding/admin/upload-photo/${worker.id}`, {
+        method: 'POST',
+        body: JSON.stringify({ photo_base64: base64, mime_type }),
+        _prefix: 'ucs',
+      });
+      if (res.photo_url) {
+        setData(prev => prev ? { ...prev, photo_url: res.photo_url } : prev);
+        setImgErr(false);
+      }
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
   const handlePhotoSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setPhotoUploading(true);
-    try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = reader.result.split(',')[1];
-        const mime_type = file.type;
-        const res = await api(`/onboarding/admin/upload-photo/${worker.id}`, {
-          method: 'POST',
-          body: JSON.stringify({ photo_base64: base64, mime_type }),
-          _prefix: 'ucs',
-        });
-        if (res.photo_url) {
-          setData(prev => prev ? { ...prev, photo_url: res.photo_url } : prev);
-          setImgErr(false);
-        }
-        setPhotoUploading(false);
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      setPhotoUploading(false);
-    }
+    const reader = new FileReader();
+    reader.onload = () => uploadPhotoBase64(reader.result.split(',')[1], file.type);
+    reader.readAsDataURL(file);
     e.target.value = '';
   };
+
+  const handlePhotoPaste = usePasteImage(({ base64, mime }) => {
+    uploadPhotoBase64(base64, mime);
+  });
 
   useEffect(() => {
     setLoading(true);
@@ -568,7 +572,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
         <div className="card detail-sidebar">
           <div style={{ textAlign:'center', padding:'24px 0 12px', position:'relative' }}>
             <input ref={photoInputRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handlePhotoSelect} />
-            <div onClick={() => editing && photoInputRef.current?.click()} style={{ cursor: editing ? 'pointer' : 'default', display:'inline-block' }}>
+            <div onClick={() => editing && photoInputRef.current?.click()} onPaste={editing ? handlePhotoPaste : undefined} title={editing ? 'Click or paste (Ctrl+V) to change photo' : undefined} style={{ cursor: editing ? 'pointer' : 'default', display:'inline-block' }}>
             {data.photo_url && !imgErr ? (
               <img src={data.photo_url} alt={data.name}
                 style={{ width:80, height:80, borderRadius:20, objectFit:'cover', margin:'0 auto', display:'block' }}
