@@ -229,6 +229,47 @@
 .src-v { color: var(--sim-ink); font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .src-v.src-days { font-weight: 700; }
 
+/* --- SIM Inventory: stock management --- */
+.stock-banner { background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: var(--sim-radius); box-shadow: var(--sim-shadow); margin-bottom: 16px; overflow: hidden; }
+.stock-banner .tb { padding: 14px 18px; border-bottom: 1px solid var(--sim-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stock-banner .tb h3 { margin: 0; font-size: 15px; color: var(--sim-ink); }
+.stock-banner .tb .ln { font-size: 12px; color: var(--sim-ink-soft); }
+.stock-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 18px; }
+.stock-stat {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 11px;
+  padding: 14px; display: flex; flex-direction: column; gap: 7px; position: relative; overflow: hidden;
+}
+.stock-stat::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.stock-stat .ss-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stock-stat .ss-lab { font-size: 11px; color: var(--sim-ink-soft); }
+.stock-stat .ss-ic { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stock-stat .ss-num { font-size: 24px; font-weight: 800; color: var(--sim-ink); line-height: 1; }
+.stock-avail {
+  grid-column: 1 / -1; background: var(--sim-blue-soft); border: 1px solid #dbeafe; border-radius: 11px;
+  padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+}
+.stock-avail .sa-t { display: flex; align-items: center; gap: 10px; }
+.stock-avail .sa-num { font-size: 26px; font-weight: 800; color: var(--sim-blue-dark); line-height: 1; }
+.stock-avail .sa-lab { font-size: 12px; color: var(--sim-blue-dark); font-weight: 600; }
+.stock-bar { height: 7px; border-radius: 99px; background: #dbeafe; overflow: hidden; width: 180px; }
+.stock-bar > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #60a5fa, #2563eb); }
+
+.stock-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; padding: 18px; }
+.stock-card {
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: 12px;
+  box-shadow: var(--sim-shadow); overflow: hidden; display: flex; flex-direction: column;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.stock-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, .09); border-color: #c7d6f0; }
+.sc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 13px; border-bottom: 1px solid var(--sim-line); background: var(--sim-gray-soft); }
+.sc-num { font-size: 13px; font-weight: 800; color: var(--sim-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-body { padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.sc-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.sc-k { color: var(--sim-ink-soft); }
+.sc-v { color: var(--sim-ink); font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.sc-tag { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--sim-gray-soft); color: var(--sim-gray); }
+.sc-actions { display: flex; gap: 6px; padding: 10px 13px; border-top: 1px solid var(--sim-line); background: #fbfdff; }
+
 
 .table-wrap { overflow-x: auto; }
 .sim-table {
@@ -374,4 +415,116 @@
   .sim-brand { justify-content: center; padding: 16px 8px; }
   .sim-nav a { justify-content: center; padding: 10px; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* --- Delete Confirmation Modal (modern centered card) --- */
+.dc-overlay {
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; overflow-y: auto; background: rgba(15, 23, 42, .5);
+  backdrop-filter: blur(1px);
+}
+.dc-modal {
+  background: #fff; border-radius: 17px; width: 100%; max-width: 400px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .25);
+  padding: 32px 28px 24px; text-align: center; margin: auto;
+}
+.dc-icon {
+  width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 18px;
+  background: #fee2e2; color: #dc2626;
+  display: flex; align-items: center; justify-content: center;
+}
+.dc-title { font-size: 19px; font-weight: 700; color: #0f172a; margin-bottom: 12px; }
+.dc-desc { font-size: 14px; line-height: 1.55; color: #64748b; margin-bottom: 26px; }
+.dc-desc strong { color: #0f172a; font-weight: 600; }
+.dc-foot { display: flex; gap: 10px; }
+.dc-btn {
+  flex: 1; height: 42px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s;
+}
+.dc-btn:disabled { opacity: .6; cursor: not-allowed; }
+.dc-btn.cancel { background: #fff; border-color: #e2e8f0; color: #334155; }
+.dc-btn.cancel:hover:not(:disabled) { background: #f1f5f9; }
+.dc-btn.delete { background: #dc2626; color: #fff; }
+.dc-btn.delete:hover:not(:disabled) { background: #b91c1c; }
+
+@media (max-width: 480px) {
+  .dc-modal { padding: 28px 20px 20px; }
+}
+
+/* --- Compact ⋯ action popup (All SIM Cards) --- */
+.kebab { position: relative; }
+.kebab .mini-btn { margin: 0; }
+.kebab-menu {
+  position: absolute; right: 0; top: 28px; z-index: 60;
+  background: #fff; border: 1px solid var(--sim-line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .14);
+  min-width: 96px; padding: 4px; overflow: hidden;
+}
+.kebab-item {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  border: none; background: transparent; padding: 6px 10px;
+  font-size: 12.5px; font-weight: 500; border-radius: 5px;
+  letter-spacing: 0; line-height: 1.2; white-space: nowrap;
+}
+.kebab-item:hover { background: var(--sim-gray-soft); }
+
+/* --- Expiring SIMs page --- */
+.exp-banner {
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: var(--sim-radius);
+  box-shadow: var(--sim-shadow); margin-bottom: 16px; overflow: hidden;
+}
+.exp-banner-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; flex-wrap: wrap; }
+.exp-banner-top h3 { margin: 0 0 3px; font-size: 17px; color: var(--sim-ink); }
+.exp-banner-top .ln { font-size: 12.5px; color: var(--sim-ink-soft); }
+.exp-total { display: flex; flex-direction: column; align-items: flex-end; background: #f0f9ff; border: 1px solid #dbeafe; padding: 8px 16px; border-radius: 12px; }
+.exp-total .et-num { font-size: 22px; font-weight: 800; color: var(--sim-blue-dark); line-height: 1; }
+.exp-total .et-lab { font-size: 11px; color: var(--sim-blue-dark); font-weight: 600; }
+
+.exp-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; padding: 0 18px 16px; }
+.exp-sum-tile { border-radius: 11px; padding: 13px 15px; display: flex; flex-direction: column; gap: 3px; border: 1px solid; }
+.exp-sum-tile .est-num { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.exp-sum-tile .est-lab { font-size: 11.5px; font-weight: 600; }
+.exp-sum-tile.ex-red { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.exp-sum-tile.ex-amber { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+.exp-sum-tile.ex-blue { background: #f0f9ff; border-color: #bae6fd; color: #0369a1; }
+
+.exp-chips { display: flex; gap: 8px; padding: 0 18px 16px; flex-wrap: wrap; }
+.exp-chip {
+  border: 1px solid var(--sim-line); background: var(--sim-bg); color: var(--sim-ink-soft);
+  padding: 7px 15px; border-radius: 99px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.exp-chip:hover { border-color: var(--sim-blue); color: var(--sim-blue-dark); }
+.exp-chip.active { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; }
+
+.exp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; padding: 18px; }
+.exp-list { display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+.exp-row {
+  position: relative; display: flex; align-items: center; gap: 16px;
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: 10px;
+  padding: 12px 16px; overflow: hidden;
+}
+.exp-row:hover { border-color: #c9d7ef; background: #fbfdff; }
+.er-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #94a3b8; }
+.exp-row.row-expired .er-bar { background: #dc2626; }
+.exp-row.row-urgent .er-bar { background: #f59e0b; }
+.exp-row.row-ok .er-bar { background: #3b82f6; }
+.er-status { flex-shrink: 0; }
+.er-id { min-width: 150px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.eri-top { font-size: 13px; font-weight: 800; color: var(--sim-ink); }
+.eri-sub { font-size: 11.5px; color: var(--sim-ink-soft); }
+.er-meta { display: flex; gap: 26px; flex: 1; flex-wrap: wrap; }
+.er-cell { display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
+.erk { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--sim-ink-soft); }
+.erv { font-size: 12.5px; font-weight: 600; color: var(--sim-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+.er-days { flex-shrink: 0; font-size: 12px; font-weight: 800; padding: 4px 12px; border-radius: 99px; background: var(--sim-gray-soft); color: var(--sim-gray); }
+.exp-row.row-expired .er-days { background: #fee2e2; color: #b91c1c; }
+.exp-row.row-urgent .er-days { background: #fef3c7; color: #b45309; }
+.exp-row.row-ok .er-days { background: #dbeafe; color: #1d4ed8; }
+.er-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.er-actions .mini-btn { padding: 5px 10px; }
+
+@media (max-width: 900px) {
+  .exp-row { flex-wrap: wrap; gap: 10px; }
+  .er-meta { flex-basis: 100%; gap: 14px; }
 }
