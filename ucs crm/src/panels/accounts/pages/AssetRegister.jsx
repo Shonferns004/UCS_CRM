@@ -15,7 +15,7 @@ const SLATE = '#4C7C8C'
 const PRIMARY = '#1F332B'
 
 const CAT_COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4']
-const CATEGORIES = ['Desktop', 'Android Mobile', 'Nokia Mobile', 'Laptop']
+const CATEGORIES = ['Desktop', 'Laptop', 'Android Mobile', 'Nokia Mobile', 'Ceiling Lights', 'Ceiling Fan', 'Cameras', 'Furniture', 'Air Conditioner', 'Exhaust Fan', 'Office Chair', 'Water Tank', 'Office Equipment', 'Networking Switch', 'Blind Curtain', 'Server Desktop', 'External Hard Drive 2GB', 'External Hard Drive 5GB', 'Shooting Accessories', 'Guitar', 'Kitchen Equipment']
 const LOCATIONS = ['Balcony', 'AFLF Cabin', 'MANN Cabin', 'BPO Cabin', 'Library Cabin', "Vocational Cabin", "Director's Cabin", "Director's Washroom", 'Kitchen', 'Reception Cabin', 'AFLF Staircase', 'BSCT Staircase']
 const CONDITIONS = ['New', 'Good', 'Average', 'Damaged']
 
@@ -25,6 +25,23 @@ const ITEM_SUGGESTIONS = {
   'Laptop': ['Laptop', 'Dell Laptop', 'HP Laptop', 'Lenovo Laptop', 'Asus Laptop', 'MacBook'],
   'Android Mobile': ['Android Mobile', 'Smartphone', 'Samsung Galaxy', 'Redmi', 'Realme', 'Vivo', 'Oppo'],
   'Nokia Mobile': ['Nokia Mobile', 'Nokia 105', 'Nokia 110', 'Nokia 150', 'Keypad Phone'],
+  'Ceiling Lights': ['Ceiling Lights', 'Kitchen Light', 'Washroom Light', 'Passage Light'],
+  'Ceiling Fan': ['Ceiling Fan', 'Fan'],
+  'Cameras': ['Cameras', 'Passage Camera', 'Wall Camera', 'DSLR Camera'],
+  'Furniture': ['Office Sofa', 'Wooden Storage Cupboard', 'Metal Cupboard', 'Cupboard'],
+  'Air Conditioner': ['Window A.C.', 'Split A.C.', 'Air Conditioner'],
+  'Exhaust Fan': ['Washroom Exhaust Fan', 'Exhaust Fan'],
+  'Office Chair': ['Office Chair', 'Wooden Chair', 'Plastic Chair', 'Chair'],
+  'Water Tank': ['Water Tank'],
+  'Office Equipment': ['Writing Board', 'Water Dispenser', 'Server Rack', 'Wall Photo Frame', 'Laptop Bags', 'Printer', 'Godrej Locker', 'Ganpati Idol'],
+  'Networking Switch': ['Networking Switch', '24 Port Switch', '16 Port Switch'],
+  'Blind Curtain': ['Blind Curtain', 'Curtain'],
+  'Server Desktop': ['Server Desktop', 'Social Media Department'],
+  'External Hard Drive 2GB': ['External Hard Drive 2GB', 'Admin Department'],
+  'External Hard Drive 5GB': ['External Hard Drive 5GB', 'Social Media'],
+  'Shooting Accessories': ['DSLR Camera', 'Flash', 'Camera Battery', 'Charger', 'Flash Battery with Charger', 'Phone Power Bank', 'Camera Cleaning Tool Kit', 'Card Reader', 'Tripod'],
+  'Guitar': ['Guitar'],
+  'Kitchen Equipment': ['Refrigerator', 'Gas Induction', 'R.O. Plant', 'Writing Board', 'Electric Hot Kettle', 'Water Dispenser', 'Coffee Machine', 'Oven', 'Server Rack', 'Water Jug'],
 }
 
 const STATUS_META = {
@@ -77,7 +94,7 @@ function Field({ label, children }) {
 }
 
 /* ================= IMPORT EXCEL (Office Asset Register) ================= */
-const SNAP_CODES = { 'Desktop': 1, 'Laptop': 1, 'Android Mobile': 1, 'Nokia Mobile': 1 }
+const SNAP_CODES = Object.fromEntries(CATEGORIES.map(c => [c, 1]))
 
 function normalizeCode(raw) {
   const s = String(raw || '').trim()
@@ -102,10 +119,11 @@ function ImportModal({ onClose, onImported }) {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' })
         const out = []
         const sheets = [
-          { name: 'Computer', dataFrom: 1, descCol: 4, qtyCol: 5, hasId: true },
-          { name: 'Asset Register', dataFrom: 3, descCol: 3, qtyCol: 4, hasId: false },
+          { name: 'Computer', dataFrom: 1, descCol: 4, qtyCol: 5, teamLeaderCol: 3 },
+          { name: 'Asset Register', dataFrom: 3, descCol: 3, qtyCol: 4 },
+          { name: 'Asset Register Import', dataFrom: 1, descCol: 4, qtyCol: 5, teamLeaderCol: 3 },
         ]
-        sheets.forEach(({ name, dataFrom, descCol, qtyCol, hasId }) => {
+        sheets.forEach(({ name, dataFrom, descCol, qtyCol, teamLeaderCol }) => {
           const ws = wb.Sheets[name]
           if (!ws) return
           const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
@@ -114,10 +132,11 @@ function ImportModal({ onClose, onImported }) {
             const loc = String(r[1] || '').trim().replace(/\s+$/, '')
             const cat = String(r[2] || '').trim()
             if (!SNAP_CODES[cat]) return
-            const code = hasId ? normalizeCode(r[0]) : ''
+            const code = normalizeCode(r[0])
+            const isMachine = code !== '' // rows with an asset code are individual machines
             const desc = String(r[descCol] || '').trim()
-            const qty = hasId ? 1 : (Number(r[qtyCol]) || 1)
-            const name = hasId ? cat : (desc || cat)
+            const qty = isMachine ? 1 : (Number(r[qtyCol]) || 1)
+            const name = isMachine ? cat : (desc || cat)
             const dedupeKey = code || `${cat}||${loc}||${name}`
             out.push({
               _key: dedupeKey,
@@ -126,9 +145,9 @@ function ImportModal({ onClose, onImported }) {
               name,
               category: cat,
               location: loc,
-              team_leader: hasId ? String(r[3] || '').trim() : '',
+              team_leader: isMachine && teamLeaderCol != null ? String(r[teamLeaderCol] || '').trim() : '',
               quantity: qty,
-              remarks: hasId ? desc : '',
+              remarks: isMachine ? desc : '',
             })
           })
         })
@@ -148,7 +167,7 @@ function ImportModal({ onClose, onImported }) {
     if (selected.length === 0) return
     setImporting(true); setResult(null)
     try {
-      const payload = selected.map(({ _key, include, ...row }) => ({ ...row, status: 'available' }))
+      const payload = selected.map(({ _key, include, ...row }) => ({ ...row, code: row.code || null, status: 'available' }))
       const res = await api('/assets/import', { method: 'POST', body: JSON.stringify({ rows: payload }) })
       setResult(res)
       onImported()
@@ -168,9 +187,11 @@ function ImportModal({ onClose, onImported }) {
         </div>
         <div className="ar-modal-body">
           <p className="ar-muted" style={{ margin: '0 0 14px' }}>
-            Imports <b>Desktop + Laptop</b> (Computer sheet, individual asset codes) and
-            <b> Android / Nokia Mobile</b> (Asset Register sheet, quantity lines) from the Office Asset Register workbook.
-            All other asset categories are skipped automatically.
+            Imports all categories from the Office Asset Register.
+            Rows with an <b>Asset ID</b> (Desktop/Laptop machines) are added as individual records;
+            rows without one (all other categories) are added as <b>quantity lines</b>.
+            You can upload the original workbook or the single-sheet file
+            <b> Office_Asset_Register_Import.xlsx</b>. Already-imported rows are skipped.
           </p>
 
           <label className="ar-btn ar-btn-ghost" style={{ cursor: 'pointer', marginBottom: 14 }}>
@@ -485,8 +506,8 @@ export default function AssetRegister() {
 
   /* ---- summary ---- */
   const summary = useMemo(() => {
-    const s = { total: assets.length, assigned: 0, available: 0, repair: 0, not_working: 0, value: 0, units: 0,
-      Desktop: 0, Laptop: 0, 'Android Mobile': 0, 'Nokia Mobile': 0 }
+    const s = { total: assets.length, assigned: 0, available: 0, repair: 0, not_working: 0, value: 0, units: 0 }
+    CATEGORIES.forEach(c => { s[c] = 0 })
     assets.forEach(a => {
       const qt = Number(a.quantity || 1) || 1
       if (s[a.status] !== undefined) s[a.status]++
@@ -746,10 +767,12 @@ export default function AssetRegister() {
       {/* summary cards */}
       <div className="ar-stats">
         <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#eef2ff,#e0e7ff)', color: '#4338ca' }}><span className="ar-stat-label" style={{ color: '#6366f1' }}>Total Records</span><div className="ar-stat-value">{summary.total}</div><span style={{ fontSize: 11, fontWeight: 600, opacity: .75 }}>{summary.units} units</span></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)', color: '#059669' }}><span className="ar-stat-label" style={{ color: '#10b981' }}>Desktop</span><div className="ar-stat-value">{summary.Desktop}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#f0f9ff,#e0f2fe)', color: '#0284c7' }}><span className="ar-stat-label" style={{ color: '#0ea5e9' }}>Laptop</span><div className="ar-stat-value">{summary.Laptop}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', color: '#7c3aed' }}><span className="ar-stat-label" style={{ color: '#a855f7' }}>Android Mobile</span><div className="ar-stat-value">{summary['Android Mobile']}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#fff7ed,#ffedd5)', color: '#d97706' }}><span className="ar-stat-label" style={{ color: '#f59e0b' }}>Nokia Mobile</span><div className="ar-stat-value">{summary['Nokia Mobile']}</div></div>
+        {CATEGORIES.map((cat, i) => summary[cat] > 0 ? (
+          <div key={cat} className="ar-stat" style={{ background: `linear-gradient(135deg,${CAT_COLORS[i % CAT_COLORS.length]}14,${CAT_COLORS[i % CAT_COLORS.length]}2b)`, color: CAT_COLORS[i % CAT_COLORS.length] }}>
+            <span className="ar-stat-label" style={{ color: CAT_COLORS[i % CAT_COLORS.length] }}>{cat}</span>
+            <div className="ar-stat-value">{summary[cat]}</div>
+          </div>
+        ) : null)}
         <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#fef2f2,#fee2e2)', color: '#dc2626' }}><span className="ar-stat-label" style={{ color: '#ef4444' }}>Total Value</span><div className="ar-stat-value" style={{ fontSize: 20 }}>{money(summary.value)}</div></div>
       </div>
 
