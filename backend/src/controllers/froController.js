@@ -33,7 +33,7 @@ import {
   inRange,
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
-import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition } from '../models/workQueueModel.js';
 
@@ -2817,6 +2817,7 @@ export const getMyTarget = async (req, res) => {
       totalCollectionAKI: 0,
     };
     try {
+      const ranges = await getAKISlabs();
       const achievements = await getAchievements(creditWorkerId, monthStart, monthEnd);
       const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
       const dailyCollection = await getDailyCollectionByWorker(creditWorkerId, monthStart, monthEnd);
@@ -2825,12 +2826,12 @@ export const getMyTarget = async (req, res) => {
           date,
           collection,
           dayName: getDayName(date),
-          aki: calculateAKI(collection, getDayName(date)),
+          aki: calculateAKI(collection, getDayName(date), ranges),
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
       const totalCollectionAKI = akiPerDay.reduce((sum, r) => sum + r.aki, 0);
       const totalAKI = achievements.reduce((sum, r) => {
-        return sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date));
+        return sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date), ranges);
       }, 0);
       const monthlyTargetMet = target > 0 && monthlyAchievement >= target;
       if (monthlyTargetMet) {

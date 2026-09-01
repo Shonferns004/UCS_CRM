@@ -12,7 +12,7 @@ import {
   deleteAchievement,
   bulkUpsertAchievements,
 } from '../models/dailyAchievementModel.js';
-import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { getMergedDailyAmounts, sumDailyAmounts, sumDailyAKI } from '../utils/dailyAchievementAggregator.js';
 
 function getAutoTarget(salary, monthsEmployed) {
@@ -185,7 +185,8 @@ export const setAchievement = async (req, res) => {
     }
     const record = await upsertAchievement(workerId, date, parseFloat(amount), req.user.id);
     const dayName = getDayName(date);
-    const aki = calculateAKI(parseFloat(amount), dayName);
+    const ranges = await getAKISlabs();
+    const aki = calculateAKI(parseFloat(amount), dayName, ranges);
     return res.json({ message: 'Achievement saved', record, aki });
   } catch (error) {
     return res.status(500).json({ message: error.message });
