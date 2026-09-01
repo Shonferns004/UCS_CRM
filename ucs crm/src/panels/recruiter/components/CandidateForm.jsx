@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Users, Check, Trash } from '../icons';
 import { Dropdown } from './ui';
+import usePasteImage from '../../../utils/usePasteImage';
 import { CANDIDATE_STAGES, CANDIDATE_SOURCES } from '../store';
 
 const SOURCE_OPTIONS = CANDIDATE_SOURCES.map(s => ({ value: s, label: s }));
@@ -69,19 +70,26 @@ export default function CandidateForm({ candidate, user, jobRoleSuggestions, onS
 
   const set = (key, value) => setForm(p => ({ ...p, [key]: value }));
 
-  const onResumeChange = (e) => {
-    const f = e.target.files && e.target.files[0];
+  const applyResumeFile = (f) => {
     if (!f) return;
     if (f.size > 2 * 1024 * 1024) {
       setFormError('Resume must be under 2 MB.');
       setTimeout(() => setFormError(''), 3000);
-      e.target.value = '';
       return;
     }
     const reader = new FileReader();
     reader.onload = () => set('resume', { name: f.name, data: reader.result });
     reader.readAsDataURL(f);
   };
+
+  const onResumeChange = (e) => {
+    applyResumeFile(e.target.files && e.target.files[0]);
+    if (e.target) e.target.value = '';
+  };
+
+  const onResumePaste = usePasteImage(({ file }) => {
+    if (file) applyResumeFile(file);
+  });
 
   const submit = (e) => {
     e.preventDefault();
@@ -214,7 +222,7 @@ export default function CandidateForm({ candidate, user, jobRoleSuggestions, onS
 
         <Section title="DOCUMENTS">
           <label className="field">Resume / CV upload
-            <input type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" onChange={onResumeChange} />
+            <input type="file" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" onChange={onResumeChange} onPaste={onResumePaste} title="Upload or paste an image/document (Ctrl+V)" />
             {form.resume ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--sage)' }}>
                 <Check width={13}/> {form.resume.name}
