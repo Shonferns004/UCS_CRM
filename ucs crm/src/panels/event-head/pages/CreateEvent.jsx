@@ -108,7 +108,9 @@ export default function CreateEvent() {
         coordinator: form.coordinator || null,
       }
       await createEvent(payload)
-      navigate('/event-head/events?ngo_id=' + encodeURIComponent(form.ngo_id))
+      const params = new URLSearchParams({ ngo_id: form.ngo_id })
+      if (form.sector_id) params.set('sector_id', form.sector_id)
+      navigate('/event-head/events?' + params.toString())
     } catch (err) { setError(err.message || 'Failed to create event'); console.error('Create event error:', err) }
     finally { setSaving(false) }
   }
