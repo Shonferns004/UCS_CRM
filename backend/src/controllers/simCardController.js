@@ -256,6 +256,7 @@ export const importSimCards = async (req, res) => {
       valid: inserted.length,
       invalid: invalid.length,
       invalidRows: invalid,
+      inserted: (inserted || []).map((r) => r.id).filter(Boolean),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

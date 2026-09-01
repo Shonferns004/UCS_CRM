@@ -76,9 +76,12 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
-export async function getMyCollections(ngoId) {
-  const params = ngoId ? `?ngo_id=${ngoId}` : ''
-  return api(`/fro/dashboard/collections${params}`, { _prefix: 'ucs' })
+export async function getMyCollections(ngoId, month) {
+  const params = new URLSearchParams();
+  if (ngoId) params.set('ngo_id', ngoId);
+  if (month && month !== 'current') params.set('month', month);
+  const qs = params.toString() ? `?${params}` : '';
+  return api(`/fro/dashboard/collections${qs}`, { _prefix: 'ucs' })
 }
 
 export async function getSuspenseReceipts() {

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import * as XLSX from 'xlsx'
 import { api } from '../api/auth'
 
 /* ============ MINT PALETTE (same as Dashboard) ============ */
@@ -14,21 +15,16 @@ const SLATE = '#4C7C8C'
 const PRIMARY = '#1F332B'
 
 const CAT_COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4']
-const CATEGORIES = ['Electronics', 'Mobile & SIM', 'Furniture', 'Vehicle', 'Field Kit', 'Electrical', 'Pantry', 'Safety', 'Digital']
-const DEPARTMENTS = ['FRO', 'Accounts', 'HR', 'Admin', 'Digital', 'Reception', 'NGO Admin', 'Common']
+const CATEGORIES = ['Desktop', 'Android Mobile', 'Nokia Mobile', 'Laptop']
+const LOCATIONS = ['Balcony', 'AFLF Cabin', 'MANN Cabin', 'BPO Cabin', 'Library Cabin', "Vocational Cabin", "Director's Cabin", "Director's Washroom", 'Kitchen', 'Reception Cabin', 'AFLF Staircase', 'BSCT Staircase']
 const CONDITIONS = ['New', 'Good', 'Average', 'Damaged']
 
-/* Common items per category — entry karte time suggestions ke liye */
+/* Common item suggestions shown while entering a new asset */
 const ITEM_SUGGESTIONS = {
-  'Electronics': ['Laptop', 'Desktop Computer', 'Monitor', 'Keyboard', 'Mouse', 'Printer', 'Scanner', 'WiFi Router', 'UPS', 'Hard Disk', 'Pen Drive', 'Tablet', 'Projector', 'TV Screen', 'CCTV Camera', 'Biometric Attendance Machine', 'Charger', 'Power Bank'],
-  'Mobile & SIM': ['Mobile Phone', 'SIM Card', 'Landline Phone', 'Intercom'],
-  'Furniture': ['Office Table', 'Office Chair', 'Boss Cabin Table', 'Boss Cabin Chair', 'Sofa', 'Almirah', 'Cupboard', 'Filing Cabinet', 'Whiteboard', 'Notice Board', 'Shoe Rack'],
-  'Vehicle': ['Bike', 'Scooty', 'Car', 'Helmet'],
-  'Field Kit': ['ID Card', 'Uniform / T-Shirt', 'Bag', 'Receipt Book', 'Donation Kit', 'Banner', 'Standee', 'POS / Card Swipe Machine'],
-  'Electrical': ['AC', 'Fan', 'Light / Tubelight', 'Inverter', 'Battery', 'Generator', 'Extension Board', 'Water Purifier (RO)'],
-  'Pantry': ['Fridge', 'Microwave', 'Electric Kettle', 'Water Dispenser', 'Bartan Set'],
-  'Safety': ['Fire Extinguisher', 'First Aid Box', 'Lock', 'Safe / Tijori'],
-  'Digital': ['Software License', 'Domain Name', 'Hosting', 'Paid Subscription'],
+  'Desktop': ['Desktop', 'Desktop Computer', 'Dell Desktop', 'HP Desktop', 'Lenovo Desktop', 'Acer Desktop'],
+  'Laptop': ['Laptop', 'Dell Laptop', 'HP Laptop', 'Lenovo Laptop', 'Asus Laptop', 'MacBook'],
+  'Android Mobile': ['Android Mobile', 'Smartphone', 'Samsung Galaxy', 'Redmi', 'Realme', 'Vivo', 'Oppo'],
+  'Nokia Mobile': ['Nokia Mobile', 'Nokia 105', 'Nokia 110', 'Nokia 150', 'Keypad Phone'],
 }
 
 const STATUS_META = {
@@ -48,9 +44,10 @@ const daysUntil = d => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 8640
 /* ================= CSV EXPORT ================= */
 function exportAssets(assets) {
   const rows = [['ASSET REGISTER'], ['Generated', new Date().toLocaleString('en-IN')], []]
-  rows.push(['Code', 'Name', 'Category', 'Brand', 'Model', 'Serial No', 'Department', 'Condition', 'Status', 'Assigned To', 'Purchase Date', 'Price', 'Warranty Expiry', 'SIM Number', 'Remarks'])
+  rows.push(['Code', 'Name', 'Category', 'Location', 'Quantity', 'Team Leader', 'Brand', 'Model', 'Serial No', 'Condition', 'Status', 'Assigned To', 'Purchase Date', 'Price', 'Warranty Expiry', 'SIM Number', 'Remarks'])
   assets.forEach(a => rows.push([
-    a.code, a.name, a.category, a.brand || '', a.model || '', a.serial_no || '', a.department || '',
+    a.code, a.name, a.category, a.location || a.department || '', a.quantity || 1, a.team_leader || '',
+    a.brand || '', a.model || '', a.serial_no || '',
     a.condition || '', STATUS_META[a.status]?.label || a.status, a.assigned_to_name || '',
     a.purchase_date || '', a.purchase_price || 0, a.warranty_expiry || '', a.sim_number || '', a.remarks || '',
   ]))
@@ -79,16 +76,171 @@ function Field({ label, children }) {
   )
 }
 
+/* ================= IMPORT EXCEL (Office Asset Register) ================= */
+const SNAP_CODES = { 'Desktop': 1, 'Laptop': 1, 'Android Mobile': 1, 'Nokia Mobile': 1 }
+
+function normalizeCode(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  return s.replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ')
+}
+
+function ImportModal({ onClose, onImported }) {
+  const [rows, setRows] = useState([])
+  const [fileName, setFileName] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
+
+  function handleFile(file) {
+    if (!file) return
+    setError(''); setResult(null); setFileName(file.name); setRows([])
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' })
+        const out = []
+        const sheets = [
+          { name: 'Computer', dataFrom: 1, descCol: 4, qtyCol: 5, hasId: true },
+          { name: 'Asset Register', dataFrom: 3, descCol: 3, qtyCol: 4, hasId: false },
+        ]
+        sheets.forEach(({ name, dataFrom, descCol, qtyCol, hasId }) => {
+          const ws = wb.Sheets[name]
+          if (!ws) return
+          const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+          data.forEach((r, i) => {
+            if (i < dataFrom) return
+            const loc = String(r[1] || '').trim().replace(/\s+$/, '')
+            const cat = String(r[2] || '').trim()
+            if (!SNAP_CODES[cat]) return
+            const code = hasId ? normalizeCode(r[0]) : ''
+            const desc = String(r[descCol] || '').trim()
+            const qty = hasId ? 1 : (Number(r[qtyCol]) || 1)
+            const name = hasId ? cat : (desc || cat)
+            const dedupeKey = code || `${cat}||${loc}||${name}`
+            out.push({
+              _key: dedupeKey,
+              include: true,
+              code,
+              name,
+              category: cat,
+              location: loc,
+              team_leader: hasId ? String(r[3] || '').trim() : '',
+              quantity: qty,
+              remarks: hasId ? desc : '',
+            })
+          })
+        })
+        setRows(out)
+      } catch (err) {
+        setError('Could not parse the file: ' + err.message)
+      }
+    }
+    reader.onerror = () => setError('Could not read the file. Please try again.')
+    reader.readAsArrayBuffer(file)
+  }
+
+  const selected = rows.filter(r => r.include)
+  const totalQty = selected.reduce((a, r) => a + (r.quantity || 1), 0)
+
+  async function doImport() {
+    if (selected.length === 0) return
+    setImporting(true); setResult(null)
+    try {
+      const payload = selected.map(({ _key, include, ...row }) => ({ ...row, status: 'available' }))
+      const res = await api('/assets/import', { method: 'POST', body: JSON.stringify({ rows: payload }) })
+      setResult(res)
+      onImported()
+    } catch (err) {
+      setError('Import API call failed: ' + err.message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div className="ar-overlay" onClick={onClose}>
+      <div className="ar-modal" style={{ maxWidth: 860 }} onClick={e => e.stopPropagation()}>
+        <div className="ar-modal-head">
+          <h3 className="ar-modal-title">Import Assets from Excel</h3>
+          <button className="ar-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+        </div>
+        <div className="ar-modal-body">
+          <p className="ar-muted" style={{ margin: '0 0 14px' }}>
+            Imports <b>Desktop + Laptop</b> (Computer sheet, individual asset codes) and
+            <b> Android / Nokia Mobile</b> (Asset Register sheet, quantity lines) from the Office Asset Register workbook.
+            All other asset categories are skipped automatically.
+          </p>
+
+          <label className="ar-btn ar-btn-ghost" style={{ cursor: 'pointer', marginBottom: 14 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 6, verticalAlign: 'text-bottom' }}>folder_open</span>
+            {fileName || 'Choose Excel file…'}
+            <input type="file" ref={fileRef} accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+          </label>
+
+          {error && <div className="ar-inline-alert" style={{ background: '#fef2f2', color: '#991b1b' }}>{error}</div>}
+          {result && (
+            <div className="ar-inline-alert" style={{ background: 'rgba(196,213,240,0.25)', borderColor: SLATE, color: '#1e3a5f' }}>
+              ✓ <b>{result.inserted}</b> imported, <b>{result.skipped?.length || 0}</b> skipped (already exist), <b>{result.errors?.length || 0}</b> errors.
+              {result.skipped?.length > 0 && <span style={{ display: 'block', fontSize: 12, marginTop: 4 }}>Skipped: {result.skipped.slice(0, 6).map(s => s.code).join(', ')}{result.skipped.length > 6 ? '…' : ''}</span>}
+            </div>
+          )}
+
+          {rows.length > 0 && (
+            <>
+              <div className="ar-table-wrap" style={{ maxHeight: 320, marginBottom: 10 }}>
+                <table className="ar-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" checked={selected.length === rows.length} onChange={e => setRows(rows.map(r => ({ ...r, include: e.target.checked })))} /></th>
+                      <th>Code</th><th>Name</th><th>Category</th><th>Location</th><th>Qty</th><th>Team Leader</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r._key || i}>
+                        <td><input type="checkbox" checked={r.include} onChange={e => setRows(rows.map((x, xi) => xi === i ? { ...x, include: e.target.checked } : x))} /></td>
+                        <td className="ar-code">{r.code || '—'}</td>
+                        <td>{r.name}</td>
+                        <td>{r.category}</td>
+                        <td>{r.location || '—'}</td>
+                        <td>{r.quantity}</td>
+                        <td>{r.team_leader || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="ar-muted" style={{ fontSize: 12 }}>{selected.length} rows · {totalQty} units selected</p>
+            </>
+          )}
+        </div>
+        <div className="ar-modal-foot">
+          <button className="ar-btn ar-btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="ar-btn ar-btn-primary" disabled={importing || selected.length === 0} onClick={doImport}>
+            {importing ? 'Importing…' : `Import ${selected.length} assets`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ================= ADD / EDIT ASSET MODAL ================= */
 function AssetFormModal({ initial, onClose, onSave }) {
-  const [f, setF] = useState(initial || {
-    name: '', category: 'Electronics', brand: '', model: '', serial_no: '',
-    department: 'Common', condition: 'New', status: 'available',
-    purchase_date: '', purchase_price: '', vendor: '', warranty_expiry: '',
-    sim_number: '', sim_operator: '', sim_plan: '', remarks: '',
+  const [f, setF] = useState(() => {
+    if (initial) return { ...initial, quantity: Number(initial.quantity || 1), location: initial.location || initial.department || '' }
+    return {
+      name: '', category: 'Desktop', brand: '', model: '', serial_no: '',
+      location: '', quantity: 1, team_leader: '', condition: 'New', status: 'available',
+      purchase_date: '', purchase_price: '', vendor: '', warranty_expiry: '',
+      sim_number: '', sim_operator: '', sim_plan: '', remarks: '',
+    }
   })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
-  const isSim = f.category === 'Mobile & SIM'
+  const isSim = f.category === 'Android Mobile' || f.category === 'Nokia Mobile'
+  const isMachine = f.category === 'Desktop' || f.category === 'Laptop'
 
   return (
     <div className="ar-overlay" onClick={onClose}>
@@ -113,11 +265,14 @@ function AssetFormModal({ initial, onClose, onSave }) {
             <Field label="Brand / Company"><input value={f.brand} onChange={e => set('brand', e.target.value)} placeholder="Dell, Samsung..." /></Field>
             <Field label="Model"><input value={f.model} onChange={e => set('model', e.target.value)} placeholder="Inspiron 15" /></Field>
             <Field label="Serial No / IMEI"><input value={f.serial_no} onChange={e => set('serial_no', e.target.value)} /></Field>
-            <Field label="Department">
-              <select value={f.department} onChange={e => set('department', e.target.value)}>
-                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+            <Field label="Location">
+              <select value={f.location} onChange={e => set('location', e.target.value)}>
+                <option value="">—</option>
+                {LOCATIONS.map(d => <option key={d}>{d}</option>)}
               </select>
             </Field>
+            {!isMachine && <Field label="Quantity"><input type="number" min="1" value={f.quantity} onChange={e => set('quantity', e.target.value)} /></Field>}
+            {isMachine && <Field label="Team Leader (opt.)"><input value={f.team_leader} onChange={e => set('team_leader', e.target.value)} placeholder="e.g. Anjana Vyas" /></Field>}
             <Field label="Condition">
               <select value={f.condition} onChange={e => set('condition', e.target.value)}>
                 {CONDITIONS.map(c => <option key={c}>{c}</option>)}
@@ -235,15 +390,15 @@ function AssetDetailModal({ asset, onClose, onAction, onEdit, onScrap, onLost })
         </div>
         <div className="ar-modal-body">
           {asset.status === 'repair' && repairDays > 30 && (
-            <div className="ar-inline-alert">⚠ Ye asset {repairDays} din se repair mein hai — follow up karo!</div>
+            <div className="ar-inline-alert">⚠ This asset has been in repair for {repairDays} days — please follow up!</div>
           )}
           {warrantyDays !== null && warrantyDays > 0 && warrantyDays <= 30 && (
             <div className="ar-inline-alert" style={{ background: 'rgba(246,201,121,0.25)', borderColor: GOLD_LIGHT, color: '#8a6210' }}>
-              ⏰ Warranty {warrantyDays} din mein expire ho rahi hai
+              ⏰ Warranty expires in {warrantyDays} days
             </div>
           )}
           {repairHeavy && (
-            <div className="ar-inline-alert">💡 Total repair cost ({money(totalRepair)}) price ke aadhe se zyada ho gayi — naya lena consider karo.</div>
+            <div className="ar-inline-alert">💡 Total repair cost ({money(totalRepair)}) exceeds half the purchase price — consider replacing this asset.</div>
           )}
 
           <table className="ar-info-table">
@@ -251,13 +406,15 @@ function AssetDetailModal({ asset, onClose, onAction, onEdit, onScrap, onLost })
               <tr><td>Category</td><td>{asset.category}</td></tr>
               <tr><td>Brand / Model</td><td>{[asset.brand, asset.model].filter(Boolean).join(' ') || '—'}</td></tr>
               <tr><td>Serial No / IMEI</td><td><code>{asset.serial_no || '—'}</code></td></tr>
-              <tr><td>Department</td><td>{asset.department || '—'}</td></tr>
+              <tr><td>Location</td><td>{asset.location || '—'}</td></tr>
+              {Number(asset.quantity || 1) > 1 && <tr><td>Quantity</td><td>{Number(asset.quantity)} pcs (grouped line item)</td></tr>}
+              <tr><td>Team Leader</td><td>{asset.team_leader || '—'}</td></tr>
               <tr><td>Condition</td><td>{asset.condition || '—'}</td></tr>
               <tr><td>Assigned To</td><td>{asset.assigned_to_name ? `${asset.assigned_to_name} (${fmtDate(asset.assigned_date)} se)` : '—'}</td></tr>
               <tr><td>Purchase</td><td>{fmtDate(asset.purchase_date)} · {money(asset.purchase_price)} {asset.vendor ? `· ${asset.vendor}` : ''}</td></tr>
               <tr><td>Warranty</td><td>{fmtDate(asset.warranty_expiry)}</td></tr>
               {asset.sim_number && <tr><td>SIM Number</td><td><code>{asset.sim_number}</code> {asset.sim_operator ? `(${asset.sim_operator})` : ''} {asset.sim_plan ? `· ${money(asset.sim_plan)}/month` : ''}</td></tr>}
-              {asset.status === 'repair' && <tr><td>Repair</td><td>{asset.repair_shop || '—'} · {money(asset.repair_cost)} · {repairDays} din se</td></tr>}
+              {asset.status === 'repair' && <tr><td>Repair</td><td>{asset.repair_shop || '—'} · {money(asset.repair_cost)} · {repairDays} days</td></tr>}
               {totalRepair > 0 && <tr><td>Total Repair Cost</td><td>{money(totalRepair)}</td></tr>}
               {asset.remarks && <tr><td>Remarks</td><td>{asset.remarks}</td></tr>}
             </tbody>
@@ -306,11 +463,12 @@ export default function AssetRegister() {
   const [q, setQ] = useState('')
   const [fCat, setFCat] = useState('all')
   const [fStatus, setFStatus] = useState('all')
-  const [fDept, setFDept] = useState('all')
+  const [fLoc, setFLoc] = useState('all')
   const [selectedId, setSelectedId] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
   const [editAsset, setEditAsset] = useState(null)
   const [action, setAction] = useState(null) // { type }
+  const [showImport, setShowImport] = useState(false)
 
   useEffect(() => {
     // Backend endpoint: GET /assets → [{ id, code, name, category, ... , history: [{date, text}] }]
@@ -327,10 +485,16 @@ export default function AssetRegister() {
 
   /* ---- summary ---- */
   const summary = useMemo(() => {
-    const s = { total: assets.length, assigned: 0, available: 0, repair: 0, not_working: 0, value: 0 }
+    const s = { total: assets.length, assigned: 0, available: 0, repair: 0, not_working: 0, value: 0, units: 0,
+      Desktop: 0, Laptop: 0, 'Android Mobile': 0, 'Nokia Mobile': 0 }
     assets.forEach(a => {
+      const qt = Number(a.quantity || 1) || 1
       if (s[a.status] !== undefined) s[a.status]++
-      if (a.status !== 'scrapped' && a.status !== 'lost') s.value += Number(a.purchase_price || 0)
+      if (a.status !== 'scrapped' && a.status !== 'lost') {
+        s.value += Number(a.purchase_price || 0) * qt
+        s.units += qt
+      }
+      if (s[a.category] !== undefined) s[a.category] += qt
     })
     return s
   }, [assets])
@@ -343,19 +507,26 @@ export default function AssetRegister() {
   const filtered = assets.filter(a => {
     if (fCat !== 'all' && a.category !== fCat) return false
     if (fStatus !== 'all' && a.status !== fStatus) return false
-    if (fDept !== 'all' && a.department !== fDept) return false
+    const loc = a.location || a.department || ''
+    if (fLoc !== 'all' && loc !== fLoc) return false
     if (q.trim()) {
       const s = q.trim().toLowerCase()
-      return [a.code, a.name, a.brand, a.model, a.serial_no, a.assigned_to_name, a.sim_number]
+      return [a.code, a.name, a.brand, a.model, a.serial_no, a.assigned_to_name, a.sim_number, a.location, a.team_leader]
         .some(v => (v || '').toLowerCase().includes(s))
     }
     return true
   })
 
-  /* ---- category counts (mini chart) ---- */
+  const allLocations = useMemo(() => {
+    const set = new Set(LOCATIONS)
+    assets.forEach(a => { const l = a.location || a.department; if (l) set.add(l) })
+    return [...set].sort()
+  }, [assets])
+
+  /* ---- category counts (mini chart, quantity-weighted) ---- */
   const catCounts = useMemo(() => {
     const m = {}
-    assets.forEach(a => { m[a.category] = (m[a.category] || 0) + 1 })
+    assets.forEach(a => { m[a.category] = (m[a.category] || 0) + (Number(a.quantity || 1) || 1) })
     return Object.entries(m).sort((a, b) => b[1] - a[1])
   }, [assets])
   const maxCat = Math.max(1, ...catCounts.map(([, v]) => v))
@@ -394,7 +565,7 @@ export default function AssetRegister() {
     setAssets(p => p.map(a => a.id === id
       ? { ...a, ...changes, history: newHistory }
       : a))
-    // Backend endpoint: PUT /assets/:id (history bhi saath save hoti hai)
+    // Backend endpoint: PUT /assets/:id (sends history along with the changes)
     api(`/assets/${id}`, { method: 'PUT', body: JSON.stringify({ ...changes, history: newHistory }) }).catch(err => console.warn('Save failed (offline?):', err.message))
   }
 
@@ -549,12 +720,16 @@ export default function AssetRegister() {
       <div className="ar-header">
         <div>
           <h2>Asset Register</h2>
-          <p className="ar-muted" style={{ margin: '4px 0 0' }}>Accounts department — company ke saare assets ka pura record, assignment & repair tracking.</p>
+          <p className="ar-muted" style={{ margin: '4px 0 0' }}>Accounts — complete company asset record, assignment & repair tracking.</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="ar-btn ar-btn-ghost" onClick={() => exportAssets(filtered)}>
             <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: 'text-bottom', marginRight: 4 }}>download</span>
             Export
+          </button>
+          <button className="ar-btn ar-btn-amber" style={{ background: 'linear-gradient(135deg,#8CCDA4,#2A6B45)', color: '#fff' }} onClick={() => setShowImport(true)}>
+            <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: 'text-bottom', marginRight: 4 }}>upload_file</span>
+            Import from Excel
           </button>
           <button className="ar-btn ar-btn-primary" onClick={() => setShowAdd(true)}>+ Add Asset</button>
         </div>
@@ -562,35 +737,35 @@ export default function AssetRegister() {
 
       {offline && (
         <div className="ar-alert" style={{ background: 'rgba(246,201,121,0.22)', borderColor: GOLD_LIGHT }}>
-          ⚙ Backend se data nahi mila — abhi ye page local mode mein chal raha hai. Backend mein ye endpoints add karne honge:
-          <code style={{ background: '#fff', padding: '1px 8px', borderRadius: 6 }}>GET/POST /assets</code>
-          <code style={{ background: '#fff', padding: '1px 8px', borderRadius: 6 }}>PUT /assets/:id</code>
+          ⚙ Backend is not reachable — the page is currently running in local mode.
+          <code style={{ background: '#fff', padding: '1px 8px', borderRadius: 6 }}>GET/POST /api/assets</code>
+          <code style={{ background: '#fff', padding: '1px 8px', borderRadius: 6 }}>POST /api/assets/import</code>
         </div>
       )}
 
       {/* summary cards */}
       <div className="ar-stats">
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#eef2ff,#e0e7ff)', color: '#4338ca' }}><span className="ar-stat-label" style={{ color: '#6366f1' }}>Total Assets</span><div className="ar-stat-value">{summary.total}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)', color: '#059669' }}><span className="ar-stat-label" style={{ color: '#10b981' }}>Assigned</span><div className="ar-stat-value">{summary.assigned}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#f0f9ff,#e0f2fe)', color: '#0284c7' }}><span className="ar-stat-label" style={{ color: '#0ea5e9' }}>Available</span><div className="ar-stat-value">{summary.available}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#fff7ed,#ffedd5)', color: '#d97706' }}><span className="ar-stat-label" style={{ color: '#f59e0b' }}>In Repair</span><div className="ar-stat-value">{summary.repair}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#fef2f2,#fee2e2)', color: '#dc2626' }}><span className="ar-stat-label" style={{ color: '#ef4444' }}>Not Working</span><div className="ar-stat-value">{summary.not_working}</div></div>
-        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', color: '#7c3aed' }}><span className="ar-stat-label" style={{ color: '#a855f7' }}>Total Value</span><div className="ar-stat-value" style={{ fontSize: 20 }}>{money(summary.value)}</div></div>
+        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#eef2ff,#e0e7ff)', color: '#4338ca' }}><span className="ar-stat-label" style={{ color: '#6366f1' }}>Total Records</span><div className="ar-stat-value">{summary.total}</div><span style={{ fontSize: 11, fontWeight: 600, opacity: .75 }}>{summary.units} units</span></div>
+        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#ecfdf5,#d1fae5)', color: '#059669' }}><span className="ar-stat-label" style={{ color: '#10b981' }}>Desktop</span><div className="ar-stat-value">{summary.Desktop}</div></div>
+        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#f0f9ff,#e0f2fe)', color: '#0284c7' }}><span className="ar-stat-label" style={{ color: '#0ea5e9' }}>Laptop</span><div className="ar-stat-value">{summary.Laptop}</div></div>
+        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', color: '#7c3aed' }}><span className="ar-stat-label" style={{ color: '#a855f7' }}>Android Mobile</span><div className="ar-stat-value">{summary['Android Mobile']}</div></div>
+        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#fff7ed,#ffedd5)', color: '#d97706' }}><span className="ar-stat-label" style={{ color: '#f59e0b' }}>Nokia Mobile</span><div className="ar-stat-value">{summary['Nokia Mobile']}</div></div>
+        <div className="ar-stat" style={{ background: 'linear-gradient(135deg,#fef2f2,#fee2e2)', color: '#dc2626' }}><span className="ar-stat-label" style={{ color: '#ef4444' }}>Total Value</span><div className="ar-stat-value" style={{ fontSize: 20 }}>{money(summary.value)}</div></div>
       </div>
 
       {/* alerts */}
       {(warrantySoon.length > 0 || longRepair.length > 0) && (
         <div className="ar-alert">
           <span className="material-symbols-outlined" style={{ color: RED_DEEP, fontSize: 18 }}>warning</span>
-          {warrantySoon.length > 0 && <span>{warrantySoon.length} asset ki warranty 30 din mein expire ho rahi hai ({warrantySoon.map(a => a.code).join(', ')})</span>}
-          {longRepair.length > 0 && <span>· {longRepair.length} asset 30+ din se repair mein ({longRepair.map(a => a.code).join(', ')})</span>}
+          {warrantySoon.length > 0 && <span>{warrantySoon.length} asset warranty expiring within 30 days ({warrantySoon.map(a => a.code).join(', ')})</span>}
+          {longRepair.length > 0 && <span>· {longRepair.length} assets in repair for 30+ days ({longRepair.map(a => a.code).join(', ')})</span>}
         </div>
       )}
 
       {/* filters + table */}
       <div className="ar-card">
         <div className="ar-filters">
-          <input placeholder="Search: code, name, serial no, SIM no, worker..." value={q} onChange={e => setQ(e.target.value)} />
+          <input placeholder="Search: code, name, location, team leader, serial, SIM no, worker..." value={q} onChange={e => setQ(e.target.value)} />
           <select value={fCat} onChange={e => setFCat(e.target.value)}>
             <option value="all">All Categories</option>
             {CATEGORIES.map(c => <option key={c}>{c}</option>)}
@@ -599,9 +774,9 @@ export default function AssetRegister() {
             <option value="all">All Status</option>
             {Object.entries(STATUS_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
           </select>
-          <select value={fDept} onChange={e => setFDept(e.target.value)}>
-            <option value="all">All Departments</option>
-            {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+          <select value={fLoc} onChange={e => setFLoc(e.target.value)}>
+            <option value="all">All Locations</option>
+            {allLocations.map(d => <option key={d}>{d}</option>)}
           </select>
         </div>
 
@@ -609,15 +784,15 @@ export default function AssetRegister() {
           <div>{[1, 2, 3, 4].map(i => <div key={i} className="sk-ar" style={{ height: 40, marginBottom: 8 }} />)}</div>
         ) : filtered.length === 0 ? (
           <p className="ar-muted" style={{ padding: '20px 4px' }}>
-            {assets.length === 0 ? 'Abhi koi asset add nahi hua. "+ Add Asset" se shuru karo!' : 'No assets match these filters.'}
+            {assets.length === 0 ? 'No assets have been added yet. Start with "+ Add Asset"!' : 'No assets match these filters.'}
           </p>
         ) : (
           <div className="ar-table-wrap">
             <table className="ar-table">
               <thead>
                 <tr>
-                  <th>Code</th><th>Name</th><th>Category</th><th>Brand</th><th>Serial / SIM No</th>
-                  <th>Department</th><th>Assigned To</th><th>Condition</th><th>Status</th>
+                  <th>Code</th><th>Name</th><th>Category</th><th>Location</th><th>Qty</th>
+                  <th>Team Leader</th><th>Assigned To</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -626,11 +801,10 @@ export default function AssetRegister() {
                     <td className="ar-code">{a.code}</td>
                     <td style={{ fontWeight: 700 }}>{a.name}</td>
                     <td>{a.category}</td>
-                    <td>{a.brand || '—'}</td>
-                    <td><code style={{ fontSize: 12 }}>{a.sim_number || a.serial_no || '—'}</code></td>
-                    <td>{a.department || '—'}</td>
+                    <td>{a.location || a.department || '—'}</td>
+                    <td>{Number(a.quantity || 1)}</td>
+                    <td>{a.team_leader || '—'}</td>
                     <td>{a.assigned_to_name || '—'}</td>
-                    <td>{a.condition || '—'}</td>
                     <td><StatusBadge status={a.status} /></td>
                   </tr>
                 ))}
@@ -707,6 +881,16 @@ export default function AssetRegister() {
       </div>
 
       {/* modals */}
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onImported={() => {
+            api('/assets')
+              .then(list => setAssets(Array.isArray(list) ? list : list?.data || []))
+              .catch(() => {})
+          }}
+        />
+      )}
       {showAdd && <AssetFormModal onClose={() => setShowAdd(false)} onSave={saveNew} />}
       {editAsset && <AssetFormModal initial={editAsset} onClose={() => setEditAsset(null)} onSave={saveEdit} />}
       {selected && !action && !editAsset && (
