@@ -740,54 +740,45 @@ export default function MediaManagement() {
               <button style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => { if (!uploading) setShowUpload(false) }}>✕</button>
             </div>
             <div className="modal-body">
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>Choose the NGO → Sector → Event the files belong to (Activity is optional). If an event is already open, it is pre-selected below.</div>
-
-              <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>NGO</label>
-                  <select value={uploadNgoId} onChange={e => setUploadNgoId(e.target.value)}>
-                    <option value="">Select NGO</option>
-                    {ngos.map(n => <option key={String(n.id)} value={n.id}>{n.name || n.code}</option>)}
-                  </select>
+              {selectedEvent ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12, background: 'var(--bg, #f7f8fa)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: '8px 10px' }}>
+                  Uploading to <strong>{selectedEvent.name}</strong>
+                  <div style={{ marginTop: 2 }}>{ngoNameOf(selectedEvent)} · {sectorNameOf(selectedEvent)} · {uploadMode === 'banner' ? 'Banner' : draft.media_type}</div>
                 </div>
-                <div className="field"><label>Sector</label>
-                  <select value={uploadSectorId} onChange={e => setUploadSectorId(e.target.value)} disabled={!uploadNgoId}>
-                    <option value="">Select Sector</option>
-                    {upSectors.map(s => <option key={String(s.id)} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>Activity (optional)</label>
-                  <select value={uploadActivityId} onChange={e => setUploadActivityId(e.target.value)} disabled={!uploadSectorId}>
-                    <option value="">Select Activity</option>
-                    {upActivities.map(a => <option key={String(a.id)} value={a.id}>{a.name}</option>)}
-                  </select>
-                </div>
-                <div className="field"><label>Year</label><input value={uploadYear || ''} readOnly placeholder="Auto from event date" /></div>
-              </div>
-              <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field" style={{ flex: '1 1 100%' }}><label>Event</label>
-                  <select value={uploadEventId} onChange={e => setUploadEventId(e.target.value)} disabled={!uploadSectorId}>
-                    <option value="">Select Event</option>
-                    {upEvents.map(ev => <option key={String(ev.id)} value={ev.id}>{ev.name}{ev.date ? ` (${String(ev.date).slice(0, 7)})` : ''}</option>)}
-                  </select>
-                </div>
-              </div>
-              {uploadEventId && !upEventInfo && (
-                <div style={{ fontSize: 12, color: '#B5603A', marginBottom: 12 }}>Loading event… please wait.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>Select the event these files belong to.</div>
+                  <div className="form-row" style={{ marginBottom: 12 }}>
+                    <div className="field"><label>NGO</label>
+                      <select value={uploadNgoId} onChange={e => setUploadNgoId(e.target.value)}>
+                        <option value="">Select NGO</option>
+                        {ngos.map(n => <option key={String(n.id)} value={n.id}>{n.name || n.code}</option>)}
+                      </select>
+                    </div>
+                    <div className="field"><label>Sector</label>
+                      <select value={uploadSectorId} onChange={e => setUploadSectorId(e.target.value)} disabled={!uploadNgoId}>
+                        <option value="">Select Sector</option>
+                        {upSectors.map(s => <option key={String(s.id)} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="form-row" style={{ marginBottom: 12 }}>
+                    <div className="field" style={{ flex: '1 1 100%' }}><label>Event</label>
+                      <select value={uploadEventId} onChange={e => setUploadEventId(e.target.value)} disabled={!uploadSectorId}>
+                        <option value="">Select Event</option>
+                        {upEvents.map(ev => <option key={String(ev.id)} value={ev.id}>{ev.name}{ev.date ? ` (${String(ev.date).slice(0, 7)})` : ''}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </>
               )}
               <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>Media Type</label>
+                <div className="field"><label>Type</label>
                   <select value={draft.media_type} onChange={e => setDraft({ ...draft, media_type: e.target.value })}>
                     {MEDIA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
-              </div>
-              <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>Title</label><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder={uploadMode === 'banner' ? 'e.g. Ganpati Main Banner' : 'e.g. Event group photo'} /></div>
-              </div>
-              <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>Description</label><textarea value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} rows={2} placeholder="Optional note" style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} /></div>
+                <div className="field"><label>Title (optional)</label><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder={uploadMode === 'banner' ? 'e.g. Ganpati Main Banner' : 'e.g. Event group photo'} /></div>
               </div>
 
               {/* Drop zone */}
