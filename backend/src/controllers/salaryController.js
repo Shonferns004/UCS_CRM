@@ -15,7 +15,7 @@ import { getMonthlyAttendance, upsertAttendanceStatus } from '../models/attendan
 import { getWorkerById } from '../models/workerModel.js';
 import { getAllocationsByWorker } from '../models/workerNgoAllocationModel.js';
 import { getTarget, upsertTarget } from '../models/incentiveModel.js';
-import { calculateAKI, getDayName, getMonthsEmployed, AKI_RANGES } from '../utils/incentive.js';
+import { getMonthsEmployed } from '../utils/incentive.js';
 import { getMergedDailyAmounts } from '../utils/dailyAchievementAggregator.js';
 import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
@@ -250,7 +250,7 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           const ach = achievements.find(r => r.date === s);
           const amt = ach ? parseFloat(ach.amount || 0) : 0;
           sundayAchievement += amt;
-          sundayAKI += AKI_RANGES.Sunday.find(r => amt >= r.min && amt <= r.max)?.incentive || 0;
+          sundayAKI += (ach ? ach.aki : 0);
         }
 
         // Incentive totals (AKI + monthly, FRO only)
@@ -273,7 +273,7 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           const currentTarget = parseFloat(tgt.target_amount);
           const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
           const isNewJoiner = getMonthsEmployed(worker.created_at, new Date(year, month + 1, 0)) <= 3;
-          const totalAKI = achievements.reduce((sum, r) => sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date)), 0);
+          const totalAKI = achievements.reduce((sum, r) => sum + (r.aki || 0), 0);
           if (monthlyAchievement >= currentTarget) {
             incentiveAKI = isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
             incentiveMonthly = Math.round((monthlyAchievement - currentTarget) * 0.1);
@@ -486,7 +486,7 @@ export const getMySalaryBreakdown = async (req, res) => {
         const achievements = await getMergedDailyAmounts(workerId, startDate, endDate);
         monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
 
-        incentiveAKI = achievements.reduce((sum, r) => sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date)), 0);
+        incentiveAKI = achievements.reduce((sum, r) => sum + (r.aki || 0), 0);
 
         isNewJoiner = getMonthsEmployed(worker.created_at, new Date(year, month + 1, 0)) <= 3;
         monthlyTargetMet = monthlyAchievement >= currentTarget;
