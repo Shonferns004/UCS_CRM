@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarClock, Users, Gift, HeartCrack, Ticket, MessageCircle, Inbox } from 'lucide-react'
+import { LayoutDashboard, CalendarClock, Users, Gift, HeartCrack, Ticket, MessageCircle, Inbox, Coins } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -23,6 +23,7 @@ import RejectedLeads from './pages/RejectedLeads'
 import Donors from './pages/Donors'
 import Scheduled from './pages/Scheduled'
 import IncentiveInfo from './pages/IncentiveInfo'
+import AkiBanner from '../../components/AkiBanner'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
@@ -299,6 +300,9 @@ export default function FROPanel() {
   const [statsData, setStatsData] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
+  const [showAki, setShowAki] = useState(false);
+  const [akiSlabs, setAkiSlabs] = useState(null);
+  const [akiLoading, setAkiLoading] = useState(false);
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs));
   const notifRef = useRef(null);
@@ -308,6 +312,21 @@ export default function FROPanel() {
   const markRead = async (notifId) => {
     try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); }
     catch (e) { console.error('Error:', e.message); }
+  };
+
+  const openAki = async () => {
+    setShowAki(true);
+    if (!akiSlabs) {
+      setAkiLoading(true);
+      try {
+        const data = await api('/incentive/aki-config');
+        setAkiSlabs(data?.slabs || {});
+      } catch (e) {
+        console.error('Error:', e.message);
+      } finally {
+        setAkiLoading(false);
+      }
+    }
   };
 
   const handleRejectedClick = async (item) => {
@@ -546,6 +565,9 @@ export default function FROPanel() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
+            <div onClick={openAki} title="Aaj Ka Incentive (AKI)" style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s' }}>
+              <Coins size={20} strokeWidth={2} color="var(--ink-soft)" style={{ color: '#B45309' }} />
+            </div>
             <div style={{ position:'relative' }}>
               <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch((err) => { console.error('Error:', err.message); }), getMyTarget().catch((err) => { console.error('Error:', err.message); })]);             setStatsData({ dash: d, target: t }); } catch (e) { console.error('Error:', e.message); } finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -859,6 +881,30 @@ export default function FROPanel() {
               </div>
             </div>
           )}
+        {showAki && (
+          <div className="modal-overlay" onClick={() => setShowAki(false)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, width: '92%', borderRadius: 'var(--radius)', overflow: 'hidden', padding: 0 }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card-bg)' }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Aaj Ka Incentive</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Today's AKI collection slabs shared for all FROs</div>
+                </div>
+                <button className="btn btn-sm btn-icon" onClick={() => setShowAki(false)} style={{ padding: 4 }} aria-label="Close">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div style={{ padding: '18px 20px', background: 'var(--bg)', maxHeight: '80vh', overflowY: 'auto' }}>
+                {akiLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Loading incentive slabs…</div>
+                  </div>
+                ) : (
+                  <AkiBanner slabs={akiSlabs} compact />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
