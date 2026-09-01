@@ -35,6 +35,15 @@ const Icon = ({ children, color }) => (
 
 const pad2 = n => String(n).padStart(2, '0')
 
+const todayYM = () => `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`
+
+const monthLabelOf = (ym) => {
+  // ym: 'YYYY-MM' → 'August 2026'
+  const [y, m] = String(ym || '').split('-').map(Number)
+  if (!y || !m) return ''
+  return new Date(y, m - 1, 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' })
+}
+
 function IncentiveCalendar({ akiPerDay = [], monthStr, onlyEligible }) {
   const [y, m] = (monthStr || '').split('-').map(Number)
   if (!y || !m) return <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No month data</div>
@@ -131,6 +140,8 @@ export default function Dashboard() {
   const [collectionSearch, setCollectionSearch] = useState('')
   const [collectionsByNgo, setCollectionsByNgo] = useState({})
   const [ngoMap, setNgoMap] = useState({})
+  const [collectionsMonth, setCollectionsMonth] = useState('current')
+  const [collectionsMonthLabel, setCollectionsMonthLabel] = useState('')
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -211,12 +222,17 @@ export default function Dashboard() {
     }
   }
 
-  const openCollections = async (ngoId) => {
+  const openCollections = async (ngoId, month) => {
+    const isToggle = month !== undefined
+    const targetMonth = isToggle ? month : collectionsMonth
+    if (targetMonth !== collectionsMonth) setCollectionsMonth(targetMonth)
     setShowCollections(true)
     setCollectionsLoading(true)
     if (ngoId !== undefined) setSelectedCollectionNgo(String(ngoId))
+    setCollectionsMonthLabel(targetMonth === 'current' ? monthLabelOf(todayYM()) : monthLabelOf(targetMonth))
     try {
-      const res = await getMyCollections()
+      const res = await getMyCollections(ngoId, targetMonth)
+      if (res?.month) setCollectionsMonthLabel(monthLabelOf(res.month))
       let collectionsByNgo = res?.collections || { all: [] }
       let ngoMap = res?.ngoMap || {}
       
@@ -252,7 +268,7 @@ export default function Dashboard() {
       
       setCollectionsByNgo(collectionsByNgo)
       setNgoMap(ngoMap)
-      setSelectedCollectionNgo('all')
+      if (!isToggle) setSelectedCollectionNgo('all')
     } catch (err) {
       console.error('Error:', err.message)
       setCollectionsByNgo({ all: [] })
@@ -847,6 +863,7 @@ export default function Dashboard() {
                 <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
                   {collectionsLoading ? 'Loading…' : `${(collectionsByNgo[selectedCollectionNgo] || []).length} collections`}
+                  {collectionsMonthLabel ? ` · ${collectionsMonthLabel}` : ''}
                 </div>
                 <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all'); setCollectionSearch('') }}
                   style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
@@ -854,6 +871,24 @@ export default function Dashboard() {
                 </button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {/* Month Toggle */}
+                <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+                  {[['current', 'This month'], ['prev', 'Last month']].map(([val, lbl]) => (
+                    <button
+                      key={val}
+                      onClick={() => { if (!collectionsLoading && collectionsMonth !== val) openCollections(undefined, val) }}
+                      style={{
+                        padding: '4px 10px', borderRadius: 4, border: 'none',
+                        fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: collectionsLoading ? 'not-allowed' : 'pointer',
+                        background: collectionsMonth === val ? 'var(--sage)' : 'transparent',
+                        color: collectionsMonth === val ? '#fff' : 'var(--ink-soft)',
+                        opacity: collectionsLoading ? 0.6 : 1,
+                      }}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
                 {/* NGO Tabs */}
                 <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
                   {['all', ...Object.keys(ngoMap)].map(ngoId => (
@@ -890,7 +925,7 @@ export default function Dashboard() {
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
               ) : visibleCollections.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>
-                  {collectionSearch.trim() ? 'No matching collections' : 'No collections this month'}
+                  {collectionSearch.trim() ? 'No matching collections' : `No collections in ${collectionsMonthLabel || 'this month'}`}
                 </div>
               ) : (
                 visibleCollections.map(c => (
