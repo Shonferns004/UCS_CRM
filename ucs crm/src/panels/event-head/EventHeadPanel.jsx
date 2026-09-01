@@ -39,7 +39,6 @@ const NAV = [
   { id:'ngos',           path:'/event-head/ngos',             label:'NGOs',                  icon:Brief, section:'Programs' },
   { id:'sectors',        path:'/event-head/sectors',          label:'Sectors',               icon:Grid, section:'Programs' },
   { id:'activities',     path:'/event-head/activities',       label:'Activities',            icon:Star, section:'Programs' },
-  { id:'event',          path:'/event-head/events',           label:'Event',                 icon:Cal, section:'Programs' },
   { id:'create',         path:'/event-head/create',           label:'+ Create Event',        icon:Plus, section:'Programs' },
   { id:'checklist',      path:'/event-head/checklist',        label:'Event Checklist',       icon:Clock, section:'Manage' },
   { id:'events-list',    path:'/event-head/events-list',      label:'My Events',             icon:Cal, section:'Manage' },
