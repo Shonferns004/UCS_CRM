@@ -221,7 +221,6 @@ export default function SimInventory() {
   const [provider, setProvider] = useState('All');
   const [team, setTeam] = useState('All');
   const [simType, setSimType] = useState('All');
-  const [showActions, setShowActions] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addKey, setAddKey] = useState(0);
   const [assignItem, setAssignItem] = useState(null);
@@ -282,116 +281,106 @@ export default function SimInventory() {
 
   return (
     <div>
-      <div className="grid-4">
-        {summary.map((s) => (
-          <div className="sim-card" key={s.label}>
-            <div className="ic" style={{ background: s.tint.bg, color: s.tint.color }}>
-              <Icon name={s.icon} size={18} />
-            </div>
-            <div className="title">{s.label}</div>
-            <div className="num">{s.val}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="toolbar">
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <span style={{ position: 'absolute', left: 10, color: 'var(--sim-ink-soft)', display: 'flex' }}><Icon name="search" size={15} /></span>
-          <input className="sim-input search-input" placeholder="Search SIM number, Mobile ID, IMEI..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 32 }} />
+      <div className="stock-banner">
+        <div className="tb">
+          <h3>SIM Stock Overview</h3>
+          <span className="ln">{total} SIM{total !== 1 ? 's' : ''} in inventory</span>
         </div>
-        <select className="sim-select" value={status} onChange={(e) => setStatus(e.target.value)}>
-          {['All', ...INVENTORY_STATUSES].map((s) => <option key={s}>{s}</option>)}
-        </select>
-        <select className="sim-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
-          <option value="All">All Providers</option>
-          {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select className="sim-select" value={team} onChange={(e) => setTeam(e.target.value)}>
-          <option value="All">All Teams</option>
-          {teams.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select className="sim-select" value={simType} onChange={(e) => setSimType(e.target.value)}>
-          {['All', ...SIM_TYPES].map((s) => <option key={s}>{s}</option>)}
-        </select>
-        <button className="sim-btn ghost" onClick={clearFilters}>Clear Filters</button>
-        <button className="sim-btn primary" onClick={openAdd}>+ Add SIM</button>
+        <div className="stock-stats">
+          {summary.map((s) => (
+            <div className="stock-stat" key={s.label}>
+              <div className="ss-top">
+                <div className="ss-ic" style={{ background: s.tint.bg, color: s.tint.color }}><Icon name={s.icon} size={15} /></div>
+                <span className="ss-lab">{s.label}</span>
+              </div>
+              <div className="ss-num">{s.val}</div>
+              <span className="stock-bar-span" style={{ display: 'block', height: 4, borderRadius: 99, background: '#e8edf5', overflow: 'hidden' }}>
+                <span style={{ display: 'block', height: '100%', background: s.tint.color, width: `${total > 0 ? Math.round((s.val / total) * 100) : 0}%` }} />
+              </span>
+            </div>
+          ))}
+          <div className="stock-avail">
+            <div className="sa-t">
+              <div className="sa-num">{available}</div>
+              <div className="sa-lab">Available in stock</div>
+            </div>
+            <div className="stock-bar"><span style={{ width: `${total > 0 ? Math.round((available / total) * 100) : 0}%` }} /></div>
+            <span className="ln" style={{ fontSize: 12, color: 'var(--sim-blue-dark)' }}>{total > 0 ? Math.round((available / total) * 100) : 0}% available</span>
+          </div>
+        </div>
       </div>
 
-      {inventory.length === 0 ? (
-        <div className="sim-box empty-state">
-          <div className="big">No SIM Inventory Available</div>
-          <div className="small">Add SIM cards to your inventory to track available, assigned and expired SIMs.</div>
+      <div className="card-block">
+        <div className="toolbar" style={{ borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <span style={{ position: 'absolute', left: 10, color: 'var(--sim-ink-soft)', display: 'flex' }}><Icon name="search" size={15} /></span>
+            <input className="sim-input search-input" placeholder="Search SIM number, Mobile ID, IMEI..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 32 }} />
+          </div>
+          <select className="sim-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {['All', ...INVENTORY_STATUSES].map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <select className="sim-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
+            <option value="All">All Providers</option>
+            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select className="sim-select" value={team} onChange={(e) => setTeam(e.target.value)}>
+            <option value="All">All Teams</option>
+            {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select className="sim-select" value={simType} onChange={(e) => setSimType(e.target.value)}>
+            {['All', ...SIM_TYPES].map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <button className="sim-btn ghost" onClick={clearFilters}>Clear Filters</button>
           <button className="sim-btn primary" onClick={openAdd}>+ Add SIM</button>
         </div>
-      ) : (
-        <>
-          <div className="card-block">
-            <div className="table-wrap">
-              <table className="sim-table">
-                <thead>
-                  <tr>
-                    <th>SIM Number</th>
-                    <th>SIM Type</th>
-                    <th>Provider / Network</th>
-                    <th>Mobile ID No.</th>
-                    <th>Device</th>
-                    <th>IMEI No.</th>
-                    <th>Assigned To / Team</th>
-                    <th className="num">Issue Date</th>
-                    <th className="num">Expiry Date</th>
-                    <th className="num">Days Left</th>
-                    <th>Status</th>
-                    <th>Location</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((item) => {
-                    const dl = daysFor(item);
-                    return (
-                      <tr key={item.id}>
-                        <td style={{ fontWeight: 600 }}>{item.sim_number || '—'}</td>
-                        <td>{item.sim_type || '—'}</td>
-                        <td>{item.provider || '—'}</td>
-                        <td>{item.mobile_id || '—'}</td>
-                        <td>{item.device || '—'}</td>
-                        <td>{item.imei || '—'}</td>
-                        <td>{item.team || '—'}</td>
-                        <td className="num">{formatDate(item.issue_date)}</td>
-                        <td className="num">{formatDate(item.expiry_date)}</td>
-                        <td className={`num days-cell ${dayClass(dl)}`}>{dayLabel(dl)}</td>
-                        <td><span className={`pill ${pillForInv(item.status)}`}>{item.status}</span></td>
-                        <td>{item.location || '—'}</td>
-                        <td>
-                          <div style={{ position: 'relative' }}>
-                            <button className="mini-btn" onClick={() => setShowActions(showActions === item.id ? null : item.id)}>⋯</button>
-                            {showActions === item.id && (
-                              <div style={{ position: 'absolute', right: 0, top: 26, background: '#fff', border: '1px solid var(--sim-line)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 30, minWidth: 130, padding: 4 }}>
-                                {[
-                                  ['View', () => setViewItem(item)],
-                                  ['Assign', () => setAssignItem(item)],
-                                  ['Delete', () => handleDelete(item)],
-                                ].map(([label, fn]) => (
-                                  <button key={label} className="mini-btn" style={{ width: '100%', textAlign: 'left', border: 'none', background: 'transparent', padding: '8px 10px', borderRadius: 6 }} onClick={() => { setShowActions(null); fn(); }}>
-                                    <span style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }}>{label}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
 
-          <div className="card-block">
+        {inventory.length === 0 ? (
+          <div className="sim-box empty-state">
+            <div className="big">No SIM Inventory Available</div>
+            <div className="small">Add SIM cards to your inventory to track available, assigned and expired SIMs.</div>
+            <button className="sim-btn primary" onClick={openAdd}>+ Add SIM</button>
+          </div>
+        ) : (
+          <>
             <div className="tb">
-              <h3>Available SIM Cards</h3>
-              <span className="ln">{availableList.length} in stock</span>
+              <h3>All Inventory SIMs</h3>
+              <span className="ln">Showing {filtered.length} of {inventory.length}</span>
+            </div>
+            <div className="stock-cards">
+              {filtered.map((item) => {
+                const dl = daysFor(item);
+                return (
+                  <div className="stock-card" key={item.id}>
+                    <div className="sc-head">
+                      <span className="sc-num">{item.sim_number || '—'}</span>
+                      <span className={`pill ${pillForInv(item.status)}`}>{item.status}</span>
+                    </div>
+                    <div className="sc-body">
+                      <div className="sc-field"><span className="sc-k">Mobile ID</span><span className="sc-v">{item.mobile_id || '—'}</span></div>
+                      <div className="sc-field"><span className="sc-k">Device</span><span className="sc-v">{item.device || '—'}</span></div>
+                      <div className="sc-field">
+                        <span className="sc-k">Type</span>
+                        <span className="sc-tag">{item.sim_type || '—'}</span>
+                      </div>
+                      <div className="sc-field"><span className="sc-k">Provider</span><span className="sc-v">{item.provider || '—'}</span></div>
+                      <div className="sc-field"><span className="sc-k">Team</span><span className="sc-v">{item.team || '—'}</span></div>
+                      <div className="sc-field"><span className="sc-k">Location</span><span className="sc-v">{item.location || '—'}</span></div>
+                      <div className="sc-field"><span className="sc-k">Expiry</span><span className="sc-v">{formatDate(item.expiry_date)}</span></div>
+                      <div className="sc-field"><span className="sc-k">Days Left</span><span className={`sc-v ${dayClass(dl)}`}>{dayLabel(dl)}</span></div>
+                    </div>
+                    <div className="sc-actions">
+                      <button className="mini-btn" onClick={() => setViewItem(item)}>View</button>
+                      {item.status !== 'Available' && <button className="mini-btn" onClick={() => setAssignItem(item)}>Assign</button>}
+                      <button className="mini-btn danger" onClick={() => handleDelete(item)}>Delete</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="tb" style={{ borderTop: '1px solid var(--sim-line)' }}>
+              <h3>Available in Stock</h3>
+              <span className="ln">{availableList.length} ready to assign</span>
             </div>
             {availableList.length === 0 ? (
               <div className="sim-box empty-state" style={{ border: 'none', boxShadow: 'none' }}>
@@ -399,36 +388,28 @@ export default function SimInventory() {
                 <div className="small">All SIMs are assigned or unavailable.</div>
               </div>
             ) : (
-              <div className="table-wrap">
-                <table className="sim-table">
-                  <thead>
-                    <tr>
-                      <th>SIM Number</th>
-                      <th>Provider</th>
-                      <th>SIM Type</th>
-                      <th>Location</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {availableList.map((item) => (
-                      <tr key={item.id}>
-                        <td style={{ fontWeight: 600 }}>{item.sim_number}</td>
-                        <td>{item.provider || '—'}</td>
-                        <td>{item.sim_type || '—'}</td>
-                        <td>{item.location || '—'}</td>
-                        <td><span className={`pill ${pillForInv(item.status)}`}>{item.status}</span></td>
-                        <td><button className="sim-btn" onClick={() => setAssignItem(item)}>Assign</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="stock-cards">
+                {availableList.map((item) => (
+                  <div className="stock-card" key={item.id}>
+                    <div className="sc-head">
+                      <span className="sc-num">{item.sim_number || '—'}</span>
+                      <span className={`pill ${pillForInv(item.status)}`}>{item.status}</span>
+                    </div>
+                    <div className="sc-body">
+                      <div className="sc-field"><span className="sc-k">Type</span><span className="sc-tag">{item.sim_type || '—'}</span></div>
+                      <div className="sc-field"><span className="sc-k">Provider</span><span className="sc-v">{item.provider || '—'}</span></div>
+                      <div className="sc-field"><span className="sc-k">Location</span><span className="sc-v">{item.location || '—'}</span></div>
+                    </div>
+                    <div className="sc-actions">
+                      <button className="sim-btn primary" style={{ flex: 1, padding: '6px 10px', fontSize: 12 }} onClick={() => setAssignItem(item)}>Assign</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       <AddSimModal key={addKey} open={addOpen} onClose={() => setAddOpen(false)} onSaved={addInventoryItem} />
       <AssignSimModal open={!!assignItem} item={assignItem} onClose={() => setAssignItem(null)} onSaved={assignInventoryItem} />
