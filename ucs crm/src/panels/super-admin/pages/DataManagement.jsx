@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api/auth'
 import * as XLSX from 'xlsx'
+import { isFreshStation } from '../../../lib/stations'
 
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
@@ -285,7 +286,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
   )
 }
 
-function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, freshNgoStations, setFreshNgoStations }) {
+function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stationsByNgo, freshNgoStations, setFreshNgoStations }) {
   const [date, setDate] = useState(todayStr)
   const [dataSourceId, setDataSourceId] = useState('')
   const [dataCategory, setDataCategory] = useState('')
@@ -305,7 +306,7 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
   }
 
   const selectAllStations = (ngoName) => {
-    setFreshNgoStations(prev => ({ ...prev, [ngoName]: [...stations] }))
+    setFreshNgoStations(prev => ({ ...prev, [ngoName]: [...(stationsByNgo[ngoName] || [])] }))
   }
 
   const clearStations = (ngoName) => {
@@ -447,7 +448,7 @@ function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, 
                   )}
                 </div>
                 <div style={{display:'flex', flexWrap:'wrap', gap:4}}>
-                  {stations.map(st => (
+                  {(stationsByNgo[ngo.name] || []).map(st => (
                     <label key={st} style={{display:'flex', alignItems:'center', gap:3, cursor:'pointer', fontSize:11,
                       background: (freshNgoStations[ngo.name] || []).includes(st) ? '#eef2ff' : '#f5f5f5',
                       padding:'3px 8px', borderRadius:4, border:'1px solid var(--line, #e5e7eb)'}}>
@@ -524,7 +525,7 @@ export default function DataManagement() {
   const [copying, setCopying] = useState(false)
   const [copyResult, setCopyResult] = useState(null)
 
-  const STATIONS = Array.from({ length: 23 }, (_, i) => `FD-${i + 1}`)
+  const [stationsByNgo, setStationsByNgo] = useState({})
   const [freshNgoStations, setFreshNgoStations] = useState({})
 
   const loadSources = useCallback(() => {
@@ -537,6 +538,18 @@ export default function DataManagement() {
       const list = Array.isArray(n) ? n : [];
       setNgos(list);
       setSelectedNgoIds(list.map(ngo => ngo.id));
+    }).catch((err) => { console.error('Error:', err.message); });
+    api('/ngo-admin/stations').then(list => {
+      const byNgo = {};
+      for (const st of Array.isArray(list) ? list : []) {
+        if (!isFreshStation(st.station)) continue;
+        for (const n of st.ngos || []) {
+          if (!n.ngo_name) continue;
+          if (!byNgo[n.ngo_name]) byNgo[n.ngo_name] = [];
+          if (!byNgo[n.ngo_name].includes(st.station)) byNgo[n.ngo_name].push(st.station);
+        }
+      }
+      setStationsByNgo(byNgo);
     }).catch((err) => { console.error('Error:', err.message); });
   }, [loadSources])
 
@@ -686,7 +699,7 @@ export default function DataManagement() {
           ngos={ngos}
           onError={setErr}
           onBatchUpdate={loadBatches}
-          stations={STATIONS}
+          stationsByNgo={stationsByNgo}
           freshNgoStations={freshNgoStations}
           setFreshNgoStations={setFreshNgoStations}
         />
