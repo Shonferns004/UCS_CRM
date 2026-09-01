@@ -15,6 +15,7 @@ import {
   setWorkerAllocations,
   abscondWorkerHandler,
   offboardWorkerHandler,
+  resetWorkerPassword,
 } from '../controllers/workerController.js';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
@@ -37,6 +38,7 @@ router.put('/:id', adminHrAccounts, editWorker);
 router.delete('/:id', adminHrAccounts, removeWorker);
 router.put('/:id/abscond', adminHrAccounts, abscondWorkerHandler);
 router.put('/:id/offboard', adminHrAccounts, offboardWorkerHandler);
+router.put('/:id/reset-password', authenticateRole('super_admin'), resetWorkerPassword);
 router.get('/:id/allocations', adminHrAccounts, getWorkerAllocations);
 router.put('/:id/allocations', adminHrAccounts, setWorkerAllocations);
 
