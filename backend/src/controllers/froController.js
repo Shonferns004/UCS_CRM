@@ -1180,10 +1180,9 @@ export const claimSuspenseReceipt = async (req, res) => {
       donorName = receipt.donor_name || donorName;
     }
 
-    const { monthStart, month } = currentMonthBoundsIST();
-    if (!receipt.receipt_date || receipt.receipt_date.slice(0, 7) !== month) {
-      return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
-    }
+    // FROs may claim any suspense receipt whenever they want (no current-month
+    // restriction): the pool lists unverified entries from any month, so the
+    // claim must accept them too.
 
     // Best-effort real-donor resolution: when the FRO supplies a UPI
     // transaction id, match it against collected leads (preferring this FRO's
