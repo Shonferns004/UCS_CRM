@@ -125,6 +125,37 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
 
   // 5) Create the worker's own row (only possible when no (donor_id, ngo_id)
   //    row exists yet).
+  //
+  // Ghost-row guard: a (donor_id, ngo_id) pair must resolve to exactly ONE
+  // fro_assignments row, otherwise a donor can surface twice (or flip tabs via
+  // a batch_type=NULL row) and re-add "already handled" leads. Before INSERTing
+  // a fresh row, reuse ANY existing row for this (donor_id, ngo_id) that falls
+  // in the worker's (station, ngo) scope — even one stamped reassigned/owned by
+  // another FRO who no longer covers that scope — instead of duplicating it.
+  if (ngoId != null) {
+    const { data: anyRows } = await db
+      .from('fro_assignments')
+      .select('id, station, fro_worker_id')
+      .eq('donor_id', donorId)
+      .eq('ngo_id', ngoId)
+      .limit(20);
+    for (const c of (anyRows || [])) {
+      if (myStationRows && scopePairs.size > 0 && scopePairs.has(`${c.station}|${ngoId}`)) {
+        // This row is already inside the worker's scope; claim it if it isn't
+        // already theirs (e.g. an orphan/reassigned row left by a staff change).
+        if (!c.fro_worker_id || c.fro_worker_id === workerId) {
+          if (c.fro_worker_id !== workerId) {
+            await db
+              .from('fro_assignments')
+              .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
+              .eq('id', c.id);
+          }
+          return { id: c.id, station: c.station };
+        }
+      }
+    }
+  }
+
   const myStation = (myStationRows || []).find(s => s.ngo_id === ngoId);
   const { data: created } = await db
     .from('fro_assignments')
