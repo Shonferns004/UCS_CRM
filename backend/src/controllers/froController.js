@@ -1120,6 +1120,11 @@ export const claimSuspenseReceipt = async (req, res) => {
     // Handle entry-XXX IDs (bank audit entries without a linked receipt):
     // auto-create a suspense receipt and link it, then continue the normal
     // claim flow so the FRO can claim raw bank-audit rows.
+    // If THIS request authors a brand-new suspense receipt but the claim fails
+    // later, track it so the failure path can roll it back and keep the entry
+    // fully claimable (not stuck as "Waiting for receipt number").
+    let createdReceiptId = null;
+    let rollbackEntryId = null;
     let receiptId = parseInt(rawId, 10);
     if (!receiptId && rawId.startsWith('entry-')) {
       const entryId = parseInt(rawId.slice(6), 10);
@@ -1150,6 +1155,8 @@ export const claimSuspenseReceipt = async (req, res) => {
           .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
           .single();
         if (crErr || !newReceipt) return res.status(500).json({ message: 'Failed to create receipt from bank entry: ' + (crErr?.message || 'unknown') });
+        createdReceiptId = newReceipt.id;
+        rollbackEntryId = entryId;
         // Link the entry to the new receipt
         try {
           await db.from('bank_audit_entries').update({ receipt_id: newReceipt.id, receipt_no: entry.receipt_no || null }).eq('id', entryId);
@@ -1235,7 +1242,7 @@ export const claimSuspenseReceipt = async (req, res) => {
         .select('id, name')
         .eq('id', donorId)
         .single();
-      if (dErr || !found) return res.status(404).json({ message: 'Donor not found' });
+      if (dErr || !found) throw Object.assign(new Error('Donor not found'), { status: 404 });
       donorName = found.name;
       // Update the existing donor profile with any edits the FRO made in the
       // claim form so Lead Verification shows the latest data.
@@ -1336,7 +1343,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           .eq('donor_id', donorId)
           .not('status', 'eq', 'reassigned');
         const hasScoped = (donorAssignments || []).some(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
-        if (!hasScoped) return res.status(403).json({ message: 'You can only claim receipts for your allotted donors' });
+        if (!hasScoped) throw Object.assign(new Error('You can only claim receipts for your allotted donors'), { status: 403 });
       }
     }
 
@@ -1391,7 +1398,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       .ilike('name', receipt.project_id)
       .maybeSingle();
     const receiptNgoId = ngoRow?.id || null;
-    if (!receiptNgoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
+    if (!receiptNgoId) throw Object.assign(new Error('Could not resolve the NGO for this receipt'), { status: 400 });
 
     // Attach to the donor's open assignment owned by THIS claiming FRO for THIS
     // NGO (or open a fresh one) so the created lead shows up in Lead Verification
@@ -1488,7 +1495,19 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     return res.status(201).json({ message: `Claimed for ${claimedDonorName} — pending in Lead Verification`, log_id: log.id });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    // If THIS request authored a brand-new suspense receipt for an entry- claim
+    // but the claim failed, undo it so the bank-audit entry returns to a fully
+    // claimable suspense row (not stuck as "Waiting for receipt number"). Only
+    // touches the receipt and the entry-link created in this request.
+    if (rollbackEntryId != null && createdReceiptId != null) {
+      try {
+        await db.from('bank_audit_entries')
+          .update({ receipt_id: null, receipt_no: null, updated_at: new Date().toISOString() })
+          .eq('id', rollbackEntryId);
+        await db.from('receipts').delete().eq('id', createdReceiptId);
+      } catch (e) { console.error('Rollback of failed suspense claim receipt failed:', e.message); }
+    }
+    return res.status(error.status || 500).json({ message: error.message });
   }
 };
 
