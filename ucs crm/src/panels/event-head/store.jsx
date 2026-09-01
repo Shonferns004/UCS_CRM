@@ -490,6 +490,48 @@ export const fetchNotifs = (userId) => apiGet('/notifications/' + userId)
 export const markNotifRead = (id) => apiPut('/notifications/' + id + '/read', {})
 export const deleteNotif = (id) => apiDelete('/notifications/' + id)
 
+/* ── Dynamic Event-Head deadline notifications ──
+ * Computed live from event_head_events (no stored rows). Returns events whose
+ * date falls within the next `days` days (including today), sorted soonest-first,
+ * decorated with urgency + human labels. Used by the bell popup, the dashboard
+ * and the Notifications page so they all share one source of truth. */
+const DAY_MS = 24 * 60 * 60 * 1000
+const ehPad2 = (n) => String(n).padStart(2, '0')
+const ehYmd = (d) => { const x = new Date(d); return isNaN(x) ? '' : `${x.getFullYear()}-${ehPad2(x.getMonth() + 1)}-${ehPad2(x.getDate())}` }
+export const deadlineLabel = (days) => days <= 0 ? 'Due today' : days === 1 ? 'Due tomorrow' : `Due in ${days} days`
+
+export const computeDeadlineNotifs = (events, ngos, today = new Date(), days = 3) => {
+  const base = new Date(today); base.setHours(0, 0, 0, 0)
+  const cutoff = new Date(base.getTime() + Math.max(0, Number(days) || 0) * DAY_MS)
+  const name = (id) => { const n = (ngos || []).find(x => String(x.id) === String(id)); return n ? (n.name || n.code) : null }
+  const items = []
+  for (const e of (events || [])) {
+    if (!e.date) continue
+    const dt = new Date(String(e.date).slice(0, 10) + 'T00:00:00')
+    if (isNaN(dt.getTime())) continue
+    if (dt < base || dt > cutoff) continue
+    if (e.status && /complete|done|cancelled|closed/i.test(e.status)) continue
+    const days = Math.round((dt.getTime() - base.getTime()) / DAY_MS)
+    items.push({
+      key: 'dl_' + e.id,
+      eventId: e.id,
+      title: e.name || 'Untitled Event',
+      body: [name(e.ngo_id), e.sector_name, e.venue].filter(Boolean).join(' · ') || 'Event deadline approaching',
+      date: ehYmd(e.date),
+      days,
+      urgent: days === 0,
+      label: deadlineLabel(days),
+    })
+  }
+  items.sort((a, b) => a.days - b.days || String(a.date).localeCompare(String(b.date)))
+  return items
+}
+
+export const fetchDeadlineNotifs = async (days = 3) => {
+  const [events, ngos] = await Promise.all([fetchEvents({}).catch(() => []), fetchWorkspaceNgos().catch(() => [])])
+  return computeDeadlineNotifs(events, ngos, new Date(), days)
+}
+
 export const CATEGORIES = [
   'Education','Health','Food Distribution','Women Empowerment',
   'Animal Welfare','Disability Support','Environment','Medical Camp','Blood Donation'
