@@ -618,7 +618,7 @@ export const getPagarExportData = async (month) => {
 
     // Exact Collection-Report bucketing (accountsController.getReportData):
     //  1) Suspense agent (blank / 'na' / 'suspense') wins over ANY project -> Suspense card
-    //  2) library/pg are PROJECT buckets (real agent, project_id = library/pg) -> Library/PG cards
+    //  2) library/pg are AGENT buckets (agent_name = library/pg, project_id is still bsct) -> Library/PG cards
     //  3) otherwise the project must resolve to bsct/aflf/mann -> the NGO card pool
     const isSuspenseish = rawAgent === '' || agentLower === 'na' || agentLower === 'suspense';
     if (isSuspenseish) {
@@ -628,8 +628,10 @@ export const getPagarExportData = async (month) => {
       continue;
     }
 
-    if (proj === 'library' || proj === 'pg') {
-      const cat = categoryByNgo[proj];
+    // library/pg receipts are tagged by agent_name (their project_id is
+    // still 'bsct'), so match on agent_name — same as getReportData.
+    if (agentLower === 'library' || agentLower === 'pg') {
+      const cat = categoryByNgo[agentLower];
       cat['Other'] = (cat['Other'] || 0) + amount;
       cat.total += amount;
       continue;
