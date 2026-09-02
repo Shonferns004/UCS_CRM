@@ -68,9 +68,9 @@ const cleanName = (value) => {
 };
 
 const cleanMode = (value) => {
-  if (!value) return 'UPI';
+  if (!value) return null;
   const s = String(value).trim().toUpperCase();
-  return s.length ? s.slice(0, 20) : 'UPI';
+  return s.length ? s.slice(0, 20) : null;
 };
 
 const fingerprintKey = (txn, projectId) => {
@@ -96,6 +96,31 @@ async function resolveGooglePaySource() {
     .single();
   if (error) throw error;
   googlePaySourceId = created.id;
+  return created.id;
+}
+
+let bankSourceCache = new Map();
+async function resolveBankSource(name) {
+  const key = (name || '').trim().toLowerCase();
+  if (!key) return null;
+  if (bankSourceCache.has(key)) return bankSourceCache.get(key);
+  const { data: sources, error } = await db
+    .from('bank_audit_sources')
+    .select('id, name, kind, is_active, sort_order')
+    .eq('kind', 'bank');
+  if (error) throw error;
+  const existing = (sources || []).find((s) => s.name.toLowerCase() === key);
+  if (existing) {
+    bankSourceCache.set(key, existing.id);
+    return existing.id;
+  }
+  const { data: created, error: insErr } = await db
+    .from('bank_audit_sources')
+    .insert({ name: name.trim(), kind: 'bank', sort_order: 99 })
+    .select()
+    .single();
+  if (insErr) throw insErr;
+  bankSourceCache.set(key, created.id);
   return created.id;
 }
 
@@ -239,13 +264,14 @@ export function normalizeScrapedTransaction(raw) {
   const paymentId = raw?.payment_id ? String(raw.payment_id).trim().slice(0, 100) : null;
   const payerName = cleanName(raw?.payer_name ?? raw?.name ?? raw?.sender);
   const mode = cleanMode(raw?.mop ?? raw?.mode);
+  const bankName = raw?.bank_name ? cleanName(raw.bank_name) : (raw?.received_bank ? cleanName(raw.received_bank) : null);
   const remarks = raw?.remarks ? String(raw.remarks).slice(0, 500) : null;
 
   if (!amount) return { error: 'Missing or invalid amount' };
   if (!transactionDate) return { error: 'Missing or invalid transaction_date' };
   if (!payerName) return { error: 'Missing payer_name (sender)' };
 
-  return { amount, transactionDate, paymentTime, paymentId, payerName, mode, remarks };
+  return { amount, transactionDate, paymentTime, paymentId, payerName, mode, bankName, remarks };
 }
 
 // --- main entry: ingest a full device batch ----------------------------------
@@ -276,7 +302,6 @@ export const importScrapedBatch = async ({
   }
 
   const resolvedProject = (await resolveProjectCode(projectId)) || projectId;
-  const sourceId = await resolveGooglePaySource();
 
   const batch = transactions.map((raw) => normalizeScrapedTransaction(raw));
   const seenRefs = new Set();
@@ -284,6 +309,7 @@ export const importScrapedBatch = async ({
   const importedList = [];
   let skipped = 0;
   let errored = 0;
+  const errorMessages = [];
 
   await touchRunStart(runId, deviceLabel, resolvedProject, transactions.length);
 
@@ -292,6 +318,7 @@ export const importScrapedBatch = async ({
 
     if (item.error) {
       errored++;
+      errorMessages.push(item.error);
       await logRunEntry(runId, {
         amount: null, status: 'error',
         reason: item.error,
@@ -300,7 +327,11 @@ export const importScrapedBatch = async ({
       continue;
     }
 
-    const { amount, transactionDate, paymentTime, paymentId, payerName, mode, remarks } = item;
+    const { amount, transactionDate, paymentTime, paymentId, payerName, mode, bankName, remarks } = item;
+
+    // Reuse an existing source_id matching the received-bank name, else fall
+    // back to Google Pay for rows without a bank selection.
+    const sourceId = bankName ? (await resolveBankSource(bankName)) : (await resolveGooglePaySource());
 
     // In-batch dedup by ref first, then fingerprint.
     if (paymentId) {
@@ -352,6 +383,7 @@ export const importScrapedBatch = async ({
 
     if (insErr) {
       errored++;
+      errorMessages.push(insErr.message);
       await logRunEntry(runId, { payment_id: paymentId, amount, payer_name: payerName, transaction_date: transactionDate, status: 'error', reason: insErr.message });
       continue;
     }
@@ -373,6 +405,7 @@ export const importScrapedBatch = async ({
       errored,
     },
     imported_ids: importedList.map((e) => e.id),
+    error_messages: [...new Set(errorMessages)].slice(0, 5),
   };
 
   try {

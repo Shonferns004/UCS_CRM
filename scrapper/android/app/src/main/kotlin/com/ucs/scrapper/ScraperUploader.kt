@@ -71,4 +71,33 @@ object ScraperUploader {
             emptyList()
         }
     }
+
+    data class Sources(
+        val banks: List<String> = emptyList(),
+        val mops: List<String> = emptyList()
+    )
+
+    fun sources(backendUrl: String, apiKey: String): Sources {
+        val base = backendUrl.trim().trimEnd('/')
+        return try {
+            val url = URL("$base/api/accounts/scraper/sources")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("X-Scraper-Key", apiKey)
+            conn.connectTimeout = 10000
+            conn.readTimeout = 20000
+            val code = conn.responseCode
+            if (code !in 200..299) return Sources()
+            val txt = conn.inputStream.bufferedReader().use { it.readText() }
+            val obj = try { JSONObject(txt) } catch (e: Exception) { return Sources() }
+            val banksArr = obj.optJSONArray("banks")
+            val mopsArr = obj.optJSONArray("mops")
+            Sources(
+                if (banksArr != null) { (0 until banksArr.length()).map { banksArr.getString(it).trim() }.filter { it.isNotEmpty() } } else emptyList(),
+                if (mopsArr != null) { (0 until mopsArr.length()).map { mopsArr.getString(it).trim() }.filter { it.isNotEmpty() } } else emptyList()
+            )
+        } catch (e: Exception) {
+            Sources()
+        }
+    }
 }
