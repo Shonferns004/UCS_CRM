@@ -583,9 +583,24 @@ export const getPagarExportData = async (month) => {
   const collectionByWorker = {};
   const dailyByWorker = {};
   const NgoByWorker = {};
-  const categoryByNgo = { pg: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 }, library: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 }, suspense: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 } };
+  const categoryByNgo = {
+    pg: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 },
+    library: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 },
+    suspense: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 },
+    anjana_fro: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 },
+    priyank_shah: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 },
+  };
   const totalNgo = { BSCT: 0, AFLF: 0, MANN: 0 }; // all receipts per project (report cards)
   const seen = new Set();
+
+  // Which receipts count as "Anjana FRO" by agent name (everything else that is
+  // unmatched and named goes to the Priyank Shah bucket).
+  const ANJANA_STOP = new Set(['mr', 'mrs', 'ms', 'miss', 'dr', 'smt', 'shri', 'shree', 'kumari', 'kumar', 'sir', 'ben']);
+  const isAnjanaAgent = (name) => {
+    const parts = normKey(String(name || '')).split(' ').filter((w) => w && !ANJANA_STOP.has(w));
+    return (parts.length === 1 && parts[0] === 'anjana')
+      || (parts.length === 2 && parts[0] === 'anjana' && parts[1] === 'vyas');
+  };
 
   for (const r of receiptRows || []) {
     const amount = parseFloat(r.amount || 0);
@@ -625,21 +640,31 @@ export const getPagarExportData = async (month) => {
     totalNgo[ngoName] += amount;
 
     let wid = null;
+    let canonical = rawAgent || '';
     if (rawAgent) {
-      const canonical = await normalizeAgentName(rawAgent);
+      canonical = await normalizeAgentName(rawAgent);
       wid = workerByKey[normKey(canonical)] || null;
     }
-    if (!wid) continue; // unattributed receipts are not part of a worker's salary achieved
-    if (!salariedWorkerIds.has(wid)) continue; // no salary row this month → Unattributed bucket
+    if (wid && salariedWorkerIds.has(wid)) {
+      if (!collectionByWorker[wid]) collectionByWorker[wid] = 0;
+      collectionByWorker[wid] += amount;
 
-    if (!collectionByWorker[wid]) collectionByWorker[wid] = 0;
-    collectionByWorker[wid] += amount;
+      if (!dailyByWorker[wid]) dailyByWorker[wid] = {};
+      dailyByWorker[wid][day] = (dailyByWorker[wid][day] || 0) + amount;
 
-    if (!dailyByWorker[wid]) dailyByWorker[wid] = {};
-    dailyByWorker[wid][day] = (dailyByWorker[wid][day] || 0) + amount;
-
-    if (!NgoByWorker[wid]) NgoByWorker[wid] = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
-    NgoByWorker[wid][ngoName] = (NgoByWorker[wid][ngoName] || 0) + amount;
+      if (!NgoByWorker[wid]) NgoByWorker[wid] = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
+      NgoByWorker[wid][ngoName] = (NgoByWorker[wid][ngoName] || 0) + amount;
+    } else {
+      // Named (non-suspense) receipt that did not land on an active salaried FRO
+      // row. Anjana-named agents (Anjana / Anjana Vyas) go to the Anjana FRO
+      // bucket; every other unmatched named receipt (Priyank Sir, deleted-account
+      // FROs, any ex-FRO) is claimed under Priyank Shah. Both keep their
+      // NGO-column split so the file still tallies with the report cards.
+      const catKey = isAnjanaAgent(canonical || rawAgent) ? 'anjana_fro' : 'priyank_shah';
+      const cat = categoryByNgo[catKey];
+      cat[ngoName] = (cat[ngoName] || 0) + amount;
+      cat.total += amount;
+    }
   }
 
   // Unattributed (No Agent) = every bsct/aflf/mann receipt NOT credited to a
@@ -774,9 +799,10 @@ export const getPagarExportData = async (month) => {
 
   // Category collection rows (PG / Library / Suspense) - receipts whose
   // agent_name is the category label, shown as trailing rows in the salary file.
-  for (const c of ['pg', 'library', 'suspense']) {
+  const categoryLabels = { pg: 'Pg', library: 'Library', suspense: 'Suspense', anjana_fro: 'Anjana FRO', priyank_shah: 'Priyank Shah' };
+  for (const c of ['pg', 'library', 'suspense', 'anjana_fro', 'priyank_shah']) {
     const cat = categoryByNgo[c];
-    const label = c[0].toUpperCase() + c.slice(1);
+    const label = categoryLabels[c];
     rows.push({
       id: null,
       name: label,

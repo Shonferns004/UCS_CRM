@@ -389,10 +389,11 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       const wsData = [headers];
       const rowStyles = [];
-      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0, categoryCount = 0, unattributedCount = 0;
+      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0, unattributedCount = 0;
+      const CATEGORY_ORDER = ['Pg', 'Library', 'Suspense', 'Anjana FRO', 'Priyank Shah'];
 
-      // JS accumulators so Absconded / Category / Unattributed totals are exact
-      // (independent of Excel formula quirks like SUMIF wildcards).
+      // JS accumulators so every subtotal / the Grand Total is an exact literal
+      // (independent of Excel formula quirks like SUMIF wildcards or recalc).
       const makeSums = () => ({
         salary: 0, target: 0, achieved: 0, bsct: 0, aflf: 0, mann: 0,
         gross_present_days: 0, training_sunday_ded: 0, month_salary: 0,
@@ -420,7 +421,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           sum.daily[d] += daily[d] || 0;
         }
       };
-      const abscondSums = makeSums(), categorySums = makeSums(), unattributedSums = makeSums();
+      const froSums = makeSums(), mgmtSums = makeSums(), hrSums = makeSums(), abscondSums = makeSums();
+      const catSumsByLabel = {};
+      for (const label of CATEGORY_ORDER) catSumsByLabel[label] = makeSums();
+      const unattributedSums = makeSums();
+      const grandSums = makeSums();
+      const accAny = (sum, r) => { addSum(sum, r); addSum(grandSums, r); };
 
       for (const r of rows) {
         const daily = r.daily || {};
@@ -465,36 +471,19 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         const isMgmt = ['Digital', 'Admin', 'NGO Admin', 'Event Manager', 'Housekeeping'].includes(r.department);
         const isHr = ['HR', 'HR-Recruiter'].includes(r.department);
 
-        if (isActive && isFro) { activeFroCount++; }
-        else if (isActive && isMgmt) { mgmtCount++; }
-        else if (isActive && isHr) { hrCount++; }
-        else if (isAbscond) { abscondCount++; addSum(abscondSums, r); }
-        else if (r.status === 'CATEGORY') { categoryCount++; addSum(categorySums, r); }
-        else if (r.status === 'UNATTRIBUTED') { unattributedCount++; addSum(unattributedSums, r); }
+        if (isActive && isFro) { activeFroCount++; accAny(froSums, r); }
+        else if (isActive && isMgmt) { mgmtCount++; accAny(mgmtSums, r); }
+        else if (isActive && isHr) { hrCount++; accAny(hrSums, r); }
+        else if (isAbscond) { abscondCount++; accAny(abscondSums, r); }
+        else if (r.status === 'CATEGORY') { accAny(catSumsByLabel[r.name] || makeSums(), r); }
+        else if (r.status === 'UNATTRIBUTED') { unattributedCount++; accAny(unattributedSums, r); }
       }
 
-      // Add subtotal rows with SUM formulas
-      const addSubtotalRow = (label, startRow, endRow) => {
-        if (startRow > endRow) return;
-        const subtotal = [label];
-        for (let c = 1; c < TOTAL_COLS; c++) {
-          const colLetter = XLSX.utils.encode_col(c);
-          if (c >= COL.SALARY && c <= COL.NET_PAY) {
-            subtotal.push({ f: `SUM(${colLetter}${startRow}:${colLetter}${endRow})` });
-          } else if (c >= COL.FIRST_DAY_COL) {
-            subtotal.push({ f: `SUM(${colLetter}${startRow}:${colLetter}${endRow})` });
-          } else {
-            subtotal.push('');
-          }
-        }
-        wsData.push(subtotal);
-      };
-
-      // Build a totals row from JS-accumulated sums (exact literal values). Used for
-      // Absconded / PG Library Suspense / Unattributed, where range SUM/SUMIF is
-      // fragile or the section is not a contiguous top block.
+      // Build a totals row from JS-accumulated sums (exact literal values).
+      // All subtotals AND the Grand Total use this, so the exported numbers are
+      // final regardless of Excel formula recalculation.
       const buildTotalRow = (label, sum) => {
-        const balance = sum.target > 0 ? sum.target - sum.achieved : '';
+        const balance = sum.target > 0 ? sum.target - sum.achieved : null;
         const netPres = sum.gross_present_days - sum.training_sunday_ded;
         const gross = sum.month_salary + sum.monthly_incentive + sum.aki_payout;
         const row = [label];
@@ -506,7 +495,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           else if (c === COL.AFLF_ACH) row.push(sum.aflf);
           else if (c === COL.MANN_ACH) row.push(sum.mann);
           else if (c === COL.BALANCE) row.push(balance);
-          else if (c === COL.ACH_PCT) row.push('');
+          else if (c === COL.ACH_PCT) row.push(null);
           else if (c === COL.PRES_DAYS) row.push(sum.gross_present_days);
           else if (c === COL.TRAIN_SUN_DED) row.push(sum.training_sunday_ded);
           else if (c === COL.NET_PRES) row.push(netPres);
@@ -520,71 +509,36 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           else if (c === COL.ADVANCE) row.push(sum.advance_deduction);
           else if (c === COL.NET_PAY) row.push(sum.net_payable);
           else if (c >= COL.FIRST_DAY_COL) row.push(sum.daily[c - COL.FIRST_DAY_COL + 1] || 0);
-          else row.push('');
+          else row.push(null);
         }
         wsData.push(row);
-        return wsData.length;
       };
 
-      // Subtotals for each section (if they have rows)
-      let dataStartRow = 2; // row 2 is first data row (1-indexed)
-      const subtotalRowIndices = []; // track subtotal row numbers (1-indexed)
-      if (activeFroCount > 0) {
-        const endRow = dataStartRow + activeFroCount - 1;
-        addSubtotalRow('Active FRO Total', dataStartRow, endRow);
-        subtotalRowIndices.push(endRow + 1); // subtotal row = endRow + 1
-        dataStartRow = endRow + 2;
-      }
-      if (mgmtCount > 0) {
-        const endRow = dataStartRow + mgmtCount - 1;
-        addSubtotalRow('Management Total', dataStartRow, endRow);
-        subtotalRowIndices.push(endRow + 1);
-        dataStartRow = endRow + 2;
-      }
-      if (hrCount > 0) {
-        const endRow = dataStartRow + hrCount - 1;
-        addSubtotalRow('HR Total', dataStartRow, endRow);
-        subtotalRowIndices.push(endRow + 1);
-        dataStartRow = endRow + 2;
-      }
-      if (abscondCount > 0) {
-        subtotalRowIndices.push(buildTotalRow('Absconded Total', abscondSums));
-      }
-      if (categoryCount > 0) {
-        subtotalRowIndices.push(buildTotalRow('PG / Library / Suspense Total', categorySums));
-      }
-      if (unattributedCount > 0) {
-        subtotalRowIndices.push(buildTotalRow('Unattributed (No Agent) Total', unattributedSums));
-      }
-
-      // Grand Total = sum of subtotal rows (avoids double-counting)
-      const grandTotal = ['Grand Total'];
-      for (let c = 1; c < TOTAL_COLS; c++) {
-        const colLetter = XLSX.utils.encode_col(c);
-        if (c >= COL.SALARY && c <= COL.NET_PAY) {
-          if (subtotalRowIndices.length > 0) {
-            grandTotal.push({ f: subtotalRowIndices.map(r => `${colLetter}${r}`).join('+') });
-          } else {
-            grandTotal.push({ f: `SUM(${colLetter}2:${colLetter}${wsData.length})` });
-          }
-        } else if (c >= COL.FIRST_DAY_COL) {
-          if (subtotalRowIndices.length > 0) {
-            grandTotal.push({ f: subtotalRowIndices.map(r => `${colLetter}${r}`).join('+') });
-          } else {
-            grandTotal.push({ f: `SUM(${colLetter}2:${colLetter}${wsData.length})` });
-          }
-        } else {
-          grandTotal.push('');
+      // Subtotals for each section (only when the section has rows)
+      if (activeFroCount > 0) buildTotalRow('Active FRO Total', froSums);
+      if (mgmtCount > 0) buildTotalRow('Management Total', mgmtSums);
+      if (hrCount > 0) buildTotalRow('HR Total', hrSums);
+      if (abscondCount > 0) buildTotalRow('Absconded Total', abscondSums);
+      // A separate total line per category (Pg / Library / Suspense / Anjana FRO)
+      for (const label of CATEGORY_ORDER) {
+        if (catSumsByLabel[label]) {
+          buildTotalRow(`${label} Total`, catSumsByLabel[label]);
         }
       }
-      wsData.push(grandTotal);
+      if (unattributedCount > 0) buildTotalRow('Unattributed (No Agent) Total', unattributedSums);
+      buildTotalRow('Grand Total', grandSums);
 
       // Apply formulas for data rows
       for (let i = 1; i < 1 + rows.length; i++) {
         const row = i + 1; // 1-indexed
         const colLetter = (c) => XLSX.utils.encode_col(c);
-        // Balance = Target - Total Achieved
-        wsData[i][COL.BALANCE] = { f: `${colLetter(COL.TARGET)}${row}-${colLetter(COL.TOTAL_ACH)}${row}` };
+        // Balance = Target - Total Achieved (blank for target-less rows like
+        // category / Anjana FRO / Unattributed so they don't show negatives)
+        if ((rows[i - 1]?.target || 0) > 0) {
+          wsData[i][COL.BALANCE] = { f: `${colLetter(COL.TARGET)}${row}-${colLetter(COL.TOTAL_ACH)}${row}` };
+        } else {
+          wsData[i][COL.BALANCE] = null;
+        }
         // Achieved % = Total Achieved / Target * 100
         wsData[i][COL.ACH_PCT] = { f: `IF(${colLetter(COL.TARGET)}${row}>0,${colLetter(COL.TOTAL_ACH)}${row}/${colLetter(COL.TARGET)}${row}*100,0)` };
         // Net Present Days = Present Days - Training Sunday Ded
