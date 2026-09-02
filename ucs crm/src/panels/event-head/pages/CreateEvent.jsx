@@ -84,6 +84,7 @@ export default function CreateEvent() {
     if (!form.name.trim()) { setError('Please enter an Event Name'); setSaving(false); return }
     if (!form.ngo_id) { setError('Please choose an NGO'); setSaving(false); return }
     if (!form.sector_id) { setError('Please choose a Sector'); setSaving(false); return }
+    if (!form.date) { setError('Please choose an Event Date — it is required so the event shows on the Calendar'); setSaving(false); return }
     try {
       const typedActivity = String(form.activityName || '').trim()
       const activity_id = typedActivity ? await resolveActivity() : null
@@ -167,7 +168,7 @@ export default function CreateEvent() {
             {section('Event Details')}
             <div className="form-row">
               <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required /></div>
-              <div className="field"><label>Event Date</label><input type="date" name="date" value={form.date} onChange={handleChange} /></div>
+              <div className="field"><label>Event Date *</label><input type="date" name="date" value={form.date} onChange={handleChange} required /></div>
             </div>
             <div className="form-row">
               <div className="field"><label>Start Time</label><input type="time" name="start_time" value={form.start_time} onChange={handleChange} /></div>
