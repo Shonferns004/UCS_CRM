@@ -541,20 +541,37 @@ export default function MonthlyPlanner() {
 
   // Merge festival markers into the calendar as distinct, non-editable events.
   const festivalEvents = useMemo(() => {
-    return (festivals || []).map((f, i) => ({
-      id: 'fest-' + i,
-      title: f.name,
-      start: f.date,
-      allDay: true,
-      editable: false,
-      startEditable: false,
-      durationEditable: false,
-      interactive: false,
-      overlap: true,
-      display: 'block',
-      classNames: ['ev-festival'],
-      extendedProps: { isFestival: true, festivalName: f.name, festivalType: f.type || 'special-day', festivalDate: f.date },
-    }))
+    return (festivals || [])
+      .filter(f => /^\d{4}-\d{2}-\d{2}$/.test(String(f.date || '')))
+      .map((f, i) => ({
+        id: 'fest-' + i,
+        title: f.name,
+        start: String(f.date).slice(0, 10),
+        allDay: true,
+        editable: false,
+        startEditable: false,
+        durationEditable: false,
+        interactive: false,
+        overlap: true,
+        display: 'block',
+        classNames: ['ev-festival'],
+        extendedProps: { isFestival: true, festivalName: f.name, festivalType: f.type || 'special-day', festivalDate: String(f.date).slice(0, 10) },
+      }))
+  }, [festivals])
+
+  // Build a date→festivals map (yyyy-mm-dd) used to decorate day cells. We
+  // deliberately do NOT inject festival markers as FullCalendar "events" —
+  // that path can trigger the internal "reading 'start' of null" crash when
+  // the event store rebuilds. Rendering via dayCellContent is pure DOM and
+  // cannot affect FullCalendar's internal event instances.
+  const festivalByDate = useMemo(() => {
+    const map = {}
+    for (const f of festivals || []) {
+      const d = String(f.date || '').slice(0, 10)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue
+      ;(map[d] = map[d] || []).push(f)
+    }
+    return map
   }, [festivals])
 
   /* Filters applied post-fetch (search + delegated UI) */
@@ -779,19 +796,13 @@ export default function MonthlyPlanner() {
             dayMaxEvents={3}
             moreLinkContent={(arg) => `${arg.num} more`}
             nowIndicator
-            events={[...festivalEvents, ...groupedEvents]}
+            events={groupedEvents}
             eventClassNames={(arg) => {
               const p = arg.event.extendedProps || {}
-              if (p.isFestival) return ['ev-festival']
               return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
             }}
             eventContent={(arg) => {
               const p = arg.event.extendedProps || {}
-              if (p.isFestival) {
-                return {
-                  html: `<div class="festival-pill"><span>${FESTIVAL_META.icon}</span><span class="festival-pill-title">${escapeHtml(p.festivalName || arg.event.title)}</span></div>`,
-                }
-              }
               const cat = CATEGORY_META[p.category] || CATEGORY_META.other
               const ngos = p.ngos || []
               const title = baseTitle(arg.event.title, p.ngoName)
@@ -801,6 +812,14 @@ export default function MonthlyPlanner() {
                   <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag" data-ngo-id="${escapeHtml(n.id || '')}" title="Click to show only ${escapeHtml(n.code)} events" style="cursor:pointer">${escapeHtml(n.code)}</span>`).join('')}</div>
                 </div>`,
               }
+            }}
+            dayCellContent={(arg) => {
+              const key = String(arg.date.getFullYear()) + '-' + String(arg.date.getMonth() + 1).padStart(2, '0') + '-' + String(arg.date.getDate()).padStart(2, '0')
+              const fests = festivalByDate[key]
+              const dayNum = arg.date.getDate()
+              if (!fests || !fests.length) return { html: `<span class="fc-daygrid-day-number">${dayNum}</span>` }
+              const pills = fests.map(f => `<div class="festival-cell-chip" title="${escapeHtml(f.name)} (${f.type})">${FESTIVAL_META.icon} ${escapeHtml(f.name)}</div>`).join('')
+              return { html: `<span class="fc-daygrid-day-number">${dayNum}</span><div class="festival-cell-list">${pills}</div>` }
             }}
             datesSet={(info) => setRange(info)}
             dateClick={(info) => { setCreateDate(info.dateStr); setCreateOpen(true) }}
