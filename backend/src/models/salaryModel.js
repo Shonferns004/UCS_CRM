@@ -450,6 +450,14 @@ export const getPagarExportData = async (month) => {
     if (s.to_month) continue;
     if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
   }
+  // Only workers with a current salary get a row in this file; receipts credited
+  // to anyone else must fall into the Unattributed bucket so columns still tally
+  // exactly with the Collection Report cards.
+  const salariedWorkerIds = new Set();
+  for (const w of workers) {
+    const sl = latestSalary[w.id];
+    if (sl && parseFloat(sl.salary) > 0) salariedWorkerIds.add(w.id);
+  }
 
   // 3. Targets for month — manual fro_monthly_targets (latest per worker) wins over auto incentive_targets
   // fro_monthly_targets stores month as first-of-month (YYYY-MM-01), matching our startDate
@@ -548,7 +556,6 @@ export const getPagarExportData = async (month) => {
     return nameNormToSlug[nn] || null;
   };
   const projectToNgo = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' };
-  const catSet = new Set(['pg', 'library', 'suspense']);
 
   // FRO worker id by normalized name (active, non-test) - same attribution as
   // the Accounts report.
@@ -577,6 +584,7 @@ export const getPagarExportData = async (month) => {
   const dailyByWorker = {};
   const NgoByWorker = {};
   const categoryByNgo = { pg: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 }, library: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 }, suspense: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 } };
+  const totalNgo = { BSCT: 0, AFLF: 0, MANN: 0 }; // all receipts per project (report cards)
   const seen = new Set();
 
   for (const r of receiptRows || []) {
@@ -590,19 +598,31 @@ export const getPagarExportData = async (month) => {
     seen.add(dedupKey);
 
     const proj = resolveProject(r.project_id);
-    const ngoName = projectToNgo[proj];
-    if (!ngoName) continue;
-
     const rawAgent = String(r.agent_name || '').trim();
     const agentLower = rawAgent.toLowerCase();
 
-    if (catSet.has(agentLower)) {
-      const cat = categoryByNgo[agentLower];
-      if (!cat) continue;
-      cat[ngoName] = (cat[ngoName] || 0) + amount;
+    // Exact Collection-Report bucketing (accountsController.getReportData):
+    //  1) Suspense agent (blank / 'na' / 'suspense') wins over ANY project -> Suspense card
+    //  2) library/pg are PROJECT buckets (real agent, project_id = library/pg) -> Library/PG cards
+    //  3) otherwise the project must resolve to bsct/aflf/mann -> the NGO card pool
+    const isSuspenseish = rawAgent === '' || agentLower === 'na' || agentLower === 'suspense';
+    if (isSuspenseish) {
+      const cat = categoryByNgo['suspense'];
+      cat['Other'] = (cat['Other'] || 0) + amount;
       cat.total += amount;
       continue;
     }
+
+    if (proj === 'library' || proj === 'pg') {
+      const cat = categoryByNgo[proj];
+      cat['Other'] = (cat['Other'] || 0) + amount;
+      cat.total += amount;
+      continue;
+    }
+
+    const ngoName = projectToNgo[proj];
+    if (!ngoName) continue;
+    totalNgo[ngoName] += amount;
 
     let wid = null;
     if (rawAgent) {
@@ -610,6 +630,7 @@ export const getPagarExportData = async (month) => {
       wid = workerByKey[normKey(canonical)] || null;
     }
     if (!wid) continue; // unattributed receipts are not part of a worker's salary achieved
+    if (!salariedWorkerIds.has(wid)) continue; // no salary row this month → Unattributed bucket
 
     if (!collectionByWorker[wid]) collectionByWorker[wid] = 0;
     collectionByWorker[wid] += amount;
@@ -619,6 +640,17 @@ export const getPagarExportData = async (month) => {
 
     if (!NgoByWorker[wid]) NgoByWorker[wid] = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
     NgoByWorker[wid][ngoName] = (NgoByWorker[wid][ngoName] || 0) + amount;
+  }
+
+  // Unattributed (No Agent) = every bsct/aflf/mann receipt NOT credited to a
+  // worker or a category bucket this month. Computed as the residual per project
+  // so the file's BSCT/MANN/AFLF columns always equal the Collection Report cards.
+  const unattributedByNgo = { BSCT: 0, AFLF: 0, MANN: 0 };
+  for (const k of ['BSCT', 'AFLF', 'MANN']) {
+    let attributed = 0;
+    for (const ck of Object.keys(categoryByNgo)) attributed += categoryByNgo[ck][k] || 0;
+    for (const uk of Object.keys(NgoByWorker)) attributed += NgoByWorker[uk][k] || 0;
+    unattributedByNgo[k] = Math.max(0, Math.round((totalNgo[k] - attributed) * 100) / 100);
   }
 
   // Merge manual daily_achievements (manual wins for that day's total)
@@ -778,13 +810,52 @@ export const getPagarExportData = async (month) => {
     });
   }
 
+  // Unattributed (No Agent) row - receipts the reports count but that are not
+  // credited to any worker or category bucket this month. Adding it makes the
+  // salary file's BSCT/MANN/AFLF columns tally exactly with the Collection
+  // Report cards.
+  const unattributedTotal = unattributedByNgo.BSCT + unattributedByNgo.AFLF + unattributedByNgo.MANN;
+  rows.push({
+    id: null,
+    name: 'Unattributed (No Agent)',
+    status: 'UNATTRIBUTED',
+    department: '',
+    account_holder_name: '',
+    account_holder_relation: '',
+    bank_name: '',
+    account_number: '',
+    station: '',
+    doj: '',
+    salary: 0,
+    target: 0,
+    achieved: unattributedTotal,
+    achieved_bsct: unattributedByNgo.BSCT,
+    achieved_aflf: unattributedByNgo.AFLF,
+    achieved_mann: unattributedByNgo.MANN,
+    gross_present_days: 0,
+    training_sunday_ded: 0,
+    net_present_days: 0,
+    month_salary: 0,
+    monthly_incentive: 0,
+    total_aki: 0,
+    aki_payout: 0,
+    gross_payable: 0,
+    advance_deduction: 0,
+    net_payable: 0,
+    daily: {},
+    days_in_month: daysInMonth,
+    start_date: startDate,
+  });
+
   // Sort: Active first (by dept), then Absconded (by dept), then other
-  // non-active (Offboarded/Inactive/etc), then CATEGORY rows last.
+  // non-active (Offboarded/Inactive/etc), then CATEGORY rows, then
+  // UNATTRIBUTED row last.
   const deptOrder = { 'FRO': 0, 'Digital': 1, 'Admin': 2, 'NGO Admin': 3, 'Event Manager': 4, 'Housekeeping': 5, 'HR': 6, 'HR-Recruiter': 7 };
   const statusGroup = (s) => {
     if (s === 'ACTIVE') return 0;
     if (s === 'ABSCONDED' || s === 'ABSCOND') return 1;
     if (s === 'CATEGORY') return 3;
+    if (s === 'UNATTRIBUTED') return 4;
     return 2;
   };
   rows.sort((a, b) => {

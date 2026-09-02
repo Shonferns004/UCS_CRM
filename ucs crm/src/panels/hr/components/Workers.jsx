@@ -389,8 +389,38 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       const wsData = [headers];
       const rowStyles = [];
-      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0;
-      let lastActiveFroRow = 0, lastMgmtRow = 0, lastHrRow = 0;
+      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0, categoryCount = 0, unattributedCount = 0;
+
+      // JS accumulators so Absconded / Category / Unattributed totals are exact
+      // (independent of Excel formula quirks like SUMIF wildcards).
+      const makeSums = () => ({
+        salary: 0, target: 0, achieved: 0, bsct: 0, aflf: 0, mann: 0,
+        gross_present_days: 0, training_sunday_ded: 0, month_salary: 0,
+        monthly_incentive: 0, total_aki: 0, aki_payout: 0, advance_deduction: 0,
+        net_payable: 0, daily: {}
+      });
+      const addSum = (sum, r) => {
+        sum.salary += r.salary || 0;
+        sum.target += r.target || 0;
+        sum.achieved += r.achieved || 0;
+        sum.bsct += r.achieved_bsct || 0;
+        sum.aflf += r.achieved_aflf || 0;
+        sum.mann += r.achieved_mann || 0;
+        sum.gross_present_days += r.gross_present_days || 0;
+        sum.training_sunday_ded += r.training_sunday_ded || 0;
+        sum.month_salary += r.month_salary || 0;
+        sum.monthly_incentive += r.monthly_incentive || 0;
+        sum.total_aki += r.total_aki || 0;
+        sum.aki_payout += r.aki_payout || 0;
+        sum.advance_deduction += r.advance_deduction || 0;
+        sum.net_payable += r.net_payable || 0;
+        const daily = r.daily || {};
+        for (let d = 1; d <= daysInMonth; d++) {
+          if (!sum.daily[d]) sum.daily[d] = 0;
+          sum.daily[d] += daily[d] || 0;
+        }
+      };
+      const abscondSums = makeSums(), categorySums = makeSums(), unattributedSums = makeSums();
 
       for (const r of rows) {
         const daily = r.daily || {};
@@ -429,17 +459,18 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         wsData.push(row);
         const met = (r.target || 0) > 0 && (r.achieved || 0) >= r.target;
         rowStyles.push(met ? { fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } } : null);
-        const rowIdx = wsData.length - 1;
         const isActive = r.status === 'ACTIVE';
         const isAbscond = r.status === 'ABSCONDED' || r.status === 'ABSCOND';
         const isFro = r.department === 'FRO';
         const isMgmt = ['Digital', 'Admin', 'NGO Admin', 'Event Manager', 'Housekeeping'].includes(r.department);
         const isHr = ['HR', 'HR-Recruiter'].includes(r.department);
 
-        if (isActive && isFro) { activeFroCount++; lastActiveFroRow = rowIdx; }
-        else if (isActive && isMgmt) { mgmtCount++; lastMgmtRow = rowIdx; }
-        else if (isActive && isHr) { hrCount++; lastHrRow = rowIdx; }
-        else if (isAbscond) { abscondCount++; }
+        if (isActive && isFro) { activeFroCount++; }
+        else if (isActive && isMgmt) { mgmtCount++; }
+        else if (isActive && isHr) { hrCount++; }
+        else if (isAbscond) { abscondCount++; addSum(abscondSums, r); }
+        else if (r.status === 'CATEGORY') { categoryCount++; addSum(categorySums, r); }
+        else if (r.status === 'UNATTRIBUTED') { unattributedCount++; addSum(unattributedSums, r); }
       }
 
       // Add subtotal rows with SUM formulas
@@ -459,24 +490,40 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         wsData.push(subtotal);
       };
 
-      // Absconded subtotal: SUMIF on the Status column (*ABSCOND*) across the
-      // whole body, so only ABSCONDED/ABSCOND workers are included - offboarded
-      // /inactive rows are excluded even though they live in the same sheet area.
-      const addStatusSubtotalRow = (label, statusCriteria) => {
-        const firstRow = 2;
-        const lastRow = 1 + rows.length;
-        const sub = [label];
-        const statusCol = XLSX.utils.encode_col(COL.STATUS);
+      // Build a totals row from JS-accumulated sums (exact literal values). Used for
+      // Absconded / PG Library Suspense / Unattributed, where range SUM/SUMIF is
+      // fragile or the section is not a contiguous top block.
+      const buildTotalRow = (label, sum) => {
+        const balance = sum.target > 0 ? sum.target - sum.achieved : '';
+        const netPres = sum.gross_present_days - sum.training_sunday_ded;
+        const gross = sum.month_salary + sum.monthly_incentive + sum.aki_payout;
+        const row = [label];
         for (let c = 1; c < TOTAL_COLS; c++) {
-          const colLetter = XLSX.utils.encode_col(c);
-          const isNumeric = (c >= COL.SALARY && c <= COL.NET_PAY) || c >= COL.FIRST_DAY_COL;
-          if (isNumeric) {
-            sub.push({ f: `SUMIF(${statusCol}${firstRow}:${statusCol}${lastRow},"*${statusCriteria}*",${colLetter}${firstRow}:${colLetter}${lastRow})` });
-          } else {
-            sub.push('');
-          }
+          if (c === COL.SALARY) row.push(sum.salary);
+          else if (c === COL.TARGET) row.push(sum.target);
+          else if (c === COL.TOTAL_ACH) row.push(sum.achieved);
+          else if (c === COL.BSCT_ACH) row.push(sum.bsct);
+          else if (c === COL.AFLF_ACH) row.push(sum.aflf);
+          else if (c === COL.MANN_ACH) row.push(sum.mann);
+          else if (c === COL.BALANCE) row.push(balance);
+          else if (c === COL.ACH_PCT) row.push('');
+          else if (c === COL.PRES_DAYS) row.push(sum.gross_present_days);
+          else if (c === COL.TRAIN_SUN_DED) row.push(sum.training_sunday_ded);
+          else if (c === COL.NET_PRES) row.push(netPres);
+          else if (c === COL.MONTH_SAL) row.push(sum.month_salary);
+          else if (c === COL.INCENT_10) row.push(sum.monthly_incentive);
+          else if (c === COL.TOTAL_AKI) row.push(sum.total_aki);
+          else if (c === COL.AKI) row.push(sum.aki_payout);
+          else if (c === COL.GROSS) row.push(gross);
+          else if (c === COL.OT) row.push(0);
+          else if (c === COL.PENDING) row.push(0);
+          else if (c === COL.ADVANCE) row.push(sum.advance_deduction);
+          else if (c === COL.NET_PAY) row.push(sum.net_payable);
+          else if (c >= COL.FIRST_DAY_COL) row.push(sum.daily[c - COL.FIRST_DAY_COL + 1] || 0);
+          else row.push('');
         }
-        wsData.push(sub);
+        wsData.push(row);
+        return wsData.length;
       };
 
       // Subtotals for each section (if they have rows)
@@ -501,9 +548,13 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         dataStartRow = endRow + 2;
       }
       if (abscondCount > 0) {
-        addStatusSubtotalRow('Absconded Total', 'ABSCOND');
-        subtotalRowIndices.push(wsData.length);
-        dataStartRow += abscondCount;
+        subtotalRowIndices.push(buildTotalRow('Absconded Total', abscondSums));
+      }
+      if (categoryCount > 0) {
+        subtotalRowIndices.push(buildTotalRow('PG / Library / Suspense Total', categorySums));
+      }
+      if (unattributedCount > 0) {
+        subtotalRowIndices.push(buildTotalRow('Unattributed (No Agent) Total', unattributedSums));
       }
 
       // Grand Total = sum of subtotal rows (avoids double-counting)
@@ -527,36 +578,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         }
       }
       wsData.push(grandTotal);
-      const grandTotalRow = wsData.length; // 1-indexed row of Grand Total
-
-      // Bank Total (same as Grand Total for numeric cols)
-      const bankTotal = ['Bank Total'];
-      for (let c = 1; c < TOTAL_COLS; c++) {
-        const colLetter = XLSX.utils.encode_col(c);
-        if (c >= COL.SALARY && c <= COL.NET_PAY) {
-          bankTotal.push({ f: `SUM(${colLetter}2:${colLetter}${grandTotalRow - 1})` });
-        } else if (c >= COL.FIRST_DAY_COL) {
-          bankTotal.push({ f: `SUM(${colLetter}2:${colLetter}${grandTotalRow - 1})` });
-        } else {
-          bankTotal.push('');
-        }
-      }
-      wsData.push(bankTotal);
-      const bankTotalRow = wsData.length;
-
-      // Difference = Grand Total - Bank Total
-      const diffRow = ['Difference'];
-      for (let c = 1; c < TOTAL_COLS; c++) {
-        const colLetter = XLSX.utils.encode_col(c);
-        if (c >= COL.SALARY && c <= COL.NET_PAY) {
-          diffRow.push({ f: `${colLetter}${grandTotalRow}-${colLetter}${bankTotalRow}` });
-        } else if (c >= COL.FIRST_DAY_COL) {
-          diffRow.push({ f: `${colLetter}${grandTotalRow}-${colLetter}${bankTotalRow}` });
-        } else {
-          diffRow.push('');
-        }
-      }
-      wsData.push(diffRow);
 
       // Apply formulas for data rows
       for (let i = 1; i < 1 + rows.length; i++) {

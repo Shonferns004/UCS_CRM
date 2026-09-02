@@ -209,7 +209,7 @@ const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') :
 
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
-  const [selectedIndex, setSelectedIndex] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
   
@@ -303,7 +303,8 @@ export default function Receipts() {
 
   const removeFromPending = useCallback((receiptId) => {
     setDonors(current => (current || []).filter(donor => donor.receipt_id !== receiptId))
-    setSelectedIndex(null)
+    setSelectedId(prev => prev === receiptId ? null : prev)
+    setPreviewRow(prev => prev?.receipt_id === receiptId ? null : prev)
   }, [])
 
   const loadPending = useCallback(async (silent = false) => {
@@ -473,11 +474,10 @@ export default function Receipts() {
   }, [filteredDonors])
 
   const handleDownloadSingle = async () => {
-    const idx = previewIndex ?? selectedIndex
-    if (idx == null) return
+    const donor = previewRow || (selectedId != null ? (donors || []).find(d => d.receipt_id === selectedId) : null) || null
+    if (!donor) return
     setDownloadSingle(true)
     try {
-      const donor = donors[idx]
       const sheet = previewBodyRef.current?.querySelector('[data-receipt-sheet]')
       if (!sheet) throw new Error('Receipt element not found')
       await downloadSinglePDF(sheet, donor, donor['Project'] || 'bsct')
@@ -495,15 +495,15 @@ export default function Receipts() {
     setTimeout(() => pw.print(), 500)
   }
 
-  const [sendingIndex, setSendingIndex] = useState(null)
-  const [editingPhone, setEditingPhone] = useState(null)
-  const [previewIndex, setPreviewIndex] = useState(null)
+  const [sendingId, setSendingId] = useState(null)
+  const [editingId, setEditingId] = useState(null)
+  const [previewRow, setPreviewRow] = useState(null)
   const [previewedIds, setPreviewedIds] = useState(() => new Set())
   const previewBodyRef = useRef(null)
   const [previewScale, setPreviewScale] = useState(0.7)
 
   useLayoutEffect(() => {
-    if (previewIndex == null) return
+    if (previewRow == null) return
 
     let frameId
     const updatePreviewScale = () => {
@@ -526,14 +526,14 @@ export default function Receipts() {
       cancelAnimationFrame(frameId)
       window.removeEventListener('resize', updatePreviewScale)
     }
-  }, [previewIndex, donors])
+  }, [previewRow, donors])
 
-  const updatePhone = (index, val) => {
-    setDonors(prev => prev.map((d, i) => i === index ? { ...d, 'Mobile No.': val } : d))
+  const updatePhone = (receiptId, val) => {
+    setDonors(prev => (prev || []).map(d => d.receipt_id === receiptId ? { ...d, 'Mobile No.': val } : d))
   }
 
-  const handleSendSingle = async (donor, index) => {
-    setSendingIndex(index)
+  const handleSendSingle = async (donor, receiptId) => {
+    setSendingId(receiptId)
     try {
       if (!donor.receipt_id) throw new Error('This receipt is not eligible for sending')
       const receiptNo = donor['Receipt No.'] || 'N/A'
@@ -544,7 +544,7 @@ export default function Receipts() {
       const tpl = getNgoSettings(ngo)
 
       let pdfBase64 = null
-      const el = document.querySelector(`[data-receipt-batch="${index}"]`)
+      const el = document.querySelector(`[data-receipt-batch="${donor.receipt_id}"]`)
       if (el) {
         const pdf = await generateReceiptPDF(el)
         pdfBase64 = pdf.output('datauristring').split(',')[1]
@@ -564,7 +564,7 @@ export default function Receipts() {
     } catch (e) {
       showToast('error', e.message)
     }
-    setSendingIndex(null)
+    setSendingId(null)
   }
 
   const handleSendAllWhatsApp = () => {
@@ -697,8 +697,7 @@ export default function Receipts() {
         const tpl = getNgoSettings(ngo)
 
         let pdfBase64 = null
-        const realIndex = donors.indexOf(donor)
-        const el = document.querySelector(`[data-receipt-batch="${realIndex}"]`)
+        const el = document.querySelector(`[data-receipt-batch="${donor.receipt_id}"]`)
         if (el) {
           const pdf = await generateReceiptPDF(el)
           pdfBase64 = pdf.output('datauristring').split(',')[1]
@@ -743,7 +742,7 @@ export default function Receipts() {
     showToast(cancelBulkRef.current ? 'info' : 'success', cancelBulkRef.current ? `Cancelled. ${totalSent} sent, ${totalFailed} failed` : `Bulk send complete! ${totalSent} sent, ${totalFailed} failed`)
   }
 
-  const currentDonor = selectedIndex != null ? donors?.[selectedIndex] : donors?.[0]
+  const currentDonor = selectedId != null ? (donors || []).find(d => d.receipt_id === selectedId) : (donors?.[0])
   const currentNgo = currentDonor?.['Project'] || 'bsct'
   const currentTpl = getNgoSettings(currentNgo)
   const TemplateComp = currentTpl.comp
@@ -951,7 +950,7 @@ export default function Receipts() {
               <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
                 <thead>
                   <tr>
-                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>Action</th>
+                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>NGO</th><th>Mobile</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -963,38 +962,48 @@ export default function Receipts() {
                         <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:55, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:90, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:70, height:24, borderRadius:4 }} /></td>
                       </tr>
                     ))
                   ) : filteredDonors.length === 0 ? (
-                    <tr><td colSpan={7} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
                   ) : filteredDonors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                     const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
+                    const rowId = d.receipt_id;
                     return (
-                    <tr key={realIdx} style={{ background: selectedIndex === realIdx ? '#f0fdf4' : undefined, cursor:'pointer' }}
-                      onClick={() => setSelectedIndex(realIdx)}>
+                    <tr key={rowId || realIdx} style={{ background: selectedId != null && selectedId === rowId ? '#f0fdf4' : undefined, cursor:'pointer' }}
+                      onClick={() => setSelectedId(rowId)}>
                       <td>{realIdx + 1}</td>
                       <td style={{ fontWeight:500 }}>{d['Donor Name']}</td>
                       <td style={{ color:'#059669', fontWeight:600 }}>{formatIndianCurrency(d['Amount'])}</td>
                       <td style={{ fontFamily:'monospace', fontSize:12 }}>{d['Receipt No.']}</td>
                       <td style={{ fontSize:12 }}>{formatReceiptDate(d['Receipt Date'])}</td>
-                        <td style={{ fontSize:12, cursor:'pointer' }} onClick={e => { e.stopPropagation(); setEditingPhone(editingPhone === realIdx ? null : realIdx) }}>
-                        {editingPhone === realIdx ? (
+                      <td>
+                        {(() => {
+                          const ng = d['Project'] || 'bsct'
+                          const st = { bsct:{background:'#dbeafe',color:'#1d4ed8'}, aflf:{background:'#dcfce7',color:'#166534'}, mann:{background:'#fce7f3',color:'#be185d'} }[ng]
+                            || { background:'#f3f4f6', color:'#374151' }
+                          return <span style={{ display:'inline-block', padding:'3px 8px', borderRadius:999, fontSize:11, fontWeight:600, ...st }}>{NGO_MAP[ng]?.label || ng}</span>
+                        })()}
+                      </td>
+                        <td style={{ fontSize:12, cursor:'pointer' }} onClick={e => { e.stopPropagation(); setEditingId(editingId === rowId ? null : rowId) }}>
+                        {editingId === rowId ? (
                           <input className="field-input" type="tel" value={d['Mobile No.'] || ''} autoFocus
-                            onChange={e => updatePhone(realIdx, e.target.value)}
-                            onBlur={() => setEditingPhone(null)}
-                            onKeyDown={e => { if (e.key === 'Enter') setEditingPhone(null) }}
+                            onChange={e => updatePhone(rowId, e.target.value)}
+                            onBlur={() => setEditingId(null)}
+                            onKeyDown={e => { if (e.key === 'Enter') setEditingId(null) }}
                             style={{ width:120, height:28, padding:'2px 6px', fontSize:12 }}
                             onClick={e => e.stopPropagation()} />
                         ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
                       </td>
                       <td style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                        {previewedIds.has(d.receipt_id) && (
+                        {previewedIds.has(rowId) && (
                           <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
-                            onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
-                            disabled={sendingIndex === realIdx}>
-                            {sendingIndex === realIdx ? '...' : 'Send'}
+                            onClick={e => { e.stopPropagation(); handleSendSingle(d, rowId) }}
+                            disabled={sendingId === rowId}>
+                            {sendingId === rowId ? '...' : 'Send'}
                           </button>
                         )}
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 6px', background:'#fff', color:'#6b7280', border:'1px solid #d1d5db', display:'flex', alignItems:'center', gap:4 }}
@@ -1007,7 +1016,7 @@ export default function Receipts() {
                           {'\u21a9 Go Back'}
                         </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }}
-                          onClick={e => { e.stopPropagation(); if (d.receipt_id) setPreviewedIds(prev => new Set(prev).add(d.receipt_id)); setPreviewIndex(realIdx) }}>Preview</button>
+                          onClick={e => { e.stopPropagation(); if (d.receipt_id) setPreviewedIds(prev => new Set(prev).add(d.receipt_id)); setPreviewRow(d) }}>Preview</button>
                       </td>
                     </tr>
                   )})}
@@ -1030,32 +1039,31 @@ export default function Receipts() {
               const ngo = d['Project'] || 'bsct'
               const tpl = getNgoSettings(ngo)
               const Comp = tpl.comp
-              return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
+              return <div key={d.receipt_id || i} data-receipt-batch={d.receipt_id}><Comp donor={d} project={ngo} /></div>
             })}
           </div>)}
 
-          {previewIndex != null && donors && donors[previewIndex] && (
-            <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:3000 }}>
+          {previewRow && (
+            <div className="modal-overlay" onClick={() => setPreviewRow(null)} style={{ zIndex:3000 }}>
               <div className="modal" style={{ width:'min(900px, calc(100vw - 40px))', maxWidth:900, height:'min(760px, calc(100vh - 40px))', maxHeight:'calc(100vh - 40px)', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
                 <div className="modal-header" style={{ flexShrink:0 }}>
-                  <h3 style={{ fontSize:15 }}>{donors[previewIndex]['Donor Name']} — {getNgoSettings(donors[previewIndex]['Project'] || 'bsct').label}</h3>
+                  <h3 style={{ fontSize:15 }}>{previewRow['Donor Name']} — {getNgoSettings(previewRow['Project'] || 'bsct').label}</h3>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                     <button className="btn btn-primary btn-sm" onClick={handleDownloadSingle} disabled={downloadSingle}>
                       {downloadSingle ? 'Generating...' : 'Download PDF'}
                     </button>
                     <button className="btn btn-sm" onClick={handlePrint}>Print</button>
-                    <button className="btn btn-sm" onClick={() => setPreviewIndex(null)}>Close</button>
+                    <button className="btn btn-sm" onClick={() => setPreviewRow(null)}>Close</button>
                   </div>
                 </div>
                 <div ref={previewBodyRef} className="modal-body" style={{ flex:1, minHeight:0, overflow:'auto', padding:20, display:'flex', alignItems:'flex-start', justifyContent:'center' }}>
                   {(() => {
-                    const idx = previewIndex
-                    const ngo = donors[idx]['Project'] || 'bsct'
+                    const ngo = previewRow['Project'] || 'bsct'
                     const tpl = getNgoSettings(ngo)
                     const Comp = tpl.comp
                     return (
                       <div data-receipt style={{ display:'inline-block', zoom:previewScale }}>
-                        <Comp donor={donors[idx]} project={ngo} />
+                        <Comp donor={previewRow} project={ngo} />
                       </div>
                     )
                   })()}
