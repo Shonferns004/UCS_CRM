@@ -78,6 +78,10 @@ export async function fetchReplacements() {
   return request('GET', 'sim-cards/replacements')
 }
 
+export async function fetchSimHistory(id) {
+  return request('GET', `sim-cards/${id}/history`)
+}
+
 export async function importSimCards(rows) {
   return request('POST', 'sim-cards/import', { rows })
 }
