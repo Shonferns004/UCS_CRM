@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from './Toast';
-import { addSimCard, updateSimCard, replaceSimCard } from './api';
+import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory } from './api';
 import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder }) {
@@ -38,6 +38,19 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
     return existing;
   });
   const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    if (open && card) {
+      fetchSimHistory(card.id)
+        .then((h) => { if (active && Array.isArray(h)) setHistory(h); })
+        .catch(() => { if (active) setHistory([]); });
+    } else if (!open) {
+      setHistory([]);
+    }
+    return () => { active = false; };
+  }, [open, card]);
 
   if (!open) return null;
 
@@ -77,6 +90,12 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
       } else {
         await addSimCard(payload);
         toast('SIM card added', 'success');
+      }
+      if (card) {
+        try {
+          const h = await fetchSimHistory(card.id);
+          if (Array.isArray(h)) setHistory(h);
+        } catch { /* keep current history */ }
       }
       onSaved();
       onClose();
@@ -140,6 +159,53 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
               <button type="button" className="sim-btn" onClick={addSimField} style={{ alignSelf: 'flex-start', marginTop: 2 }}>+ Add SIM</button>
             )}
           </div>
+
+          {card && (
+            <>
+            <div className="section-title" style={{ margin: '18px 0 10px', fontSize: 13 }}>Change History</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
+              {history.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--sim-ink-soft)' }}>No previous changes saved.</div>
+              ) : (
+                history.map((h) => (
+                  <div key={h.id} style={{ border: '1px solid var(--sim-line)', borderRadius: 8, padding: '8px 10px', fontSize: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      {h.changed_at ? new Date(h.changed_at).toLocaleString() : ''}
+                      {h.changed_by ? ` · by ${h.changed_by}` : ''}
+                    </div>
+                    {(h.changed_cols && Object.keys(h.changed_cols).length) ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {Object.entries(h.changed_cols).map(([field, v]) => {
+                          const shName = field.replace(/^sim_(\d+)$/, 'SIM $1').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                          const added = (v.old === null || v.old === '') && !(v.new === null || v.new === '');
+                          const removed = !(v.old === null || v.old === '') && (v.new === null || v.new === '');
+                          return (
+                            <div key={field}>
+                              <span style={{ color: 'var(--sim-ink-soft)' }}>{shName}: </span>
+                              {added ? (
+                                <span style={{ color: 'var(--sim-green)' }}>Added: {String(v.new)}</span>
+                              ) : removed ? (
+                                <span style={{ color: 'var(--sim-red)' }}>Removed: {String(v.old)}</span>
+                              ) : (
+                                <>
+                                  <span style={{ textDecoration: 'line-through', color: 'var(--sim-red)' }}>{String(v.old)}</span>
+                                  <span> → </span>
+                                  <span style={{ color: 'var(--sim-green)' }}>{String(v.new)}</span>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--sim-ink-soft)' }}>Data updated</div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            </>
+          )}
         </div>
         <div className="modal-foot">
           <button className="sim-btn" onClick={onClose}>Cancel</button>

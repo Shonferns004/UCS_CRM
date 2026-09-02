@@ -11,6 +11,7 @@ import {
   updateStatusBulk,
   deleteBulk,
   importSimCards,
+  historyForSim,
 } from '../controllers/simCardController.js';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 
@@ -23,6 +24,7 @@ router.get('/', ANY_AUTH, listSimCards);
 router.get('/replacements', ANY_AUTH, listReplacements);
 router.get('/:id', ANY_AUTH, getSimCard);
 router.get('/:id/replacements', ANY_AUTH, replaceHistoryForSim);
+router.get('/:id/history', ANY_AUTH, historyForSim);
 
 router.post('/', MANAGERS, addSimCard);
 router.post('/import', MANAGERS, importSimCards);
