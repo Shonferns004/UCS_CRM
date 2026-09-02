@@ -63,8 +63,12 @@ class ScraperAccessibilityService : AccessibilityService() {
     private var waitTicks = 0
     private var scrollCount = 0
     private var listEntered = false
+    private var listWaitTicks = 0
+    private var linkSearchTicks = 0
+    private val linkSearchMax = 60
     private var detailPhase = 0
     private var detailWaitTicks = 0
+    private var detailTapAttempts = 0
     private var pendingDetail: ScrapedTxn? = null
     private var blockedNotified = false
     private var blockedSince = 0L
@@ -92,16 +96,20 @@ class ScraperAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         ScraperConfig.init(this)
+        OverlayManager.init(this)
+        if (ScraperConfig.getBool("overlayEnabled", false)) {
+            handler.post { OverlayManager.start(this) }
+        }
         emit("connected", emptyMap())
     }
-
-    override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
         stopRun()
         return super.onUnbind(intent)
     }
+
+    override fun onInterrupt() {}
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!training || event == null) return
@@ -187,8 +195,12 @@ class ScraperAccessibilityService : AccessibilityService() {
         gpayLockType = c.get("gpayLockType") ?: "pin"
         projectId = c.get("projectId") ?: ""
         deviceLabel = c.get("deviceLabel") ?: ""
-        this.backendUrl = backendUrl
-        this.apiKey = apiKey
+        this.backendUrl = backendUrl.ifBlank { ScraperConfig.resolveBackendUrl() }
+        this.apiKey = apiKey.ifBlank { ScraperConfig.resolveApiKey() }
+        ScraperConfig.setAll(mapOf(
+            "backendUrl" to this.backendUrl,
+            "apiKey" to this.apiKey
+        ))
         receivedOnly = c.getBool("receivedOnly", true)
         maxTx = c.getInt("maxTransactions", 200)
         maxScrolls = c.getInt("scrollLoops", 8)
@@ -206,7 +218,8 @@ class ScraperAccessibilityService : AccessibilityService() {
             if (remote.isNotEmpty()) handler.post { knownRefs.addAll(remote) }
         }.start()
         pinIndex = 0; pinDone = false; waitTicks = 0; scrollCount = 0; revisitCount = 0
-        listEntered = false; detailPhase = 0; detailWaitTicks = 0; pendingDetail = null
+listEntered = false; listWaitTicks = 0; linkSearchTicks = 0
+        detailPhase = 0; detailWaitTicks = 0; detailTapAttempts = 0; pendingDetail = null
         lastHeaderDate = null
         trainedFlow = TrainedStep.load(ScraperConfig.get("trainedFlow"))
         replayIdx = 0; stepCooldown = 0; flowDone = false; linkCooldown = 0
@@ -361,14 +374,26 @@ class ScraperAccessibilityService : AccessibilityService() {
     }
 
     private fun stepCollect(root: AccessibilityNodeInfo): Stage {
-        if (!flowDone && trainedFlow.isNotEmpty()) {
-            if (replayIdx >= trainedFlow.size) flowDone = true
-            else return stepTrained(root, trainedFlow)
+        // A previously recorded flow is only a rough hint and can become
+        // stale as GPay changes its UI. Never replay it during a normal run:
+        // replaying arbitrary old coordinates/text matches caused random
+        // clicks and swipes instead of opening transaction rows.
+        flowDone = true
+
+        // A run may start while GPay is still showing the last detail page.
+        // Return to history first instead of searching that page for a list.
+        if (!listEntered && isTransactionDetailScreen(root)) {
+            emit("info", mapOf("message" to "Returning from transaction detail to history"))
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            linkCooldown = 2
+            return Stage.COLLECT
         }
-        if (!listEntered) {
+
+if (!listEntered) {
             if (linkCooldown > 0) {
                 linkCooldown--
-            } else {
+            } else if (linkSearchTicks < linkSearchMax) {
+                linkSearchTicks++
                 val seeAll = findNode(root) {
                     val d = it.contentDescription?.toString()?.trim() ?: ""
                     val t = it.text?.toString()?.trim() ?: ""
@@ -377,21 +402,46 @@ class ScraperAccessibilityService : AccessibilityService() {
                 if (seeAll != null) {
                     emit("info", mapOf("message" to "Opening full transactions list"))
                     seeAll.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    listEntered = true
-                    linkCooldown = 2
+                    linkCooldown = 6
+                    linkSearchTicks = 0
+                    listWaitTicks = 0
                     return Stage.COLLECT
                 }
                 val link = findLinkToTransactions(root)
                 if (link != null) {
                     emit("info", mapOf("message" to "Navigating to transaction history"))
                     link.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    linkCooldown = 2
+                    linkCooldown = 6
+                    linkSearchTicks = 0
+                    listWaitTicks = 0
                     return Stage.COLLECT
+                }
+                // Not on the transaction list yet — likely GPay's home screen, where
+                // the "See all" / history entry is below the fold. Scroll down each
+                // tick to reveal it instead of waiting for a manual scroll.
+val pkg = root.packageName?.toString() ?: ""
+                if (pkg.contains("nbu.paisa")) {
+                    emit("info", mapOf("message" to "Scrolling GPay home screen to find the transaction history link"))
+                    swipeUp()
                 }
             }
         }
         val rows = mutableListOf<AccessibilityNodeInfo>()
         collectRows(root, rows)
+        if (!listEntered) {
+            if (isLikelyTransactionListScreen(root, rows.size) &&
+                rows.any { it.isVisibleToUser && parseRow(it) != null }) {
+                listEntered = true
+                listWaitTicks = 0
+                emit("info", mapOf("message" to "Transaction list is ready"))
+            } else {
+                listWaitTicks++
+                if (listWaitTicks > 20) {
+                    setError("Google Pay transaction list did not load. Open GPay and check that transaction history is available.")
+                }
+                return Stage.COLLECT
+            }
+        }
         lastHeaderDate = null
         for (row in rows) {
             if (!row.isVisibleToUser) continue
@@ -417,7 +467,7 @@ class ScraperAccessibilityService : AccessibilityService() {
             // Open every transaction's detail page so the full detail (date, UPI
             // ref, payer) is always extracted from the screen rather than relying
             // on the list header date, which is frequently missing.
-            if (!alreadySeen && pendingDetail == null && txn.received) {
+            if (!alreadySeen && pendingDetail == null && txn.received && clickableAncestor(row) != null) {
                 pendingDetail = txn
             } else if (refOk) {
                 seenRefs.add(ref)
@@ -429,6 +479,7 @@ class ScraperAccessibilityService : AccessibilityService() {
 
         if (pendingDetail != null) {
             detailPhase = 0
+            detailTapAttempts = 0
             return Stage.DETAIL
         }
         if (hitCutoff) {
@@ -521,38 +572,45 @@ class ScraperAccessibilityService : AccessibilityService() {
                     val pn = pd.payerName?.trim()?.lowercase() ?: ""
                     val tn = txn.payerName?.trim()?.lowercase() ?: ""
                     if (pn.isNotEmpty() && tn.isNotEmpty() && !tn.contains(pn) && !pn.contains(tn)) continue
-                    val r = Rect()
-                    row.getBoundsInScreen(r)
-                    if (row.isClickable) {
-                        row.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    } else {
-                        tap((r.centerX()).toFloat(), (r.centerY()).toFloat())
+                    val clickTarget = clickableAncestor(row) ?: continue
+                    if (clickTarget.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        tapped = true
+                        break
                     }
-                    tapped = true
-                    break
-                }
-                if (!tapped) {
-                    val located = findNode(root) {
-                        val s = it.text?.toString() ?: ""
-                        Regex("\\d").containsMatchIn(s) && s.contains(pd.amount.toInt().toString())
-                    }
-                    if (located != null) {
-                        val r = Rect()
-                        located.getBoundsInScreen(r)
-                        tap((r.centerX()).toFloat(), (r.centerY()).toFloat())
+                    // Accessibility nodes can become stale between parsing
+                    // and clicking. Use the bounds of this exact row only.
+                    val bounds = Rect()
+                    clickTarget.getBoundsInScreen(bounds)
+                    if (!bounds.isEmpty && bounds.width() > 0 && bounds.height() > 0) {
+                        tap(bounds.centerX().toFloat(), bounds.centerY().toFloat())
+                        tapped = true
+                        break
                     }
                 }
-                detailPhase = 1
+                if (tapped) {
+                    emit("info", mapOf("message" to "Opening transaction detail"))
+                    detailPhase = 1
+                    detailWaitTicks = 0
+                } else {
+                    detailTapAttempts++
+                    if (detailTapAttempts >= 6) {
+                        emit("warning", mapOf("message" to "Could not open the transaction row; skipping it."))
+                        pendingDetail = null
+                        detailPhase = 0
+                        detailTapAttempts = 0
+                    }
+                }
             }
             1 -> {
                 // Wait on the transaction detail page and keep re-parsing until
                 // the date (and any other detail) has been extracted, or a max
                 // number of retries is reached. Do NOT press back before the
                 // page has been given time to render its content.
-                parseDetail(root, pendingDetail)
-                val hasDate = !pendingDetail?.transactionDate.isNullOrBlank()
+                val detailScreen = isTransactionDetailScreen(root)
+                if (detailScreen) parseDetail(root, pendingDetail)
                 detailWaitTicks++
-                if (hasDate || detailWaitTicks >= 6) {
+                val hasDate = !pendingDetail?.transactionDate.isNullOrBlank()
+                if (hasDate || detailWaitTicks >= 8) {
                     performGlobalAction(GLOBAL_ACTION_BACK)
                     detailWaitTicks = 0
                     detailPhase = 2
@@ -610,8 +668,14 @@ class ScraperAccessibilityService : AccessibilityService() {
             )
             val counts = LinkedHashMap<String, Any?>()
             result.payload?.let { p ->
-                for (k in arrayOf("imported", "ref_duplicates", "fingerprint_duplicates", "in_batch_duplicates", "auto_matched")) {
-                    if (p.has(k)) counts[k] = p.get(k)
+                // The device-import API returns these values under
+                // `summary`; accept top-level values too for older servers.
+                val summary = p.optJSONObject("summary")
+                for (k in arrayOf("imported", "skipped", "errored", "ref_duplicates", "fingerprint_duplicates", "in_batch_duplicates", "auto_matched")) {
+                    when {
+                        summary?.has(k) == true -> counts[k] = summary.get(k)
+                        p.has(k) -> counts[k] = p.get(k)
+                    }
                 }
                 if (p.has("errors")) counts["errors"] = p.getJSONArray("errors").length()
             }
@@ -632,18 +696,290 @@ class ScraperAccessibilityService : AccessibilityService() {
         }.start()
     }
 
+    // ---------- manual capture ----------
+
+    /**
+     * Maps a payment-app package name to a short human label used for the
+     * "you switched apps" guard. Unknown packages fall back to a best-effort
+     * readable fragment of the package id.
+     */
+    private fun appLabel(pkg: String): String = when {
+        pkg.contains("com.google.android.apps.nbu.paisa") -> "Google Pay"
+        pkg.contains("net.one97.paytm") || pkg.contains("com.paytm.app") -> "Paytm"
+        pkg.contains("com.phonepe.app") -> "PhonePe"
+        pkg.contains("com.freecharge.android") -> "Freecharge"
+        pkg.contains("razorpay") -> "Razorpay"
+        pkg.contains("com.mobikwik_new") || pkg.contains("com.mobikwik") -> "Mobikwik"
+        pkg.contains("amazon.in") -> "Amazon Pay"
+        pkg.contains("in.org.npci.upiapp") -> "BHIM UPI"
+        pkg.contains("com.airtelbank") || pkg.contains("com.myairtel") -> "Airtel Payments"
+        else -> pkg.substringAfterLast('.').substringBefore('.')
+            .ifBlank { pkg.split('.').firstOrNull()?.take(16) ?: "other" }
+    }
+
+    /**
+     * Called from the floating Capture overlay. Reads the currently-visible
+     * transaction detail screen, extracts its data, uploads it as a single
+     * record, and reports whether it was added or already existed.
+     */
+    fun captureTransaction() {
+        val root = rootInActiveWindow
+        if (root == null) {
+            OverlayManager.emitResult(false, null, "No screen focused — open the transaction detail page first.")
+            return
+        }
+        val pkg = root.packageName?.toString() ?: ""
+        val detail = isTransactionDetailScreen(root)
+        if (!detail) {
+            OverlayManager.emitResult(false, null, "Not a transaction detail page. Open the transaction then tap Capture.")
+            return
+        }
+
+        // ---- "you switched apps" guard ------------------------------------
+        // If the currently-open payment app differs from the app the last
+        // capture came from, block so the Mode of Payment / received bank are
+        // re-checked first. The first-ever capture sets the baseline silently.
+        val currentApp = appLabel(pkg)
+        val lastApp = ScraperConfig.get("lastCaptureApp")
+        if (!lastApp.isNullOrBlank() && !lastApp.equals(currentApp, ignoreCase = true)) {
+            OverlayManager.emitResult(
+                false, null,
+                "App changed from $lastApp to $currentApp. Update Mode of Payment before capturing."
+            )
+            return
+        }
+
+        val txn = ScrapedTxn(received = true)
+        parseDetailForApp(root, pkg, txn)
+        txn.bankName = ScraperConfig.get("receivedBank")
+        txn.mop = ScraperConfig.get("modeOfPayment")?.ifBlank { null }
+
+        // Source = the payment app the transaction came from.
+        txn.source = ScraperConfig.get("paymentMethod")?.ifBlank { null } ?: currentApp
+        // Ensure the MOP field is never blank in the bank audit — fall back to
+        // the source app when no mode was picked.
+        if (txn.mop.isNullOrBlank()) txn.mop = txn.source
+
+        val ref = txn.paymentId?.filterNot { it == ' ' }
+        // Guard against an accidental re-tap on the same still-open transaction.
+        if (ref != null && ref == OverlayManager.lastCaptureRef) {
+            OverlayManager.emitResult(false, ref, "Same transaction already captured — open a new one.")
+            return
+        }
+
+        // Reject transactions with no readable date.
+        val dateStr = txn.transactionDate?.trim()
+        if (dateStr.isNullOrBlank()) {
+            OverlayManager.emitResult(false, ref, "Could not read the transaction date.")
+            return
+        }
+
+        val uploadNow = txn.copy(
+            transactionDate = txn.transactionDate ?: fallbackDate()
+        )
+        Thread {
+            val res = ScraperUploader.upload(
+                backendUrl.ifBlank { ScraperConfig.resolveBackendUrl() },
+                apiKey.ifBlank { ScraperConfig.resolveApiKey() },
+                projectId.ifBlank { ScraperConfig.get("projectId") ?: "" },
+                "capture-" + System.currentTimeMillis(),
+                deviceLabel.ifBlank { "manual" }, listOf(uploadNow)
+            )
+            var msgs = ""
+            var added = false
+            // Only treat a non-2xx response as a hard failure regardless of its
+            // body; count "errored"/"skipped" from the summary once it's a valid
+            // response. Never report "Saved" when nothing positive happened.
+            val errored = res.payload?.let {
+                val sum = it.optJSONObject("summary")
+                (sum?.optInt("errored") ?: it.optInt("errored", 0)) ?: 0
+            } ?: 0
+            val skipped = res.payload?.let {
+                val sum = it.optJSONObject("summary")
+                (sum?.optInt("skipped") ?: it.optInt("skipped", 0)) ?: 0
+            } ?: 0
+            val imported = res.payload?.let {
+                val sum = it.optJSONObject("summary")
+                (sum?.optInt("imported") ?: it.optInt("imported", 0)) ?: 0
+            } ?: 0
+            if (!res.ok) {
+                msgs = "Import failed" + if (res.message.isNotBlank()) ": ${res.message.take(160)}" else ""
+            } else if (imported > 0) {
+                added = true
+                msgs = "Imported successfully"
+            } else if (errored > 0) {
+                val errs = res.payload?.optJSONArray("error_messages")
+                val firstErr = if (errs != null && errs.length() > 0) errs.getString(0) else null
+                msgs = "Import failed: ${firstErr ?: "$errored rejected by server"}"
+            } else if (skipped > 0) {
+                msgs = "Already captured (duplicate skipped)"
+            } else {
+                msgs = "Saved"
+            }
+            val msg = msgs
+            // Remember which payment app this capture came from so the next
+            // capture can warn if the user switched apps. Only update on a
+            // successful upload (not a hard failure).
+            if (res.ok) ScraperConfig.setAll(mapOf("lastCaptureApp" to currentApp))
+            OverlayManager.lastCaptureRef = ref
+            OverlayManager.emitResult(added, ref, msg)
+            if (uploadNow.transactionDate != null) {
+                emit("collected", mapOf("count" to 1))
+            }
+            // Re-show overlay after a delay so user can capture another
+            Handler(Looper.getMainLooper()).postDelayed({
+                OverlayManager.show(this@ScraperAccessibilityService)
+            }, 2000)
+        }.start()
+    }
+
+    private fun parseDetailForApp(root: AccessibilityNodeInfo, pkg: String, txn: ScrapedTxn) {
+        val texts = mutableListOf<String>()
+        collectTexts(root, texts)
+        val joined = texts.joinToString("\n")
+
+        // Amount (common to all UPI receipt screens): ₹ / Rs / INR + number.
+        txn.amount = extractAmount(joined) ?: txn.amount
+
+        // Date + time.
+        val date = extractDate(joined)
+        if (date != null) txn.transactionDate = date
+        val time = parseTime(joined)
+        if (time != null) txn.paymentTime = time
+
+        // Transaction / UPI reference (app-agnostic patterns).
+        txn.paymentId = extractUpiRef(joined) ?: txn.paymentId
+
+        // Payer / sender heuristics.
+        txn.payerName = extractPayer(joined)
+        android.util.Log.d("UcsScrapper", "parseDetailForApp payer=[${txn.payerName}] ref=[${txn.paymentId}] joined=[${joined.take(600)}]")
+
+        // If still no date, guarantee today.
+        if (txn.transactionDate.isNullOrBlank()) txn.transactionDate = fallbackDate()
+    }
+
+    private fun extractAmount(joined: String): Double? {
+        val patterns = listOf(
+            Regex("[₹Rs.INR]{0,3}\\s*([\\d,]+(?:\\.\\d{1,2})?)\\s*(?:credited|debited|received|paid)", RegexOption.IGNORE_CASE),
+            Regex("(?:amount|total|you (?:received|paid))\\s*[₹:$]?\\s*([\\d,]+(?:\\.\\d{1,2})?)", RegexOption.IGNORE_CASE),
+            Regex("[₹\\$]\\s*([\\d,]+(?:\\.\\d{1,2})?)", RegexOption.IGNORE_CASE)
+        )
+        for (p in patterns) {
+            val m = p.find(joined) ?: continue
+            val v = m.groupValues[1].replace(",", "").toDoubleOrNull()
+            if (v != null && v > 0) return v
+        }
+        return null
+    }
+
+    private fun extractDate(joined: String): String? {
+        // Label "Date", "TXN Date", "Paid on".
+        Regex("(?:date|txn\\s*date|paid\\s*on)\\s*[:.]?\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2})", RegexOption.IGNORE_CASE)
+            .find(joined)?.let { return parseHeaderFromText(it.groupValues[1]) }
+        // Date + time in one line like "1 Sept 2026, 3:58 pm".
+        Regex("(\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9}(?:,\\s*)?\\s*\\d{2,4})", RegexOption.IGNORE_CASE)
+            .find(joined)?.let { return parseHeaderFromText(it.groupValues[1].replace(",", " ")) }
+        // Month-first "Mar 2, 2026" (Paytm)- parseHeaderFromText also handles
+        // month-first, but return it via the day-first parser for consistency.
+        Regex("([A-Za-z]{3,9})\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s*,?\\s*(\\d{2,4})", RegexOption.IGNORE_CASE)
+            .find(joined)?.let { m ->
+                val mon = monthNumber(m.groupValues[1]) ?: return@let null
+                var y = m.groupValues[3].toIntOrNull() ?: return@let null
+                if (y in 0..99) y += 2000
+                return String.format(Locale.US, "%04d-%02d-%02d", y, mon, m.groupValues[2].toInt())
+            }
+        // dd/mm/yyyy
+        Regex("(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{2,4})").find(joined)
+            ?.let { return parseHeaderFromText(it.value) }
+        // yyyy-MM-dd
+        Regex("(\\d{4}-\\d{2}-\\d{2})").find(joined)?.let { return it.groupValues[1] }
+        return null
+    }
+
+    private fun extractUpiRef(joined: String): String? {
+        // Label + value, tolerant of "No:"/"Id:" suffixes and trailing labels
+        // like "Copy". Works for "UPI Ref No: 525170991793", "Paytm Transaction
+        // ID: 123456789012", GPay "UPI transaction ID: 111...".
+        Regex("(?:upi\\s*ref(?:\\.?\\s*no\\b)?|upi\\s*transaction\\s*id\\b|transaction\\s*(?:id|ref)\\b|payment\\s*(?:id|ref)\\b|reference\\s*(?:no|number|id)\\b|txn\\s*id\\b|paytm\\s*(?:transaction\\s*)?(?:id|ref)\\b)\\s*[:.]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]{8,})", RegexOption.IGNORE_CASE)
+            .find(joined)?.let { m ->
+                // Prefer the 12-16 digit run within the captured value.
+                val digits = Regex("\\d{12,16}").find(m.groupValues[1])?.value
+                if (digits != null) return digits
+                val clean = Regex("^[A-Za-z0-9]+").find(
+                    m.groupValues[1].replace(Regex("[ \\n]"), "")
+                )?.value
+                if (clean != null && clean.length >= 10) return clean
+            }
+        // Fallback: first bare 12–16 digit run anywhere (Paytm ref / UPI id).
+        Regex("\\b\\d{12,16}\\b").find(joined)?.let { return it.value }
+        return null
+    }
+
+    private fun extractPayer(joined: String): String? {
+        val lines = textsDense(joined)
+        android.util.Log.d("UcsScrapper", "extractPayer joined=[$joined]")
+
+        // Label-then-name on the next line: "From\nBENJAMIN", "Received from\nName",
+        // "Money received\nBENJAMIN", "Sender\nName", "Paid by\nName".
+        val labelLine = Regex("""^(?:received\s*from|money\s*(?:received|sent)\s*from|paid\s*(?:by|from)|from|sender|to)\s*:?$""", RegexOption.IGNORE_CASE)
+        val labelWord = Regex("""^(?:from|to|by|sender|receiver|amount|date|time|status|payment|transaction)$""", RegexOption.IGNORE_CASE)
+        for (i in 0 until lines.size) {
+            if (!labelLine.matches(lines[i])) continue
+            val name = lines.getOrNull(i + 1)?.trim()?.trimEnd('.')?.take(80) ?: continue
+            // A node's `contentDescription` can duplicate the label itself; never
+            // accept a bare label word as the payer, walk to the next line.
+            if (labelWord.matches(name)) continue
+            if (name.length >= 2 && Regex("^[A-Za-z][A-Za-z .'-]+$").matches(name)) return name
+        }
+
+        // Inline label: "From : BENJAMIN" or "From BENJAMIN" on one line.
+        for (line in lines) {
+            val m = Regex("""(?:received\s*from|money\s*(?:received|sent)\s*from|paid\s*(?:by|from)|from|sender)\s*[:.]?\s*([A-Za-z][A-Za-z .'-]{1,60})""", RegexOption.IGNORE_CASE)
+                .find(line) ?: continue
+            val name = m.groupValues[1].trim().trimEnd('.').take(80)
+            if (name.length >= 2 && !Regex("""^(?:from|to|by|sender|receiver)$""", RegexOption.IGNORE_CASE).matches(name)) return name
+        }
+
+        // Last resort: plausible multi-word human-name line (skip amounts, IDs,
+        // upi tokens, labels, toolbars).
+        for (line in lines) {
+            val t = line.trim()
+            if (t.length < 2 || t.length > 60) continue
+            if (Regex("\\d").containsMatchIn(t)) continue
+            if (Regex("(rupee|rs\\.?|inr|upi|ref|transaction|amount|date|status|success\\b|id|paytm|google|payment|capture|help|share|view\\b|history\\b|bank\\b|money\\b)", RegexOption.IGNORE_CASE).containsMatchIn(t)) continue
+            val words = t.split(Regex("\\s+"))
+            if (words.size >= 2 && words.all { Regex("[A-Za-z][A-Za-z.'-]*").matches(it) }) return t
+        }
+        return null
+    }
+
+    private fun textsDense(joined: String): List<String> {
+        val out = mutableListOf<String>()
+        for (t in joined.split("\n").map { it.trim() }.filter { it.isNotEmpty() }) {
+            // Nodes often expose the same string via both `text` and
+            // `contentDescription`; collapse consecutive duplicates so a label
+            // like "From" followed by its value isn't read as two labels.
+            if (out.isEmpty() || out.last() != t) out.add(t)
+        }
+        return out
+    }
+
     // ---------- blocking screens ----------
 
     private fun closeSurfacesOnFinish() {
         try {
+            // Close Google Pay (and any foreground overlay) fully by going Home.
             performGlobalAction(GLOBAL_ACTION_HOME)
         } catch (ex: Exception) {
             Log.w("Scraper", "closeSurfacesOnFinish: HOME failed: " + ex.message)
         }
+        // Bring the scraper app back into the foreground fresh from the
+        // background. CLEAR_TASK + NEW_TASK fully recreates the task so it
+        // starts clean instead of resuming a stale GPay-adjacent state.
         try {
-            val self = Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            startActivity(self)
+            val intent = Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            startActivity(intent)
         } catch (ex: Exception) {
             Log.w("Scraper", "closeSurfacesOnFinish: reopen failed: " + ex.message)
         }
@@ -809,10 +1145,22 @@ class ScraperAccessibilityService : AccessibilityService() {
             ?: texts.firstOrNull { Regex("^[A-Za-z0-9]{16}$").matches(it.trim()) }?.trim()
         if (id != null && (txn.paymentId?.filterNot { it == ' ' } ?: "") != id) txn.paymentId = id
 
-        val date = Regex("\\bdate\\b\\s*:\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{1,2}\\s+[A-Za-z]{3,9})", RegexOption.IGNORE_CASE).find(joined)?.groupValues?.get(1)
-            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9}(?:,\\s*\\d{2,4}))").find(joined)?.groupValues?.get(1)
-            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9})(?!\\s*\\d)").find(joined)?.groupValues?.get(1)
+        val date = Regex("\\bdate\\b\\s*:\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{1,2}\\s+[A-Za-z]{3,9})", RegexOption.IGNORE_CASE)
+            .find(joined)?.groupValues?.get(1)
+            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9}(?:,\\s*\\d{2,4}))", RegexOption.IGNORE_CASE)
+                .find(joined)?.groupValues?.get(1)
+            ?: Regex("(\\d{1,2}(?:st|nd|rd|th)?\\s+(?:[A-Za-z]{3,9})(?:,?\\s*\\d{2,4})?)", RegexOption.IGNORE_CASE)
+                .find(joined)?.groupValues?.get(1)
+            ?: Regex("(\\d{1,2}\\s+[A-Za-z]{3,9})", RegexOption.IGNORE_CASE)
+                .find(joined)?.groupValues?.get(1)
         if (date != null) txn.transactionDate = parseHeaderFromText(date)
+
+        // Robust fallback so a row is never dropped just because the date text
+        // could not be matched on the detail screen. Today/yesterday are
+        // resolved, anything else falls back to today's date.
+        if (txn.transactionDate.isNullOrBlank()) {
+            txn.transactionDate = fallbackDate()
+        }
 
         val relTime = Regex("\\btime\\b\\s*:\\s*(\\d{1,2}:\\d{2}\\s*(?:am|pm))", RegexOption.IGNORE_CASE).find(joined)
             ?: Regex("(\\d{1,2}:\\d{2}\\s*(?:am|pm))", RegexOption.IGNORE_CASE).find(joined)
@@ -849,6 +1197,13 @@ class ScraperAccessibilityService : AccessibilityService() {
             return String.format(Locale.US, "%04d-%02d-%02d", y, m.groupValues[2].toInt(), m.groupValues[1].toInt())
         }
         return t
+    }
+
+    private fun fallbackDate(): String {
+        val joined = textsJoined(rootInActiveWindow).lowercase()
+        val cal = Calendar.getInstance()
+        if (joined.contains("yesterday")) cal.add(Calendar.DAY_OF_YEAR, -1)
+        return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
     }
 
     // ---------- tap / gesture helpers ----------
@@ -946,7 +1301,39 @@ class ScraperAccessibilityService : AccessibilityService() {
             }
             return
         }
-        clickableRows(root, out)
+        // Never use every clickable node as a transaction row. On loading,
+        // home, permission, and error screens that list contains arbitrary
+        // buttons and is the cause of random taps during a run.
+    }
+
+    private fun clickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        repeat(6) {
+            if (current == null) return null
+            if (current!!.isVisibleToUser && current!!.isClickable) return current
+            current = current!!.parent
+        }
+        return null
+    }
+
+    private fun isTransactionDetailScreen(root: AccessibilityNodeInfo): Boolean {
+        val text = textsJoined(root).lowercase()
+        return Regex("(transaction id|upi transaction|upi ref|reference no|payment id|paytm transaction|order id|google transaction id|paid to|received from|transaction status|ref number)")
+            .containsMatchIn(text)
+    }
+
+    private fun isLikelyTransactionListScreen(root: AccessibilityNodeInfo, rowCount: Int): Boolean {
+        val text = textsJoined(root).lowercase()
+        val hasDateMarker = text.contains("today") || text.contains("yesterday") ||
+            Regex("\\b\\d{1,2}\\s+[a-z]{3,9}\\b").containsMatchIn(text)
+        // Current GPay history uses filter chips instead of a visible
+        // "All activity" / "Transaction history" title.
+        val hasHistoryFilters = text.contains("status") &&
+            text.contains("payment method") && text.contains("date") &&
+            text.contains("amount")
+        return (text.contains("all activity") || text.contains("transaction history")) ||
+            (hasHistoryFilters && hasDateMarker && rowCount >= 1) ||
+            (text.contains("transactions") && hasDateMarker && rowCount >= 2)
     }
 
     // ---------- tree scanning ----------

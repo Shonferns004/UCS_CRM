@@ -39,6 +39,34 @@ Future<Map<String, dynamic>> getServiceState() async {
   return _cfg(r ?? {});
 }
 
+Future<bool> openAccessibilitySettings() async {
+  final r = await _channel.invokeMethod<bool>('openAccessibilitySettings');
+  return r ?? false;
+}
+
+Future<Map<String, dynamic>> getOverlayState() async {
+  final r = await _channel.invokeMethod<Map>('getOverlayState');
+  return _cfg(r ?? {});
+}
+
+Future<Map<String, dynamic>> setOverlay(bool on) async {
+  final r = await _channel.invokeMethod<Map>('setOverlay', on);
+  return _cfg(r ?? {});
+}
+
+Future<void> setPaymentMethod(String m) async {
+  await _channel.invokeMethod('setPaymentMethod', m);
+}
+
+Future<void> setOverlayOpacity(double value) async {
+  await _channel.invokeMethod('setOverlayOpacity', value);
+}
+
+Future<Map<String, dynamic>> captureNow() async {
+  final r = await _channel.invokeMethod<Map>('captureNow');
+  return _cfg(r ?? {});
+}
+
 Future<Map<String, dynamic>> startRun() async {
   final r = await _channel.invokeMethod<Map>('start', {
     'backendUrl': kBackendUrl,
