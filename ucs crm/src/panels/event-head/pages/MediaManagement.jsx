@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchEvents, fetchEventById, fetchMedia, fetchMediaByNgo, uploadMedia, createMediaLink, replaceMedia, updateMedia, deleteMedia } from '../store'
+import { fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchEvents, fetchEventById, fetchMedia, fetchMediaByNgo, uploadMedia, createMediaLink, replaceMedia, updateMedia, deleteMedia, downloadMediaBlob } from '../store'
 import { useUcs } from '../../../store'
 import usePasteImage from '../../../utils/usePasteImage'
 import { EnhancedTable } from '../components/Table'
@@ -83,30 +83,30 @@ const fmtTimeOf = (t) => {
   h = h % 12 || 12
   return `${h}:${String(m).padStart(2, '0')} ${ap}`
 }
-const downloadUrl = (m) => {
+const downloadUrl = (m, eventId) => {
   const filename = m.title || m.name || extOf(m.url)
-  // Fetch → Blob → object URL so the file is saved to the user's downloads/gallery
-  // instead of just opening a new tab. Falls back to opening the URL on failure.
-  const start = (blobUrl) => {
+  const trigger = (blob) => {
+    const obj = URL.createObjectURL(blob)
     try {
       const a = document.createElement('a')
-      a.href = blobUrl
+      a.href = obj
       a.download = filename
       a.rel = 'noreferrer'
       document.body.appendChild(a)
       a.click()
       a.remove()
-    } catch { window.open(m.url, '_blank') }
-  }
-  fetch(m.url, { mode: 'cors', credentials: 'omit' })
-    .then(async (res) => {
-      if (!res.ok) throw new Error('not ok')
-      const blob = await res.blob()
-      const obj = URL.createObjectURL(blob)
-      start(obj)
+    } finally {
       setTimeout(() => URL.revokeObjectURL(obj), 4000)
-    })
-    .catch(() => start(m.url))
+    }
+  }
+  const id = m.id
+  const ev = eventId != null && eventId !== '' ? String(eventId) : (m.event_id != null ? String(m.event_id) : null)
+  if (id != null && ev) {
+    // Same-origin backend proxy → the file is saved (no CORS, no new tab).
+    downloadMediaBlob(ev, id).then(trigger).catch(() => window.open(m.url, '_blank', 'noopener,noreferrer'))
+  } else {
+    window.open(m.url, '_blank', 'noopener,noreferrer')
+  }
 }
 
 function StatBlock({ label, value, color }) {
@@ -594,7 +594,7 @@ export default function MediaManagement() {
           {isLink(m)
             ? <button className="btn btn-sm" style={{ background: TYPE_COLORS[categoryFromMedia(m)] || '#FF0000', borderColor: TYPE_COLORS[categoryFromMedia(m)] || '#FF0000', color: '#fff' }} onClick={() => window.open(m.url, '_blank', 'noopener,noreferrer')}>Open {categoryFromMedia(m)}</button>
             : <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>View</button>}
-          {!isLink(m) && <button className="btn btn-sm" onClick={() => downloadUrl(m)}>Download</button>}
+          {!isLink(m) && <button className="btn btn-sm" onClick={() => downloadUrl(m, selectedEvent?.id)}>Download</button>}
           <button className="btn btn-sm" onClick={() => editTitle(m)}>Edit</button>
           <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
         </div>
@@ -748,7 +748,7 @@ export default function MediaManagement() {
                     <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtDate(m.created_at)} · {fmtBytes(m.size)} · {categoryFromMedia(m)}</div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                       <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>Preview</button>
-                      <button className="btn btn-sm" onClick={() => downloadUrl(m)}>Download</button>
+                      <button className="btn btn-sm" onClick={() => downloadUrl(m, ownEvent?.id)}>Download</button>
                       <button className="btn btn-sm" style={{ background: '#7B5EA7', borderColor: '#7B5EA7', color: '#fff' }} onClick={() => openEdit(m, ownEvent)}>Edit Banner</button>
                       <button className="btn btn-sm" onClick={() => openReplace(m)}>Replace</button>
                       <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
@@ -1044,7 +1044,7 @@ export default function MediaManagement() {
               <button className="btn btn-sm" onClick={() => setPreviewItem(null)}>Close</button>
               {isLink(previewItem)
                 ? <button className="btn btn-primary" onClick={() => window.open(previewItem.url, '_blank', 'noopener,noreferrer')}>Open {categoryFromMedia(previewItem)}</button>
-                : <button className="btn btn-primary" onClick={() => downloadUrl(previewItem)}>Download</button>}
+                : <button className="btn btn-primary" onClick={() => downloadUrl(previewItem, previewItem.event_id != null ? previewItem.event_id : selectedEvent?.id)}>Download</button>}
             </div>
           </div>
         </div>

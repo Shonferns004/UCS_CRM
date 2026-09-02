@@ -949,6 +949,37 @@ export const removeMedia = async (req, res) => {
   }
 };
 
+// Download a media file as an attachment. Media lives on a cross-origin
+// S3/Supabase public URL; fetching it server-side avoids browser CORS and
+// lets us stream it back with Content-Disposition: attachment so the client
+// saves the file instead of opening it in a new tab.
+const asciiSafeFilename = (s) => String(s || '').replace(/[^\x20-\x7e]/g, '_').replace(/["\\\r\n]/g, '_').slice(0, 180) || 'download';
+const utf8Filename = (s) => String(s || '').replace(/["\\\r\n]/g, '_').slice(0, 180) || 'download';
+
+export const downloadMedia = async (req, res) => {
+  try {
+    const media = await EventHead.getMediaById(req.params.eventId, req.params.id);
+    if (!media) return res.status(404).json({ message: 'Media not found' });
+    if (!media.url || /^(youtu|instagram|facebook)/i.test(String(media.url)) || String(media.url).indexOf('http') !== 0) {
+      return res.status(400).json({ message: 'This media has no downloadable file (it is a social link).' });
+    }
+    const remote = await fetch(media.url, { redirect: 'follow' });
+    if (!remote.ok) return res.status(502).json({ message: 'Failed to retrieve the media file.' });
+    const buffer = Buffer.from(await remote.arrayBuffer());
+    const base = asciiSafeFilename(media.title || media.name || media.url.split('/').pop());
+    const ext = media.type ? String(media.type).split('/')[1] : null;
+    const fileName = /^[A-Za-z0-9._-]+$/.test(base) ? base : (base + (ext ? '.' + ext : ''));
+    res.setHeader('Content-Type', media.type || 'application/octet-stream');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'no-store, no-cache');
+    res.setHeader('Content-Disposition', `attachment; filename="${asciiSafeFilename(base)}"; filename*=UTF-8''${encodeURIComponent(utf8Filename(base))}`);
+    return res.send(buffer);
+  } catch (error) {
+    console.error('eventHeadController downloadMedia error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── ATTENDANCE ───
 export const createAttendance = async (req, res) => {
   try {

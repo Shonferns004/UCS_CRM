@@ -88,6 +88,7 @@ router.post('/vehicles/assign', eh, ctrl.assignVehicle);
 const mediaUploadMiddleware = mediaUpload.fields([{ name: 'file', maxCount: 1 }, { name: 'files', maxCount: 25 }]);
 router.get('/events/:eventId/media', eh, ctrl.listMedia);
 router.post('/events/:eventId/media', eh, mediaUploadMiddleware, ctrl.uploadMedia);
+router.get('/events/:eventId/media/:id/download', eh, ctrl.downloadMedia);
 router.put('/events/:eventId/media/:id', eh, mediaUpload.single('file'), ctrl.replaceMedia);
 router.delete('/events/:eventId/media/:id', eh, ctrl.removeMedia);
 
