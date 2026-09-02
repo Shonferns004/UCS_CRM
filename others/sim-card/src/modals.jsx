@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from './Toast';
 import { addSimCard, updateSimCard, replaceSimCard } from './api';
-import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
+import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder }) {
   return (
@@ -24,13 +24,14 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
     team: card?.team || '',
     signature: card?.signature || '',
     sim_type: card?.sim_type || '',
+    gb: card?.gb || '',
     issue_date: card?.issue_date || '',
     expiry_date: card?.expiry_date || '',
     status: card?.status || 'Active',
   });
   const [simList, setSimList] = useState(() => {
     const existing = [];
-    for (let i = 1; i <= 8; i++) {
+    for (let i = 1; i <= MAX_SIM_SLOTS; i++) {
       const val = card?.[`sim_${i}`];
       if (val && String(val).trim()) existing.push(val);
     }
@@ -45,25 +46,26 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
 
   const dl = computeDl(extra.expiry_date);
 
-  function addSimField() { if (simList.length < 8) setSimList((p) => [...p, '']); }
+  function addSimField() { if (simList.length < MAX_SIM_SLOTS) setSimList((p) => [...p, '']); }
   function removeSimField(idx) { setSimList((p) => p.filter((_, i) => i !== idx)); }
   function setSimVal(idx, val) { setSimList((p) => p.map((v, i) => i === idx ? val : v)); }
 
   async function handleSave() {
-    if (!form.mobile_id || !form.device_model || !form.imei || !extra.issue_date || !extra.expiry_date) {
-      toast('Please fill required fields (Mobile ID, Device, IMEI, Issue Date, Expiry Date)', 'error');
+    if (!form.mobile_id || !String(form.mobile_id).trim()) {
+      toast('Please fill Mobile ID No.', 'error');
       return;
     }
     setSaving(true);
     const simFields = {};
     simList.filter((v) => v && String(v).trim()).forEach((v, i) => { simFields[`sim_${i + 1}`] = v; });
-    for (let i = simList.filter((v) => v && String(v).trim()).length + 1; i <= 8; i++) { simFields[`sim_${i}`] = null; }
+    for (let i = simList.filter((v) => v && String(v).trim()).length + 1; i <= MAX_SIM_SLOTS; i++) { simFields[`sim_${i}`] = null; }
     const payload = {
       ...form,
       ...simFields,
       team: extra.team,
       signature: extra.signature,
       sim_type: extra.sim_type || null,
+      gb: extra.gb || null,
       issue_date: extra.issue_date,
       expiry_date: extra.expiry_date,
       status: extra.status,
@@ -94,9 +96,10 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
         </div>
         <div className="modal-body">
           <div className="form-grid">
-            <Field label="Mobile ID No. *" value={form.mobile_id} onChange={(v) => set('mobile_id', v)} />
-            <Field label="Device & Model Name *" value={form.device_model} onChange={(v) => set('device_model', v)} />
-            <Field label="IMEI No. *" value={form.imei} onChange={(v) => set('imei', v)} />
+            <Field label="Mobile ID No.*" value={form.mobile_id} onChange={(v) => set('mobile_id', v)} />
+            <Field label="Device & Model Name" value={form.device_model} onChange={(v) => set('device_model', v)} />
+            <Field label="GB" value={extra.gb} onChange={(v) => setE('gb', v)} placeholder="e.g. 64 GB" />
+            <Field label="IMEI No." value={form.imei} onChange={(v) => set('imei', v)} />
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
             <Field label="Signature" value={extra.signature} onChange={(v) => setE('signature', v)} />
             <div className="form-row">
@@ -106,8 +109,8 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
                 {SIM_TYPES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            <Field label="SIM Card Issue Date *" type="date" value={extra.issue_date} onChange={(v) => setE('issue_date', v)} />
-            <Field label="Auto Expiry Date *" type="date" value={extra.expiry_date} onChange={(v) => setE('expiry_date', v)} />
+            <Field label="SIM Card Issue Date" type="date" value={extra.issue_date} onChange={(v) => setE('issue_date', v)} />
+            <Field label="Auto Expiry Date" type="date" value={extra.expiry_date} onChange={(v) => setE('expiry_date', v)} />
             <div className="form-row">
               <label>SIM Card Status</label>
               <select value={extra.status} onChange={(e) => setE('status', e.target.value)}>
@@ -133,7 +136,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
                 )}
               </div>
             ))}
-            {simList.length < 8 && (
+            {simList.length < MAX_SIM_SLOTS && (
               <button type="button" className="sim-btn" onClick={addSimField} style={{ alignSelf: 'flex-start', marginTop: 2 }}>+ Add SIM</button>
             )}
           </div>
