@@ -1731,7 +1731,7 @@ export const setActivityStatus = async (req, res) => {
 // Raises corrected spellings for free-text fields typed in the event-head
 // "Create New Event" panel, so the team always types the right word. Uses the
 // existing GROQ integration. Falls back to no suggestions if no GROQ key.
-const SPELLING_MODEL = process.env.GROQ_SPELLING_MODEL || 'llama-3.3-70b-versatile';
+const SPELLING_MODEL = process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-20b';
 
 export const suggestEventSpelling = async (req, res) => {
   try {
@@ -1796,7 +1796,7 @@ export const suggestEventSpelling = async (req, res) => {
 
 // ─── AI SECTOR ACTIVITY SUGGESTIONS (Activities page) ───
 // Recommends typical NGO program/activity names for a selected sector.
-const ACTIVITY_MODEL = process.env.GROQ_ACTIVITY_MODEL || 'llama-3.3-70b-versatile';
+const ACTIVITY_MODEL = process.env.GROQ_ACTIVITY_MODEL || 'openai/gpt-oss-20b';
 
 export const suggestSectorActivities = async (req, res) => {
   try {
