@@ -2,7 +2,9 @@ export const SIM_STATUSES = ['Active', 'Expiring Soon', 'Expired', 'Replaced', '
 
 export const SIM_TYPES = ['Prepaid', 'Postpaid'];
 
-export const SIM_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8];
+export const MAX_SIM_SLOTS = 20;
+
+export const SIM_SLOTS = Array.from({ length: MAX_SIM_SLOTS }, (_, i) => i + 1);
 
 export const FORM_FIELDS = [
   { key: 'mobile_id', label: 'Mobile ID No.', type: 'text' },
@@ -18,6 +20,18 @@ export const FORM_FIELDS = [
   { key: 'sim_6', label: 'SIM 6', type: 'text' },
   { key: 'sim_7', label: 'SIM 7', type: 'text' },
   { key: 'sim_8', label: 'SIM 8', type: 'text' },
+  { key: 'sim_9', label: 'SIM 9', type: 'text' },
+  { key: 'sim_10', label: 'SIM 10', type: 'text' },
+  { key: 'sim_11', label: 'SIM 11', type: 'text' },
+  { key: 'sim_12', label: 'SIM 12', type: 'text' },
+  { key: 'sim_13', label: 'SIM 13', type: 'text' },
+  { key: 'sim_14', label: 'SIM 14', type: 'text' },
+  { key: 'sim_15', label: 'SIM 15', type: 'text' },
+  { key: 'sim_16', label: 'SIM 16', type: 'text' },
+  { key: 'sim_17', label: 'SIM 17', type: 'text' },
+  { key: 'sim_18', label: 'SIM 18', type: 'text' },
+  { key: 'sim_19', label: 'SIM 19', type: 'text' },
+  { key: 'sim_20', label: 'SIM 20', type: 'text' },
 ];
 
 export function todayStr() {

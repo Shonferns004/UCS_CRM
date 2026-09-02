@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from './Toast';
 import { addSimCard, updateSimCard, replaceSimCard } from './api';
-import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
+import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder }) {
   return (
@@ -31,7 +31,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   });
   const [simList, setSimList] = useState(() => {
     const existing = [];
-    for (let i = 1; i <= 8; i++) {
+    for (let i = 1; i <= MAX_SIM_SLOTS; i++) {
       const val = card?.[`sim_${i}`];
       if (val && String(val).trim()) existing.push(val);
     }
@@ -46,7 +46,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
 
   const dl = computeDl(extra.expiry_date);
 
-  function addSimField() { if (simList.length < 8) setSimList((p) => [...p, '']); }
+  function addSimField() { if (simList.length < MAX_SIM_SLOTS) setSimList((p) => [...p, '']); }
   function removeSimField(idx) { setSimList((p) => p.filter((_, i) => i !== idx)); }
   function setSimVal(idx, val) { setSimList((p) => p.map((v, i) => i === idx ? val : v)); }
 
@@ -58,7 +58,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
     setSaving(true);
     const simFields = {};
     simList.filter((v) => v && String(v).trim()).forEach((v, i) => { simFields[`sim_${i + 1}`] = v; });
-    for (let i = simList.filter((v) => v && String(v).trim()).length + 1; i <= 8; i++) { simFields[`sim_${i}`] = null; }
+    for (let i = simList.filter((v) => v && String(v).trim()).length + 1; i <= MAX_SIM_SLOTS; i++) { simFields[`sim_${i}`] = null; }
     const payload = {
       ...form,
       ...simFields,
@@ -136,7 +136,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
                 )}
               </div>
             ))}
-            {simList.length < 8 && (
+            {simList.length < MAX_SIM_SLOTS && (
               <button type="button" className="sim-btn" onClick={addSimField} style={{ alignSelf: 'flex-start', marginTop: 2 }}>+ Add SIM</button>
             )}
           </div>
