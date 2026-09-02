@@ -784,7 +784,11 @@ export default function ReceiptHistory() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="btn btn-sm" onClick={() => { setSuspenseMode(s => !s); if (!suspenseMode) setPgMode(false); setPage(1) }}
+          <button className="btn btn-sm" onClick={() => {
+            const next = !suspenseMode;
+            if (next) { setPgMode(false); setFromDate(f => f || '2026-08-01'); }
+            setSuspenseMode(next); setPage(1);
+          }}
             style={{ background: suspenseMode ? '#dc2626' : '#f3f4f6', color: suspenseMode ? '#fff' : '#374151', border: 'none', fontWeight: 600, borderRadius: 6 }}>
             Suspense
           </button>
