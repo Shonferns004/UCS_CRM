@@ -89,7 +89,7 @@ export default function EventReports() {
   const [reportType, setReportType] = useState('summary')
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('Submitted')
   const [allData, setAllData] = useState(null)
   const [allLoading, setAllLoading] = useState(false)
 
@@ -257,9 +257,9 @@ export default function EventReports() {
         <h3 style={{ fontSize: 16 }}>Event Reports <span style={{ fontWeight: 500, fontSize: 12, color: '#6b7280' }}>({filteredEvents.length} shown · {events.filter(e => e.status === 'Submitted').length} submitted)</span></h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setAllData(null) }} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-            <option value="">All Events</option>
             <option value="Submitted">Submitted only</option>
             <option value="Completed">Completed only</option>
+            <option value="">All Events</option>
             <option value="Draft">Draft only</option>
           </select>
           <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, maxWidth: 320 }}>
