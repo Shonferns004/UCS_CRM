@@ -1702,9 +1702,9 @@ export const getReceiptList = async (req, res) => {
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
-    if (!isSuspense && !isPg) {
-      where.push('receipt_no IS NOT NULL');
-    }
+    // Only show numbered receipts in every view, including suspense / PG tabs
+    // (un-numbered suspense entries are hidden).
+    where.push('receipt_no IS NOT NULL');
 
     const period = (req.query.period || '').trim();
     const fromDate = (req.query.from_date || '').trim();
@@ -1736,14 +1736,9 @@ export const getReceiptList = async (req, res) => {
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
 
     // Ascending by receipt number when searching, otherwise highest receipt number first.
-    // In suspense / PG views, unnumbered receipts (receipt_no IS NULL) are the ones
-    // needing attention, so surface them first instead of burying them on later pages
-    // (a plain DESC cast sorts NULLs last).
     const orderSql = search
       ? 'ORDER BY receipt_no ASC, receipt_date ASC'
-      : (isSuspense || isPg)
-        ? 'ORDER BY (receipt_no IS NULL) DESC, CAST(receipt_no AS INTEGER) DESC, receipt_date DESC'
-        : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
+      : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
 
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
