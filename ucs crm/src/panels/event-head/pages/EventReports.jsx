@@ -13,9 +13,10 @@ const REPORT_TYPES = [
   { id: 'impact', label: 'Impact Report' },
 ]
 
-const SUBMITTED = ['Submitted', 'Submitted&', 'Pending Approval', 'Approval Pending']
 const COMPLETED = ['Completed']
-const ALL_STATUS = ['Submitted', 'Completed', 'Draft', 'Approved', 'Rejected', 'Pending Approval']
+const ALL_STATUS = ['Submitted', 'Submitted&', 'Pending Approval', 'Approval Pending', 'Completed', 'Draft', 'Approved', 'Rejected']
+
+const isSubmitted = (s) => { const v = String(s || '').trim().toLowerCase(); return v === 'submitted' || v === 'submitted&' || v === 'pending approval' || v === 'approval pending' }
 
 const STATUS_LABEL = { Completed: '✓ COMPLETED', Submitted: 'SUBMITTED', Approved: 'APPROVED', Rejected: 'REJECTED', Draft: 'DRAFT' }
 const STATUS_COLOR = { Completed: '#16a34a', Submitted: '#2563eb', Approved: '#0ea5e9', Rejected: '#dc2626', Draft: '#f59e0b' }
@@ -99,10 +100,10 @@ export default function EventReports() {
     setRefreshing(true)
     fetchEvents().then(data => {
       const list = Array.isArray(data) ? data : []
-      const allowed = new Set(ALL_STATUS)
       const now = new Date()
       const normalized = list.map(e => {
-        const status = allowed.has(e.status) ? e.status : e.status || 'Draft'
+        const rawStatus = String(e.status || '').trim()
+        const status = isSubmitted(rawStatus) ? 'Submitted' : (COMPLETED.includes(rawStatus) ? 'Completed' : ALL_STATUS.includes(rawStatus) ? rawStatus : 'Draft')
         let created = e.created_at || e.createdAt || null
         let isNew = false
         if (created) {
@@ -124,7 +125,7 @@ export default function EventReports() {
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  const filteredEvents = events.filter(e => !statusFilter || String(e.status) === statusFilter)
+  const filteredEvents = events.filter(e => !statusFilter || (statusFilter === 'Submitted' ? isSubmitted(e.status) : String(e.status) === statusFilter))
 
   const generate = async () => {
     if (!selectedEvent) return
@@ -176,6 +177,7 @@ export default function EventReports() {
   const exportAllCSV = (rows) => {
     const cols = [
       { key: 'name', label: 'Event' },
+      { key: 'banner', label: 'Banner URL' },
       { key: 'ngo_name', label: 'NGO' },
       { key: 'sector_name', label: 'Sector' },
       { key: 'activity_name', label: 'Activity' },
@@ -212,7 +214,8 @@ export default function EventReports() {
     { key: 'notes', label: 'Notes' },
   ]
   const allCols = [
-    { key: 'name', label: 'Event', render: r => r.banner ? <a href={r.banner} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>{r.name || '—'}</a> : (r.name || '—') },
+    { key: 'name', label: 'Event' },
+    { key: 'banner_thumb', label: 'Banner', render: r => r.banner ? <img src={r.banner} alt="" style={{ width: 48, height: 32, objectFit: 'cover', borderRadius: 4, border: '1px solid #e5e7eb' }} /> : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span> },
     { key: 'ngo_name', label: 'NGO' },
     { key: 'sector_name', label: 'Sector' },
     { key: 'activity_name', label: 'Activity' },
@@ -303,7 +306,7 @@ export default function EventReports() {
               </div>
               <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
                 <KeyVal label="Total Events" value={allData.total || 0} />
-                <KeyVal label="Submitted" value={(allData.events || []).filter(e => e.status === 'Submitted').length} />
+                <KeyVal label="Submitted" value={(allData.events || []).filter(e => isSubmitted(e.status)).length} />
                 <KeyVal label="Completed" value={(allData.events || []).filter(e => e.status === 'Completed').length} />
                 <KeyVal label="Total Budget" value={money((allData.events || []).reduce((s, e) => s + (Number(e.budget) || 0), 0))} />
               </div>

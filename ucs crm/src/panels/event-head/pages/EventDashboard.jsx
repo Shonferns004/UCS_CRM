@@ -77,7 +77,7 @@ export default function EventDashboard() {
   /* Dynamic upcoming-deadline notifications (next 3 days), refreshed live. */
   useEffect(() => {
     let cancelled = false
-    const load = () => fetchDeadlineNotifs().then(d => { if (!cancelled) setDeadlines(d || []) }).catch(() => {})
+    const load = () => fetchDeadlineNotifs(5).then(d => { if (!cancelled) setDeadlines(d || []) }).catch(() => {})
     load()
     const timer = setInterval(load, 60 * 1000)
     return () => { cancelled = true; clearInterval(timer) }
@@ -212,7 +212,7 @@ export default function EventDashboard() {
           </div>
 
           {deadlines.length > 0 && (
-            <SectionCard title="Upcoming Deadlines" sub="Events due within the next 3 days · auto-updates"
+            <SectionCard title="Upcoming Deadlines" sub="Events due within the next 5 days · auto-updates"
               headRight={
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{deadlines.length} approaching</span>
@@ -220,7 +220,7 @@ export default function EventDashboard() {
                 </div>
               }>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {deadlines.map(d => (
+                {deadlines.slice(0, 6).map(d => (
                   <div key={d.key} onClick={() => open(d.eventId)}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderBottom: '1px solid var(--eh-line)', cursor: 'pointer' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--eh-tint-1)'}

@@ -8,7 +8,7 @@ import interactionPlugin from '@fullcalendar/interaction'
 import { PageHeader, SearchInput, Select } from '../components/ui'
 import {
   fetchCalendarEvents, fetchWorkspaceNgos, fetchSectors, fetchActivities,
-  createEvent, updateEvent, deleteEvent,
+  createEvent, updateEvent, deleteEvent, fetchFestivalDays,
   EVENT_STATUSES, PRIORITIES, CATEGORIES,
 } from '../store'
 import '../calendar.css'
@@ -40,6 +40,16 @@ const CATEGORY_META = {
   'religious-observance': { label: 'Religious', color: '#8b5cf6', icon: '🕉️' },
   'awareness-day': { label: 'Awareness Day', color: '#ec4899', icon: '🔔' },
   'other': { label: 'Other', color: '#64748b', icon: '📌' },
+}
+
+// Festivals & special days overlay (AI-generated reference, never editable).
+// Deliberately distinct from real event colors to avoid confusion.
+const FESTIVAL_META = {
+  color: '#a855f7',            // purple
+  bg: '#f3e8ff',               // pale purple fill
+  border: '#d8b4fe',
+  icon: '🎉',
+  typeLabels: { 'festival': 'Festival', 'special-day': 'Special Day', 'international-day': 'International Day' },
 }
 
 const CATEGORY_KEYWORDS = [
@@ -418,6 +428,12 @@ export default function MonthlyPlanner() {
   const [toast, setToast] = useState('')
   const [groupSel, setGroupSel] = useState(null)
 
+  /* AI festivals & special days overlay (per visible month, cached) */
+  const [festivals, setFestivals] = useState([])
+  const [festivalsLoading, setFestivalsLoading] = useState(false)
+  const [festivalsNote, setFestivalsNote] = useState('')
+  const festivalsCache = useRef({})
+
   /* Load options (NGO → Sector → Activity cascade) */
   useEffect(() => {
     fetchWorkspaceNgos().catch(() => []).then(n => setNgos(n || []))
@@ -491,6 +507,55 @@ export default function MonthlyPlanner() {
 
   const refresh = () => setLoadKey(k => k + 1)
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2600) }
+
+  /* ── AI Festivals & Special Days ── */
+  const loadFestivals = (force) => {
+    if (!range) return
+    const m = range.start.getMonth() + 1
+    const y = range.start.getFullYear()
+    const key = `${y}-${m}`
+    if (!force && festivalsCache.current[key]) { setFestivals(festivalsCache.current[key]); setFestivalsNote(''); return }
+    setFestivalsLoading(true)
+    setFestivalsNote('')
+    fetchFestivalDays(m, y)
+      .then(data => {
+        const list = Array.isArray(data?.festivals) ? data.festivals : []
+        festivalsCache.current[key] = list
+        setFestivals(list)
+        setFestivalsNote(list.length ? '' : 'No festivals/special days available for this month.')
+      })
+      .catch(err => {
+        console.error('festivals fetch', err)
+        setFestivals([])
+        setFestivalsNote('Festivals could not be loaded for this month.')
+      })
+      .finally(() => setFestivalsLoading(false))
+  }
+
+  // Auto-load festivals for the visible month (debounced ~450ms).
+  useEffect(() => {
+    if (!range) return
+    const t = setTimeout(() => loadFestivals(false), 450)
+    return () => clearTimeout(t)
+  }, [range.start.getMonth(), range.start.getFullYear()]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Merge festival markers into the calendar as distinct, non-editable events.
+  const festivalEvents = useMemo(() => {
+    return (festivals || []).map((f, i) => ({
+      id: 'fest-' + i,
+      title: f.name,
+      start: f.date,
+      allDay: true,
+      editable: false,
+      startEditable: false,
+      durationEditable: false,
+      interactive: false,
+      overlap: true,
+      display: 'block',
+      classNames: ['ev-festival'],
+      extendedProps: { isFestival: true, festivalName: f.name, festivalType: f.type || 'special-day', festivalDate: f.date },
+    }))
+  }, [festivals])
 
   /* Filters applied post-fetch (search + delegated UI) */
   const filteredEvents = useMemo(() => {
@@ -648,6 +713,39 @@ export default function MonthlyPlanner() {
             <span style={{ width: 12, height: 12, borderRadius: 3, background: '#e5e7eb', border: '1px solid #d1d5db', display: 'inline-block' }} />
             NGO tags (click to filter)
           </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            <span style={{ width: 12, height: 12, borderRadius: 3, background: FESTIVAL_META.bg, border: `2px dashed ${FESTIVAL_META.color}`, display: 'inline-block' }} />
+            {FESTIVAL_META.icon} Festivals &amp; Special Days
+          </span>
+        </div>
+      </div>
+
+      {/* AI Festivals & Special Days summary card */}
+      <div className="card" style={{ marginBottom: 0, border: `1px solid ${FESTIVAL_META.border}` }}>
+        <div className="card-pad" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#5b21b6' }}>
+            {FESTIVAL_META.icon} Festivals &amp; Special Days
+          </div>
+          <button className="eh-btn" onClick={() => loadFestivals(true)} disabled={festivalsLoading} style={{ fontSize: 12, padding: '5px 12px' }}>
+            {festivalsLoading ? 'Loading…' : '🔄 Refresh festivals'}
+          </button>
+        </div>
+        <div className="card-pad" style={{ paddingTop: 0 }}>
+          {festivalsLoading ? (
+            <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Checking festivals for {currentLabel}…</div>
+          ) : festivals.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)' }}>{festivalsNote || 'No festivals/special days for this month.'}</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {festivals.map((f, i) => (
+                <span key={i} title={`${FESTIVAL_META.typeLabels[f.type] || 'Special Day'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: FESTIVAL_META.bg, border: `1px dashed ${FESTIVAL_META.color}`, color: '#5b21b6', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 600 }}>
+                  {ymdToLabel(f.date)} · {escapeHtml(f.name)}
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', background: FESTIVAL_META.color, color: '#fff', borderRadius: 999, padding: '1px 6px' }}>{f.type || 'day'}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>AI-generated reference dates — verify before finalising. Festivals appear in {FESTIVAL_META.icon} purple on the calendar and are read-only.</div>
         </div>
       </div>
 
@@ -681,13 +779,19 @@ export default function MonthlyPlanner() {
             dayMaxEvents={3}
             moreLinkContent={(arg) => `${arg.num} more`}
             nowIndicator
-            events={groupedEvents}
+            events={[...festivalEvents, ...groupedEvents]}
             eventClassNames={(arg) => {
               const p = arg.event.extendedProps || {}
+              if (p.isFestival) return ['ev-festival']
               return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
             }}
             eventContent={(arg) => {
               const p = arg.event.extendedProps || {}
+              if (p.isFestival) {
+                return {
+                  html: `<div class="festival-pill"><span>${FESTIVAL_META.icon}</span><span class="festival-pill-title">${escapeHtml(p.festivalName || arg.event.title)}</span></div>`,
+                }
+              }
               const cat = CATEGORY_META[p.category] || CATEGORY_META.other
               const ngos = p.ngos || []
               const title = baseTitle(arg.event.title, p.ngoName)
