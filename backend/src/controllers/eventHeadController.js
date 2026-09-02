@@ -1043,13 +1043,43 @@ export const generateEventReport = async (req, res) => {
       ngo_name: event.ngo_id != null ? ngoMap[event.ngo_id] || null : null,
       sector_name: event.sector_id != null ? sectorMap[event.sector_id] || null : null,
       activity_name: evActivity ? evActivity.name : (event.activity_id != null ? activityMap[event.activity_id] || null : null),
-      banner: evActivity ? evActivity.banner || null : null,
+      banner: event.banner || (evActivity ? evActivity.banner || null : null),
       day,
     };
 
     const report = { event: enrichedEvent, expenses, attendance, media, checklist, distributions, generated_at: new Date() };
     return res.json(report);
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── ALL-EVENTS SUMMARY REPORT ───
+export const generateAllEventsReport = async (req, res) => {
+  try {
+    const ngo_id = ownNgoId(req) || req.query.ngo_id || undefined;
+    const { status, month, year } = req.query;
+    const events = await EventHead.getAllEventHeadEvents({ ngo_id, status, month, year });
+    const ctx = await buildEventContextMaps();
+    const enriched = await enrichEvents(events, ctx);
+    const rows = enriched.map(e => ({
+      id: e.id,
+      name: e.name,
+      ngo_name: e.ngo_name || null,
+      sector_name: e.sector_name || null,
+      activity_name: e.activity_name || null,
+      date: e.date || null,
+      day: e.date ? new Date(String(e.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
+      start_time: e.start_time || null,
+      end_time: e.end_time || null,
+      venue: e.venue || null,
+      status: e.status || null,
+      budget: e.budget != null ? Number(e.budget) : null,
+      banner: e.banner || null,
+    }));
+    return res.json({ events: rows, total: rows.length, generated_at: new Date() });
+  } catch (error) {
+    console.error('generateAllEventsReport error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };
