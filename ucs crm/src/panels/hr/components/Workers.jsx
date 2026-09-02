@@ -439,7 +439,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         if (isActive && isFro) { activeFroCount++; lastActiveFroRow = rowIdx; }
         else if (isActive && isMgmt) { mgmtCount++; lastMgmtRow = rowIdx; }
         else if (isActive && isHr) { hrCount++; lastHrRow = rowIdx; }
-        else if (!isActive || isAbscond) { abscondCount++; }
+        else if (isAbscond) { abscondCount++; }
       }
 
       // Add subtotal rows with SUM formulas
@@ -457,6 +457,26 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           }
         }
         wsData.push(subtotal);
+      };
+
+      // Absconded subtotal: SUMIF on the Status column (*ABSCOND*) across the
+      // whole body, so only ABSCONDED/ABSCOND workers are included - offboarded
+      // /inactive rows are excluded even though they live in the same sheet area.
+      const addStatusSubtotalRow = (label, statusCriteria) => {
+        const firstRow = 2;
+        const lastRow = 1 + rows.length;
+        const sub = [label];
+        const statusCol = XLSX.utils.encode_col(COL.STATUS);
+        for (let c = 1; c < TOTAL_COLS; c++) {
+          const colLetter = XLSX.utils.encode_col(c);
+          const isNumeric = (c >= COL.SALARY && c <= COL.NET_PAY) || c >= COL.FIRST_DAY_COL;
+          if (isNumeric) {
+            sub.push({ f: `SUMIF(${statusCol}${firstRow}:${statusCol}${lastRow},"*${statusCriteria}*",${colLetter}${firstRow}:${colLetter}${lastRow})` });
+          } else {
+            sub.push('');
+          }
+        }
+        wsData.push(sub);
       };
 
       // Subtotals for each section (if they have rows)
@@ -481,10 +501,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         dataStartRow = endRow + 2;
       }
       if (abscondCount > 0) {
-        const endRow = dataStartRow + abscondCount - 1;
-        addSubtotalRow('Absconded Total', dataStartRow, endRow);
-        subtotalRowIndices.push(endRow + 1);
-        dataStartRow = endRow + 2;
+        addStatusSubtotalRow('Absconded Total', 'ABSCOND');
+        subtotalRowIndices.push(wsData.length);
+        dataStartRow += abscondCount;
       }
 
       // Grand Total = sum of subtotal rows (avoids double-counting)

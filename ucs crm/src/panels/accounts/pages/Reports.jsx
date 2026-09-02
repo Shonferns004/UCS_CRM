@@ -673,11 +673,12 @@ export default function Reports() {
                         {atcTab === 'agent' ? (
                           <>
                             {atcAgents.map((a, i) => (
-                              <tr key={a.id || 'unassigned'} style={{ borderTop: '1px solid var(--line)', background: a.id == null ? '#F9FAFB' : 'transparent' }}>
+                              <tr key={a.id || a.category || 'unassigned'} style={{ borderTop: '1px solid var(--line)', background: a.id == null ? '#F9FAFB' : 'transparent' }}>
                                 <td style={{ padding: '9px 12px', color: '#6b7280' }}>{i + 1}</td>
                                 <td style={{ padding: '9px 12px', fontWeight: 600 }}>
                                   {a.name}
-                                  {a.id == null && <span style={{ color: '#9ca3af', fontWeight: 400 }}> · unattributed receipts</span>}
+                                  {a.id == null && !a.category && <span style={{ color: '#9ca3af', fontWeight: 400 }}> · unattributed receipts</span>}
+                                  {a.category && <span style={{ color: '#9ca3af', fontWeight: 400 }}> · category</span>}
                                 </td>
                                 <td style={{ padding: '9px 12px' }}>
                                   {a.team ? <span className="pill" style={{ background: (TEAM_STYLE[a.team] || TEAM_STYLE['No Team']).bg, color: (TEAM_STYLE[a.team] || TEAM_STYLE['No Team']).fg, fontWeight: 600 }}>{a.team}</span> : <span style={{ color: '#9ca3af' }}>—</span>}
