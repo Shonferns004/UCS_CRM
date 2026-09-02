@@ -6,13 +6,14 @@ import usePasteImage from '../../../utils/usePasteImage'
 import { EnhancedTable } from '../components/Table'
 import EditBannerModal from '../components/EditBannerModal'
 
-const MEDIA_TYPES = ['Banner', 'Photo', 'Video', 'YouTube', 'Instagram', 'Document', 'Other']
+const MEDIA_TYPES = ['Banner', 'Photo', 'Video', 'YouTube', 'Instagram', 'Facebook', 'Document', 'Other']
 const TYPE_COLORS = {
   Banner: '#7B5EA7',
   Photo: '#3485D4',
   Video: '#B5603A',
   YouTube: '#FF0000',
   Instagram: '#E4405F',
+  Facebook: '#1877F2',
   Document: '#5B6B4E',
   Other: '#C08A2E',
 }
@@ -23,6 +24,7 @@ const TABS = [
   { id: 'Video', label: 'Videos' },
   { id: 'YouTube', label: 'YouTube' },
   { id: 'Instagram', label: 'Instagram' },
+  { id: 'Facebook', label: 'Facebook' },
   { id: 'Document', label: 'Documents' },
 ]
 
@@ -36,6 +38,9 @@ function categoryFromMedia(m) {
   const u = String(m.url || '').toLowerCase()
   if (t.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/.test(u)) return 'Photo'
   if (t.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/.test(u)) return 'Video'
+  if (/(^|\.|\/)youtu(\.be|be\.com)/.test(u)) return 'YouTube'
+  if (/(^|\.|\/)instagram\.com/.test(u)) return 'Instagram'
+  if (/(^|\.|\/)facebook\.com|fb\.me/.test(u)) return 'Facebook'
   if (t.includes('pdf') || /\.pdf$/i.test(u)) return 'Document'
   if (/\.(docx?|xlsx?|pptx?|txt|csv)$/.test(u)) return 'Document'
   return 'Other'
@@ -43,7 +48,7 @@ function categoryFromMedia(m) {
 const isImage = (m) => ['Banner', 'Photo'].includes(categoryFromMedia(m))
 const isVideo = (m) => categoryFromMedia(m) === 'Video'
 const isDocument = (m) => categoryFromMedia(m) === 'Document'
-const isLink = (m) => ['YouTube', 'Instagram'].includes(categoryFromMedia(m))
+const isLink = (m) => ['YouTube', 'Instagram', 'Facebook'].includes(categoryFromMedia(m))
 const extOf = (u = '') => (u.split('?')[0].match(/\.([a-z0-9]{1,5})$/i) || [])[1] || 'file'
 const fmtBytes = (b) => {
   if (b == null || isNaN(b)) return '—'
@@ -79,16 +84,29 @@ const fmtTimeOf = (t) => {
   return `${h}:${String(m).padStart(2, '0')} ${ap}`
 }
 const downloadUrl = (m) => {
-  try {
-    const a = document.createElement('a')
-    a.href = m.url
-    a.download = m.title || m.name || extOf(m.url)
-    a.target = '_blank'
-    a.rel = 'noreferrer'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  } catch { window.open(m.url, '_blank') }
+  const filename = m.title || m.name || extOf(m.url)
+  // Fetch → Blob → object URL so the file is saved to the user's downloads/gallery
+  // instead of just opening a new tab. Falls back to opening the URL on failure.
+  const start = (blobUrl) => {
+    try {
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      a.rel = 'noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch { window.open(m.url, '_blank') }
+  }
+  fetch(m.url, { mode: 'cors', credentials: 'omit' })
+    .then(async (res) => {
+      if (!res.ok) throw new Error('not ok')
+      const blob = await res.blob()
+      const obj = URL.createObjectURL(blob)
+      start(obj)
+      setTimeout(() => URL.revokeObjectURL(obj), 4000)
+    })
+    .catch(() => start(m.url))
 }
 
 function StatBlock({ label, value, color }) {
@@ -372,7 +390,7 @@ export default function MediaManagement() {
   }, [viewMedia, tab, typeFilter, yearFilter, search, eventYear, selectedEvent, eventById])
 
   const counts = useMemo(() => {
-    const c = { All: viewMedia.length, Banner: 0, Photo: 0, Video: 0, Document: 0 }
+    const c = { All: viewMedia.length, Banner: 0, Photo: 0, Video: 0, YouTube: 0, Instagram: 0, Facebook: 0, Document: 0 }
     for (const m of viewMedia) c[categoryFromMedia(m)] = (c[categoryFromMedia(m)] || 0) + 1
     return c
   }, [viewMedia])
@@ -473,7 +491,7 @@ export default function MediaManagement() {
   const handleAddLink = async () => {
     if (!effectiveUploadEventId) { setUploadErr('Select an event from the drop-downs above first.'); return }
     const url = String(linkForm.url || '').trim()
-    if (!url) { setUploadErr('Enter the YouTube/Instagram link URL.'); return }
+    if (!url) { setUploadErr('Enter the YouTube/Instagram/Facebook link URL.'); return }
     setUploading(true); setUploadMsg(''); setUploadErr('')
     try {
       const res = await createMediaLink(effectiveUploadEventId, {
@@ -556,7 +574,7 @@ export default function MediaManagement() {
         >
           {isImage(m)
             ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />
-            : <span style={{ fontSize: 18 }}>{isLink(m) ? (categoryFromMedia(m) === 'YouTube' ? '▶' : '◎') : isVideo(m) ? '🎬' : isDocument(m) ? '📄' : '📁'}</span>}
+            : <span style={{ fontSize: 18 }}>{isLink(m) ? (categoryFromMedia(m) === 'YouTube' ? '▶' : categoryFromMedia(m) === 'Instagram' ? '◎' : '📘') : isVideo(m) ? '🎬' : isDocument(m) ? '📄' : '📁'}</span>}
         </button>
       ),
     },
@@ -574,7 +592,7 @@ export default function MediaManagement() {
       render: (m) => (
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {isLink(m)
-            ? <button className="btn btn-sm" style={{ background: '#FF0000', borderColor: '#FF0000', color: '#fff' }} onClick={() => window.open(m.url, '_blank', 'noopener,noreferrer')}>Open {categoryFromMedia(m)}</button>
+            ? <button className="btn btn-sm" style={{ background: TYPE_COLORS[categoryFromMedia(m)] || '#FF0000', borderColor: TYPE_COLORS[categoryFromMedia(m)] || '#FF0000', color: '#fff' }} onClick={() => window.open(m.url, '_blank', 'noopener,noreferrer')}>Open {categoryFromMedia(m)}</button>
             : <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>View</button>}
           {!isLink(m) && <button className="btn btn-sm" onClick={() => downloadUrl(m)}>Download</button>}
           <button className="btn btn-sm" onClick={() => editTitle(m)}>Edit</button>
@@ -730,6 +748,7 @@ export default function MediaManagement() {
                     <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtDate(m.created_at)} · {fmtBytes(m.size)} · {categoryFromMedia(m)}</div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                       <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>Preview</button>
+                      <button className="btn btn-sm" onClick={() => downloadUrl(m)}>Download</button>
                       <button className="btn btn-sm" style={{ background: '#7B5EA7', borderColor: '#7B5EA7', color: '#fff' }} onClick={() => openEdit(m, ownEvent)}>Edit Banner</button>
                       <button className="btn btn-sm" onClick={() => openReplace(m)}>Replace</button>
                       <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
@@ -895,7 +914,7 @@ export default function MediaManagement() {
               {/* Mode toggle: upload file vs add social video link */}
               <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
                 <button className={`btn btn-sm ${!linkMode ? 'btn-primary' : ''}`} type="button" onClick={() => { setLinkMode(false); setUploadErr('') }}>Upload Files</button>
-                <button className={`btn btn-sm ${linkMode ? 'btn-primary' : ''}`} type="button" style={linkMode ? {} : { background: '#FF0000', borderColor: '#FF0000', color: '#fff' }} onClick={() => { setLinkMode(true); setFiles([]); setUploadErr('') }}>Add Link (YouTube / Instagram)</button>
+                <button className={`btn btn-sm ${linkMode ? 'btn-primary' : ''}`} type="button" style={linkMode ? {} : { background: '#FF0000', borderColor: '#FF0000', color: '#fff' }} onClick={() => { setLinkMode(true); setFiles([]); setUploadErr('') }}>Add Link (YouTube / Instagram / Facebook)</button>
               </div>
 
               {!linkMode ? (
@@ -903,7 +922,7 @@ export default function MediaManagement() {
                   <div className="form-row" style={{ marginBottom: 12 }}>
                     <div className="field"><label>Type</label>
                       <select value={draft.media_type} onChange={e => setDraft({ ...draft, media_type: e.target.value })}>
-                        {MEDIA_TYPES.filter(t => t !== 'YouTube' && t !== 'Instagram').map(t => <option key={t} value={t}>{t}</option>)}
+                        {MEDIA_TYPES.filter(t => !['YouTube', 'Instagram', 'Facebook'].includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
                     <div className="field"><label>Title (optional)</label><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder={uploadMode === 'banner' ? 'e.g. Ganpati Main Banner' : 'e.g. Event group photo'} /></div>
@@ -947,6 +966,7 @@ export default function MediaManagement() {
                       <select value={linkForm.media_type} onChange={e => setLinkForm({ ...linkForm, media_type: e.target.value })}>
                         <option value="YouTube">YouTube</option>
                         <option value="Instagram">Instagram</option>
+                        <option value="Facebook">Facebook</option>
                       </select>
                     </div>
                     <div className="field"><label>Title (optional)</label><input value={linkForm.title} onChange={e => setLinkForm({ ...linkForm, title: e.target.value })} placeholder="e.g. Event recap video" /></div>
@@ -1022,7 +1042,9 @@ export default function MediaManagement() {
             </div>
             <div className="modal-actions" style={{ padding: '0 18px 18px' }}>
               <button className="btn btn-sm" onClick={() => setPreviewItem(null)}>Close</button>
-              <button className="btn btn-primary" onClick={() => downloadUrl(previewItem)}>Download</button>
+              {isLink(previewItem)
+                ? <button className="btn btn-primary" onClick={() => window.open(previewItem.url, '_blank', 'noopener,noreferrer')}>Open {categoryFromMedia(previewItem)}</button>
+                : <button className="btn btn-primary" onClick={() => downloadUrl(previewItem)}>Download</button>}
             </div>
           </div>
         </div>
