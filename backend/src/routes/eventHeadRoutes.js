@@ -106,9 +106,6 @@ router.put('/events/:eventId/checklist/:itemId', eh, ctrl.updateChecklistItem);
 router.get('/reports/all', eh, ctrl.generateAllEventsReport);
 router.get('/reports/event/:eventId', eh, ctrl.generateEventReport);
 
-// AI-assisted features (static paths BEFORE /:id patterns)
-router.get('/festivals', eh, ctrl.getFestivalDays);
-
 // Approvals
 router.get('/approvals', eh, ctrl.listApprovals);
 
