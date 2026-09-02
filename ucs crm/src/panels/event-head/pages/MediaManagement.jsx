@@ -1,16 +1,18 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchEvents, fetchEventById, fetchMedia, uploadMedia, replaceMedia, updateMedia, deleteMedia } from '../store'
+import { fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchEvents, fetchEventById, fetchMedia, fetchMediaByNgo, uploadMedia, createMediaLink, replaceMedia, updateMedia, deleteMedia } from '../store'
 import { useUcs } from '../../../store'
 import usePasteImage from '../../../utils/usePasteImage'
 import { EnhancedTable } from '../components/Table'
 import EditBannerModal from '../components/EditBannerModal'
 
-const MEDIA_TYPES = ['Banner', 'Photo', 'Video', 'Document', 'Other']
+const MEDIA_TYPES = ['Banner', 'Photo', 'Video', 'YouTube', 'Instagram', 'Document', 'Other']
 const TYPE_COLORS = {
   Banner: '#7B5EA7',
   Photo: '#3485D4',
   Video: '#B5603A',
+  YouTube: '#FF0000',
+  Instagram: '#E4405F',
   Document: '#5B6B4E',
   Other: '#C08A2E',
 }
@@ -19,6 +21,8 @@ const TABS = [
   { id: 'Banner', label: 'Banners' },
   { id: 'Photo', label: 'Photos' },
   { id: 'Video', label: 'Videos' },
+  { id: 'YouTube', label: 'YouTube' },
+  { id: 'Instagram', label: 'Instagram' },
   { id: 'Document', label: 'Documents' },
 ]
 
@@ -39,6 +43,7 @@ function categoryFromMedia(m) {
 const isImage = (m) => ['Banner', 'Photo'].includes(categoryFromMedia(m))
 const isVideo = (m) => categoryFromMedia(m) === 'Video'
 const isDocument = (m) => categoryFromMedia(m) === 'Document'
+const isLink = (m) => ['YouTube', 'Instagram'].includes(categoryFromMedia(m))
 const extOf = (u = '') => (u.split('?')[0].match(/\.([a-z0-9]{1,5})$/i) || [])[1] || 'file'
 const fmtBytes = (b) => {
   if (b == null || isNaN(b)) return '—'
@@ -117,6 +122,8 @@ export default function MediaManagement() {
   // Data
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [media, setMedia] = useState([])
+  const [ngoMedia, setNgoMedia] = useState([])
+  const [ngoMediaLoading, setNgoMediaLoading] = useState(false)
   const [historyEvents, setHistoryEvents] = useState([])
   const [historyMedia, setHistoryMedia] = useState({})
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -133,6 +140,8 @@ export default function MediaManagement() {
   const [draft, setDraft] = useState({ media_type: 'Photo', title: '', description: '' })
   const [files, setFiles] = useState([])
   const [dragging, setDragging] = useState(false)
+  const [linkMode, setLinkMode] = useState(false) // toggle Add Link (YouTube/Instagram)
+  const [linkForm, setLinkForm] = useState({ media_type: 'YouTube', url: '', title: '' })
   const uploadInput = useRef(null)
   const dragDepth = useRef(0)
   const prefillUploadRef = useRef(null) // { eventId, ngoId, sectorId } to preserve when prefilling from the open event
@@ -222,7 +231,7 @@ export default function MediaManagement() {
     if (!keep) setUpEvents([])
     if (!keep) setUploadEventId('')
     if (!uploadNgoId || !uploadSectorId) {
-      if (keepEvent) setUpEvents([keepEvent])
+      if (keepEvent) { setUpEvents([keepEvent]); setUploadEventId(String(keepEvent.id)) }
       else { setUpEvents([]); setUploadEventId('') }
       prefillUploadRef.current = null
       return () => {}
@@ -232,7 +241,9 @@ export default function MediaManagement() {
       let list = d || []
       if (keepEvent && !list.some(e => String(e.id) === String(keepEvent.id))) list = [keepEvent, ...list]
       setUpEvents(list)
+      if (keepEvent) setUploadEventId(String(keepEvent.id))
     }).catch(() => { if (!cancelled && keepEvent) setUpEvents([keepEvent]) })
+    if (keepEvent) setUploadEventId(String(keepEvent.id))
     prefillUploadRef.current = null
     return () => { cancelled = true }
   }, [uploadNgoId, uploadSectorId])
@@ -260,6 +271,18 @@ export default function MediaManagement() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [eventFilter])
+
+  /* ── Load all media across the selected NGO's events (NGO-wide view) ── */
+  useEffect(() => {
+    let cancelled = false
+    if (!ngoFilter || eventFilter) { setNgoMedia([]); setNgoMediaLoading(false); return () => {} }
+    setNgoMediaLoading(true)
+    fetchMediaByNgo(ngoFilter)
+      .then(d => { if (!cancelled) setNgoMedia(d || []) })
+      .catch(() => { if (!cancelled) setNgoMedia([]) })
+      .finally(() => { if (!cancelled) setNgoMediaLoading(false) })
+    return () => { cancelled = true }
+  }, [ngoFilter, eventFilter])
 
   /* ── History: recurring years for the same program (same activity) ── */
   useEffect(() => {
@@ -293,6 +316,20 @@ export default function MediaManagement() {
   /* ── Derived filters ── */
   const eventYear = yearOf(selectedEvent?.date)
 
+  // Source of media for the current view: a specific event (per-event media) or,
+  // when only an NGO is selected, all media across that NGO's events.
+  const viewMedia = eventFilter ? media : ngoMedia
+  const ngoOnly = !eventFilter && !!ngoFilter
+
+  // Resolve each media row's owning event for the NGO-wide banner grid.
+  const eventById = useMemo(() => {
+    const map = {}
+    for (const e of allEvents) map[e.id] = e
+    return map
+  }, [allEvents])
+  const eventNameOf = (m) => m.event_name || (m.event_id != null ? eventById[m.event_id]?.name : null) || '—'
+  const eventDateOf = (m) => m.event_date || (m.event_id != null ? eventById[m.event_id]?.date : null)
+
   // Places to put new uploads
   const ngoNameOf = (ev) => ev?.ngo_name || (ev?.ngo_id != null ? (ngos.find(n => String(n.id) === String(ev.ngo_id))?.name || '—') : '—')
   const sectorNameOf = (ev) => ev?.sector_name || (ev?.sector_id != null ? (sectors.find(s => String(s.id) === String(ev.sector_id))?.name || '—') : '—')
@@ -313,29 +350,29 @@ export default function MediaManagement() {
 
   /* ── Filtered media for the current view ── */
   const filteredMedia = useMemo(() => {
-    let list = media
+    let list = viewMedia
     if (tab !== 'All') list = list.filter(m => categoryFromMedia(m) === tab)
     if (typeFilter) list = list.filter(m => categoryFromMedia(m) === typeFilter)
     if (yearFilter) list = list.filter(m => (m.year != null ? String(m.year) : String(eventYear ?? '')) === String(yearFilter))
     if (search) {
       const q = search.toLowerCase()
       list = list.filter(m => {
-        const e = selectedEvent || {}
-        return [m.title, m.name, extOf(m.url), e.name, e.ngo_name, e.sector_name, m.year, eventYear, m.uploaded_by]
+        const e = selectedEvent || eventById[m.event_id] || {}
+        return [m.title, m.name, extOf(m.url), e.name, e.ngo_name, e.sector_name, m.year, eventYear, m.uploaded_by, m.event_name]
           .some(v => v != null && String(v).toLowerCase().includes(q))
       })
     }
     return list
-  }, [media, tab, typeFilter, yearFilter, search, eventYear, selectedEvent])
+  }, [viewMedia, tab, typeFilter, yearFilter, search, eventYear, selectedEvent, eventById])
 
   const counts = useMemo(() => {
-    const c = { All: media.length, Banner: 0, Photo: 0, Video: 0, Document: 0 }
-    for (const m of media) c[categoryFromMedia(m)] = (c[categoryFromMedia(m)] || 0) + 1
+    const c = { All: viewMedia.length, Banner: 0, Photo: 0, Video: 0, Document: 0 }
+    for (const m of viewMedia) c[categoryFromMedia(m)] = (c[categoryFromMedia(m)] || 0) + 1
     return c
-  }, [media])
+  }, [viewMedia])
 
   const summaryStats = [
-    { label: 'Total Media', value: media.length, type: 'All' },
+    { label: 'Total Media', value: viewMedia.length, type: 'All' },
     { label: 'Banners', value: counts.Banner, type: 'Banner' },
     { label: 'Photos', value: counts.Photo, type: 'Photo' },
     { label: 'Videos', value: counts.Video, type: 'Video' },
@@ -350,6 +387,8 @@ export default function MediaManagement() {
     setUploadMsg('')
     setUploadErr('')
     setUploadProgress(null)
+    setLinkMode(false)
+    setLinkForm({ media_type: 'YouTube', url: '', title: '' })
     // Prefill NGO/Sector/Activity/Event from the event currently being viewed
     // in the filter bar, so the user can upload without re-navigating the chain.
     const target = selectedEvent || null
@@ -399,14 +438,45 @@ export default function MediaManagement() {
       const fd = buildFormData(files)
       const res = await uploadMedia(uploadEventId, fd)
       const added = Array.isArray(res) ? res : [res]
-      if (added.length && String(uploadEventId) === String(eventFilter)) setMedia(prev => [...added.reverse(), ...prev])
       setUploadMsg(`Media uploaded successfully. ${added.length} file${added.length > 1 ? 's' : ''} added.`)
       setFiles([])
       setUploadProgress({ done: added.length, total: added.length })
+      // refresh the active media source so the uploaded banners/media appear immediately
+      refreshView()
       // refresh history counts for this year
       setHistoryEvents(prev => [...prev])
     } catch (err) {
       setUploadErr(err.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  /* ── Reload whichever media view is currently active (event or NGO-wide) ── */
+  const refreshView = () => {
+    if (eventFilter) fetchMedia(eventFilter).then(med => { if (med) setMedia(med || []) }).catch(() => {})
+    else if (ngoFilter) fetchMediaByNgo(ngoFilter).then(d => { if (d) setNgoMedia(d || []) }).catch(() => {})
+  }
+
+  /* ── Add a YouTube/Instagram link to the selected event (no file upload) ── */
+  const handleAddLink = async () => {
+    if (!uploadEventId) { setUploadErr('Select an event from the drop-downs above first.'); return }
+    const url = String(linkForm.url || '').trim()
+    if (!url) { setUploadErr('Enter the YouTube/Instagram link URL.'); return }
+    setUploading(true); setUploadMsg(''); setUploadErr('')
+    try {
+      const res = await createMediaLink(uploadEventId, {
+        url,
+        title: String(linkForm.title || '').trim() || `${linkForm.media_type} link`,
+        description: 'Linked ' + linkForm.media_type,
+        media_type: linkForm.media_type,
+      })
+      setUploadMsg(`Link added successfully.`)
+      setLinkForm({ media_type: linkForm.media_type, url: '', title: '' })
+      setLinkMode(false)
+      refreshView()
+    } catch (err) {
+      setUploadErr(err.message || 'Failed to add link')
     } finally {
       setUploading(false)
     }
@@ -431,8 +501,9 @@ export default function MediaManagement() {
         fd.append('file', replaceFile, replaceFile.name)
         fd.append('media_type', categoryFromMedia(replaceItem))
       }
-      const res = await replaceMedia(eventFilter, replaceItem.id, fd)
+      const res = await replaceMedia(replaceItem.event_id ?? eventFilter, replaceItem.id, fd)
       setMedia(prev => prev.map(m => m.id === res.id ? { ...m, ...res } : m))
+      if (ngoOnly) fetchMediaByNgo(ngoFilter).then(d => { if (d) setNgoMedia(d || []) }).catch(() => {})
       setReplaceItem(null)
     } catch (err) {
       alert('Replace failed: ' + (err.message || 'Unknown error'))
@@ -449,8 +520,9 @@ export default function MediaManagement() {
   const handleDelete = async (m) => {
     if (!confirm(`Delete "${m.title || m.name || 'this media'}"?`)) return
     try {
-      await deleteMedia(eventFilter, m.id)
+      await deleteMedia(m.event_id ?? eventFilter, m.id)
       setMedia(prev => prev.filter(x => x.id !== m.id))
+      if (ngoOnly) fetchMediaByNgo(ngoFilter).then(d => { if (d) setNgoMedia(d || []) }).catch(() => {})
     } catch (e) { alert('Delete failed: ' + (e.message || 'Unknown error')) }
   }
 
@@ -473,15 +545,15 @@ export default function MediaManagement() {
         >
           {isImage(m)
             ? <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />
-            : <span style={{ fontSize: 18 }}>{isVideo(m) ? '🎬' : isDocument(m) ? '📄' : '📁'}</span>}
+            : <span style={{ fontSize: 18 }}>{isLink(m) ? (categoryFromMedia(m) === 'YouTube' ? '▶' : '◎') : isVideo(m) ? '🎬' : isDocument(m) ? '📄' : '📁'}</span>}
         </button>
       ),
     },
     { header: 'File Name', accessor: 'name', render: (m) => <span style={{ fontWeight: 500 }}>{m.title || m.name}</span> },
     { header: 'Type', accessor: 'media_type', render: (m) => { const c = categoryFromMedia(m); return <span className="pill" style={{ background: `${TYPE_COLORS[c]}18`, color: TYPE_COLORS[c] }}>{c}</span> } },
-    { header: 'Event', accessor: 'name', render: () => selectedEvent?.name || '—' },
-    { header: 'NGO', render: () => ngoNameOf(selectedEvent) },
-    { header: 'Sector', render: () => sectorNameOf(selectedEvent) },
+    { header: 'Event', accessor: 'name', render: (m) => { const ev = selectedEvent || eventById[m.event_id]; return ev?.name || eventNameOf(m) || '—' } },
+    { header: 'NGO', render: (m) => { const ev = selectedEvent || eventById[m.event_id]; return ev ? ngoNameOf(ev) : '—' } },
+    { header: 'Sector', render: (m) => { const ev = selectedEvent || eventById[m.event_id]; return ev ? sectorNameOf(ev) : '—' } },
     { header: 'Year', accessor: 'year', render: (m) => m.year || eventYear || '—' },
     { header: 'Size', accessor: 'size', render: (m) => fmtBytes(m.size) },
     { header: 'Uploaded By', accessor: 'uploaded_by', render: (m) => m.uploaded_by || '—' },
@@ -490,8 +562,10 @@ export default function MediaManagement() {
       header: 'Actions',
       render: (m) => (
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>View</button>
-          <button className="btn btn-sm" onClick={() => downloadUrl(m)}>Download</button>
+          {isLink(m)
+            ? <button className="btn btn-sm" style={{ background: '#FF0000', borderColor: '#FF0000', color: '#fff' }} onClick={() => window.open(m.url, '_blank', 'noopener,noreferrer')}>Open {categoryFromMedia(m)}</button>
+            : <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>View</button>}
+          {!isLink(m) && <button className="btn btn-sm" onClick={() => downloadUrl(m)}>Download</button>}
           <button className="btn btn-sm" onClick={() => editTitle(m)}>Edit</button>
           <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
         </div>
@@ -584,6 +658,21 @@ export default function MediaManagement() {
             </div>
           </div>
         </div>
+      ) : ngoOnly ? (
+        <div className="card" style={{ marginBottom: 16, borderTop: `3px solid #7B5EA7` }}>
+          <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+            <div style={{ flex: '1 1 260px', minWidth: 220 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#7B5EA7', marginBottom: 4 }}>NGO</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{ngos.find(n => String(n.id) === String(ngoFilter))?.name || '—'}</div>
+              <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 2 }}>All media across this NGO's events</div>
+            </div>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 22, fontWeight: 700, color: '#7B5EA7' }}>{ngoMedia.length}</div><div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Media Files</div></div>
+              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 22, fontWeight: 700, color: '#7B5EA7' }}>{counts.Banner}</div><div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Banners</div></div>
+              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 22, fontWeight: 700, color: '#3485D4' }}>{counts.Photo}</div><div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Photos</div></div>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-pad" style={{ textAlign: 'center', padding: 32, color: 'var(--ink-soft)' }}>
@@ -592,7 +681,7 @@ export default function MediaManagement() {
         </div>
       )}
 
-      {selectedEvent && eventFilter && (
+      {(selectedEvent && eventFilter) || ngoOnly ? (
         <>
           {/* Media dashboard summary */}
           <div className="stats-grid" style={{ marginBottom: 16, gridTemplateColumns: 'repeat(5, 1fr)' }}>
@@ -603,7 +692,7 @@ export default function MediaManagement() {
           <div className="filter-bar" style={{ marginBottom: 16, padding: 6, gap: 4, background: 'var(--bg)' }}>
             {TABS.map(t => {
               const active = tab === t.id
-              const n = t.id === 'All' ? media.length : counts[t.id] || 0
+              const n = t.id === 'All' ? viewMedia.length : counts[t.id] || 0
               return (
                 <button key={t.id} className={`btn btn-sm ${active ? 'btn-primary' : ''}`} style={{ padding: '6px 14px' }} onClick={() => { setTab(t.id); setYearFilter(''); }}>
                   {t.label} <span style={{ opacity: .8 }}>({n})</span>
@@ -616,33 +705,53 @@ export default function MediaManagement() {
           {(tab === 'All' || tab === 'Banner') && (() => {
             const banners = filteredMedia.filter(m => categoryFromMedia(m) === 'Banner')
             if (tab === 'All' && banners.length === 0) return null
+            const renderBannerCard = (m) => {
+              const ownEvent = eventById[m.event_id] || selectedEvent || null
+              return (
+                <div key={m.id} className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ position: 'relative', height: 130, background: '#eceef0', overflow: 'hidden', cursor: 'pointer' }} onClick={() => setPreviewItem(m)}>
+                    <img src={m.url} alt={m.title || m.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                    <span className="pill" style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11 }}>{m.year || eventYear || '—'}</span>
+                  </div>
+                  <div style={{ padding: 10 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{m.title || m.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{eventNameOf(m)} · {sectorNameOf(ownEvent)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtDate(m.created_at)} · {fmtBytes(m.size)} · {categoryFromMedia(m)}</div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>Preview</button>
+                      <button className="btn btn-sm" style={{ background: '#7B5EA7', borderColor: '#7B5EA7', color: '#fff' }} onClick={() => openEdit(m, ownEvent)}>Edit Banner</button>
+                      <button className="btn btn-sm" onClick={() => openReplace(m)}>Replace</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-head"><h3>Banners</h3></div>
                 <div className="card-pad">
                   {banners.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: 28, color: 'var(--ink-soft)' }}>No banners yet.</div>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
-                      {banners.map(m => (
-                        <div key={m.id} className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ position: 'relative', height: 130, background: '#eceef0', overflow: 'hidden', cursor: 'pointer' }} onClick={() => setPreviewItem(m)}>
-                            <img src={m.url} alt={m.title || m.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />
-                            <span className="pill" style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: 11 }}>{m.year || eventYear || '—'}</span>
-                          </div>
-                          <div style={{ padding: 10 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{m.title || m.name}</div>
-                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{selectedEvent.name} · {sectorNameOf(selectedEvent)}</div>
-                            <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtDate(m.created_at)} · {fmtBytes(m.size)} · {categoryFromMedia(m)}</div>
-                            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                              <button className="btn btn-sm" onClick={() => setPreviewItem(m)}>Preview</button>
-                              <button className="btn btn-sm" style={{ background: '#7B5EA7', borderColor: '#7B5EA7', color: '#fff' }} onClick={() => openEdit(m, selectedEvent)}>Edit Banner</button>
-                              <button className="btn btn-sm" onClick={() => openReplace(m)}>Replace</button>
-                              <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
-                            </div>
-                          </div>
+                  ) : ngoOnly ? (() => {
+                    const byEvent = {}
+                    for (const m of banners) {
+                      const key = String(m.event_id ?? 'none')
+                      ;(byEvent[key] = byEvent[key] || []).push(m)
+                    }
+                    return Object.entries(byEvent).map(([key, list]) => (
+                      <div key={key} style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: '#7B5EA7', marginBottom: 10, borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
+                          {eventNameOf(list[0])}{eventDateOf(list[0]) ? ` · ${fmtDate(eventDateOf(list[0]))}` : ''}
                         </div>
-                      ))}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
+                          {list.map(renderBannerCard)}
+                        </div>
+                      </div>
+                    ))
+                  })() : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
+                      {banners.map(renderBannerCard)}
                     </div>
                   )}
                 </div>
@@ -714,7 +823,7 @@ export default function MediaManagement() {
             <div>
               <h3 style={{ fontSize: 15 }}>All Media</h3>
               <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
-                {filteredMedia.length} of {media.length} shown{yearFilter ? ` · year ${yearFilter}` : ''}{tab !== 'All' ? ` · ${tab}s` : ''}
+                {filteredMedia.length} of {viewMedia.length} shown{yearFilter ? ` · year ${yearFilter}` : ''}{tab !== 'All' ? ` · ${tab}s` : ''}
               </div>
             </div>
             {typeFilter && <div style={{ fontSize: 12 }}>
@@ -729,7 +838,7 @@ export default function MediaManagement() {
             pageSize={10}
           />
         </>
-      )}
+      ) : null}
 
       {/* Upload modal */}
       {showUpload && (
@@ -772,42 +881,69 @@ export default function MediaManagement() {
                   </div>
                 </>
               )}
-              <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>Type</label>
-                  <select value={draft.media_type} onChange={e => setDraft({ ...draft, media_type: e.target.value })}>
-                    {MEDIA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="field"><label>Title (optional)</label><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder={uploadMode === 'banner' ? 'e.g. Ganpati Main Banner' : 'e.g. Event group photo'} /></div>
+              {/* Mode toggle: upload file vs add social video link */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                <button className={`btn btn-sm ${!linkMode ? 'btn-primary' : ''}`} type="button" onClick={() => { setLinkMode(false); setUploadErr('') }}>Upload Files</button>
+                <button className={`btn btn-sm ${linkMode ? 'btn-primary' : ''}`} type="button" style={linkMode ? {} : { background: '#FF0000', borderColor: '#FF0000', color: '#fff' }} onClick={() => { setLinkMode(true); setFiles([]); setUploadErr('') }}>Add Link (YouTube / Instagram)</button>
               </div>
 
-              {/* Drop zone */}
-              <div
-                onDragOver={e => { e.preventDefault(); setDragging(true) }}
-                onDragEnter={e => { e.preventDefault(); dragDepth.current++ }}
-                onDragLeave={e => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragging(false) }}
-                onDrop={onDrop}
-                onPaste={onUploadPaste}
-                style={{ border: `2px dashed ${dragging ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 'var(--radius-sm)', padding: 22, textAlign: 'center', background: dragging ? 'var(--sage-light, #f3f6ef)' : 'var(--bg)', transition: 'border-color .15s, background .15s' }}
-              >
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Drag &amp; drop files here</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '4px 0 12px' }}>or</div>
-                <button className="btn btn-sm" type="button" onClick={() => uploadInput.current?.click()}>Browse Files</button>
-                <input ref={uploadInput} type="file" multiple hidden onChange={e => { onPickFiles(e.target.files); e.target.value = '' }} accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
-              </div>
-
-              {files.length > 0 && (
-                <div style={{ marginTop: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{files.length} file{files.length > 1 ? 's' : ''} selected</div>
-                  <div style={{ maxHeight: 140, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {files.map((f, i) => (
-                      <div key={f.name + '_' + f.size} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                        <span style={{ color: 'var(--ink-soft)' }}>{fmtBytes(f.size)}</span>
-                        <button className="btn btn-sm btn-icon" onClick={() => removeFile(i)} title="Remove">✕</button>
-                      </div>
-                    ))}
+              {!linkMode ? (
+                <>
+                  <div className="form-row" style={{ marginBottom: 12 }}>
+                    <div className="field"><label>Type</label>
+                      <select value={draft.media_type} onChange={e => setDraft({ ...draft, media_type: e.target.value })}>
+                        {MEDIA_TYPES.filter(t => t !== 'YouTube' && t !== 'Instagram').map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="field"><label>Title (optional)</label><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder={uploadMode === 'banner' ? 'e.g. Ganpati Main Banner' : 'e.g. Event group photo'} /></div>
                   </div>
+
+                  {/* Drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragging(true) }}
+                    onDragEnter={e => { e.preventDefault(); dragDepth.current++ }}
+                    onDragLeave={e => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragging(false) }}
+                    onDrop={onDrop}
+                    onPaste={onUploadPaste}
+                    style={{ border: `2px dashed ${dragging ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 'var(--radius-sm)', padding: 22, textAlign: 'center', background: dragging ? 'var(--sage-light, #f3f6ef)' : 'var(--bg)', transition: 'border-color .15s, background .15s' }}
+                  >
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Drag &amp; drop files here</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '4px 0 12px' }}>or</div>
+                    <button className="btn btn-sm" type="button" onClick={() => uploadInput.current?.click()}>Browse Files</button>
+                    <input ref={uploadInput} type="file" multiple hidden onChange={e => { onPickFiles(e.target.files); e.target.value = '' }} accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
+                  </div>
+
+                  {files.length > 0 && (
+                    <div style={{ marginTop: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{files.length} file{files.length > 1 ? 's' : ''} selected</div>
+                      <div style={{ maxHeight: 140, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {files.map((f, i) => (
+                          <div key={f.name + '_' + f.size} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                            <span style={{ color: 'var(--ink-soft)' }}>{fmtBytes(f.size)}</span>
+                            <button className="btn btn-sm btn-icon" onClick={() => removeFile(i)} title="Remove">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Add social media video link</div>
+                  <div className="form-row" style={{ marginBottom: 10 }}>
+                    <div className="field"><label>Platform</label>
+                      <select value={linkForm.media_type} onChange={e => setLinkForm({ ...linkForm, media_type: e.target.value })}>
+                        <option value="YouTube">YouTube</option>
+                        <option value="Instagram">Instagram</option>
+                      </select>
+                    </div>
+                    <div className="field"><label>Title (optional)</label><input value={linkForm.title} onChange={e => setLinkForm({ ...linkForm, title: e.target.value })} placeholder="e.g. Event recap video" /></div>
+                  </div>
+                  <div className="field"><label>Link URL</label>
+                    <input value={linkForm.url} onChange={e => setLinkForm({ ...linkForm, url: e.target.value })} placeholder="https://youtube.com/... or https://instagram.com/..." />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 8 }}>The link is saved to the selected event so your team can track it.</div>
                 </div>
               )}
 
@@ -826,9 +962,13 @@ export default function MediaManagement() {
             </div>
             <div className="modal-actions" style={{ padding: '0 18px 18px' }}>
               <button className="btn btn-sm" onClick={() => setShowUpload(false)} disabled={uploading}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || files.length === 0 || !uploadEventId}>
-                {uploading ? 'Uploading…' : files.length > 1 ? `Upload All (${files.length})` : 'Upload'}
-              </button>
+              {linkMode
+                ? <button className="btn btn-primary" onClick={handleAddLink} disabled={uploading || !uploadEventId || !String(linkForm.url || '').trim()}>
+                    {uploading ? 'Adding…' : 'Add Link'}
+                  </button>
+                : <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || files.length === 0 || !uploadEventId}>
+                    {uploading ? 'Uploading…' : files.length > 1 ? `Upload All (${files.length})` : 'Upload'}
+                  </button>}
               {!uploadEventId && (
                 <div style={{ fontSize: 12, color: '#B5603A', marginTop: 8 }}>Pick an event above to enable Upload — media always belongs to an event.</div>
               )}
@@ -860,10 +1000,10 @@ export default function MediaManagement() {
                 </div>
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13, marginTop: 14 }}>
-                <div><span style={{ color: 'var(--ink-soft)' }}>Event:</span> {selectedEvent?.name || '—'}</div>
+                <div><span style={{ color: 'var(--ink-soft)' }}>Event:</span> {selectedEvent?.name || eventNameOf(previewItem) || '—'}</div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>Year:</span> {previewItem.year || eventYear || '—'}</div>
-                <div><span style={{ color: 'var(--ink-soft)' }}>NGO:</span> {ngoNameOf(selectedEvent)}</div>
-                <div><span style={{ color: 'var(--ink-soft)' }}>Sector:</span> {sectorNameOf(selectedEvent)}</div>
+                <div><span style={{ color: 'var(--ink-soft)' }}>NGO:</span> {ngoNameOf(selectedEvent) || ngos.find(n => String(n.id) === String(ngoFilter))?.name || '—'}</div>
+                <div><span style={{ color: 'var(--ink-soft)' }}>Sector:</span> {sectorNameOf(selectedEvent) || '—'}</div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>Uploaded:</span> {fmtDate(previewItem.created_at)}</div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>File:</span> {extOf(previewItem.url)} · {fmtBytes(previewItem.size)}</div>
               </div>
@@ -919,10 +1059,11 @@ export default function MediaManagement() {
             setEditBanner(null)
             const evId = editBanner.event?.id
             // refresh the affected event's media in both the main list and history timeline
-            loadMedia(String(evId))
-            fetchMedia(evId).then(med => {
+            if (evId != null) loadMedia(String(evId))
+            if (evId != null) fetchMedia(evId).then(med => {
               if (med) setHistoryMedia(prev => ({ ...prev, [String(evId)]: med }))
             }).catch(() => {})
+            if (ngoOnly) fetchMediaByNgo(ngoFilter).then(d => { if (d) setNgoMedia(d || []) }).catch(() => {})
           }}
         />
       )}

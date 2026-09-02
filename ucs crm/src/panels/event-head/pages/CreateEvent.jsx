@@ -108,7 +108,9 @@ export default function CreateEvent() {
         coordinator: form.coordinator || null,
       }
       await createEvent(payload)
-      navigate('/event-head/events?ngo_id=' + encodeURIComponent(form.ngo_id))
+      const params = new URLSearchParams({ ngo_id: form.ngo_id, created: 1 })
+      if (form.sector_id) params.set('sector_id', form.sector_id)
+      navigate('/event-head/events?' + params.toString())
     } catch (err) { setError(err.message || 'Failed to create event'); console.error('Create event error:', err) }
     finally { setSaving(false) }
   }
@@ -176,9 +178,7 @@ export default function CreateEvent() {
             </div>
             <div className="form-row">
               <div className="field"><label>Venue</label><input name="venue" value={form.venue} onChange={handleChange} placeholder="Full address" /></div>
-              <div className="field"><label>Banner (image URL)</label><input name="banner" value={form.banner} onChange={handleChange} placeholder="https://…/banner.jpg" /></div>
             </div>
-            {form.banner && <img src={form.banner} alt="banner preview" style={{ marginTop: 8, maxHeight: 90, borderRadius: 10, objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />}
 
             {section('Location & Team')}
             <div className="form-row">
@@ -193,6 +193,11 @@ export default function CreateEvent() {
               <div className="field"><label>Event Manager</label><input name="event_manager" value={form.event_manager} onChange={handleChange} /></div>
               <div className="field"><label>Coordinator</label><input name="coordinator" value={form.coordinator} onChange={handleChange} /></div>
             </div>
+
+            {section('Banner (optional)')}
+            <div className="field"><label>Banner image URL</label><input name="banner" value={form.banner} onChange={handleChange} placeholder="https://…/banner.jpg" /></div>
+            <div style={{ fontSize: 12, color: 'var(--eh-ink-soft, #6b7280)', marginTop: 6 }}>Optional — you can submit without a banner, or add the banner later in Media / Banners under this event's NGO.</div>
+            {form.banner && <img src={form.banner} alt="banner preview" style={{ marginTop: 8, maxHeight: 90, borderRadius: 10, objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />}
 
             <div className="eh-toolbar" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
               <button type="submit" className="eh-btn eh-btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create Event'}</button>
