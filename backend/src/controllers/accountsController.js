@@ -4645,8 +4645,9 @@ export const updateReceipt = async (req, res) => {
     const newAmount = 'amount' in receiptPatch ? Number(receiptPatch.amount || 0) : oldAmount;
     const amountDelta = newAmount - oldAmount;
 
-    // Normalize agent_name on edit too
-    if (receiptPatch.agent_name && receiptPatch.agent_name !== 'Suspense') {
+    // Normalize agent_name on edit too (PG/Library/Suspense are category labels,
+    // not FRO names — keep them verbatim so the report rows stay intact).
+    if (receiptPatch.agent_name && !['suspense', 'pg', 'library'].includes(receiptPatch.agent_name.toLowerCase())) {
       const canonical = await normalizeAgentName(receiptPatch.agent_name);
       if (canonical) receiptPatch.agent_name = canonical;
     }
@@ -5305,6 +5306,13 @@ export const getAgentTeamCollections = async (req, res) => {
       agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
     }
     agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    // Synthetic collector rows for receipts whose agent_name is a category label
+    // (PG / Library / Suspense) rather than a real FRO worker. Each gets its own
+    // row in the agent-wise list instead of being collapsed into "No Agent".
+    const catAgents = ['pg', 'library', 'suspense'];
+    for (const c of catAgents) {
+      agents['__' + c] = { id: null, category: c, name: c[0].toUpperCase() + c.slice(1), team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    }
 
     const seenReceipts = new Set();
     for (const r of receipts || []) {
@@ -5319,7 +5327,10 @@ export const getAgentTeamCollections = async (req, res) => {
 
       let agent = agents.__unassigned;
       const rawAgent = String(r.agent_name || '').trim();
-      if (rawAgent) {
+      const rawAgentLower = rawAgent.toLowerCase();
+      if (catAgents.includes(rawAgentLower)) {
+        agent = agents['__' + rawAgentLower];
+      } else if (rawAgent) {
         const canonical = await normalizeAgentName(rawAgent);
         const found = workerByKey[normKey(canonical)];
         if (found) agent = agents[found.id];
@@ -5332,6 +5343,7 @@ export const getAgentTeamCollections = async (req, res) => {
 
     const agentRows = workerList
       .map((w) => agents[w.id])
+      .concat(catAgents.map((c) => agents['__' + c]))
       .concat(agents.__unassigned)
       .filter((a) => a)
       .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));

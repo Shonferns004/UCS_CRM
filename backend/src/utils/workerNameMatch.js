@@ -179,7 +179,7 @@ export async function normalizeAgentName(rawName) {
   if (!rawName) return rawName;
   const trimmed = String(rawName).trim();
   const lower = trimmed.toLowerCase();
-  if (!trimmed || lower === 'suspense' || lower === 'na') return trimmed;
+  if (!trimmed || lower === 'suspense' || lower === 'na' || lower === 'pg' || lower === 'library') return trimmed;
 
   const workerId = await resolveAgentToWorker(trimmed);
   if (!workerId) return trimmed;
