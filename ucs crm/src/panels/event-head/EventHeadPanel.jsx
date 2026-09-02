@@ -138,7 +138,7 @@ export default function EventHeadPanel() {
    * refreshed live. No intrusive desktop OS popups; a short in-app toast shows
    * once per open when there are due deadlines, and new urgent deadlines ring. */
   const loadDeadlines = () => {
-    fetchDeadlineNotifs(30)
+    fetchDeadlineNotifs(5)
       .then(all => {
         setDeadlines(all);
         if (firstLoad.current) {
@@ -226,7 +226,7 @@ export default function EventHeadPanel() {
                   </div>
                   <div className="user-menu-divider" />
                   {deadlines.length === 0 && (
-                    <div className="user-menu-item" style={{ cursor: 'default', fontSize: 12, color: 'var(--ink-soft)' }}>No upcoming events in the next 30 days.</div>
+                    <div className="user-menu-item" style={{ cursor: 'default', fontSize: 12, color: 'var(--ink-soft)' }}>No upcoming events in the next 5 days.</div>
                   )}
                   {deadlines.map(d => (
                     <div key={d.key} className="user-menu-item" style={{ cursor: 'pointer', alignItems: 'flex-start', flexDirection: 'column', gap: 2 }}

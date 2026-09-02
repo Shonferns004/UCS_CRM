@@ -32,6 +32,7 @@ router.get('/events/ngo/:ngoId', eh, ctrl.getEventHeadEventsByNgo);
 router.get('/events/state/:state', eh, ctrl.getEventHeadEventsByState);
 router.post('/events', eh, ctrl.createEventHandler);
 router.get('/events', eh, ctrl.listEventHeadEvents);
+router.post('/events/spell-check', eh, ctrl.suggestEventSpelling);
 router.get('/events/:id', eh, ctrl.getEventHeadEvent);
 router.put('/events/:id', eh, ctrl.updateEventHeadEvent);
 router.put('/events/:id/status', eh, ctrl.updateEventHeadStatus);
@@ -105,6 +106,9 @@ router.put('/events/:eventId/checklist/:itemId', eh, ctrl.updateChecklistItem);
 router.get('/reports/all', eh, ctrl.generateAllEventsReport);
 router.get('/reports/event/:eventId', eh, ctrl.generateEventReport);
 
+// AI-assisted features (static paths BEFORE /:id patterns)
+router.get('/festivals', eh, ctrl.getFestivalDays);
+
 // Approvals
 router.get('/approvals', eh, ctrl.listApprovals);
 
@@ -119,6 +123,7 @@ router.get('/ngos', eh, ctrl.listEventHeadNgos);
 router.get('/sectors', eh, ctrl.listSectors);
 router.get('/activities', eh, ctrl.listActivities);
 router.post('/activities', eh, ctrl.createActivity);
+router.post('/activities/suggest', eh, ctrl.suggestSectorActivities);
 // Sheet import/export (static paths BEFORE /activities/:id)
 router.post('/activities/import', eh, upload.single('file'), ctrl.importActivities);
 router.get('/activities/export', eh, ctrl.exportActivities);

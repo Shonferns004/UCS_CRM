@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchDeadlineNotifs } from '../store'
 
-const WINDOW_DAYS = 30
+const WINDOW_DAYS = 5
 
 const groupLabel = (d) => {
   if (d.days <= 0) return 'Due Today'
@@ -62,7 +62,7 @@ export default function Notifications() {
           <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--eh-ink)' }}>Upcoming events — auto-refreshed live</div>
           <div style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)', marginTop: 2 }}>
             {total === 0
-              ? 'No events scheduled within the next 30 days.'
+              ? 'No events scheduled within the next 5 days.'
               : `${total} upcoming event${total > 1 ? 's' : ''} ${urgentCount > 0 ? `· ${urgentCount} happening today — ` : ''}refreshes every 60s.`}
           </div>
           {lastUpdated && <div style={{ fontSize: 10.5, color: 'var(--eh-ink-faint)', marginTop: 4 }}>Updated {lastUpdated.toLocaleTimeString()}</div>}

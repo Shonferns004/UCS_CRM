@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import * as EventHead from '../models/eventHeadModel.js';
 import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName, isCampaignName } from '../utils/activitySheet.js';
 import db, { getTableColumns } from '../config/db.js';
+import groq from '../config/groq.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
 // must pass through unchanged as a string. sector_id / activity_id are always
@@ -1074,7 +1075,7 @@ export const generateEventReport = async (req, res) => {
       ngo_name: event.ngo_id != null ? ngoMap[event.ngo_id] || null : null,
       sector_name: event.sector_id != null ? sectorMap[event.sector_id] || null : null,
       activity_name: evActivity ? evActivity.name : (event.activity_id != null ? activityMap[event.activity_id] || null : null),
-      banner: event.banner || (evActivity ? evActivity.banner || null : null),
+      banner: event.banner || (evActivity ? evActivity.banner || null : null) || (Array.isArray(media) ? (media.find(m => m.media_type === 'Banner') || {}).url || null : null),
       day,
     };
 
@@ -1093,6 +1094,13 @@ export const generateAllEventsReport = async (req, res) => {
     const events = await EventHead.getAllEventHeadEvents({ ngo_id, status, month, year });
     const ctx = await buildEventContextMaps();
     const enriched = await enrichEvents(events, ctx);
+    // Fetch Banner media rows for all events to fill missing banners
+    const eventIds = enriched.map(e => e.id).filter(Boolean);
+    const bannerRows = await EventHead.getBannerMediaByEvents(eventIds);
+    const bannerMap = {};
+    for (const row of bannerRows) {
+      if (!bannerMap[row.event_id]) bannerMap[row.event_id] = row.url;
+    }
     const rows = enriched.map(e => ({
       id: e.id,
       name: e.name,
@@ -1106,7 +1114,7 @@ export const generateAllEventsReport = async (req, res) => {
       venue: e.venue || null,
       status: e.status || null,
       budget: e.budget != null ? Number(e.budget) : null,
-      banner: e.banner || null,
+      banner: e.banner || bannerMap[e.id] || null,
     }));
     return res.json({ events: rows, total: rows.length, generated_at: new Date() });
   } catch (error) {
@@ -1715,6 +1723,211 @@ export const setActivityStatus = async (req, res) => {
     return res.json(activity);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── AI SPELLING SUGGESTIONS (Create Event) ───
+// Raises corrected spellings for free-text fields typed in the event-head
+// "Create New Event" panel, so the team always types the right word. Uses the
+// existing GROQ integration. Falls back to no suggestions if no GROQ key.
+const SPELLING_MODEL = process.env.GROQ_SPELLING_MODEL || 'llama-3.3-70b-versatile';
+
+export const suggestEventSpelling = async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body?.fields) ? req.body.fields : [];
+    const fields = raw
+      .map((f) => ({ key: String(f?.key || '').trim(), value: String(f?.value || '').trim() }))
+      .filter((f) => f.key && f.value);
+
+    if (!fields.length) return res.json({ suggestions: {} });
+
+    // No GROQ key configured → gracefully return nothing; the UI shows a note.
+    if (!process.env.GROQ_API_KEY) return res.json({ suggestions: {} });
+
+    const list = fields.map((f) => `${f.key}: ${f.value}`).join('\n');
+    const prompt = [
+      'You are a careful spelling checker for an event-creation form.',
+      'Below is a list of field values typed by a user (format: "fieldKey: value").',
+      'Return a JSON object mapping each fieldKey to its corrected spelling.',
+      'Rules:',
+      '- Fix ONLY clear spelling, punctuation and simple grammar mistakes.',
+      '- Do NOT rewrite correct text, add words, invent content, or change meaning.',
+      '- Keep proper nouns, brands, names, numbers, URLs and locations as-is unless clearly misspelled.',
+      '- Capitalise words that are proper nouns (places, names) naturally.',
+      '- Only include a fieldKey if the corrected text is actually different from the typed value.',
+      '- Output ONLY the JSON object. No markdown, no commentary, no code fences.',
+      '',
+      list,
+    ].join('\n');
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You return strict JSON only. No markdown, no commentary.' },
+        { role: 'user', content: prompt },
+      ],
+      model: SPELLING_MODEL,
+      max_tokens: 500,
+      temperature: 0.1,
+    });
+
+    const text = (completion.choices?.[0]?.message?.content || '').trim();
+    let parsed = {};
+    try {
+      // Strip possible code fences before JSON.parse.
+      const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = {};
+    }
+
+    const suggestions = {};
+    for (const f of fields) {
+      const corrected = String(parsed[f.key] ?? '').trim();
+      if (corrected && corrected !== f.value) suggestions[f.key] = corrected;
+    }
+
+    return res.json({ suggestions });
+  } catch (error) {
+    console.error('suggestEventSpelling error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── AI FESTIVALS & SPECIAL DAYS (Calendar) ───
+// Returns major Indian + international festivals and special/observance days for
+// a requested month, so the event-head calendar can overlay them in a distinct
+// color. Approximate / reference data from GROQ — never editable.
+const FESTIVAL_MODEL = process.env.GROQ_FESTIVAL_MODEL || 'llama-3.3-70b-versatile';
+
+export const getFestivalDays = async (req, res) => {
+  try {
+    const now = new Date();
+    const month = Number(req.query.month ?? (now.getMonth() + 1));
+    const year = Number(req.query.year ?? now.getFullYear());
+    if (!(month >= 1 && month <= 12) || !Number.isFinite(year)) {
+      return res.status(400).json({ message: 'month (1-12) and year are required' });
+    }
+    const y = Math.max(2000, Math.min(2100, year));
+
+    if (!process.env.GROQ_API_KEY) return res.json({ month, year: y, festivals: [] });
+
+    const monthName = new Date(Date.UTC(y, month - 1, 1)).toLocaleString('en-US', { month: 'long' });
+    const prompt = [
+      `List major festivals and special/observance days for ${monthName} ${y} that are relevant for event planning in India.`,
+      'Include:',
+      '- Major Indian festivals falling in this month (Diwali, Holi, Eid, Navratri, Dussehra, Janmashtami, Raksha Bandhan, Onam, Guru Nanak Jayanti, Christmas, etc. as applicable to the month).',
+      '- National days of India.',
+      '- Well-known international / UN observance and awareness days (World X Day, International Y Day, etc.).',
+      'Do NOT include ordinary public holidays/weekends or minor unknown local festivals.',
+      'Return a strict JSON array. Each element: {"date":"YYYY-MM-DD","name":"Name","type":"festival|special-day|international-day"}',
+      `Only use dates within ${year}-${String(month).padStart(2, '0')}.`,
+      'No markdown, no extra keys, no commentary.',
+    ].join('\n');
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You return strict JSON only. No markdown, no commentary.' },
+        { role: 'user', content: prompt },
+      ],
+      model: FESTIVAL_MODEL,
+      max_tokens: 700,
+      temperature: 0.3,
+    });
+
+    const text = (completion.choices?.[0]?.message?.content || '').trim();
+    let arr = [];
+    try {
+      const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed.festivals) ? parsed.festivals : [];
+    } catch {
+      arr = [];
+    }
+
+    const prefix = `${String(y).padStart(4, '0')}-${String(month).padStart(2, '0')}-`;
+    const seen = new Set();
+    const festivals = [];
+    const TYPES = ['festival', 'special-day', 'international-day'];
+    for (const it of arr) {
+      const date = String(it?.date || '').trim();
+      const name = String(it?.name || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !date.startsWith(prefix) || !name) continue;
+      const type = TYPES.includes(it?.type) ? it.type : 'special-day';
+      const key = `${date}|${name.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      festivals.push({ date, name, type });
+    }
+    // Deterministic ordering by date.
+    festivals.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+    return res.json({ month, year: y, festivals });
+  } catch (error) {
+    console.error('getFestivalDays error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── AI SECTOR ACTIVITY SUGGESTIONS (Activities page) ───
+// Recommends typical NGO program/activity names for a selected sector.
+const ACTIVITY_MODEL = process.env.GROQ_ACTIVITY_MODEL || 'llama-3.3-70b-versatile';
+
+export const suggestSectorActivities = async (req, res) => {
+  try {
+    const sectorName = String(req.body?.sector_name || '').trim();
+    if (!sectorName) return res.status(400).json({ message: 'sector_name is required' });
+    const existing = Array.isArray(req.body?.existing) ? req.body.existing.map(String).filter(Boolean) : [];
+
+    if (!process.env.GROQ_API_KEY) return res.json({ suggestions: [] });
+
+    const existingHint = existing.length
+      ? `The sector already has: ${existing.join(', ')}. Do NOT repeat these.`
+      : '';
+    const prompt = [
+      `Recommend 8 typical NGO program/activity names suitable for the sector "${sectorName}".`,
+      'These are activity names the team might create for events under this sector.',
+      'Return a strict JSON array of strings (optionally with a short non-numeric suffix removed).',
+      '- Properly spelled, concise, descriptive program names (e.g. "Community Health Camp", "Computer Literacy Training").',
+      '- No numbering, no bullet prefixes, no extra fields.',
+      existingHint,
+      'No markdown, no commentary.',
+    ].filter(Boolean).join('\n');
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You return strict JSON only. No markdown, no commentary.' },
+        { role: 'user', content: prompt },
+      ],
+      model: ACTIVITY_MODEL,
+      max_tokens: 400,
+      temperature: 0.4,
+    });
+
+    const text = (completion.choices?.[0]?.message?.content || '').trim();
+    let arr = [];
+    try {
+      const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+    } catch {
+      arr = [];
+    }
+
+    const seen = new Set(existing.map(s => s.toLowerCase()));
+    const suggestions = [];
+    for (const s of arr) {
+      const name = String(s ?? '').replace(/^[\d.\-)\s]+/, '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push(name);
+    }
+
+    return res.json({ suggestions: suggestions.slice(0, 8) });
+  } catch (error) {
+    console.error('suggestSectorActivities error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

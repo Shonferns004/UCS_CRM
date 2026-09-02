@@ -25,6 +25,7 @@ export const fetchEvents = (params = {}) => {
 }
 export const fetchEventById = (id) => apiGet('/event-head/events/' + id)
 export const createEvent = (data) => apiPost('/event-head/events', data)
+export const suggestEventSpelling = (fields) => apiPost('/event-head/events/spell-check', { fields })
 export const updateEvent = (id, data) => apiPut('/event-head/events/' + id, data)
 export const deleteEvent = (id) => apiDelete('/event-head/events/' + id)
 export const cleanupEvents = (filters) => apiPost('/event-head/events/cleanup', filters)
@@ -477,6 +478,12 @@ export const fetchActivityById = (id) => apiGet('/event-head/activities/' + id)
 export const createActivity = (data) => apiPost('/event-head/activities', data)
 export const updateActivity = (id, data) => apiPut('/event-head/activities/' + id, data)
 export const setActivityStatus = (id, status) => apiPut('/event-head/activities/' + id + '/status', { status })
+export const suggestSectorActivities = (sector_name, opts = {}) =>
+  apiPost('/event-head/activities/suggest', { sector_name, ...opts })
+
+/* ── AI festivals & special days (Calendar overlay) ── */
+export const fetchFestivalDays = (month, year) =>
+  apiGet('/event-head/festivals?month=' + encodeURIComponent(month || '') + '&year=' + encodeURIComponent(year || ''))
 
 /* ── Activities sheet import / export ── */
 export const importActivitiesSheet = (ngoCode, file) => {
