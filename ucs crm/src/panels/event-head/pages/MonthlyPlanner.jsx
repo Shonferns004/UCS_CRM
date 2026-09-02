@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -389,11 +389,14 @@ function EventInfoModal({ event, onClose, onEdit, onDelete }) {
 
 export default function MonthlyPlanner() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const calRef = useRef(null)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadKey, setLoadKey] = useState(0)
 
+  const initialDate = searchParams.get('date') || undefined
+  const initialDateRef = useRef(initialDate)
   const [range, setRange] = useState(null)
   /* Filters */
   const [search, setSearch] = useState('')
@@ -629,6 +632,7 @@ export default function MonthlyPlanner() {
             ref={calRef}
             plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
             initialView="dayGridMonth"
+            initialDate={initialDateRef.current}
             headerToolbar={{
               left: 'prev,next today',
               center: 'title',
