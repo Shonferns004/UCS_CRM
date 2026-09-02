@@ -32,7 +32,11 @@ export async function request(method, path, body) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.message || 'Request failed')
+  if (!res.ok) {
+    const msg = String(data.message || 'Request failed')
+    if (msg.toLowerCase().includes('required fields are missing')) return data
+    throw new Error(msg)
+  }
   return data
 }
 
