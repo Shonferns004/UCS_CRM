@@ -424,6 +424,17 @@ export const replaceMedia = (eventId, id, formData) => api('/event-head/events/'
 export const updateMedia = (eventId, id, data) => apiPut('/event-head/events/' + eventId + '/media/' + id, data)
 export const deleteMedia = (eventId, id) => apiDelete('/event-head/events/' + eventId + '/media/' + id)
 
+// Download a media file through the backend proxy (same origin → no CORS), so the
+// browser saves it instead of opening a new tab. Returns a Blob to the caller.
+export const downloadMediaBlob = async (eventId, id, _prefix = 'ucs') => {
+  const res = await api('/event-head/events/' + eventId + '/media/' + id + '/download', { method: 'GET', raw: true, _prefix })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }))
+    throw new Error(err.message || 'Failed to download file')
+  }
+  return res.blob()
+}
+
 /* ── Attendance ── */
 export const fetchEventAttendance = (eventId) => apiGet('/event-head/events/' + eventId + '/attendance')
 export const markAttendance = (eventId, data) => apiPost('/event-head/events/' + eventId + '/attendance', data)
