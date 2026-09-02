@@ -28,7 +28,19 @@ export default function EventsPage({ view } = {}) {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [importError, setImportError] = useState('')
+  const [toast, setToast] = useState(searchParams.get('created') ? 'Event created successfully.' : '')
   const fileRef = useRef(null)
+
+  useEffect(() => {
+    if (!searchParams.get('created')) return
+    const t = setTimeout(() => {
+      setToast('')
+      const params = new URLSearchParams(searchParams)
+      params.delete('created')
+      navigate('/event-head/events' + (params.toString() ? '?' + params.toString() : ''), { replace: true })
+    }, 2600)
+    return () => clearTimeout(t)
+  }, [searchParams, navigate])
 
   useEffect(() => {
     let cancelled = false
@@ -299,6 +311,8 @@ export default function EventsPage({ view } = {}) {
           <button className="btn btn-primary" onClick={() => navigate('/event-head/create')}>+ New Event</button>
         </div>
       </div>
+
+      {toast && <div style={{ marginBottom: 16, padding: '11px 16px', borderRadius: 12, background: 'var(--eh-success-soft)', color: 'var(--eh-success)', fontSize: 13, fontWeight: 600 }}>{toast}</div>}
 
       <div className="filter-bar" style={{ marginBottom: 12, padding: 6, gap: 4, background: 'var(--bg)' }}>
         {VIEWS.map(v => (
