@@ -98,7 +98,7 @@ export const EXPORT_COLUMNS = [
   'SIM Card Replacement Count',
 ];
 
-export function toExportRow(c) {
+function baseRow(c) {
   return [
     c.mobile_id || '',
     c.device_model || '',
@@ -109,17 +109,37 @@ export function toExportRow(c) {
     c.expiry_date || '',
     c.days_left !== undefined && c.days_left !== null ? c.days_left : daysLeft(c.expiry_date),
     effectiveStatus(c),
-    c.sim_1 || '',
-    c.sim_2 || '',
-    c.sim_3 || '',
-    c.sim_4 || '',
-    c.sim_5 || '',
-    c.sim_6 || '',
-    c.sim_7 || '',
-    c.sim_8 || '',
-    c.replacement_count || 0,
   ];
 }
+
+function usedSimSlots(cards) {
+  let max = 0;
+  for (const n of SIM_SLOTS) {
+    if (cards.some((c) => c[`sim_${n}`])) max = n;
+  }
+  return max;
+}
+
+function buildColumns(maxSlots, includeSlots = true) {
+  const cols = ['Mobile ID No.', 'Device & Model Name', 'IMEI No.', 'Team', 'Signature', 'SIM Card Issue Date', 'Auto Expiry Date', 'SIM Expiry Days Left', 'SIM Card Status'];
+  if (includeSlots) {
+    for (let n = 1; n <= maxSlots; n++) cols.push(`SIM ${n}`);
+  }
+  cols.push('SIM Card Replacement Count');
+  return cols;
+}
+
+function buildRow(c, maxSlots) {
+  const r = baseRow(c);
+  for (let n = 1; n <= maxSlots; n++) r.push(c[`sim_${n}`] || '');
+  r.push(c.replacement_count || 0);
+  return r;
+}
+
+export function toExportRow(c) {
+  return buildRow(c, 8);
+}
+
 
 function downloadBlob(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
@@ -134,7 +154,9 @@ function downloadBlob(content, filename, mime) {
 }
 
 export function exportToCSV(cards) {
-  const rows = [EXPORT_COLUMNS, ...cards.map(toExportRow)];
+  const maxSlots = usedSimSlots(cards);
+  const header = buildColumns(maxSlots);
+  const rows = [header, ...cards.map((c) => buildRow(c, maxSlots))];
   const csv = rows.map((r) => r.map((v) => {
     const s = String(v ?? '');
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -143,12 +165,13 @@ export function exportToCSV(cards) {
 }
 
 export function exportToExcel(cards) {
-  const xml = buildSpreadsheetXml(cards);
+  const maxSlots = usedSimSlots(cards);
+  const xml = buildSpreadsheetXml(cards, maxSlots);
   downloadBlob(xml, `sim-cards-${todayStr()}.xls`, 'application/vnd.ms-excel');
 }
 
 export function exportSimTemplate() {
-  const xml = buildSpreadsheetXml([]);
+  const xml = buildSpreadsheetXml([], 8);
   downloadBlob(xml, `sim-card-template.xls`, 'application/vnd.ms-excel');
   const csv = EXPORT_COLUMNS.join(',');
   downloadBlob('\ufeff' + csv, `sim-card-template.csv`, 'text/csv;charset=utf-8;');
@@ -158,9 +181,9 @@ function xmlEscape(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function buildSpreadsheetXml(cards) {
-  const header = EXPORT_COLUMNS;
-  const rows = cards.map(toExportRow);
+function buildSpreadsheetXml(cards, maxSlots) {
+  const header = buildColumns(maxSlots);
+  const rows = cards.map((c) => buildRow(c, maxSlots));
   const all = [header, ...rows];
   const body = all.map((r) => {
     const cells = r.map((v) => `<Cell><Data ss:Type="String">${xmlEscape(v)}</Data></Cell>`).join('');

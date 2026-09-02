@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
 import AttendanceCalendar from './AttendanceCalendar'
+import ResetPasswordModal from '../components/ResetPasswordModal'
 
 export default function WorkerDetail({ workerId, onBack }) {
   const [worker, setWorker] = useState(null)
@@ -9,6 +10,7 @@ export default function WorkerDetail({ workerId, onBack }) {
   const [froStats, setFroStats] = useState(null)
   const [ngos, setNgos] = useState([])
   const [err, setErr] = useState('')
+  const [showReset, setShowReset] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -55,6 +57,7 @@ export default function WorkerDetail({ workerId, onBack }) {
       <div className="sa-page-header">
         <button className="btn" onClick={onBack}>← Back</button>
         <h3 style={{margin:'8px 0 0'}}>{worker.name}</h3>
+        <button className="btn" onClick={() => setShowReset(true)}>Reset Password</button>
       </div>
 
       <div className="sa-card">
@@ -281,6 +284,7 @@ export default function WorkerDetail({ workerId, onBack }) {
 }
 
 `}</style>
+      {showReset && <ResetPasswordModal worker={worker} onClose={() => setShowReset(false)} />}
     </div>
   )
 }

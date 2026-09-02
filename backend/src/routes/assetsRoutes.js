@@ -1,10 +1,13 @@
 import express from 'express'
 import db from '../config/db.js'
+import { authenticateRole } from '../middleware/authMiddleware.js'
 
 const router = express.Router()
 
 const DATE_FIELDS = ['purchase_date', 'warranty_expiry', 'assigned_date', 'repair_date']
-const NUM_FIELDS = ['purchase_price', 'sim_plan', 'repair_cost', 'total_repair_cost']
+const NUM_FIELDS = ['purchase_price', 'sim_plan', 'repair_cost', 'total_repair_cost', 'quantity']
+
+const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts')
 
 function sanitize(body) {
   const b = { ...body }
@@ -12,6 +15,11 @@ function sanitize(body) {
   delete b.created_at
   DATE_FIELDS.forEach(k => { if (b[k] === '' || b[k] === undefined) delete b[k]; if (b[k] === null) b[k] = null })
   NUM_FIELDS.forEach(k => { if (b[k] === '') b[k] = null })
+  // Quantity lines (Android/Nokia and all other non-machine categories) have no
+  // asset code. Store NULL so multiple rows pass the UNIQUE index on (code);
+  // an empty string would collide on the second insert. POST / still auto-codes
+  // when code is falsy via nextCode().
+  if (b.code === '' || b.code === undefined) b.code = null
   return b
 }
 
@@ -24,7 +32,7 @@ async function nextCode() {
   return `AST-${String(max + 1).padStart(3, '0')}`
 }
 
-router.get('/', async (req, res) => {
+router.get('/', adminHrAccounts, async (req, res) => {
   const { data, error } = await db
     .from('assets')
     .select('*')
@@ -33,7 +41,7 @@ router.get('/', async (req, res) => {
   res.json(data)
 })
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', adminHrAccounts, async (req, res) => {
   const { data, error } = await db
     .from('assets')
     .select('*')
@@ -43,7 +51,7 @@ router.get('/:id', async (req, res) => {
   res.json(data)
 })
 
-router.post('/', async (req, res) => {
+router.post('/', adminHrAccounts, async (req, res) => {
   const body = sanitize(req.body)
 
   if (!body.name || !String(body.name).trim()) {
@@ -75,7 +83,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(data)
 })
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', adminHrAccounts, async (req, res) => {
   const changes = sanitize(req.body)
   changes.updated_at = new Date().toISOString()
 
@@ -90,10 +98,62 @@ router.put('/:id', async (req, res) => {
   res.json(data)
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', adminHrAccounts, async (req, res) => {
   const { error } = await db.from('assets').delete().eq('id', req.params.id)
   if (error) return res.status(500).json({ error: error.message })
   res.json({ deleted: true })
+})
+
+// Bulk import from the Office Asset Register Excel:
+//   machines (Desktop/Laptop) dedupe by `code` (DESK-1 (AFLF) ...)
+//   quantity lines (all other categories) dedupe by category + location + name
+router.post('/import', adminHrAccounts, async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : []
+  if (rows.length === 0) return res.status(400).json({ error: 'rows[] required' })
+
+  const errors = []
+  const inserted = []
+  const skipped = []
+
+  for (const raw of rows) {
+    const row = sanitize(raw)
+    if (!row.name || !String(row.name).trim()) {
+      errors.push({ index: errors.length + inserted.length + skipped.length + 1, error: 'Missing name' })
+      continue
+    }
+    if (!row.quantity || Number(row.quantity) < 1) row.quantity = 1
+    if (!row.status) row.status = 'available'
+    if (!Array.isArray(row.history) || row.history.length === 0) {
+      row.history = [{ date: new Date().toISOString().slice(0, 10), text: 'Imported from Office Asset Register' }]
+    }
+
+    let dupQuery = db.from('assets').select('id')
+    if (row.code) {
+      dupQuery = dupQuery.eq('code', row.code)
+    } else {
+      dupQuery = dupQuery.eq('category', row.category).eq('name', row.name)
+      if (row.location) dupQuery = dupQuery.eq('location', row.location)
+      else dupQuery = dupQuery.is('location', null)
+    }
+    const { data: existing } = await dupQuery.limit(1)
+    if (existing && existing.length > 0) {
+      skipped.push({ code: row.code || `${row.category} / ${row.name}`, reason: 'Already exists' })
+      continue
+    }
+
+    const { data, error } = await db.from('assets').insert(row).select().single()
+    if (error) {
+      if (String(error.message).includes('duplicate')) {
+        skipped.push({ code: row.code || `${row.category} / ${row.name}`, reason: 'Already exists' })
+      } else {
+        errors.push({ index: errors.length + inserted.length + skipped.length + 1, error: error.message })
+      }
+      continue
+    }
+    inserted.push(data)
+  }
+
+  res.status(201).json({ inserted: inserted.length, skipped, errors, total: inserted.length + skipped.length + errors.length })
 })
 
 export default router
