@@ -1621,6 +1621,7 @@ export const getReceiptList = async (req, res) => {
       : (req.query.link === 'pg' ? 'pg' : '')));
     const isSuspense = link === 'suspense' || req.query.suspense === '1';
     const isPg = link === 'pg' || req.query.pg === '1';
+    const isLibrary = link === 'library' || req.query.library === '1';
 
     // Cheap per-NGO aggregates + project options. Kept in sync with the visible
     // list below (receipt_no IS NOT NULL) so the cards always equal the sum of
@@ -1698,6 +1699,9 @@ export const getReceiptList = async (req, res) => {
     }
     if (isPg) {
       where.push(`lower(trim(agent_name)) = 'pg'`);
+    }
+    if (isLibrary) {
+      where.push(`lower(trim(agent_name)) = 'library'`);
     }
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
@@ -5095,11 +5099,18 @@ export const getReportData = async (req, res) => {
     const byNgo = {};
     for (const n of reportBuckets) byNgo[n] = { sources: {} };
     for (const r of monthReceipts || []) {
-      // Suspense bucket (agent-based) wins over any project bucket, so each
-      // receipt is counted exactly once across the whole report.
+      // Bucket a receipt into exactly one row. Suspense is agent-based
+      // (agent_name = 'Suspense'/'NA'/''); library/pg receipts are tagged only
+      // by agent_name (their project_id is still 'bsct'), so check those before
+      // falling back to the project_id bucket.
+      const agent = String(r.agent_name || '').trim().toLowerCase();
       let ngo;
-      if (isSuspenseAgent(r.agent_name)) {
+      if (isSuspenseAgent(agent)) {
         ngo = 'suspense';
+      } else if (agent === 'library') {
+        ngo = 'library';
+      } else if (agent === 'pg') {
+        ngo = 'pg';
       } else {
         const pid = String(r.project_id || '').trim().toLowerCase();
         ngo = reportBuckets.includes(pid) ? pid : null;
