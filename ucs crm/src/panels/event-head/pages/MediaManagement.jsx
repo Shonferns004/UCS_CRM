@@ -196,16 +196,23 @@ export default function MediaManagement() {
     return () => { cancelled = true }
   }, [ngoFilter, sectorFilter])
 
-  /* ── Upload modal: sectors for chosen NGO ── */
+  /* ── Upload modal: sectors for chosen NGO ──
+        When a prefill event for this NGO is pending we must NOT clear the
+        preselected sector/event, otherwise the NGO→Sector→Event effect
+        cascade wipes uploadEventId and the Upload button stays disabled. */
   useEffect(() => {
     let cancelled = false
+    const pre = prefillUploadRef.current
+    const keepForNgo = !!(pre?.event && String(pre.event.ngo_id ?? pre.ngoId) === String(uploadNgoId) && String(pre.eventId))
     setUpSectors([])
-    setUploadSectorId('')
-    setUploadActivityId('')
-    setUploadEventId('')
     setUpActivities([])
     setUpEvents([])
-    if (!uploadNgoId) return () => {}
+    if (!keepForNgo) {
+      setUploadSectorId('')
+      setUploadActivityId('')
+      setUploadEventId('')
+    }
+    if (!uploadNgoId) { if (!keepForNgo) prefillUploadRef.current = null; return () => {} }
     fetchSectors({ ngo_id: uploadNgoId }).then(d => { if (!cancelled) setUpSectors(d || []) }).catch(() => {})
     return () => { cancelled = true }
   }, [uploadNgoId])
@@ -213,10 +220,11 @@ export default function MediaManagement() {
   /* ── Upload modal: activities for chosen NGO/Sector ── */
   useEffect(() => {
     let cancelled = false
+    const pre = prefillUploadRef.current
+    const keepForSector = !!(pre?.event && String(pre.event.sector_id ?? pre.sectorId) === String(uploadSectorId) && String(pre.eventId))
     setUpActivities([])
-    setUploadActivityId('')
-    setUploadEventId('')
     setUpEvents([])
+    if (!keepForSector) { setUploadActivityId(''); setUploadEventId('') }
     if (!uploadNgoId || !uploadSectorId) return () => {}
     fetchActivities({ ngo_id: uploadNgoId, sector_id: uploadSectorId }).then(d => { if (!cancelled) setUpActivities(d || []) }).catch(() => {})
     return () => { cancelled = true }
@@ -228,12 +236,10 @@ export default function MediaManagement() {
     let cancelled = false
     const keep = prefillUploadRef.current
     const keepEvent = keep && String(keep.eventId) ? keep.event : null
-    if (!keep) setUpEvents([])
-    if (!keep) setUploadEventId('')
     if (!uploadNgoId || !uploadSectorId) {
       if (keepEvent) { setUpEvents([keepEvent]); setUploadEventId(String(keepEvent.id)) }
       else { setUpEvents([]); setUploadEventId('') }
-      prefillUploadRef.current = null
+      if (!keepEvent) prefillUploadRef.current = null
       return () => {}
     }
     fetchEvents({ ngo_id: uploadNgoId, sector_id: uploadSectorId }).then(d => {
@@ -242,9 +248,9 @@ export default function MediaManagement() {
       if (keepEvent && !list.some(e => String(e.id) === String(keepEvent.id))) list = [keepEvent, ...list]
       setUpEvents(list)
       if (keepEvent) setUploadEventId(String(keepEvent.id))
-    }).catch(() => { if (!cancelled && keepEvent) setUpEvents([keepEvent]) })
+      if (keepEvent) prefillUploadRef.current = null
+    }).catch(() => { if (!cancelled && keepEvent) { setUpEvents([keepEvent]); setUploadEventId(String(keepEvent.id)); prefillUploadRef.current = null } })
     if (keepEvent) setUploadEventId(String(keepEvent.id))
-    prefillUploadRef.current = null
     return () => { cancelled = true }
   }, [uploadNgoId, uploadSectorId])
 
@@ -430,13 +436,18 @@ export default function MediaManagement() {
     return fd
   }
 
+  /* ── Effective event for upload: when a specific event is being viewed, its
+        id is the source of truth (fixes Upload getting disabled by the modal
+        NGO→Sector→Event effect cascade). ── */
+  const effectiveUploadEventId = selectedEvent ? String(selectedEvent.id) : uploadEventId
+
   const handleUpload = async () => {
-    if (!uploadEventId) { setUploadErr('Select an event from the drop-downs above first.'); return }
+    if (!effectiveUploadEventId) { setUploadErr('Select an event from the drop-downs above first.'); return }
     if (files.length === 0) { setUploadErr('Choose at least one file.'); return }
     setUploading(true); setUploadMsg(''); setUploadErr(''); setUploadProgress({ done: 0, total: files.length })
     try {
       const fd = buildFormData(files)
-      const res = await uploadMedia(uploadEventId, fd)
+      const res = await uploadMedia(effectiveUploadEventId, fd)
       const added = Array.isArray(res) ? res : [res]
       setUploadMsg(`Media uploaded successfully. ${added.length} file${added.length > 1 ? 's' : ''} added.`)
       setFiles([])
@@ -460,12 +471,12 @@ export default function MediaManagement() {
 
   /* ── Add a YouTube/Instagram link to the selected event (no file upload) ── */
   const handleAddLink = async () => {
-    if (!uploadEventId) { setUploadErr('Select an event from the drop-downs above first.'); return }
+    if (!effectiveUploadEventId) { setUploadErr('Select an event from the drop-downs above first.'); return }
     const url = String(linkForm.url || '').trim()
     if (!url) { setUploadErr('Enter the YouTube/Instagram link URL.'); return }
     setUploading(true); setUploadMsg(''); setUploadErr('')
     try {
-      const res = await createMediaLink(uploadEventId, {
+      const res = await createMediaLink(effectiveUploadEventId, {
         url,
         title: String(linkForm.title || '').trim() || `${linkForm.media_type} link`,
         description: 'Linked ' + linkForm.media_type,
@@ -963,13 +974,13 @@ export default function MediaManagement() {
             <div className="modal-actions" style={{ padding: '0 18px 18px' }}>
               <button className="btn btn-sm" onClick={() => setShowUpload(false)} disabled={uploading}>Cancel</button>
               {linkMode
-                ? <button className="btn btn-primary" onClick={handleAddLink} disabled={uploading || !uploadEventId || !String(linkForm.url || '').trim()}>
+                ? <button className="btn btn-primary" onClick={handleAddLink} disabled={uploading || !effectiveUploadEventId || !String(linkForm.url || '').trim()}>
                     {uploading ? 'Adding…' : 'Add Link'}
                   </button>
-                : <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || files.length === 0 || !uploadEventId}>
+                : <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || files.length === 0 || !effectiveUploadEventId}>
                     {uploading ? 'Uploading…' : files.length > 1 ? `Upload All (${files.length})` : 'Upload'}
                   </button>}
-              {!uploadEventId && (
+              {!effectiveUploadEventId && (
                 <div style={{ fontSize: 12, color: '#B5603A', marginTop: 8 }}>Pick an event above to enable Upload — media always belongs to an event.</div>
               )}
             </div>
