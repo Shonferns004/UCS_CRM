@@ -950,7 +950,7 @@ export default function Receipts() {
               <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
                 <thead>
                   <tr>
-                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>Action</th>
+                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>NGO</th><th>Mobile</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -962,12 +962,13 @@ export default function Receipts() {
                         <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:55, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:90, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:70, height:24, borderRadius:4 }} /></td>
                       </tr>
                     ))
                   ) : filteredDonors.length === 0 ? (
-                    <tr><td colSpan={7} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
                   ) : filteredDonors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                     const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
                     const rowId = d.receipt_id;
@@ -979,6 +980,14 @@ export default function Receipts() {
                       <td style={{ color:'#059669', fontWeight:600 }}>{formatIndianCurrency(d['Amount'])}</td>
                       <td style={{ fontFamily:'monospace', fontSize:12 }}>{d['Receipt No.']}</td>
                       <td style={{ fontSize:12 }}>{formatReceiptDate(d['Receipt Date'])}</td>
+                      <td>
+                        {(() => {
+                          const ng = d['Project'] || 'bsct'
+                          const st = { bsct:{background:'#dbeafe',color:'#1d4ed8'}, aflf:{background:'#dcfce7',color:'#166534'}, mann:{background:'#fce7f3',color:'#be185d'} }[ng]
+                            || { background:'#f3f4f6', color:'#374151' }
+                          return <span style={{ display:'inline-block', padding:'3px 8px', borderRadius:999, fontSize:11, fontWeight:600, ...st }}>{NGO_MAP[ng]?.label || ng}</span>
+                        })()}
+                      </td>
                         <td style={{ fontSize:12, cursor:'pointer' }} onClick={e => { e.stopPropagation(); setEditingId(editingId === rowId ? null : rowId) }}>
                         {editingId === rowId ? (
                           <input className="field-input" type="tel" value={d['Mobile No.'] || ''} autoFocus
