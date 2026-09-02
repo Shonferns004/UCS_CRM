@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../api/auth'
 import { toast } from '../../../components/Toast'
+import { isFreshStation } from '../../../lib/stations'
 
 const PAGE_SIZES = [100, 500, 1000]
 
 function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName, category }) {
-  const freshStations = stations.filter(s => s.station?.startsWith('FD-'))
-  const oldStations = stations.filter(s => !s.station?.startsWith('FD-'))
+  const freshStations = stations.filter(s => isFreshStation(s.station))
+  const oldStations = stations.filter(s => !isFreshStation(s.station))
   const [viewTab, setViewTab] = useState(freshStations.length > 0 ? 'fresh' : 'old')
   const [selected, setSelected] = useState(() => {
     if (freshStations.length > 0) return new Set(freshStations.map(s => s.station))
@@ -245,7 +246,7 @@ export default function NewData() {
     setShowDistributeConfirm(true)
   }
 
-  const fdStations = stations.filter(s => s.station?.startsWith('FD-'))
+  const fdStations = stations.filter(s => isFreshStation(s.station))
   const currentNgoName = accessibleNgos.find(n => n.id === selectedNgoId)?.name || ''
 
   const executeDistributeAll = async () => {

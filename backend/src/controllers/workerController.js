@@ -40,6 +40,13 @@ const generateRandomPassword = () => {
   return '123456';
 };
 
+const generateSecurePassword = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let pwd = '';
+  for (let i = 0; i < 8; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+  return pwd;
+};
+
 const formatEmployeeId = (n) => `UFS-${String(n).padStart(4, '0')}`;
 
 // Returns a function that hands out the next sequential employee_id.
@@ -179,6 +186,29 @@ export const bulkAddWorkers = async (req, res) => {
         dob: w.dob,
         generated_password: tempPassword,
       })),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const resetWorkerPassword = async (req, res) => {
+  try {
+    const worker = await getWorkerById(req.params.id);
+    if (!worker) {
+      return res.status(404).json({ message: 'Worker not found' });
+    }
+    const newPassword = req.body && req.body.password ? String(req.body.password) : generateSecurePassword();
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    await updateWorker(worker.id, { password: hashedPassword });
+    return res.json({
+      message: 'Password reset successfully',
+      login_id: worker.login_id,
+      generated_password: newPassword,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
