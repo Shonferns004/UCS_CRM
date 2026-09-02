@@ -101,6 +101,7 @@ router.post('/events/:eventId/checklist', eh, ctrl.createChecklistItem);
 router.put('/events/:eventId/checklist/:itemId', eh, ctrl.updateChecklistItem);
 
 // Reports
+router.get('/reports/all', eh, ctrl.generateAllEventsReport);
 router.get('/reports/event/:eventId', eh, ctrl.generateEventReport);
 
 // Approvals

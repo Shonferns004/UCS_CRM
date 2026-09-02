@@ -258,13 +258,13 @@ function EventFormModal({ mode, initial, defaultDate, onClose, onSaved }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div style={{ gridColumn: '1 / -1' }}><label style={LABEL}>Event Name *</label><input style={FIELD} name="name" value={form.name} onChange={change} placeholder="e.g. Ganpati Celebration" /></div>
         <div><label style={LABEL}>NGO *</label>
-          <Select value={form.ngo_id} onChange={(e) => change({ target: { name: 'ngo_id', value: e.target.value } })}>
+          <Select value={form.ngo_id} onChange={(v) => change({ target: { name: 'ngo_id', value: v } })}>
             <option value="">Select NGO</option>
             {ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}
           </Select>
         </div>
         <div><label style={LABEL}>Sector *</label>
-          <Select value={form.sector_id} onChange={(e) => change({ target: { name: 'sector_id', value: e.target.value } })} disabled={!ngoId}>
+          <Select value={form.sector_id} onChange={(v) => change({ target: { name: 'sector_id', value: v } })} disabled={!ngoId}>
             <option value="">{ngoId ? 'Select sector' : 'Select NGO first'}</option>
             {sectorOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
@@ -299,12 +299,12 @@ function EventFormModal({ mode, initial, defaultDate, onClose, onSaved }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
         <div><label style={LABEL}>Status</label>
-          <Select value={form.status} onChange={(e) => change({ target: { name: 'status', value: e.target.value } })}>
+          <Select value={form.status} onChange={(v) => change({ target: { name: 'status', value: v } })}>
             {STATUS_PRIORITY.map(s => <option key={s} value={s}>{s}</option>)}
           </Select>
         </div>
         <div><label style={LABEL}>Priority</label>
-          <Select value={form.priority} onChange={(e) => change({ target: { name: 'priority', value: e.target.value } })}>
+          <Select value={form.priority} onChange={(v) => change({ target: { name: 'priority', value: v } })}>
             {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
           </Select>
         </div>
@@ -597,19 +597,19 @@ export default function MonthlyPlanner() {
       <div className="card-pad" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 200px' }}><label style={LABEL}>Search Events</label><SearchInput value={search} onChange={setSearch} placeholder="Search events, NGO, activity…" /></div>
         <div style={{ width: 170 }}><label style={LABEL}>NGO</label>
-          <Select value={filterNgo} onChange={(e) => changeNgo(e.target.value)}><option value="">All NGOs</option>{ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}</Select>
+          <Select value={filterNgo} onChange={(v) => changeNgo(v)}><option value="">All NGOs</option>{ngos.map(n => <option key={n.id} value={n.id}>{n.name || n.code}</option>)}</Select>
         </div>
         <div style={{ width: 210 }}><label style={LABEL}>Sector</label>
-          <Select value={filterSector} onChange={(e) => changeSector(e.target.value)} disabled={!filterNgo}><option value="">{filterNgo ? 'All sectors' : 'Select NGO first'}</option>{sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
+          <Select value={filterSector} onChange={(v) => changeSector(v)} disabled={!filterNgo}><option value="">{filterNgo ? 'All sectors' : 'Select NGO first'}</option>{sectors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
         </div>
         <div style={{ width: 200 }}><label style={LABEL}>Activity</label>
-          <Select value={filterActivity} onChange={(e) => setFilterActivity(e.target.value)} disabled={!filterNgo || !filterSector}><option value="">{filterSector ? 'All activities' : 'Select sector first'}</option>{activities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
+          <Select value={filterActivity} onChange={setFilterActivity} disabled={!filterNgo || !filterSector}><option value="">{filterSector ? 'All activities' : 'Select sector first'}</option>{activities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
         </div>
         <div style={{ width: 150 }}><label style={LABEL}>Status</label>
-          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}><option value="">All</option>{STATUS_PRIORITY.map(s => <option key={s} value={s}>{s}</option>)}</Select>
+          <Select value={filterStatus} onChange={setFilterStatus}><option value="">All</option>{STATUS_PRIORITY.map(s => <option key={s} value={s}>{s}</option>)}</Select>
         </div>
         <div style={{ width: 110 }}><label style={LABEL}>Year</label>
-          <Select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}><option value="">All</option>{[2026,2025,2024,2023,2022].map(y => <option key={y} value={y}>{y}</option>)}</Select>
+          <Select value={filterYear} onChange={setFilterYear}><option value="">All</option>{[2026,2025,2024,2023,2022].map(y => <option key={y} value={y}>{y}</option>)}</Select>
         </div>
         <div>
           <button className="eh-btn" onClick={clearFilters} disabled={!hasFilters}>Clear</button>

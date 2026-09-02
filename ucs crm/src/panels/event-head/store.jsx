@@ -430,6 +430,7 @@ export const markAttendance = (eventId, data) => apiPost('/event-head/events/' +
 
 /* ── Reports ── */
 export const generateEventReport = (eventId, type) => apiGet('/event-head/reports/event/' + eventId + '?type=' + type)
+export const generateAllEventsReport = (params = {}) => apiGet('/event-head/reports/all' + (Object.keys(params).length ? '?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString() : ''))
 export const generateEventPdf = (eventId) => api('/event-head/reports/event/' + eventId + '/pdf', { _prefix: 'ucs' })
 export const generateEventExcel = (eventId) => api('/event-head/reports/event/' + eventId + '/excel', { _prefix: 'ucs' })
 
