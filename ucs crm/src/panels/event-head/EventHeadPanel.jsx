@@ -5,7 +5,6 @@ import { Grid, Cal, Plus, Clock, FileTxt, Bell, Users, Plane, Brief, Star, Eye, 
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import { fetchDeadlineNotifs } from './store'
-import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import Overview from './components/Overview'
 import EventDashboard from './pages/EventDashboard'
 import CreateEvent from './pages/CreateEvent'
@@ -96,14 +95,15 @@ export default function EventHeadPanel() {
   const [deadlines, setDeadlines] = useState([])
   const [bellOpen, setBellOpen] = useState(false)
   const [toast, setToast] = useState(null)
-  const menuRef = useRef(null)
-  const bellRef = useRef(null)
   const toastTimer = useRef(null)
   const firstLoad = useRef(true)
+  const menuRef = useRef(null)
+  const bellRef = useRef(null)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('eh_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
 
-  /* Auto pop-up banner when the panel loads with any due deadline. */
+  /* Show a short in-app banner once each time the panel first opens (not
+   * repeatedly) only if there are due deadlines. Desktop popups are removed. */
   const showDeadlineToast = (all) => {
     if (!all || all.length === 0) return
     setToast(all.slice(0, 3))
@@ -111,8 +111,32 @@ export default function EventHeadPanel() {
     toastTimer.current = setTimeout(() => setToast(null), 10000)
   }
 
+  /* Small 2-tone "ding" for new & urgent (due today) deadline notifications. */
+  const playUrgentBeep = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      const ctx = new Ctx()
+      const play = (freq, delay, dur) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.value = freq
+        gain.gain.setValueAtTime(0, ctx.currentTime + delay)
+        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + delay + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(ctx.currentTime + delay)
+        osc.stop(ctx.currentTime + delay + dur + 0.05)
+      }
+      play(880, 0, 0.2)
+      play(1175, 0.16, 0.28)
+      setTimeout(() => ctx.close(), 1200)
+    } catch { /* audio unavailable */ }
+  }
+
   /* Dynamic event-head deadline notifications — computed from event data,
-   * refreshed live. No generic/global notification sources. */
+   * refreshed live. No intrusive desktop OS popups; a short in-app toast shows
+   * once per open when there are due deadlines, and new urgent deadlines ring. */
   const loadDeadlines = () => {
     fetchDeadlineNotifs(30)
       .then(all => {
@@ -125,7 +149,7 @@ export default function EventHeadPanel() {
           if (!seenNotifIds.current.has(n.key)) {
             seenNotifIds.current.add(n.key);
             localStorage.setItem('eh_seen_notifs', JSON.stringify([...seenNotifIds.current]));
-            showDesktopNotification(`${n.label}: ${n.title}`, n.body || 'Event deadline approaching', '/event-head/events/' + n.eventId);
+            if (n.urgent) playUrgentBeep();
           }
         });
       })
@@ -134,7 +158,6 @@ export default function EventHeadPanel() {
 
   useEffect(() => {
     loadDeadlines();
-    requestNotifPermission();
     const timer = setInterval(loadDeadlines, 60 * 1000);
     const onFocus = () => loadDeadlines();
     window.addEventListener('focus', onFocus);
