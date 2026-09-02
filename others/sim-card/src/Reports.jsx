@@ -87,11 +87,19 @@ export default function Reports({ cards }) {
   const PER_PAGE = 12;
   const [reportPage, setReportPage] = useState(1);
   const [teamFilter, setTeamFilter] = useState('All');
+  const [ownerOpen, setOwnerOpen] = useState(false);
+  const [ownerQuery, setOwnerQuery] = useState('');
 
   const teamOptions = useMemo(() => {
     const set = new Set(data.enriched.map((c) => c.team).filter(Boolean));
     return ['All', ...set];
   }, [data.enriched]);
+
+  const filteredTeamOptions = useMemo(() => {
+    const q = ownerQuery.trim().toLowerCase();
+    if (!q) return teamOptions;
+    return teamOptions.filter((t) => t.toLowerCase().includes(q));
+  }, [teamOptions, ownerQuery]);
 
   const filteredReport = useMemo(
     () => teamFilter === 'All' ? data.enriched : data.enriched.filter((c) => c.team === teamFilter),
@@ -242,10 +250,36 @@ export default function Reports({ cards }) {
       <div className="card-block">
         <div className="tb">
           <h3>Detailed SIM Report</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <select className="sim-select" value={teamFilter} onChange={(e) => { setTeamFilter(e.target.value); setReportPage(1); }}>
-              {teamOptions.map((t) => <option key={t} value={t}>{t === 'All' ? 'All Owner' : t}</option>)}
-            </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', position: 'relative' }}>
+            <div className="sim-select" style={{ position: 'relative', padding: 0, cursor: 'pointer', userSelect: 'none' }} onClick={() => setOwnerOpen((v) => !v)}>
+              <div style={{ padding: '7px 32px 7px 12px' }}>{teamFilter === 'All' ? 'All Owner' : teamFilter}</div>
+              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11 }}>▼</span>
+              {ownerOpen && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--sim-card-bg, #fff)', border: '1px solid var(--sim-line, #dbe3ef)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 20, maxHeight: 260, overflowY: 'auto', padding: 6 }}>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={ownerQuery}
+                    placeholder="Search owner…"
+                    onChange={(e) => setOwnerQuery(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', marginBottom: 6, border: '1px solid var(--sim-line, #dbe3ef)', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                  />
+                  {filteredTeamOptions.map((t) => (
+                    <div
+                      key={t}
+                      onClick={(e) => { e.stopPropagation(); setTeamFilter(t); setReportPage(1); setOwnerOpen(false); setOwnerQuery(''); }}
+                      style={{ padding: '6px 10px', borderRadius: 5, fontSize: 13, cursor: 'pointer', background: t === teamFilter ? 'var(--sim-blue-soft, #eef4ff)' : 'transparent' }}
+                    >
+                      {t === 'All' ? 'All Owner' : t}
+                    </div>
+                  ))}
+                  {filteredTeamOptions.length === 0 && (
+                    <div style={{ padding: '6px 10px', fontSize: 13, color: 'var(--sim-ink-soft)' }}>No owners found</div>
+                  )}
+                </div>
+              )}
+            </div>
             <span className="ln">{filteredReport.length} record(s)</span>
           </div>
         </div>
