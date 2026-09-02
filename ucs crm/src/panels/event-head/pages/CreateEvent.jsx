@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity } from '../store'
+import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, suggestEventSpelling } from '../store'
 import { PageHeader } from '../components/ui'
 
 export default function CreateEvent() {
@@ -16,6 +16,10 @@ export default function CreateEvent() {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [aiSuggestions, setAiSuggestions] = useState({})
+  const [aiChecking, setAiChecking] = useState(false)
+  const [aiUnavailable, setAiUnavailable] = useState(false)
+  const [aiDismissed, setAiDismissed] = useState({})
 
   useEffect(() => {
     Promise.all([
@@ -31,6 +35,54 @@ export default function CreateEvent() {
 
   const ngoId = form.ngo_id ? String(form.ngo_id) : ''
   const sectorId = form.sector_id ? String(form.sector_id) : ''
+
+  // Fields that support AI spelling suggestions (free-text; dropdowns excluded).
+  const SPELL_FIELDS = ['name', 'activityName', 'category', 'venue', 'district', 'state', 'organizer', 'event_manager', 'coordinator']
+
+  const applySuggestion = (key, value) => {
+    setForm(prev => ({ ...prev, [key]: value }))
+    setAiDismissed(prev => ({ ...prev, [key]: true }))
+  }
+
+  const applyAllSuggestions = () => {
+    const next = { ...form }
+    const dismissed = { ...aiDismissed }
+    for (const [key, value] of Object.entries(aiSuggestions)) {
+      next[key] = value
+      dismissed[key] = true
+    }
+    setForm(next)
+    setAiDismissed(dismissed)
+  }
+
+  // Debounced auto spell-check: after ~900ms of no typing, ask GROQ for
+  // corrections and surface them as suggestions. Never blocks event creation.
+  useEffect(() => {
+    const fields = SPELL_FIELDS
+      .map(key => ({ key, value: String(form[key] || '').trim() }))
+      .filter(f => f.value)
+
+    if (!fields.length) { setAiSuggestions({}); setAiUnavailable(false); return }
+    const timer = setTimeout(() => {
+      let cancelled = false
+      setAiChecking(true)
+      suggestEventSpelling(fields)
+        .then(data => {
+          if (cancelled) return
+          const sugg = (data && data.suggestions) || {}
+          setAiSuggestions(sugg)
+          setAiUnavailable(false)
+        })
+        .catch(() => {
+          if (!cancelled) setAiUnavailable(true)
+        })
+        .finally(() => {
+          if (!cancelled) setAiChecking(false)
+        })
+      return () => { cancelled = true }
+    }, 900)
+    return () => clearTimeout(timer)
+  }, [form.name, form.activityName, form.category, form.venue, form.district, form.state, form.organizer, form.event_manager, form.coordinator])
 
   const relevantSectors = useMemo(() => {
     const ids = new Set()
@@ -118,6 +170,19 @@ export default function CreateEvent() {
 
   const section = (t) => <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--eh-primary)', margin: '20px 0 12px' }}>{t}</div>
 
+  // Inline AI suggestion note shown just under a field when GROQ suggests a fix.
+  const inlineSuggestion = (key) => {
+    const corr = aiSuggestions[key]
+    if (!corr || aiDismissed[key]) return null
+    return (
+      <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#166534', flexWrap: 'wrap' }}>
+        <span>✨ <b>{corr}</b></span>
+        <button type="button" onClick={() => applySuggestion(key, corr)} style={{ border: 'none', background: '#bbf7d0', color: '#166534', borderRadius: 999, padding: '1px 8px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>Apply</button>
+        <button type="button" onClick={() => setAiDismissed(prev => ({ ...prev, [key]: true }))} style={{ border: 'none', background: 'transparent', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }} title="Dismiss">✕</button>
+      </div>
+    )
+  }
+
   return (
     <>
       <PageHeader
@@ -128,6 +193,49 @@ export default function CreateEvent() {
 
       <form onSubmit={handleSubmit} noValidate>
         {error && <div style={{ margin: '14px 0', padding: '12px 16px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13, fontWeight: 500 }}>{error}</div>}
+
+        {/* ═══ AI SPELL SUGGESTIONS PANEL ═══ */}
+        {(Object.keys(aiSuggestions).length > 0 || aiChecking || aiUnavailable) && (
+          <div style={{ margin: '14px 0', borderRadius: 12, border: '1px solid #bbf7d0', background: '#f0fdf4', padding: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#166534' }}>
+                {aiChecking ? '✨ Checking spellings…' : '✨ AI Spell Suggestions'}
+              </div>
+              {Object.keys(aiSuggestions).length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button type="button" className="eh-btn eh-btn-primary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={applyAllSuggestions}>Accept All</button>
+                  <button type="button" className="eh-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setAiSuggestions({})}>Dismiss</button>
+                </div>
+              )}
+            </div>
+            {aiUnavailable && !aiChecking && (
+              <div style={{ fontSize: 12, color: '#b45309' }}>AI spell check is unavailable right now — you can still create the event.</div>
+            )}
+            {Object.keys(aiSuggestions).length === 0 && !aiUnavailable && aiChecking && (
+              <div style={{ fontSize: 12, color: '#6b7280' }}>Reviewing your spelling as you type…</div>
+            )}
+            {Object.keys(aiSuggestions).reduce((acc, k) => {
+              const orig = String(form[k] || '')
+              const corr = aiSuggestions[k]
+              if (aiDismissed[k]) return acc
+              acc.push(
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #d1fae5', flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 12, color: '#374151', minWidth: 0 }}>
+                    <span style={{ fontWeight: 700, textTransform: 'capitalize', color: '#166534' }}>{k.replace(/_/g, ' ')}:</span>{' '}
+                    <span style={{ textDecoration: 'line-through', color: '#9ca3af' }}>{orig}</span>
+                    {' → '}
+                    <span style={{ fontWeight: 600, color: '#065f46' }}>{corr}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" className="eh-btn eh-btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => applySuggestion(k, corr)}>Apply</button>
+                    <button type="button" className="eh-btn" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setAiDismissed(prev => ({ ...prev, [k]: true }))}>✕</button>
+                  </div>
+                </div>
+              )
+              return acc
+            }, [])}
+          </div>
+        )}
 
         <div className="eh-section">
           <div className="eh-section-head">
@@ -158,16 +266,18 @@ export default function CreateEvent() {
                 <datalist id="act-list">
                   {allActivities.filter(a => String(a.sector_id) === String(form.sector_id)).map(a => <option key={a.id} value={a.name} />)}
                 </datalist>
+                {inlineSuggestion('activityName')}
               </div>
               <div className="field"><label>Category</label>
                 <input name="category" value={form.category} onChange={handleChange} list="cat-list" placeholder="Type or pick a category" />
                 <datalist id="cat-list">{CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
+                {inlineSuggestion('category')}
               </div>
             </div>
 
             {section('Event Details')}
             <div className="form-row">
-              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required /></div>
+              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required />{inlineSuggestion('name')}</div>
               <div className="field"><label>Event Date *</label><input type="date" name="date" value={form.date} onChange={handleChange} required /></div>
             </div>
             <div className="form-row">
@@ -178,21 +288,21 @@ export default function CreateEvent() {
               </select></div>
             </div>
             <div className="form-row">
-              <div className="field"><label>Venue</label><input name="venue" value={form.venue} onChange={handleChange} placeholder="Full address" /></div>
+              <div className="field"><label>Venue</label><input name="venue" value={form.venue} onChange={handleChange} placeholder="Full address" />{inlineSuggestion('venue')}</div>
             </div>
 
             {section('Location & Team')}
             <div className="form-row">
               <div className="field"><label>GPS Location</label><input name="gps_location" value={form.gps_location} onChange={handleChange} placeholder="Lat, Lng" /></div>
-              <div className="field"><label>District</label><input name="district" value={form.district} onChange={handleChange} /></div>
+              <div className="field"><label>District</label><input name="district" value={form.district} onChange={handleChange} />{inlineSuggestion('district')}</div>
             </div>
             <div className="form-row">
-              <div className="field"><label>State</label><input name="state" value={form.state} onChange={handleChange} /></div>
-              <div className="field"><label>Organizer</label><input name="organizer" value={form.organizer} onChange={handleChange} /></div>
+              <div className="field"><label>State</label><input name="state" value={form.state} onChange={handleChange} />{inlineSuggestion('state')}</div>
+              <div className="field"><label>Organizer</label><input name="organizer" value={form.organizer} onChange={handleChange} />{inlineSuggestion('organizer')}</div>
             </div>
             <div className="form-row">
-              <div className="field"><label>Event Manager</label><input name="event_manager" value={form.event_manager} onChange={handleChange} /></div>
-              <div className="field"><label>Coordinator</label><input name="coordinator" value={form.coordinator} onChange={handleChange} /></div>
+              <div className="field"><label>Event Manager</label><input name="event_manager" value={form.event_manager} onChange={handleChange} />{inlineSuggestion('event_manager')}</div>
+              <div className="field"><label>Coordinator</label><input name="coordinator" value={form.coordinator} onChange={handleChange} />{inlineSuggestion('coordinator')}</div>
             </div>
 
             {section('Banner (optional)')}

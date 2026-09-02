@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { fetchActivities, fetchSectors, fetchWorkspaceNgos, createActivity, updateActivity, setActivityStatus, importActivitiesSheet, exportActivitiesSheet } from '../store'
+import { fetchActivities, fetchSectors, fetchWorkspaceNgos, createActivity, updateActivity, setActivityStatus, importActivitiesSheet, exportActivitiesSheet, suggestSectorActivities } from '../store'
 import { EnhancedTable } from '../components/Table'
 
 const emptyForm = { name: '', ngo_id: '', sector_id: '', description: '', banner: '' }
@@ -28,6 +28,11 @@ export default function Activities() {
   const [importError, setImportError] = useState('')
   const fileRef = useRef(null)
 
+  /* AI sector-activity suggestions (modal) */
+  const [aiSuggestions, setAiSuggestions] = useState([])
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiCache, setAiCache] = useState({})
+
   useEffect(() => {
     Promise.all([fetchWorkspaceNgos().catch(() => []), fetchSectors().catch(() => [])])
       .then(([n, s]) => { setNgos(n || []); setSectors(s || []) })
@@ -43,11 +48,32 @@ export default function Activities() {
 
   useEffect(() => { loadActivities() }, [ngoFilter, sectorFilter])
 
-  const openAdd = () => { setEditing(null); setForm({ ...emptyForm, sector_id: sectorFilter || '' }); setError(''); setModal(true) }
+  // AI suggestions: auto-load when sector changes in the modal (debounced).
+  useEffect(() => {
+    if (!modal || !form.sector_id) { setAiSuggestions([]); return }
+    const sectorName = sectors.find(s => String(s.id) === String(form.sector_id))?.name
+    if (!sectorName) { setAiSuggestions([]); return }
+    const existing = activities.filter(a => String(a.sector_id) === String(form.sector_id)).map(a => a.name)
+    const t = setTimeout(() => {
+      let cancelled = false
+      setAiLoading(true)
+      suggestSectorActivities(sectorName, { existing })
+        .then(data => {
+          if (cancelled) return
+          setAiSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : [])
+        })
+        .catch(() => { if (!cancelled) setAiSuggestions([]) })
+        .finally(() => { if (!cancelled) setAiLoading(false) })
+      return () => { cancelled = true }
+    }, 600)
+    return () => clearTimeout(t)
+  }, [modal, form.sector_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openAdd = () => { setEditing(null); setForm({ ...emptyForm, sector_id: sectorFilter || '' }); setError(''); setAiSuggestions([]); setModal(true) }
   const openEdit = (row) => {
     setEditing(row)
     setForm({ name: row.name || '', ngo_id: row.ngo_id ? String(row.ngo_id) : '', sector_id: row.sector_id ? String(row.sector_id) : '', description: row.description || '', banner: row.banner || '' })
-    setError('')
+    setError(''); setAiSuggestions([])
     setModal(true)
   }
 
@@ -283,6 +309,20 @@ export default function Activities() {
                 <div className="form-row" style={{ marginBottom: 12 }}>
                   <div className="field"><label>Activity Name *</label><input name="name" value={form.name} onChange={handleChange} required placeholder="e.g. Computer Lab Training" /></div>
                 </div>
+                {/* AI sector-activity suggestions */}
+                {(aiLoading || aiSuggestions.length > 0) && (
+                  <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>✨ Suggested activities for this sector</span>
+                      {aiLoading && <span style={{ fontSize: 11, color: '#6b7280' }}>Loading…</span>}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {aiSuggestions.map((name, i) => (
+                        <button key={i} type="button" onClick={() => { setForm({ ...form, name }); setAiSuggestions([]) }} style={{ border: '1px solid #bbf7d0', background: '#fff', color: '#065f46', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'background .12s' }} onMouseOver={e => e.currentTarget.style.background = '#dcfce7'} onMouseOut={e => e.currentTarget.style.background = '#fff'}>{name}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="form-row" style={{ marginBottom: 12 }}>
                   <div className="field"><label>NGO</label><select name="ngo_id" value={form.ngo_id} onChange={handleChange}>
                     <option value="">All NGOs</option>
