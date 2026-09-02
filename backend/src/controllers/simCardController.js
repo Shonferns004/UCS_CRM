@@ -15,15 +15,10 @@ export const SIM_STATUSES = ['Active', 'Expiring Soon', 'Expired', 'Replaced', '
 
 export const requiredFields = [
   'mobile_id',
-  'device_model',
-  'imei',
-  'team',
-  'issue_date',
-  'expiry_date',
 ];
 
 const alwaysPresentFields = [
-  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'sim_type',
+  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'sim_type', 'gb',
   'sim_1', 'sim_2', 'sim_3', 'sim_4', 'sim_5', 'sim_6', 'sim_7', 'sim_8',
 ];
 
@@ -111,15 +106,30 @@ export const getSimCard = async (req, res) => {
   }
 };
 
+export const patchSimCard = (body) => {
+  const patch = {};
+  for (const [k, v] of Object.entries(body || {})) {
+    if (k === 'id' || k === 'created_at' || k === 'updated_at') continue;
+    if (v === '' || v === null || v === undefined) continue;
+    patch[k] = v;
+  }
+  return patch;
+};
+
 export const editSimCard = async (req, res) => {
   try {
-    const body = clean(req.body);
-    if (requiredFields.some((f) => !body[f] || !String(body[f]).trim())) {
-      return res.status(400).json({ message: 'Required fields are missing' });
+    const body = req.body || {};
+    if (!body.mobile_id || !String(body.mobile_id).trim()) {
+      return res.status(400).json({ message: 'Mobile ID No. is required' });
     }
-    const { daysLeft, dcStatus } = computeExpiry(body.expiry_date);
-    body.status = finalStatus({ status: body.status || 'Active' }, { daysLeft, dcStatus });
-    const sim = await updateSimCard(req.params.id, body);
+    const patch = patchSimCard(body);
+    let daysLeft = null;
+    if (patch.expiry_date !== undefined) {
+      const computed = computeExpiry(patch.expiry_date);
+      daysLeft = computed.daysLeft;
+      patch.status = finalStatus({ status: patch.status || 'Active' }, computed);
+    }
+    const sim = await updateSimCard(req.params.id, patch);
     return res.json({ message: 'SIM card updated', sim, daysLeft });
   } catch (error) {
     return res.status(500).json({ message: error.message });
