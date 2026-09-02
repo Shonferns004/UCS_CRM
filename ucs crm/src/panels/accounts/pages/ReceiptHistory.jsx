@@ -168,6 +168,7 @@ export default function ReceiptHistory() {
   const [toDate, setToDate] = useState('');
   const [receiptNgo, setReceiptNgo] = useState('');
   const [suspenseMode, setSuspenseMode] = useState(false);
+  const [pgMode, setPgMode] = useState(false);
   const [todayDownloading, setTodayDownloading] = useState(false);
   const [excelDownloading, setExcelDownloading] = useState(false);
   const [historyForDownload, setHistoryForDownload] = useState(null);
@@ -203,6 +204,7 @@ export default function ReceiptHistory() {
     if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
     if (receiptNgo) params.set('project', receiptNgo);
     if (suspenseMode) params.set('suspense', '1');
+    if (pgMode) params.set('pg', '1');
     if (fromDate) params.set('from_date', fromDate);
     if (toDate) params.set('to_date', toDate);
     if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) params.set('min_amount', String(minAmount));
@@ -215,7 +217,7 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, minAmount, maxAmount]);
+  }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, pgMode, minAmount, maxAmount]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
@@ -575,6 +577,7 @@ export default function ReceiptHistory() {
     if (debouncedSearch.trim()) p.set('search', debouncedSearch.trim());
     if (receiptNgo) p.set('project', receiptNgo);
     if (suspenseMode) p.set('suspense', '1');
+    if (pgMode) p.set('pg', '1');
     if (fromDate) p.set('from_date', fromDate);
     if (toDate) p.set('to_date', toDate);
     if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) p.set('min_amount', String(minAmount));
@@ -781,9 +784,13 @@ export default function ReceiptHistory() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="btn btn-sm" onClick={() => { setSuspenseMode(s => !s); setPage(1) }}
+          <button className="btn btn-sm" onClick={() => { setSuspenseMode(s => !s); if (!suspenseMode) setPgMode(false); setPage(1) }}
             style={{ background: suspenseMode ? '#dc2626' : '#f3f4f6', color: suspenseMode ? '#fff' : '#374151', border: 'none', fontWeight: 600, borderRadius: 6 }}>
             Suspense
+          </button>
+          <button className="btn btn-sm" onClick={() => { setPgMode(s => !s); if (!pgMode) setSuspenseMode(false); setPage(1) }}
+            style={{ background: pgMode ? '#2563eb' : '#f3f4f6', color: pgMode ? '#fff' : '#374151', border: 'none', fontWeight: 600, borderRadius: 6 }}>
+            PG
           </button>
           <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
           <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
