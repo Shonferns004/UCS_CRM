@@ -1621,6 +1621,7 @@ export const getReceiptList = async (req, res) => {
       : (req.query.link === 'pg' ? 'pg' : '')));
     const isSuspense = link === 'suspense' || req.query.suspense === '1';
     const isPg = link === 'pg' || req.query.pg === '1';
+    const isLibrary = link === 'library' || req.query.library === '1';
 
     // Cheap per-NGO aggregates + project options. Kept in sync with the visible
     // list below (receipt_no IS NOT NULL) so the cards always equal the sum of
@@ -1699,12 +1700,15 @@ export const getReceiptList = async (req, res) => {
     if (isPg) {
       where.push(`lower(trim(agent_name)) = 'pg'`);
     }
+    if (isLibrary) {
+      where.push(`lower(trim(agent_name)) = 'library'`);
+    }
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
-    if (!isSuspense && !isPg) {
-      where.push('receipt_no IS NOT NULL');
-    }
+    // Only show numbered receipts in every view, including suspense / PG tabs
+    // (un-numbered suspense entries are hidden).
+    where.push('receipt_no IS NOT NULL');
 
     const period = (req.query.period || '').trim();
     const fromDate = (req.query.from_date || '').trim();
@@ -4630,8 +4634,9 @@ export const updateReceipt = async (req, res) => {
     const newAmount = 'amount' in receiptPatch ? Number(receiptPatch.amount || 0) : oldAmount;
     const amountDelta = newAmount - oldAmount;
 
-    // Normalize agent_name on edit too
-    if (receiptPatch.agent_name && receiptPatch.agent_name !== 'Suspense') {
+    // Normalize agent_name on edit too (PG/Library/Suspense are category labels,
+    // not FRO names — keep them verbatim so the report rows stay intact).
+    if (receiptPatch.agent_name && !['suspense', 'pg', 'library'].includes(receiptPatch.agent_name.toLowerCase())) {
       const canonical = await normalizeAgentName(receiptPatch.agent_name);
       if (canonical) receiptPatch.agent_name = canonical;
     }
@@ -5028,14 +5033,23 @@ export const getReportData = async (req, res) => {
     // three are the real NGOs (project_id keyed); library/pg are project buckets
     // (project_id = 'library' / 'pg') and suspense is an agent bucket
     // (agent_name = 'Suspense'). Each receipt lands in exactly one bucket:
-    // suspense wins over any project. The ngoList/ngos above stays at the three
-    // NGOs only, so the "Collection by Payment Source" pills keep showing just
-    // bsct/aflf/mann.
-    const reportBuckets = ['bsct', 'mann', 'aflf', 'library', 'pg', 'suspense'];
+    // suspense wins over any project.
+    const reportBuckets = ['bsct', 'mann', 'aflf', 'pg', 'library', 'suspense'];
     const bucketLabel = {
       bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF',
-      library: 'Library', pg: 'PG', suspense: 'Suspense',
+      pg: 'PG', library: 'Library', suspense: 'Suspense',
     };
+
+    // "Collection by Payment Source" tabs: the three NGOs plus the library/pg/
+    // suspense buckets (suspense is agent-based, not a project). Returned as a
+    // SEPARATE `sourceTabs` list so `ngos`/`ngoIds` (driving the NGO target-form
+    // and working-day logic) stay at just the three real NGOs.
+    const realNgoName = {};
+    for (const g of ngoList) realNgoName[g.id] = g.name;
+    const sourceTabs = reportBuckets.map((t) => ({
+      id: t,
+      name: realNgoName[t] || bucketLabel[t] || t,
+    }));
     const isSuspenseAgent = (agent) => {
       const a = String(agent || '').trim().toLowerCase();
       return a === 'suspense' || a === 'na' || a === '';
@@ -5085,11 +5099,18 @@ export const getReportData = async (req, res) => {
     const byNgo = {};
     for (const n of reportBuckets) byNgo[n] = { sources: {} };
     for (const r of monthReceipts || []) {
-      // Suspense bucket (agent-based) wins over any project bucket, so each
-      // receipt is counted exactly once across the whole report.
+      // Bucket a receipt into exactly one row. Suspense is agent-based
+      // (agent_name = 'Suspense'/'NA'/''); library/pg receipts are tagged only
+      // by agent_name (their project_id is still 'bsct'), so check those before
+      // falling back to the project_id bucket.
+      const agent = String(r.agent_name || '').trim().toLowerCase();
       let ngo;
-      if (isSuspenseAgent(r.agent_name)) {
+      if (isSuspenseAgent(agent)) {
         ngo = 'suspense';
+      } else if (agent === 'library') {
+        ngo = 'library';
+      } else if (agent === 'pg') {
+        ngo = 'pg';
       } else {
         const pid = String(r.project_id || '').trim().toLowerCase();
         ngo = reportBuckets.includes(pid) ? pid : null;
@@ -5198,6 +5219,7 @@ export const getReportData = async (req, res) => {
       from: rangeMode ? dateFrom : null,
       to: rangeMode ? dateTo : null,
       ngos: ngoList,
+      sourceTabs,
       sourceOrder,
       byNgo,
       rows: ngoRows,
@@ -5335,6 +5357,13 @@ export const getAgentTeamCollections = async (req, res) => {
       agents[w.id] = { id: w.id, name: w.name || w.login_id || 'Unknown', team: w.team || null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
     }
     agents.__unassigned = { id: null, name: 'No Agent', team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    // Synthetic collector rows for receipts whose agent_name is a category label
+    // (PG / Library / Suspense) rather than a real FRO worker. Each gets its own
+    // row in the agent-wise list instead of being collapsed into "No Agent".
+    const catAgents = ['pg', 'library', 'suspense'];
+    for (const c of catAgents) {
+      agents['__' + c] = { id: null, category: c, name: c[0].toUpperCase() + c.slice(1), team: null, byNgo: byNgo(ngoIds), total: 0, count: 0 };
+    }
 
     const seenReceipts = new Set();
     for (const r of receipts || []) {
@@ -5349,7 +5378,10 @@ export const getAgentTeamCollections = async (req, res) => {
 
       let agent = agents.__unassigned;
       const rawAgent = String(r.agent_name || '').trim();
-      if (rawAgent) {
+      const rawAgentLower = rawAgent.toLowerCase();
+      if (catAgents.includes(rawAgentLower)) {
+        agent = agents['__' + rawAgentLower];
+      } else if (rawAgent) {
         const canonical = await normalizeAgentName(rawAgent);
         const found = workerByKey[normKey(canonical)];
         if (found) agent = agents[found.id];
@@ -5362,6 +5394,7 @@ export const getAgentTeamCollections = async (req, res) => {
 
     const agentRows = workerList
       .map((w) => agents[w.id])
+      .concat(catAgents.map((c) => agents['__' + c]))
       .concat(agents.__unassigned)
       .filter((a) => a)
       .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name)));

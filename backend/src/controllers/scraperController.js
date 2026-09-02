@@ -79,6 +79,21 @@ export const ngos = async (req, res) => {
   }
 };
 
+export const sources = async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('bank_audit_sources')
+      .select('id, name, kind, is_active')
+      .order('sort_order');
+    if (error) throw error;
+    const banks = (data || []).filter((s) => s.kind === 'bank').map((s) => s.name);
+    const mops = (data || []).filter((s) => s.kind === 'mop').map((s) => s.name);
+    return res.json({ banks, mops });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const knownRefs = async (req, res) => {
   try {
     const { projectId } = req.query;

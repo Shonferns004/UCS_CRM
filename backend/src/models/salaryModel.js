@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { computePaidDays, getISTToday } from '../utils/salaryDays.js';
+import { normalizeAgentName } from '../utils/workerNameMatch.js';
 
 export const getSalariesByWorker = async (workerId) => {
   const { data, error } = await db
@@ -518,52 +519,97 @@ export const getPagarExportData = async (month) => {
     stationsByWorker[s.fro_worker_id].push(s.station);
   }
 
-  // 6. Collections with NGO split + per-day amounts
-  // Use same dedup logic as getDailyCollectionByWorker
-  const { data: collLogs, error: collErr } = await db
-    .from('fro_donor_logs')
-    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, upi_transaction_id, remark, fro_worker_id, fro_assignments!inner(ngo_id)')
-    .or(
-      `and(action.eq.donation,created_at.gte.${startDate},created_at.lte.${endDate}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${startDate},verified_at.lte.${endDate}),` +
-      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${startDate},created_at.lte.${endDate})`
-    );
-  if (collErr) throw collErr;
+  // 6. Collections from RECEIPTS (matches the Accounts Agent-wise report).
+  // Achieved/daily amounts are attributed by receipt.agent_name -> FRO worker,
+  // and split by the receipt's project into BSCT/AFLF/MANN. Receipts whose
+  // agent_name is PG/Library/Suspense are tracked as their own category buckets
+  // and emitted as trailing rows in the salary file.
+  const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const paymentDiscriminant = (d) => {
-    if (d.upi_transaction_id && String(d.upi_transaction_id).trim()) return `upi:${d.upi_transaction_id}`;
-    if (d.remark && String(d.remark).trim()) return `remark:${String(d.remark).trim()}`;
-    return `none`;
+  // Resolve receipt.project_id (slug / ngo uuid / ngo name) -> project slug,
+  // mirroring resolveNgo in getAgentTeamCollections.
+  const { data: allNgos, error: naErr } = await db.from('ngos').select('id, name, code').eq('is_active', true);
+  if (naErr) throw naErr;
+  const uuidToSlug = {};
+  const nameNormToSlug = {};
+  for (const n of allNgos || []) {
+    const slug = String((n.code || n.name || '').trim()).toLowerCase();
+    if (!slug) continue;
+    uuidToSlug[String(n.id).toLowerCase()] = slug;
+    const nn = normKey(n.name);
+    if (nn) nameNormToSlug[nn] = slug;
+  }
+  const resolveProject = (pid) => {
+    if (!pid) return null;
+    const low = String(pid).toLowerCase().trim();
+    if (['bsct', 'aflf', 'mann', 'pg', 'library', 'suspense'].includes(low)) return low;
+    if (uuidToSlug[low]) return uuidToSlug[low];
+    const nn = normKey(pid);
+    return nameNormToSlug[nn] || null;
   };
+  const projectToNgo = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' };
+  const catSet = new Set(['pg', 'library', 'suspense']);
 
-  const logCollectionDate = (d) => {
-    if (d.transaction_datetime) return String(d.transaction_datetime).slice(0, 10);
-    if (d.verified_at) return String(d.verified_at).slice(0, 10);
-    if (d.created_at) return String(d.created_at).slice(0, 10);
-    return null;
-  };
+  // FRO worker id by normalized name (active, non-test) - same attribution as
+  // the Accounts report.
+  const { data: froWorkers, error: frErr } = await db
+    .from('workers')
+    .select('id, name')
+    .eq('department', 'FRO')
+    .eq('employment_status', 'active')
+    .eq('is_test', false);
+  if (frErr) throw frErr;
+  const workerByKey = {};
+  for (const w of froWorkers || []) {
+    const k = normKey(w.name);
+    if (k && !workerByKey[k]) workerByKey[k] = w.id;
+  }
 
-  const inRange = (dateStr) => dateStr && dateStr >= startDate && dateStr <= endDate;
+  const { data: receiptRows, error: recErr } = await db
+    .from('receipts')
+    .select('project_id, amount, agent_name, receipt_date, receipt_no, donor_id, payment_id')
+    .not('receipt_no', 'is', null)
+    .gte('receipt_date', startDate)
+    .lte('receipt_date', endDate);
+  if (recErr) throw recErr;
 
   const collectionByWorker = {};
   const dailyByWorker = {};
   const NgoByWorker = {};
+  const categoryByNgo = { pg: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 }, library: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 }, suspense: { BSCT: 0, AFLF: 0, MANN: 0, Other: 0, total: 0 } };
   const seen = new Set();
 
-  for (const d of collLogs || []) {
-    const amount = parseFloat(d.amount_collected || 0);
-    if (amount <= 0) continue;
-    const wid = d.fro_worker_id;
-    const ngoId = d.fro_assignments?.ngo_id;
-    if (!wid || !ngoId) continue;
-    const date = logCollectionDate(d);
-    if (!inRange(date)) continue;
+  for (const r of receiptRows || []) {
+    const amount = parseFloat(r.amount || 0);
+    if (!(amount > 0)) continue;
+    const date = String(r.receipt_date || '');
     const day = parseInt(date.slice(8, 10), 10);
     if (!day) continue;
-    const dedupKey = `${d.donor_id}|${amount}|${day}|${ngoId}|${paymentDiscriminant(d)}`;
-    const seenKey = `seen_${wid}_${dedupKey}`;
-    if (seen.has(seenKey)) continue;
-    seen.add(seenKey);
+    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${date}|${r.payment_id || ''}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+
+    const proj = resolveProject(r.project_id);
+    const ngoName = projectToNgo[proj];
+    if (!ngoName) continue;
+
+    const rawAgent = String(r.agent_name || '').trim();
+    const agentLower = rawAgent.toLowerCase();
+
+    if (catSet.has(agentLower)) {
+      const cat = categoryByNgo[agentLower];
+      if (!cat) continue;
+      cat[ngoName] = (cat[ngoName] || 0) + amount;
+      cat.total += amount;
+      continue;
+    }
+
+    let wid = null;
+    if (rawAgent) {
+      const canonical = await normalizeAgentName(rawAgent);
+      wid = workerByKey[normKey(canonical)] || null;
+    }
+    if (!wid) continue; // unattributed receipts are not part of a worker's salary achieved
 
     if (!collectionByWorker[wid]) collectionByWorker[wid] = 0;
     collectionByWorker[wid] += amount;
@@ -572,10 +618,6 @@ export const getPagarExportData = async (month) => {
     dailyByWorker[wid][day] = (dailyByWorker[wid][day] || 0) + amount;
 
     if (!NgoByWorker[wid]) NgoByWorker[wid] = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
-    let ngoName = 'Other';
-    if (ngoId === 'afa30741-54f8-4ea9-a449-b3ae625351dc') ngoName = 'AFLF';
-    else if (ngoId === '598954e3-6716-4e83-adc8-323d622facf0') ngoName = 'BSCT';
-    else if (ngoId === '472ff76f-67f7-42d1-8224-806c6041b33f') ngoName = 'MANN';
     NgoByWorker[wid][ngoName] = (NgoByWorker[wid][ngoName] || 0) + amount;
   }
 
@@ -698,12 +740,57 @@ export const getPagarExportData = async (month) => {
     });
   }
 
-  // Sort: Active FROs first, then other departments, then Absconded/Inactive
+  // Category collection rows (PG / Library / Suspense) - receipts whose
+  // agent_name is the category label, shown as trailing rows in the salary file.
+  for (const c of ['pg', 'library', 'suspense']) {
+    const cat = categoryByNgo[c];
+    const label = c[0].toUpperCase() + c.slice(1);
+    rows.push({
+      id: null,
+      name: label,
+      status: 'CATEGORY',
+      department: '',
+      account_holder_name: '',
+      account_holder_relation: '',
+      bank_name: '',
+      account_number: '',
+      station: '',
+      doj: '',
+      salary: 0,
+      target: 0,
+      achieved: cat.total,
+      achieved_bsct: cat.BSCT || 0,
+      achieved_aflf: cat.AFLF || 0,
+      achieved_mann: cat.MANN || 0,
+      gross_present_days: 0,
+      training_sunday_ded: 0,
+      net_present_days: 0,
+      month_salary: 0,
+      monthly_incentive: 0,
+      total_aki: 0,
+      aki_payout: 0,
+      gross_payable: 0,
+      advance_deduction: 0,
+      net_payable: 0,
+      daily: {},
+      days_in_month: daysInMonth,
+      start_date: startDate,
+    });
+  }
+
+  // Sort: Active first (by dept), then Absconded (by dept), then other
+  // non-active (Offboarded/Inactive/etc), then CATEGORY rows last.
   const deptOrder = { 'FRO': 0, 'Digital': 1, 'Admin': 2, 'NGO Admin': 3, 'Event Manager': 4, 'Housekeeping': 5, 'HR': 6, 'HR-Recruiter': 7 };
+  const statusGroup = (s) => {
+    if (s === 'ACTIVE') return 0;
+    if (s === 'ABSCONDED' || s === 'ABSCOND') return 1;
+    if (s === 'CATEGORY') return 3;
+    return 2;
+  };
   rows.sort((a, b) => {
-    const aActive = a.status === 'ACTIVE';
-    const bActive = b.status === 'ACTIVE';
-    if (aActive !== bActive) return bActive ? 1 : -1;
+    const aG = statusGroup(a.status);
+    const bG = statusGroup(b.status);
+    if (aG !== bG) return aG - bG;
     const aDept = deptOrder[a.department] ?? 99;
     const bDept = deptOrder[b.department] ?? 99;
     if (aDept !== bDept) return aDept - bDept;

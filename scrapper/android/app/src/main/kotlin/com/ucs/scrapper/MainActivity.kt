@@ -1,5 +1,8 @@
 package com.ucs.scrapper
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -46,6 +49,64 @@ class MainActivity : FlutterActivity() {
                 "stop" -> {
                     ScraperAccessibilityService.instance?.stopRun(uploadCollected = true)
                     result.success(true)
+                }
+                "openAccessibilitySettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "getOverlayState" -> {
+                    result.success(mapOf(
+                        "connected" to (ScraperAccessibilityService.instance != null),
+                        "enabled" to ScraperConfig.getBool("overlayEnabled", false),
+                        "paymentMethod" to (ScraperConfig.get("paymentMethod") ?: "Google Pay"),
+                        "receivedBank" to (ScraperConfig.get("receivedBank") ?: ""),
+                        "modeOfPayment" to (ScraperConfig.get("modeOfPayment") ?: ""),
+                        "overlayOpacity" to (ScraperConfig.get("overlayOpacity")?.toFloatOrNull() ?: 1.0f)
+                    ))
+                }
+                "setOverlayOpacity" -> {
+                    val value = (call.arguments as? Number)?.toFloat() ?: 1.0f
+                    val svc = ScraperAccessibilityService.instance
+                    if (svc != null) OverlayManager.setOverlayOpacity(svc, value)
+                    else ScraperConfig.setAll(mapOf("overlayOpacity" to value.toString()))
+                    result.success(true)
+                }
+                "setOverlay" -> {
+                    val on = call.arguments as? Boolean ?: false
+                    val svc = ScraperAccessibilityService.instance
+                    if (on && svc == null) {
+                        result.success(mapOf("ok" to false, "message" to "Accessibility service not connected. Enable it first."))
+                    } else {
+                        if (on && !Settings.canDrawOverlays(this)) {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            )
+                            startActivity(intent)
+                        }
+                        svc?.let { OverlayManager.setEnabled(it, on) }
+                        result.success(mapOf("ok" to true))
+                    }
+                }
+                "setPaymentMethod" -> {
+                    val m = call.arguments?.toString() ?: "Google Pay"
+                    ScraperConfig.setAll(mapOf("paymentMethod" to m))
+                    result.success(true)
+                }
+                "captureNow" -> {
+                    val svc = ScraperAccessibilityService.instance
+                    if (svc == null) {
+                        result.success(mapOf("ok" to false, "message" to "Accessibility service not connected."))
+                    } else {
+                        svc.captureTransaction()
+                        result.success(mapOf("ok" to true))
+                    }
                 }
                 "setInspect" -> {
                     val on = call.arguments as? Boolean ?: false
