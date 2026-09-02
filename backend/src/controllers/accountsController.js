@@ -1950,6 +1950,19 @@ export const getPendingReceipts = async (req, res) => {
     const result = eligible.map(r => {
       const log = logMap[r.log_id];
       const donor = log?.fro_assignments?.donor_profiles;
+      const froNgo = log?.fro_assignments?.ngos?.name;
+      const froProject =
+        froNgo === 'BSCT' ? 'bsct' :
+        froNgo === 'AFLF' ? 'aflf' :
+        froNgo === 'MANN' ? 'mann' :
+        (donor?.project_supported || '');
+      const rawPid = String(r.project_id || '').trim().toLowerCase();
+      const pidProject =
+        rawPid === 'bsct' || rawPid === 'being sevak' || rawPid === 'beingsevak' ? 'bsct' :
+        rawPid === 'aflf' || rawPid === 'ashray' ? 'aflf' :
+        rawPid === 'mann' || rawPid === 'mann care' || rawPid === 'manncar' ? 'mann' :
+        (rawPid || '');
+      const project = pidProject || String(froProject || '').trim().toLowerCase() || '';
       return {
         'Donor Name': r.donor_name || donor?.name || '',
         'Address 1': r.address || donor?.address_1 || '',
@@ -1968,7 +1981,7 @@ export const getPendingReceipts = async (req, res) => {
         receipt_id: r.id,
         sent: r.sent || false,
         log_id: r.log_id,
-        'Project': (log?.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : log?.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : log?.fro_assignments?.ngos?.name === 'MANN' ? 'mann' : donor?.project_supported) || '',
+        'Project': project,
       };
     });
 
