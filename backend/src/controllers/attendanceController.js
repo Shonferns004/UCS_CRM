@@ -217,7 +217,7 @@ function expandLeaveDates(leave) {
     dates.push(leave.leave_date);
   } else if (leave.type === 'half_day' && leave.leave_date) {
     dates.push(leave.leave_date);
-  } else if (leave.type === 'vacational' && leave.start_date && leave.end_date) {
+  } else if ((leave.type === 'vacational' || leave.type === 'holiday') && leave.start_date && leave.end_date) {
     const start = new Date(leave.start_date + 'T00:00:00+05:30');
     const end = new Date(leave.end_date + 'T00:00:00+05:30');
     for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {

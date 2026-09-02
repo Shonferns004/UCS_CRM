@@ -8,7 +8,7 @@ const flutterAppData = {
   "description": "Mobile application (UCS Attend) for workers covering attendance, leaves, advances, loans, profile, notifications, onboarding, and salary.",
   "keyFeatures": [
     "QR code + GPS geo-verified attendance punching",
-    "4 leave types: full day, half day, vacational, emergency",
+    "5 leave types: full day, half day, vacational, emergency, holiday",
     "Advance and loan application with status tracking",
     "11-step onboarding with photo, documents, bank details",
     "Push notifications via Firebase Cloud Messaging",
@@ -152,7 +152,7 @@ const flutterAppData = {
               "method": "POST",
               "path": "/api/leaves/apply",
               "auth": "authenticate",
-              "description": "Apply for leave (full_day, half_day, vacational, emergency).",
+              "description": "Apply for leave (full_day, half_day, vacational, emergency, holiday).",
               "curl": "curl -X POST \"https://ucs-crm-backend.vercel.app/api/leaves/apply\" -H \"Content-Type: application/json\" -H \"Authorization: Bearer <token>\" -d '{\"type\":\"full_day\",\"leave_date\":\"2026-07-15\",\"reason\":\"Personal\"}'",
               "requestBody": {
                 "type": "full_day",
