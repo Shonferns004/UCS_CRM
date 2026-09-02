@@ -1,4 +1,4 @@
-import db from '../config/db.js';
+import db, { getTableColumns } from '../config/db.js';
 
 // ─── EVENTS ───
 export const createEventHeadEvent = async (data) => {
@@ -74,7 +74,26 @@ export const getEventHeadEventsByMonth = async (month, year, ngo_id) => {
 };
 
 // ─── MULTI-ACTIVITY (join table) ───
+
+// The event_head_event_activities join table is added by migration 092. Until
+// that migration is applied on a given DB, the table does not exist and any
+// read/write to it throws 'relation ... does not exist' — killing event create.
+// Guard every join-table access behind this cached-existence check so events
+// keep working via the legacy single `activity_id` column in the interim.
+let joinTableExistsCache = null;
+const joinTableExists = async () => {
+  if (joinTableExistsCache !== null) return joinTableExistsCache;
+  try {
+    const cols = await getTableColumns('event_head_event_activities');
+    joinTableExistsCache = Array.isArray(cols) && cols.length > 0;
+  } catch {
+    joinTableExistsCache = false;
+  }
+  return joinTableExistsCache;
+};
+
 export const getEventHeadActivityIds = async (eventId) => {
+  if (!(await joinTableExists())) return [];
   const { data, error } = await db.from('event_head_event_activities').select('activity_id').eq('event_id', eventId);
   if (error) throw error;
   return (data || []).map(r => Number(r.activity_id));
@@ -82,6 +101,7 @@ export const getEventHeadActivityIds = async (eventId) => {
 
 // Set the full set of activities for an event (replaces existing rows).
 export const setEventHeadActivities = async (eventId, activityIds = []) => {
+  if (!(await joinTableExists())) return [];
   const ids = [...new Set(activityIds.filter(id => id != null).map(Number))];
   await db.from('event_head_event_activities').delete().eq('event_id', eventId);
   if (ids.length) {
@@ -120,10 +140,12 @@ export const getEventHeadEventsByRange = async ({ start, end, ngo_id, sector_id,
 // to the legacy single activity_id column.
 const getEventIdsForActivity = async (activityId) => {
   const a = Number(activityId);
-  const { data: joinRows } = await db.from('event_head_event_activities').select('event_id').eq('activity_id', a);
-  const joinIds = (joinRows || []).map(r => Number(r.event_id));
+  const joinIds = (await joinTableExists())
+    ? (await db.from('event_head_event_activities').select('event_id').eq('activity_id', a)).data || []
+    : [];
+  const joinSet = new Set(joinIds.map(r => Number(r.event_id)));
   const { data: legacy } = await db.from('event_head_events').select('id').eq('activity_id', a);
-  const ids = new Set([...joinIds, ...(legacy || []).map(r => Number(r.id))]);
+  const ids = new Set([...joinSet, ...(legacy || []).map(r => Number(r.id))]);
   return [...ids];
 };
 
@@ -373,6 +395,17 @@ export const createMedia = async (eventId, data) => {
 
 export const getMediaByEvent = async (eventId) => {
   const { data, error } = await db.from('event_head_media').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+};
+
+// All media across every event of a single NGO (event → ngo).
+export const getMediaByNgo = async (ngoId) => {
+  await ensureMediaColumns();
+  const { data, error } = await db.from('event_head_media')
+    .select('*, event_head_events!inner(id, name, date, ngo_id)')
+    .eq('event_head_events.ngo_id', ngoId)
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data;
 };

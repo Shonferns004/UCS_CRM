@@ -71,6 +71,7 @@ import simInventoryRoutes from './routes/simInventoryRoutes.js';
 import assetsRoutes from './routes/assetsRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
+import { ensureEventHeadSchema } from './bootstrap/ensureEventHeadSchema.js';
 
 dotenv.config();
 
@@ -766,6 +767,7 @@ if (!process.env.VERCEL) {
     _log(`Server running on port ${PORT}`);
     await db.testConnection();
     checkLeavesTable();
+    await ensureEventHeadSchema().catch(e => console.error('ensureEventHeadSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
   });
   const { initRealtime } = await import('./socket.js');

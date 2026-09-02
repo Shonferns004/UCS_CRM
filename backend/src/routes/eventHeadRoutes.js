@@ -1,30 +1,14 @@
 import { Router } from 'express';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
-import { fileURLToPath } from 'url';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import * as ctrl from '../controllers/eventHeadController.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Media/banner uploads persist to disk so their /uploads/:file URLs actually
-// resolve. The imports keep the in-memory instance above (they parse the buffer).
-const MEDIA_DIR = path.resolve(__dirname, '../../uploads');
-try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); } catch (e) { console.error('mkdir uploads:', e.message || e); }
-const sanitizeName = (original = '') => {
-  const ext = (path.extname(original) || '').toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 12);
-  return `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-};
-const mediaStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, MEDIA_DIR),
-  filename: (req, file, cb) => cb(null, sanitizeName(file.originalname)),
-});
-const mediaUpload = multer({ storage: mediaStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+// Media/banner uploads stay in memory and are pushed to the S3 "event" folder
+// by the controller (db.storage.from('event') -> <S3_BUCKET>/event/<file>).
+const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head');
 // Events (static paths BEFORE :id)
@@ -43,6 +27,7 @@ router.get('/events/calendar', eh, (req, res) => {
 // Event sheet import/export (static paths BEFORE /events/:id)
 router.post('/events/import', eh, upload.single('file'), ctrl.importEvents);
 router.get('/events/export', eh, ctrl.exportEvents);
+router.get('/events/ngo/:ngoId/media', eh, ctrl.listMediaByNgo);
 router.get('/events/ngo/:ngoId', eh, ctrl.getEventHeadEventsByNgo);
 router.get('/events/state/:state', eh, ctrl.getEventHeadEventsByState);
 router.post('/events', eh, ctrl.createEventHandler);
