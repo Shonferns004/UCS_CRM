@@ -19,9 +19,10 @@ import Reports from './Reports';
 
 const HEADER_MAP = {
   'mobile id': 'mobile_id', 'mobile id no': 'mobile_id', 'mobile id no.': 'mobile_id', 'mobile no': 'mobile_id', 'mobile': 'mobile_id',
+  'calling mobile': 'calling_mobile',
   'device': 'device_model', 'device & model': 'device_model', 'device & model name': 'device_model', 'device model': 'device_model', 'model': 'device_model',
   'imei': 'imei', 'imei no': 'imei', 'imei no.': 'imei',
-  'team': 'team', 'signature': 'signature',
+  'team': 'team', 'signature': 'signature', 'remark': 'signature',
   'sim card issue date': 'issue_date', 'issue date': 'issue_date',
   'auto expiry date': 'expiry_date', 'expiry date': 'expiry_date',
   'sim card status': 'status', 'status': 'status',
