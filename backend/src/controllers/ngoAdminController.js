@@ -2125,7 +2125,7 @@ export const distributeNewData = async (req, res) => {
         .not('status', 'eq', 'reassigned');
 
       const assignedSet = new Set(froAsgn ? froAsgn.map(a => a.donor_id) : []);
-      const hasFdStations = selectedStations && selectedStations.some(s => s.startsWith('FD-'));
+      const hasFdStations = selectedStations && selectedStations.some(s => /^(?:[BAM]?)FD-/i.test(String(s || '')));
 
       let idsToAssign;
       if (hasFdStations && assignedSet.size > 0) {

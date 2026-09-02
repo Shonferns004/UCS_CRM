@@ -15,6 +15,11 @@ function sanitize(body) {
   delete b.created_at
   DATE_FIELDS.forEach(k => { if (b[k] === '' || b[k] === undefined) delete b[k]; if (b[k] === null) b[k] = null })
   NUM_FIELDS.forEach(k => { if (b[k] === '') b[k] = null })
+  // Quantity lines (Android/Nokia and all other non-machine categories) have no
+  // asset code. Store NULL so multiple rows pass the UNIQUE index on (code);
+  // an empty string would collide on the second insert. POST / still auto-codes
+  // when code is falsy via nextCode().
+  if (b.code === '' || b.code === undefined) b.code = null
   return b
 }
 
@@ -101,7 +106,7 @@ router.delete('/:id', adminHrAccounts, async (req, res) => {
 
 // Bulk import from the Office Asset Register Excel:
 //   machines (Desktop/Laptop) dedupe by `code` (DESK-1 (AFLF) ...)
-//   quantity lines (Android/Nokia) dedupe by category + location + name
+//   quantity lines (all other categories) dedupe by category + location + name
 router.post('/import', adminHrAccounts, async (req, res) => {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : []
   if (rows.length === 0) return res.status(400).json({ error: 'rows[] required' })
