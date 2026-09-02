@@ -16,8 +16,18 @@ object ScraperConfig {
     private const val ALIAS = "scraper_pin_key"
     private lateinit var prefs: SharedPreferences
 
+    const val DEFAULT_BACKEND_URL = "http://52.66.211.205"
+    const val DEFAULT_API_KEY = "f045bdfa3a2583ba2386190e49fbb908b77c398887f04d95"
+
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // Older builds stored these as Int (putInt); migrate/clean so getString never throws.
+        try {
+            if (prefs.contains("overlayX")) prefs.getString("overlayX", null)
+            if (prefs.contains("overlayY")) prefs.getString("overlayY", null)
+        } catch (ex: ClassCastException) {
+            prefs.edit().remove("overlayX").remove("overlayY").apply()
+        }
     }
 
     fun getAll(): Map<String, Any?> = mapOf(
@@ -29,7 +39,12 @@ object ScraperConfig {
         "receivedOnly" to getBool("receivedOnly", true),
         "maxTransactions" to getInt("maxTransactions", 200),
         "scrollLoops" to getInt("scrollLoops", 8),
-        "historyText" to (get("historyText") ?: "All activity")
+        "historyText" to (get("historyText") ?: "All activity"),
+        "overlayEnabled" to getBool("overlayEnabled", false),
+        "paymentMethod" to (get("paymentMethod") ?: "Google Pay"),
+        "receivedBank" to (get("receivedBank") ?: ""),
+        "modeOfPayment" to (get("modeOfPayment") ?: ""),
+        "overlayOpacity" to (get("overlayOpacity")?.toFloatOrNull() ?: 1.0f)
     )
 
     fun setAll(map: Map<String, Any?>) {
@@ -49,7 +64,14 @@ object ScraperConfig {
         e.apply()
     }
 
-    fun get(k: String) = prefs.getString(k, null)
+    fun get(k: String): String? = try {
+        prefs.getString(k, null)
+    } catch (ex: ClassCastException) {
+        null
+    }
+
+    fun resolveBackendUrl(): String = get("backendUrl") ?: DEFAULT_BACKEND_URL
+    fun resolveApiKey(): String = get("apiKey") ?: DEFAULT_API_KEY
     fun getBool(k: String, d: Boolean) = prefs.getBoolean(k, d)
     fun getInt(k: String, d: Int) = prefs.getInt(k, d)
     fun getSet(k: String): Set<String> = prefs.getStringSet(k, emptySet()) ?: emptySet()
