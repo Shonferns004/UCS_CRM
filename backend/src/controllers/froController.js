@@ -915,7 +915,6 @@ export const getSuspenseReceipts = async (req, res) => {
       const r = receiptMap[e.receipt_id] || {};
       // Receipt already linked to a lead (credited to an FRO) — skip.
       if (r.log_id) return null;
-      const hasNo = !e.receipt_no && !r.receipt_no;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -927,7 +926,12 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: r.receipt_time || e.payment_time,
         project_id: r.project_id || e.project_id,
         has_receipt: true,
-        waiting_receipt_no: hasNo,
+        // Only an explicit Accounts assignment (manual-verify save) parks an
+        // entry as "waiting for receipt number". A missing receipt number alone
+        // must NOT block claiming: rejected/unlinked receipts and bank-statement
+        // imports create numberless suspense receipts, and numbers are allocated
+        // automatically at claim/verify time.
+        waiting_receipt_no: !!e.verify_fro_worker_id,
       };
     }).filter(Boolean);
 

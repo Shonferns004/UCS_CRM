@@ -417,7 +417,9 @@ export const assignVehicle = (data) => apiPost('/event-head/vehicles/assign', da
 
 /* ── Media ── */
 export const fetchMedia = (eventId) => apiGet('/event-head/events/' + eventId + '/media')
+export const fetchMediaByNgo = (ngoId) => apiGet('/event-head/events/ngo/' + ngoId + '/media')
 export const uploadMedia = (eventId, formData) => api('/event-head/events/' + eventId + '/media', { method: 'POST', body: formData, _prefix: 'ucs', timeout: 180000 })
+export const createMediaLink = (eventId, data) => apiPost('/event-head/events/' + eventId + '/media', data)
 export const replaceMedia = (eventId, id, formData) => api('/event-head/events/' + eventId + '/media/' + id, { method: 'PUT', body: formData, _prefix: 'ucs', timeout: 180000 })
 export const updateMedia = (eventId, id, data) => apiPut('/event-head/events/' + eventId + '/media/' + id, data)
 export const deleteMedia = (eventId, id) => apiDelete('/event-head/events/' + eventId + '/media/' + id)

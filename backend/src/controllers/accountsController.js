@@ -1617,10 +1617,10 @@ export const getReceiptList = async (req, res) => {
     const link = (req.query.link === 'suspense' || req.query.link === 'unlinked')
       ? 'suspense'
       : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors'
-      : (req.query.link === 'others' ? 'others' : ''));
+      : (req.query.link === 'others' ? 'others'
+      : (req.query.link === 'pg' ? 'pg' : '')));
     const isSuspense = link === 'suspense' || req.query.suspense === '1';
-    const filterMonth = parseInt(req.query.filter_month, 10) || 0;
-    const filterYear  = parseInt(req.query.filter_year, 10) || 0;
+    const isPg = link === 'pg' || req.query.pg === '1';
 
     // Cheap per-NGO aggregates + project options. Kept in sync with the visible
     // list below (receipt_no IS NOT NULL) so the cards always equal the sum of
@@ -1694,30 +1694,15 @@ export const getReceiptList = async (req, res) => {
     }
     if (link === 'donors') where.push('donor_id IS NOT NULL');
     if (isSuspense) {
-      let y, m;
-      if (filterMonth && filterYear) {
-        y = filterYear;
-        m = filterMonth;
-      } else {
-        const now = new Date();
-        const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
-        y = ist.getUTCFullYear();
-        m = ist.getUTCMonth() + 1;
-      }
-      const mStr = String(m).padStart(2, '0');
-      params.push(`${y}-${mStr}-01`);
-      where.push(`receipt_date >= $${params.length}`);
-      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      params.push(`${y}-${mStr}-${String(lastDay).padStart(2, '0')}`);
-      where.push(`receipt_date <= $${params.length}`);
-      where.push('donor_id IS NULL');
-      where.push(`(agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))`);
-      where.push(`(donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))`);
+      where.push(`lower(trim(agent_name)) = 'suspense'`);
+    }
+    if (isPg) {
+      where.push(`lower(trim(agent_name)) = 'pg'`);
     }
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
-    if (!isSuspense) {
+    if (!isSuspense && !isPg) {
       where.push('receipt_no IS NOT NULL');
     }
 
@@ -5040,6 +5025,23 @@ export const getReportData = async (req, res) => {
       }
     }
 
+    // Report buckets drive the "NGO-wise Target vs Collection" ROWS. The first
+    // three are the real NGOs (project_id keyed); library/pg are project buckets
+    // (project_id = 'library' / 'pg') and suspense is an agent bucket
+    // (agent_name = 'Suspense'). Each receipt lands in exactly one bucket:
+    // suspense wins over any project. The ngoList/ngos above stays at the three
+    // NGOs only, so the "Collection by Payment Source" pills keep showing just
+    // bsct/aflf/mann.
+    const reportBuckets = ['bsct', 'mann', 'aflf', 'library', 'pg', 'suspense'];
+    const bucketLabel = {
+      bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF',
+      library: 'Library', pg: 'PG', suspense: 'Suspense',
+    };
+    const isSuspenseAgent = (agent) => {
+      const a = String(agent || '').trim().toLowerCase();
+      return a === 'suspense' || a === 'na' || a === '';
+    };
+
     // Holiday per NGO (holidays.ngo_id is a UUID -> map via ngos)
     const { data: holidays, error: hErr } = await db.from('holidays').select('ngo_id, date').eq('type', 'holiday');
     if (hErr) throw hErr;
@@ -5056,10 +5058,10 @@ export const getReportData = async (req, res) => {
     // RECEIPTS table (matching the Receipts page exactly). The payment source is
     // the receipt's `mode`; its subtotals sum to the full receipts collection.
     const receiptTotalByNgo = {};
-    for (const n of ngoIds) receiptTotalByNgo[n] = { count: 0, total: 0 };
+    for (const n of reportBuckets) receiptTotalByNgo[n] = { count: 0, total: 0 };
     const { data: monthReceipts, error: rErr } = await db
       .from('receipts')
-      .select('project_id, amount, mode')
+      .select('project_id, amount, mode, agent_name')
       .not('receipt_no', 'is', null)
       .gte('receipt_date', dateFrom)
       .lte('receipt_date', dateTo);
@@ -5082,9 +5084,17 @@ export const getReportData = async (req, res) => {
     const sourceOrder = [];
     const sourceSet = {};
     const byNgo = {};
-    for (const n of ngoIds) byNgo[n] = { sources: {} };
+    for (const n of reportBuckets) byNgo[n] = { sources: {} };
     for (const r of monthReceipts || []) {
-      const ngo = r.project_id && receiptTotalByNgo[r.project_id] ? r.project_id : null;
+      // Suspense bucket (agent-based) wins over any project bucket, so each
+      // receipt is counted exactly once across the whole report.
+      let ngo;
+      if (isSuspenseAgent(r.agent_name)) {
+        ngo = 'suspense';
+      } else {
+        const pid = String(r.project_id || '').trim().toLowerCase();
+        ngo = reportBuckets.includes(pid) ? pid : null;
+      }
       if (!ngo) continue;
       receiptTotalByNgo[ngo].total += Number(r.amount || 0);
       receiptTotalByNgo[ngo].count += 1;
@@ -5094,16 +5104,36 @@ export const getReportData = async (req, res) => {
       byNgo[ngo].sources[label] = (byNgo[ngo].sources[label] || 0) + Number(r.amount || 0);
     }
 
-    // Build per-NGO output rows
+    // Build per-bucket output rows (bsct/mann/aflf/library/pg/suspense)
     const ngoRows = [];
-    for (const n of ngoIds) {
+    for (const n of reportBuckets) {
       const sourceTotal = Object.values(byNgo[n].sources).reduce((s, v) => s + v, 0);
       const total = receiptTotalByNgo[n].total;
       const receiptCount = receiptTotalByNgo[n].count;
       const ngoTarget = Number(savedByNgo[n]) || 0;
+      const isNgo = ngoIds.includes(n);
       let workingDaysSoFar;
       let daysElapsed;
-      if (dayMode) {
+      if (!isNgo) {
+        // library/pg/suspense have no NGO working-day / holiday model. Show the
+        // collection buckets with no daily target; keep the elapsed-day count so
+        // the "Avg/Day" column still reflects the reporting period.
+        if (dayMode) {
+          workingDaysSoFar = 0;
+          daysElapsed = 1;
+        } else if (rangeMode) {
+          const start = new Date(dateFrom + 'T00:00:00Z');
+          const end = new Date(dateTo + 'T00:00:00Z');
+          daysElapsed = Math.round((end - start) / 86400000) + 1;
+          workingDaysSoFar = 0;
+        } else {
+          workingDaysSoFar = 0;
+          const [cy, cm] = [today.getFullYear(), today.getMonth() + 1];
+          if (cy === y && cm === m) daysElapsed = today.getDate();
+          else if (cy > y || (cy === y && cm > m)) daysElapsed = lastDay;
+          else daysElapsed = 0;
+        }
+      } else if (dayMode) {
         // Single-day view: 1 working day if the chosen day is a working day
         const hset = new Set((holidayByNgo[n] || []).map((d) => String(d).slice(0, 10)));
         const dt = new Date(`${day}T00:00:00Z`);
@@ -5149,7 +5179,7 @@ export const getReportData = async (req, res) => {
       const actualAvg = daysElapsed > 0 ? total / daysElapsed : 0;
       ngoRows.push({
         id: n,
-        name: (ngoList.find((g) => g.id === n) || {}).name || n,
+        name: (ngoList.find((g) => g.id === n) || {}).name || bucketLabel[n] || n,
         total,
         receiptCount,
         sourceTotal,

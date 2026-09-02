@@ -1,6 +1,7 @@
+import crypto from 'crypto';
 import * as EventHead from '../models/eventHeadModel.js';
 import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName, isCampaignName } from '../utils/activitySheet.js';
-import { getTableColumns } from '../config/db.js';
+import db, { getTableColumns } from '../config/db.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
 // must pass through unchanged as a string. sector_id / activity_id are always
@@ -808,6 +809,16 @@ export const assignVehicle = async (req, res) => {
 };
 
 // ─── MEDIA ───
+// Upload a memory-backed multer file to the S3 "event" folder
+// (<S3_BUCKET>/event/<file>) and return its public URL.
+const uploadEventFile = async (file) => {
+  const ext = (file.originalname && '.' + String(file.originalname).split('.').pop()) || '';
+  const key = `event/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext.replace(/[^a-z0-9.]/gi, '').slice(0, 12)}`;
+  const { data, error } = await db.storage.from('event').upload(key, file.buffer, { contentType: file.mimetype });
+  if (error) throw new Error('Upload to S3 failed: ' + error.message);
+  const { data: urlData } = db.storage.from('event').getPublicUrl(key);
+  return { url: urlData?.publicUrl || `event/${key}`, key };
+};
 const normalizeMedia = (m) => ({
   ...m,
   title: m.title || m.name || null,
@@ -826,12 +837,12 @@ const categorizeMedia = (m) => {
   if (/\.(docx?|xlsx?|pptx?|txt|csv)$/.test(url)) return 'Document';
   return 'Other';
 };
-const pickMediaMeta = (body, file) => {
+const pickMediaMeta = (body, file, s3Url = null) => {
   const clean = sanitize(body);
   const size = file?.size != null ? Number(file.size) : (clean.size != null ? Number(clean.size) : null);
   const meta = {
     name: file?.originalname || clean.name || clean.title || `${Date.now()}`,
-    url: clean.url || `/uploads/${file?.filename || ''}`,
+    url: clean.url || s3Url || `/uploads/${file?.filename || ''}`,
     type: file?.mimetype || clean.type || clean.media_type || null,
     title: clean.title || file?.originalname || clean.name || null,
     description: clean.description || null,
@@ -853,12 +864,14 @@ export const uploadMedia = async (req, res) => {
     if (uploaded.length > 0) {
       const saved = [];
       for (const f of uploaded) {
-        saved.push(await EventHead.createMedia(req.params.eventId, pickMediaMeta({ ...req.body, name: f.originalname }, f)));
+        const { url } = await uploadEventFile(f);
+        saved.push(await EventHead.createMedia(req.params.eventId, pickMediaMeta({ ...req.body, name: f.originalname }, f, url)));
       }
       return res.status(201).json(saved.map(normalizeMedia));
     }
     if (req.file) {
-      const media = await EventHead.createMedia(req.params.eventId, pickMediaMeta(req.body, req.file));
+      const { url } = await uploadEventFile(req.file);
+      const media = await EventHead.createMedia(req.params.eventId, pickMediaMeta(req.body, req.file, url));
       return res.status(201).json(normalizeMedia(media));
     }
     // No file — allow creating a media record by URL only (documents/other).
@@ -880,6 +893,27 @@ export const listMedia = async (req, res) => {
   }
 };
 
+export const listMediaByNgo = async (req, res) => {
+  try {
+    const ngoId = ownNgoId(req) || req.params.ngoId;
+    if (!ngoId) return res.status(400).json({ message: 'NgoId is required' });
+    const media = await EventHead.getMediaByNgo(ngoId);
+    return res.json((media || []).map(m => {
+      const norm = normalizeMedia(m);
+      const ev = m.event_head_events;
+      if (ev) {
+        norm.event_id = ev.id != null ? ev.id : norm.event_id;
+        norm.event_name = ev.name || null;
+        norm.event_date = ev.date || null;
+      }
+      return norm;
+    }));
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const replaceMedia = async (req, res) => {
   try {
     const existing = await EventHead.getMediaById(req.params.eventId, req.params.id);
@@ -887,7 +921,8 @@ export const replaceMedia = async (req, res) => {
     const clean = sanitize(req.body);
     const updates = {};
     if (req.file) {
-      updates.url = clean.url || `/uploads/${req.file.filename || ''}`;
+      const { url } = await uploadEventFile(req.file);
+      updates.url = clean.url || url;
       if (req.file.mimetype) updates.type = req.file.mimetype;
       updates.name = req.file.originalname || clean.name || existing.name;
       if (req.file.size != null) updates.size = Number(req.file.size);
