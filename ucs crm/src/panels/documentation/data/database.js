@@ -168,7 +168,7 @@ The database has grown organically — the WhatsApp CRM tables (contacts, conver
             columns: [
               { name: 'id', type: 'UUID PK', description: '' },
               { name: 'worker_id', type: 'UUID FK→workers', description: '' },
-              { name: 'type', type: 'TEXT', description: 'full_day/half_day/vacational/emergency' },
+              { name: 'type', type: 'TEXT', description: 'full_day/half_day/vacational/emergency/holiday' },
               { name: 'leave_date', type: 'DATE', description: 'For single-day leaves' },
               { name: 'start_date', type: 'DATE', description: 'For multi-day leaves' },
               { name: 'end_date', type: 'DATE', description: 'For multi-day leaves' },
