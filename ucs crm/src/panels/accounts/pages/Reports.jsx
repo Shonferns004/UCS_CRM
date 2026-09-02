@@ -253,6 +253,7 @@ export default function Reports() {
 
   // effective per-NGO targets = saved (from backend rows) unless editing
   const ngos = data?.ngos || [];
+  const sourceTabs = (data?.sourceTabs && data.sourceTabs.length > 0) ? data.sourceTabs : ngos;
   const sourceOrder = data?.sourceOrder || [];
   const rows = data?.rows || [];
 
@@ -563,7 +564,7 @@ export default function Reports() {
               <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14, color: 'var(--ink)' }}>Collection by Payment Source (NGO-wise)</h3>
                 <div className="no-print" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {[{ id: 'All', name: 'All' }, ...ngos].map(t => (
+                  {[{ id: 'All', name: 'All' }, ...sourceTabs].map(t => (
                     <button
                       key={t.id}
                       onClick={() => setSourceTab(t.id)}
@@ -581,7 +582,7 @@ export default function Reports() {
                   <thead>
                     <tr style={{ textAlign: 'left', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', background: '#f9fafb' }}>
                       <th style={{ padding: '9px 12px' }}>Source</th>
-                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => <th key={n.id} style={{ padding: '9px 12px' }}>{n.name}</th>)}
+                      {(sourceTab === 'All' ? sourceTabs : sourceTabs.filter(n => n.id === sourceTab)).map(n => <th key={n.id} style={{ padding: '9px 12px' }}>{n.name}</th>)}
                       {sourceTab === 'All' && <th style={{ padding: '9px 12px' }}>Total</th>}
                     </tr>
                   </thead>
@@ -589,7 +590,7 @@ export default function Reports() {
                     {sourceOrder.map(src => (
                       <tr key={src} style={{ borderTop: '1px solid var(--line)' }}>
                         <td style={{ padding: '9px 12px' }}><span className="pill pill-gray">{src}</span></td>
-                        {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
+                        {(sourceTab === 'All' ? sourceTabs : sourceTabs.filter(n => n.id === sourceTab)).map(n => (
                           <td key={n.id} style={{ padding: '9px 12px' }}>{mask(currency(data?.byNgo?.[n.id]?.sources?.[src] || 0))}</td>
                         ))}
                         {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(grandBySource[src]))}</td>}
@@ -597,7 +598,7 @@ export default function Reports() {
                     ))}
                     <tr style={{ borderTop: '2px solid var(--sage)', background: '#F6F8F7' }}>
                       <td style={{ padding: '9px 12px', fontWeight: 700 }}>Source Total (receipts)</td>
-                      {(sourceTab === 'All' ? ngos : ngos.filter(n => n.id === sourceTab)).map(n => (
+                      {(sourceTab === 'All' ? sourceTabs : sourceTabs.filter(n => n.id === sourceTab)).map(n => (
                         <td key={n.id} style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency((rows.find(r => r.id === n.id)?.sourceTotal) || 0))}</td>
                       ))}
                       {sourceTab === 'All' && <td style={{ padding: '9px 12px', fontWeight: 700 }}>{mask(currency(grandSourceTotal))}</td>}

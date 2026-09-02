@@ -1736,9 +1736,14 @@ export const getReceiptList = async (req, res) => {
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
 
     // Ascending by receipt number when searching, otherwise highest receipt number first.
+    // In suspense / PG views, unnumbered receipts (receipt_no IS NULL) are the ones
+    // needing attention, so surface them first instead of burying them on later pages
+    // (a plain DESC cast sorts NULLs last).
     const orderSql = search
       ? 'ORDER BY receipt_no ASC, receipt_date ASC'
-      : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
+      : (isSuspense || isPg)
+        ? 'ORDER BY (receipt_no IS NULL) DESC, CAST(receipt_no AS INTEGER) DESC, receipt_date DESC'
+        : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
 
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
@@ -5029,14 +5034,23 @@ export const getReportData = async (req, res) => {
     // three are the real NGOs (project_id keyed); library/pg are project buckets
     // (project_id = 'library' / 'pg') and suspense is an agent bucket
     // (agent_name = 'Suspense'). Each receipt lands in exactly one bucket:
-    // suspense wins over any project. The ngoList/ngos above stays at the three
-    // NGOs only, so the "Collection by Payment Source" pills keep showing just
-    // bsct/aflf/mann.
-    const reportBuckets = ['bsct', 'mann', 'aflf', 'library', 'pg', 'suspense'];
+    // suspense wins over any project.
+    const reportBuckets = ['bsct', 'mann', 'aflf', 'pg', 'library', 'suspense'];
     const bucketLabel = {
       bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF',
-      library: 'Library', pg: 'PG', suspense: 'Suspense',
+      pg: 'PG', library: 'Library', suspense: 'Suspense',
     };
+
+    // "Collection by Payment Source" tabs: the three NGOs plus the library/pg/
+    // suspense buckets (suspense is agent-based, not a project). Returned as a
+    // SEPARATE `sourceTabs` list so `ngos`/`ngoIds` (driving the NGO target-form
+    // and working-day logic) stay at just the three real NGOs.
+    const realNgoName = {};
+    for (const g of ngoList) realNgoName[g.id] = g.name;
+    const sourceTabs = reportBuckets.map((t) => ({
+      id: t,
+      name: realNgoName[t] || bucketLabel[t] || t,
+    }));
     const isSuspenseAgent = (agent) => {
       const a = String(agent || '').trim().toLowerCase();
       return a === 'suspense' || a === 'na' || a === '';
@@ -5199,6 +5213,7 @@ export const getReportData = async (req, res) => {
       from: rangeMode ? dateFrom : null,
       to: rangeMode ? dateTo : null,
       ngos: ngoList,
+      sourceTabs,
       sourceOrder,
       byNgo,
       rows: ngoRows,
