@@ -19,11 +19,15 @@ export const insertEventHeadEventsBulk = async (rows) => {
 
 export const getAllEventHeadEvents = async (filters = {}) => {
   const { ngo_id, sector_id, activity_id, status, month, year } = filters;
+  const SUBMITTED_STATUSES = ['Submitted', 'Submitted&', 'Pending Approval', 'Approval Pending'];
   let query = db.from('event_head_events').select('*').order('created_at', { ascending: false });
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
   if (sector_id) query = query.eq('sector_id', sector_id);
   if (activity_id) query = query.eq('activity_id', activity_id);
-  if (status) query = query.eq('status', status);
+  if (status) {
+    if (status === 'Submitted') query = query.in('status', SUBMITTED_STATUSES);
+    else query = query.eq('status', status);
+  }
   if (month && year) {
     const m = Number(month), y = Number(year);
     if (m >= 1 && m <= 12) {
@@ -397,6 +401,13 @@ export const getMediaByEvent = async (eventId) => {
   const { data, error } = await db.from('event_head_media').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (error) throw error;
   return data;
+};
+
+export const getBannerMediaByEvents = async (eventIds) => {
+  if (!eventIds || !eventIds.length) return [];
+  const { data, error } = await db.from('event_head_media').select('event_id, url, media_type').eq('media_type', 'Banner').in('event_id', eventIds);
+  if (error) throw error;
+  return data || [];
 };
 
 // All media across every event of a single NGO (event → ngo).

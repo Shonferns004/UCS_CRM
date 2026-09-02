@@ -70,6 +70,14 @@ const fmtDateLong = (d) => {
   if (isNaN(dt)) return String(d).slice(0, 10)
   return dt.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
+const fmtDateTime = (d) => {
+  if (!d) return '—'
+  const dt = new Date(d)
+  if (isNaN(dt)) return String(d).slice(0, 10)
+  const date = dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  const time = dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return `${date}, ${time}`
+}
 const yearOf = (date) => {
   if (!date) return null
   const y = new Date(date)
@@ -586,7 +594,7 @@ export default function MediaManagement() {
     { header: 'Year', accessor: 'year', render: (m) => m.year || eventYear || '—' },
     { header: 'Size', accessor: 'size', render: (m) => fmtBytes(m.size) },
     { header: 'Uploaded By', accessor: 'uploaded_by', render: (m) => m.uploaded_by || '—' },
-    { header: 'Uploaded Date', accessor: 'created_at', render: (m) => fmtDate(m.created_at) },
+    { header: 'Uploaded Date', accessor: 'created_at', render: (m) => fmtDateTime(m.created_at) },
     {
       header: 'Actions',
       render: (m) => (
@@ -789,14 +797,59 @@ export default function MediaManagement() {
             )
           })()}
 
+          {/* Social reels / videos section (YouTube / Instagram / Facebook) */}
+          {['YouTube', 'Instagram', 'Facebook'].includes(tab) && (() => {
+            const reels = filteredMedia.filter(m => categoryFromMedia(m) === tab)
+            return (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-head"><h3>{tab} Reels / Videos</h3></div>
+                <div className="card-pad">
+                  {reels.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 28, color: 'var(--ink-soft)' }}>No {tab.toLowerCase()} reels yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {reels.map(m => (
+                        <div key={m.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 4px', borderBottom: '1px solid var(--line)' }}>
+                          <span className="pill" style={{ background: `${TYPE_COLORS[tab]}18`, color: TYPE_COLORS[tab], fontWeight: 600 }}>{tab}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title || m.name}</div>
+                            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.url}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 3 }}>
+                              {fmtDateTime(m.created_at)} · {eventNameOf(m)} {m.uploaded_by ? ` · by ${m.uploaded_by}` : ''}
+                            </div>
+                          </div>
+                          <button className="btn btn-sm" style={{ background: TYPE_COLORS[tab], borderColor: TYPE_COLORS[tab], color: '#fff' }} onClick={() => window.open(m.url, '_blank', 'noopener,noreferrer')}>Open</button>
+                          <button className="btn btn-sm btn-danger" onClick={() => handleDelete(m)}>Delete</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* History */}
-          {historyEvents.length > 0 && (
+          {(() => {
+            const tabHistoryEvents = tab === 'All'
+              ? historyEvents
+              : historyEvents.filter(ev => (historyMedia[String(ev.id)] || []).some(m => categoryFromMedia(m) === tab))
+            if (tab !== 'All' && tabHistoryEvents.length === 0) {
+              return (
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <div className="card-head"><h3>{String(selectedEvent.name || '').toUpperCase()} — HISTORY</h3></div>
+                  <div className="card-pad"><div style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>No {String(tab).toLowerCase()}s in this event's history.</div></div>
+                </div>
+              )
+            }
+            if (tabHistoryEvents.length === 0) return null
+            return (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>{String(selectedEvent.name || '').toUpperCase()} — HISTORY</h3></div>
               <div className="card-pad">
                 {historyLoading ? <div className="loading">Loading history…</div> : (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    {historyEvents
+                    {tabHistoryEvents
                       .slice()
                       .sort((a, b) => yearOf(b.date) - yearOf(a.date))
                       .map(ev => {
@@ -846,7 +899,8 @@ export default function MediaManagement() {
                 )}
               </div>
             </div>
-          )}
+          )
+          })()}
 
           {/* Media table / list view */}
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -1035,7 +1089,7 @@ export default function MediaManagement() {
                 <div><span style={{ color: 'var(--ink-soft)' }}>Year:</span> {previewItem.year || eventYear || '—'}</div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>NGO:</span> {ngoNameOf(selectedEvent) || ngos.find(n => String(n.id) === String(ngoFilter))?.name || '—'}</div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>Sector:</span> {sectorNameOf(selectedEvent) || '—'}</div>
-                <div><span style={{ color: 'var(--ink-soft)' }}>Uploaded:</span> {fmtDate(previewItem.created_at)}</div>
+                <div><span style={{ color: 'var(--ink-soft)' }}>Uploaded:</span> {fmtDateTime(previewItem.created_at)}</div>
                 <div><span style={{ color: 'var(--ink-soft)' }}>File:</span> {extOf(previewItem.url)} · {fmtBytes(previewItem.size)}</div>
               </div>
               {previewItem.description && <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 10 }}>{previewItem.description}</div>}
