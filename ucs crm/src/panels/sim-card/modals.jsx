@@ -23,6 +23,8 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   const [extra, setExtra] = useState({
     team: card?.team || '',
     signature: card?.signature || '',
+    sim_type: card?.sim_type || '',
+    gb: card?.gb || '',
     issue_date: card?.issue_date || '',
     expiry_date: card?.expiry_date || '',
     status: card?.status || 'Active',
@@ -37,8 +39,8 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   const dl = computeDl(extra.expiry_date);
 
   async function handleSave() {
-    if (!form.mobile_id || !form.device_model || !form.imei || !extra.issue_date || !extra.expiry_date) {
-      toast('Please fill required fields (Mobile ID, Device, IMEI, Issue Date, Expiry Date)', 'error');
+    if (!form.mobile_id || !String(form.mobile_id).trim()) {
+      toast('Please fill Mobile ID No.', 'error');
       return;
     }
     setSaving(true);
@@ -46,6 +48,8 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
       ...form,
       team: extra.team,
       signature: extra.signature,
+      sim_type: extra.sim_type || null,
+      gb: extra.gb || null,
       issue_date: extra.issue_date,
       expiry_date: extra.expiry_date,
       status: extra.status,
@@ -76,13 +80,14 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
         </div>
         <div className="modal-body">
           <div className="form-grid">
-            <Field label="Mobile ID No. *" value={form.mobile_id} onChange={(v) => set('mobile_id', v)} />
-            <Field label="Device & Model Name *" value={form.device_model} onChange={(v) => set('device_model', v)} />
-            <Field label="IMEI No. *" value={form.imei} onChange={(v) => set('imei', v)} />
+            <Field label="Mobile ID No.*" value={form.mobile_id} onChange={(v) => set('mobile_id', v)} />
+            <Field label="Device & Model Name" value={form.device_model} onChange={(v) => set('device_model', v)} />
+            <Field label="GB" value={extra.gb} onChange={(v) => setE('gb', v)} placeholder="e.g. 64 GB" />
+            <Field label="IMEI No." value={form.imei} onChange={(v) => set('imei', v)} />
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
             <Field label="Signature" value={extra.signature} onChange={(v) => setE('signature', v)} />
-            <Field label="SIM Card Issue Date *" type="date" value={extra.issue_date} onChange={(v) => setE('issue_date', v)} />
-            <Field label="Auto Expiry Date *" type="date" value={extra.expiry_date} onChange={(v) => setE('expiry_date', v)} />
+            <Field label="SIM Card Issue Date" type="date" value={extra.issue_date} onChange={(v) => setE('issue_date', v)} />
+            <Field label="Auto Expiry Date" type="date" value={extra.expiry_date} onChange={(v) => setE('expiry_date', v)} />
             <div className="form-row">
               <label>SIM Card Status</label>
               <select value={extra.status} onChange={(e) => setE('status', e.target.value)}>
