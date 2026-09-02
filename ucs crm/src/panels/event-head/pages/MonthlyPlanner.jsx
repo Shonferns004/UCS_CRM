@@ -448,6 +448,32 @@ export default function MonthlyPlanner() {
 
   useEffect(() => { loadEvents() /* eslint-disable-line */ }, [range, filterNgo, filterSector, filterActivity, filterStatus, filterYear, loadKey])
 
+  /* ── Auto-jump the calendar to a month that actually has events ── */
+  const didJumpRef = useRef(false)
+  useEffect(() => {
+    if (didJumpRef.current) return
+    didJumpRef.current = true
+    if (!calRef.current || initialDate) return
+    const yNow = new Date().getFullYear()
+    fetchCalendarEvents({
+      start: `${yNow - 1}-01-01`, end: `${yNow + 1}-01-01`,
+      ngoId: filterNgo || undefined,
+    })
+      .then(d => {
+        const list = Array.isArray(d) ? d : []
+        // Current visible month (from range) already has events → nothing to do.
+        if (range && events.length && events.filter(e => {
+          const day = (e.extendedProps?.date || '').slice(0, 10)
+          return day >= String(range.start).slice(0, 10) && day < String(range.end).slice(0, 10)
+        }).length > 0) return
+        const dated = list.filter(e => (e.extendedProps?.date || '').slice(0, 10) >= new Date().toISOString().slice(0, 10))
+          .sort((a, b) => String(a.extendedProps?.date || '').localeCompare(String(b.extendedProps?.date || '')))
+        const target = dated[0] || list[0]
+        if (target && calRef.current) calRef.current.gotoDate(String(target.extendedProps?.date || target.startStr || '').slice(0, 10))
+      })
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const clearFilters = () => { setSearch(''); setFilterNgo(''); setFilterSector(''); setFilterActivity(''); setFilterStatus(''); setFilterYear('') }
   const hasFilters = search || filterNgo || filterSector || filterActivity || filterStatus || filterYear
 
@@ -625,6 +651,16 @@ export default function MonthlyPlanner() {
         </div>
       </div>
 
+      {filterNgo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <span style={{ color: 'var(--eh-ink-soft)' }}>Showing:</span>
+          <span className="eh-tag" data-ngo-id={filterNgo} onClick={() => changeNgo('')} style={{ cursor: 'pointer' }}>
+            {ngos.find(n => String(n.id) === String(filterNgo))?.name || 'NGO'} ✕
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>(viewing this NGO&apos;s events only — click ✕ or choose &quot;All NGOs&quot; to clear)</span>
+        </div>
+      )}
+
       <div className="card" onClick={handleTagClick}>
         <div className="card-pad">
           {loading && <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)', marginBottom: 8 }}>Loading calendar…</div>}
@@ -658,7 +694,7 @@ export default function MonthlyPlanner() {
               return {
                 html: `<div class="eh-pill" style="--pile-c:${cat.color}">
                   <div class="eh-pill-row1"><span class="eh-pill-icon">${cat.icon}</span><span class="eh-pill-title">${escapeHtml(title)}${ngos.length > 1 ? ` <b class="eh-pill-count">(${ngos.length} NGOs)</b>` : ''}</span></div>
-                  <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag" data-ngo-id="${escapeHtml(n.id || '')}">${escapeHtml(n.code)}</span>`).join('')}</div>
+                  <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag" data-ngo-id="${escapeHtml(n.id || '')}" title="Click to show only ${escapeHtml(n.code)} events" style="cursor:pointer">${escapeHtml(n.code)}</span>`).join('')}</div>
                 </div>`,
               }
             }}
