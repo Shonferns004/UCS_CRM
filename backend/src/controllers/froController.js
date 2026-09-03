@@ -35,7 +35,7 @@ import {
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
-import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition } from '../models/workQueueModel.js';
+import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -2594,6 +2594,29 @@ export const createDonorLogHandler = async (req, res) => {
           });
         } catch (queueErr) {
           console.warn('work_queue status update skipped for assignment', assignment.id, ':', queueErr.message);
+        }
+      }
+
+      // DND: remove the FRO's station + agent assignment entirely so the lead
+      // stops appearing in this FRO's list and can never be re-enqueued. Deletes
+      // the assignment row and its associated logs / scheduled contacts (mirrors
+      // the manual deleteAssignment cleanup) and hard-removes the donor from the
+      // work_queue (which has no public FK cascade to fro_assignments). The
+      // donor profile / receipts / donations are left untouched. Runs inside the
+      // same transaction so a partial failure rolls back atomically.
+      if (action === 'disposition' && disposition_detail === 'dnd') {
+        try {
+          const { data: rmLogs } = await db.from('fro_donor_logs').select('id').eq('assignment_id', assignment.id);
+          const rmLogIds = (rmLogs || []).map(l => l.id);
+          if (rmLogIds.length > 0) {
+            await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', rmLogIds);
+            await db.from('fro_donor_logs').delete().in('id', rmLogIds);
+          }
+          await db.from('fro_scheduled_contacts').delete().eq('assignment_id', assignment.id);
+          await db.from('fro_assignments').delete().eq('id', assignment.id);
+          await removeFromQueue({ workerId, donorId });
+        } catch (dndErr) {
+          console.error('Failed to fully remove DND assignment', assignment.id, ':', dndErr.message);
         }
       }
 
