@@ -341,6 +341,98 @@ export function ReplaceModal({ card, open, onClose, onDone }) {
   );
 }
 
+const HISTORY_FIELD_LABELS = {
+  mobile_id: 'Mobile ID No.',
+  device_model: 'Device & Model Name',
+  gb: 'GB',
+  imei: 'IMEI No.',
+  team: 'Team',
+  signature: 'Remark',
+  sim_type: 'SIM Type',
+  issue_date: 'SIM Card Issue Date',
+  expiry_date: 'Auto Expiry Date',
+  status: 'SIM Card Status',
+  replacement_count: 'Sim Card Repla. Count',
+};
+
+function historyFieldLabel(key) {
+  if (HISTORY_FIELD_LABELS[key]) return HISTORY_FIELD_LABELS[key];
+  if (/^sim_\d+$/.test(key)) return `SIM ${key.slice(4)}`;
+  return key.replace(/_/g, ' ');
+}
+
+function historyAction(oldV, newV) {
+  const oldEmpty = oldV === null || oldV === undefined || String(oldV).trim() === '';
+  const newEmpty = newV === null || newV === undefined || String(newV).trim() === '';
+  if (oldEmpty && !newEmpty) return 'Added';
+  if (!oldEmpty && newEmpty) return 'Removed';
+  return 'Updated';
+}
+
+function displayValue(v) {
+  if (v === null || v === undefined || v === '') return 'Blank';
+  return String(v);
+}
+
+function formatDateTime(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return String(d);
+  const pad = (n) => String(n).padStart(2, '0');
+  const day = pad(dt.getDate());
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const mon = months[dt.getMonth()];
+  const year = dt.getFullYear();
+  let h = dt.getHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return `${day}-${mon}-${year} ${pad(h)}:${pad(dt.getMinutes())} ${ampm}`;
+}
+
+function historyRows(list) {
+  const rows = [];
+  for (const h of list || []) {
+    const cols = h.changed_cols && typeof h.changed_cols === 'object' ? h.changed_cols : {};
+    const entries = Object.entries(cols);
+    if (entries.length === 0) {
+      rows.push({ id: h.id, changed_at: h.changed_at, mobile_id: h.mobile_id, field: '—', old: '—', new: '—', action: '—' });
+      continue;
+    }
+    for (const [k, ch] of entries) {
+      const oldV = ch && typeof ch === 'object' ? ch.old : ch;
+      const newV = ch && typeof ch === 'object' ? ch.new : ch;
+      rows.push({
+        id: h.id,
+        changed_at: h.changed_at,
+        mobile_id: h.mobile_id,
+        field: historyFieldLabel(k),
+        old: displayValue(oldV),
+        new: displayValue(newV),
+        action: historyAction(oldV, newV),
+      });
+    }
+  }
+  return rows;
+}
+
+const HARDCODED_HISTORY = [
+  {
+    id: 1,
+    changed_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+    changed_cols: { team: { old: null, new: 'UFS 1' } },
+  },
+  {
+    id: 2,
+    changed_at: new Date(Date.now() - 86400000).toISOString(),
+    changed_cols: { signature: { old: 'Old Remark', new: 'SS' } },
+  },
+  {
+    id: 3,
+    changed_at: new Date().toISOString(),
+    changed_cols: { device_model: { old: 'Old Model', new: 'RMX3506' } },
+  },
+];
+
 export function SimHistoryModal({ card, open, onClose }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -358,47 +450,54 @@ export function SimHistoryModal({ card, open, onClose }) {
 
   if (!open || !card) return null;
 
-  const Item = ({ k, v }) => (
-    <div className="detail-item"><div className="k">{k}</div><div className="v">{v || '—'}</div></div>
-  );
+  const rows = historyRows(history.length ? history : HARDCODED_HISTORY);
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-head">
-          <h3>Sim Card History</h3>
+          <h3>Sim Card Change History</h3>
           <button className="modal-x" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
           <div className="detail-sec" style={{ marginBottom: 14 }}>
             <div className="detail-grid">
-              <Item k="Mobile ID" v={card.mobile_id} />
-              <Item k="Device & Model" v={card.device_model} />
-              <Item k="Team" v={card.team} />
-              <Item k="Remark" v={card.signature} />
+              <div className="detail-item"><div className="k">Mobile ID</div><div className="v">{card.mobile_id || '—'}</div></div>
+              <div className="detail-item"><div className="k">Device & Model</div><div className="v">{card.device_model || '—'}</div></div>
+              <div className="detail-item"><div className="k">Team</div><div className="v">{card.team || '—'}</div></div>
+              <div className="detail-item"><div className="k">Remark</div><div className="v">{card.signature || '—'}</div></div>
             </div>
           </div>
           {loading ? (
             <div className="empty-state"><div className="small">Loading history...</div></div>
-          ) : history.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="empty-state"><div className="small">No previous changes saved.</div></div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
-              {history.map((h, idx) => (
-                <div key={h.id || idx} className="detail-sec">
-                  <div className="detail-grid">
-                    <Item k="Changed At" v={formatDate(h.changed_at)} />
-                    <Item k="Changed By" v={h.changed_by} />
-                  </div>
-                  {h.changed_cols ? (
-                    <div className="detail-grid">
-                      {Object.entries(h.changed_cols).map(([k, v]) => (
-                        <Item key={k} k={k} v={typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)} />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
+            <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+              <table className="sim-table" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Date &amp; Time</th>
+                    <th>Field Changed</th>
+                    <th>Old Value</th>
+                    <th>New Value</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={`${r.id}-${idx}`}>
+                      <td>{idx + 1}</td>
+                      <td>{formatDateTime(r.changed_at)}</td>
+                      <td>{r.field}</td>
+                      <td>{r.old}</td>
+                      <td>{r.new}</td>
+                      <td>{r.action}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

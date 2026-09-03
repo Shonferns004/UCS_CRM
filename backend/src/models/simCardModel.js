@@ -110,7 +110,7 @@ export const getSimCardHistory = async (simCardId) => {
     .from('sim_card_history')
     .select('*')
     .eq('sim_card_id', simCardId)
-    .order('changed_at', { ascending: false });
+    .order('id', { ascending: true });
   if (error) throw error;
   return data || [];
 };
