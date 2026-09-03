@@ -20,6 +20,7 @@ export default function CreateEvent() {
   const [aiChecking, setAiChecking] = useState(false)
   const [aiUnavailable, setAiUnavailable] = useState(false)
   const [aiDismissed, setAiDismissed] = useState({})
+  const [aiRan, setAiRan] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -47,8 +48,9 @@ export default function CreateEvent() {
   const applyAllSuggestions = () => {
     const next = { ...form }
     const dismissed = { ...aiDismissed }
-    for (const [key, value] of Object.entries(aiSuggestions)) {
-      next[key] = value
+    for (const [key, s] of Object.entries(aiSuggestions)) {
+      const corrected = (s && s.corrected) || s
+      next[key] = corrected
       dismissed[key] = true
     }
     setForm(next)
@@ -72,6 +74,7 @@ export default function CreateEvent() {
           const sugg = (data && data.suggestions) || {}
           setAiSuggestions(sugg)
           setAiUnavailable(false)
+          setAiRan(true)
         })
         .catch(() => {
           if (!cancelled) setAiUnavailable(true)
@@ -172,11 +175,14 @@ export default function CreateEvent() {
 
   // Inline AI suggestion note shown just under a field when GROQ suggests a fix.
   const inlineSuggestion = (key) => {
-    const corr = aiSuggestions[key]
-    if (!corr || aiDismissed[key]) return null
+    const sug = aiSuggestions[key]
+    if (!sug || aiDismissed[key]) return null
+    const corr = (sug && sug.corrected) || sug
+    const reason = (sug && sug.reason) || 'looks like it may be spelled differently'
     return (
       <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#166534', flexWrap: 'wrap' }}>
-        <span>✨ <b>{corr}</b></span>
+        <span style={{ color: '#b91c1c' }}>⚠</span>
+        <span>Looks like <b>{corr}</b>? <em style={{ color: '#6b7280', fontStyle: 'normal' }}>({reason})</em></span>
         <button type="button" onClick={() => applySuggestion(key, corr)} style={{ border: 'none', background: '#bbf7d0', color: '#166534', borderRadius: 999, padding: '1px 8px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>Apply</button>
         <button type="button" onClick={() => setAiDismissed(prev => ({ ...prev, [key]: true }))} style={{ border: 'none', background: 'transparent', color: '#9ca3af', cursor: 'pointer', fontSize: 12 }} title="Dismiss">✕</button>
       </div>
@@ -214,9 +220,14 @@ export default function CreateEvent() {
             {Object.keys(aiSuggestions).length === 0 && !aiUnavailable && aiChecking && (
               <div style={{ fontSize: 12, color: '#6b7280' }}>Reviewing your spelling as you type…</div>
             )}
+            {Object.keys(aiSuggestions).length === 0 && !aiUnavailable && !aiChecking && aiRan && (
+              <div style={{ fontSize: 12, color: '#166534' }}>No spelling issues detected 👌</div>
+            )}
             {Object.keys(aiSuggestions).reduce((acc, k) => {
               const orig = String(form[k] || '')
-              const corr = aiSuggestions[k]
+              const sug = aiSuggestions[k]
+              const corr = (sug && sug.corrected) || sug
+              const reason = (sug && sug.reason) || 'looks like it may be spelled differently'
               if (aiDismissed[k]) return acc
               acc.push(
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #d1fae5', flexWrap: 'wrap' }}>
@@ -225,6 +236,7 @@ export default function CreateEvent() {
                     <span style={{ textDecoration: 'line-through', color: '#9ca3af' }}>{orig}</span>
                     {' → '}
                     <span style={{ fontWeight: 600, color: '#065f46' }}>{corr}</span>
+                    <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>{reason}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button type="button" className="eh-btn eh-btn-primary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => applySuggestion(k, corr)}>Apply</button>
