@@ -389,8 +389,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       const wsData = [headers];
       const rowStyles = [];
-      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0, unattributedCount = 0;
-      const CATEGORY_ORDER = ['Pg', 'Library', 'Suspense', 'Anjana FRO', 'Priyank Shah'];
+      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0;
+      const CATEGORY_ORDER = ['Pg', 'Library', 'Suspense'];
 
       // JS accumulators so every subtotal / the Grand Total is an exact literal
       // (independent of Excel formula quirks like SUMIF wildcards or recalc).
@@ -424,7 +424,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       const froSums = makeSums(), mgmtSums = makeSums(), hrSums = makeSums(), abscondSums = makeSums();
       const catSumsByLabel = {};
       for (const label of CATEGORY_ORDER) catSumsByLabel[label] = makeSums();
-      const unattributedSums = makeSums();
       const grandSums = makeSums();
       const accAny = (sum, r) => { addSum(sum, r); addSum(grandSums, r); };
 
@@ -476,7 +475,6 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         else if (isActive && isHr) { hrCount++; accAny(hrSums, r); }
         else if (isAbscond) { abscondCount++; accAny(abscondSums, r); }
         else if (r.status === 'CATEGORY') { accAny(catSumsByLabel[r.name] || makeSums(), r); }
-        else if (r.status === 'UNATTRIBUTED') { unattributedCount++; accAny(unattributedSums, r); }
       }
 
       // Build a totals row from JS-accumulated sums (exact literal values).
@@ -519,13 +517,12 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       if (mgmtCount > 0) buildTotalRow('Management Total', mgmtSums);
       if (hrCount > 0) buildTotalRow('HR Total', hrSums);
       if (abscondCount > 0) buildTotalRow('Absconded Total', abscondSums);
-      // A separate total line per category (Pg / Library / Suspense / Anjana FRO)
+      // A separate total line per category (Pg / Library / Suspense)
       for (const label of CATEGORY_ORDER) {
         if (catSumsByLabel[label]) {
           buildTotalRow(`${label} Total`, catSumsByLabel[label]);
         }
       }
-      if (unattributedCount > 0) buildTotalRow('Unattributed (No Agent) Total', unattributedSums);
       buildTotalRow('Grand Total', grandSums);
 
       // Apply formulas for data rows
@@ -533,7 +530,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         const row = i + 1; // 1-indexed
         const colLetter = (c) => XLSX.utils.encode_col(c);
         // Balance = Target - Total Achieved (blank for target-less rows like
-        // category / Anjana FRO / Unattributed so they don't show negatives)
+        // category / Anjana FRO / Priyank Shah so they don't show negatives)
         if ((rows[i - 1]?.target || 0) > 0) {
           wsData[i][COL.BALANCE] = { f: `${colLetter(COL.TARGET)}${row}-${colLetter(COL.TOTAL_ACH)}${row}` };
         } else {
