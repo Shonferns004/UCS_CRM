@@ -76,21 +76,9 @@ const SIM_NAV = [
   { id: 'sim-expiring', path: '/accounts/sim/expiring', label: 'Expiring SIMs',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
     match: (p) => p.startsWith('/accounts/sim/expiring') },
-  { id: 'sim-replacements', path: '/accounts/sim/replacements', label: 'SIM Replacements',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
-    match: (p) => p === '/accounts/sim/replacements' },
-  { id: 'sim-history', path: '/accounts/sim/history', label: 'Replacement History',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg>,
-    match: (p) => p === '/accounts/sim/history' },
   { id: 'sim-reports', path: '/accounts/sim/reports', label: 'SIM Reports',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
     match: (p) => p === '/accounts/sim/reports' },
-  { id: 'sim-import', path: '/accounts/sim/import', label: 'Import / Export',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
-    match: (p) => p === '/accounts/sim/import' },
-  { id: 'sim-settings', path: '/accounts/sim/settings', label: 'Settings',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8L7 17M17 7l2.8-2.8"/></svg>,
-    match: (p) => p === '/accounts/sim/settings' },
 ]
 
 const settingsViews = [
