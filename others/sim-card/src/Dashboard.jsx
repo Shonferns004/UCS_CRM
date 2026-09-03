@@ -114,7 +114,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   }
 
   const summary = [
-    { label: 'Total SIM Cards', val: data.total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
+    { label: 'Total Mobile', val: data.total, sub: 'All registered SIMs', icon: 'simcard', ic: { bg: 'var(--sim-blue-soft)', color: 'var(--sim-blue)' }, bar: '#2563eb' },
     { label: 'Active SIM Cards', val: data.active, sub: 'Currently active', icon: 'sim', ic: { bg: '#f0fdf4', color: '#16a34a' }, bar: '#16a34a' },
     { label: 'Expiring Soon', val: data.expiring, sub: 'Within 28 days', icon: 'clock', ic: { bg: 'var(--sim-amber-soft)', color: 'var(--sim-amber)' }, bar: '#d97706' },
     { label: 'Expired SIM Cards', val: data.expired, sub: 'Past expiry date', icon: 'inventory', ic: { bg: 'var(--sim-red-soft)', color: 'var(--sim-red)' }, bar: '#dc2626' },
