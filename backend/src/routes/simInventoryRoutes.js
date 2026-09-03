@@ -10,23 +10,22 @@ import {
   deleteBulk,
   importInventoryItems,
 } from '../controllers/simInventoryController.js';
-import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-const MANAGERS = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 const ANY_AUTH = authenticate;
 
 router.get('/', ANY_AUTH, listInventoryItems);
 router.get('/:id', ANY_AUTH, getInventoryItem);
 
-router.post('/', MANAGERS, addInventoryItem);
-router.post('/import', MANAGERS, importInventoryItems);
-router.post('/bulk', MANAGERS, deleteBulk);
-router.post('/:id/assign', MANAGERS, assignInventoryItem);
-router.post('/:id/status', MANAGERS, updateStatus);
+router.post('/', ANY_AUTH, addInventoryItem);
+router.post('/import', ANY_AUTH, importInventoryItems);
+router.post('/bulk', ANY_AUTH, deleteBulk);
+router.post('/:id/assign', ANY_AUTH, assignInventoryItem);
+router.post('/:id/status', ANY_AUTH, updateStatus);
 
-router.put('/:id', MANAGERS, editInventoryItem);
-router.delete('/:id', MANAGERS, removeInventoryItem);
+router.put('/:id', ANY_AUTH, editInventoryItem);
+router.delete('/:id', ANY_AUTH, removeInventoryItem);
 
 export default router;

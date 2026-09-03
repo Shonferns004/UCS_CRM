@@ -1,0 +1,560 @@
+/* SIM section styles for the Accounts panel.
+   Scoped port of the SIM Card panel stylesheets — every rule lives under
+   .panel-accounts .sim-scope so nothing leaks into the rest of the app. */
+
+.panel-accounts .sim-scope {
+  --sim-bg: #f4f7fb;
+  --sim-white: #ffffff;
+  --sim-blue: #2563eb;
+  --sim-blue-dark: #1d4ed8;
+  --sim-blue-soft: #eff6ff;
+  --sim-line: #e2e8f0;
+  --sim-ink: #0f172a;
+  --sim-ink-soft: #64748b;
+  --sim-green: #16a34a;
+  --sim-green-soft: #f0fdf4;
+  --sim-amber: #d97706;
+  --sim-amber-soft: #fffbeb;
+  --sim-red: #dc2626;
+  --sim-red-soft: #fef2f2;
+  --sim-gray: #6b7280;
+  --sim-gray-soft: #f3f4f6;
+  --sim-radius: 12px;
+  --sim-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--sim-ink);
+  box-sizing: border-box;
+}
+
+.panel-accounts .sim-scope *,
+.panel-accounts .sim-scope *::before,
+.panel-accounts .sim-scope *::after { box-sizing: border-box; }
+
+.panel-accounts .sim-scope .sim-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.panel-accounts .sim-scope .sim-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--sim-line); background: var(--sim-white);
+  color: var(--sim-ink); cursor: pointer; white-space: nowrap;
+  transition: all .12s ease; font-family: inherit; text-decoration: none;
+}
+.panel-accounts .sim-scope .sim-btn:hover { border-color: var(--sim-blue); color: var(--sim-blue-dark); background: var(--sim-blue-soft); }
+.panel-accounts .sim-scope .sim-btn.primary { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; }
+.panel-accounts .sim-scope .sim-btn.primary:hover { background: var(--sim-blue-dark); color: #fff; }
+.panel-accounts .sim-scope .sim-btn.danger { background: var(--sim-red-soft); border-color: #fecaca; color: var(--sim-red); }
+.panel-accounts .sim-scope .sim-btn.danger:hover { background: var(--sim-red); color: #fff; border-color: var(--sim-red); }
+.panel-accounts .sim-scope .sim-btn.ghost { background: transparent; border-color: transparent; }
+.panel-accounts .sim-scope .sim-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.panel-accounts .sim-scope .grid-4 { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; margin-bottom: 24px; }
+
+.panel-accounts .sim-scope .sim-card {
+  background: var(--sim-white); border: 1px solid var(--sim-line);
+  border-radius: var(--sim-radius); box-shadow: var(--sim-shadow);
+  padding: 18px;
+}
+.panel-accounts .sim-scope .sim-card .ic {
+  width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue-soft); color: var(--sim-blue); margin-bottom: 12px;
+}
+.panel-accounts .sim-scope .sim-card .title { font-size: 12px; color: var(--sim-ink-soft); margin-bottom: 4px; }
+.panel-accounts .sim-scope .sim-card .num { font-size: 28px; font-weight: 700; color: var(--sim-ink); line-height: 1.1; }
+.panel-accounts .sim-scope .sim-card .sub { font-size: 11px; color: var(--sim-ink-soft); margin-top: 4px; }
+
+.panel-accounts .sim-scope .card-block {
+  background: var(--sim-white); border: 1px solid var(--sim-line);
+  border-radius: var(--sim-radius); box-shadow: var(--sim-shadow);
+  margin-bottom: 24px; overflow: hidden;
+}
+.panel-accounts .sim-scope .card-block .tb { padding: 14px 18px; border-bottom: 1px solid var(--sim-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel-accounts .sim-scope .card-block .tb h3 { margin: 0; font-size: 15px; color: var(--sim-ink); }
+.panel-accounts .sim-scope .card-block .tb .ln { font-size: 12px; color: var(--sim-ink-soft); }
+
+.panel-accounts .sim-scope .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 18px; }
+.panel-accounts .sim-scope .stat-g {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 10px; padding: 14px;
+}
+.panel-accounts .sim-scope .stat-g .lab { font-size: 11px; color: var(--sim-ink-soft); margin-bottom: 6px; }
+.panel-accounts .sim-scope .stat-g .bar { height: 8px; border-radius: 99px; background: #e2e8f0; overflow: hidden; }
+.panel-accounts .sim-scope .stat-g .fill { height: 100%; border-radius: 99px; }
+.panel-accounts .sim-scope .stat-g .val { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--sim-ink); }
+
+.panel-accounts .sim-scope .summary-block { margin-bottom: 16px; }
+.panel-accounts .sim-scope .summary-block .tb { border-bottom: 1px solid var(--sim-line); }
+.panel-accounts .sim-scope .sum-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; padding: 18px;
+}
+.panel-accounts .sim-scope .sum-tile {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 11px;
+  padding: 14px; display: flex; flex-direction: column; gap: 6px;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.panel-accounts .sim-scope .sum-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15, 23, 42, .08); border-color: #c7d6f0; background: #fff; }
+.panel-accounts .sim-scope .sum-n { font-size: 26px; font-weight: 800; color: var(--sim-ink); line-height: 1; }
+.panel-accounts .sim-scope .sum-lab { font-size: 11px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .sum-bar { height: 5px; border-radius: 99px; background: #e8edf5; overflow: hidden; margin-top: 2px; }
+.panel-accounts .sim-scope .sum-bar > span { display: block; height: 100%; border-radius: 99px; }
+
+.panel-accounts .sim-scope .team-chip {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 12px;
+  padding: 12px 13px; display: flex; flex-direction: column; gap: 10px;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.panel-accounts .sim-scope .team-chip:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(15, 23, 42, .08); border-color: #c7d6f0; background: #fff; }
+.panel-accounts .sim-scope .team-chip-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.panel-accounts .sim-scope .team-avatar {
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sim-blue-soft); color: var(--sim-blue-dark);
+  font-size: 12px; font-weight: 800;
+}
+.panel-accounts .sim-scope .team-meta { min-width: 0; }
+.panel-accounts .sim-scope .team-name { font-size: 12px; font-weight: 700; color: var(--sim-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-accounts .sim-scope .team-count { font-size: 11px; color: var(--sim-ink-soft); margin-top: 2px; }
+.panel-accounts .sim-scope .team-progress { height: 5px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
+.panel-accounts .sim-scope .team-progress > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #60a5fa, #2563eb); }
+
+.panel-accounts .sim-scope .status-graph { padding: 18px; }
+.panel-accounts .sim-scope .sg-line-wrap { width: 100%; }
+.panel-accounts .sim-scope .sg-line-wrap svg { display: block; }
+.panel-accounts .sim-scope .sg-labels { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; }
+.panel-accounts .sim-scope .sg-xlab {
+  display: flex; align-items: center; gap: 7px; padding: 8px 10px;
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 9px;
+}
+.panel-accounts .sim-scope .sg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.panel-accounts .sim-scope .sg-name { font-size: 11px; color: var(--sim-ink-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-accounts .sim-scope .sg-count { font-size: 13px; font-weight: 700; color: var(--sim-ink); }
+
+.panel-accounts .sim-scope .sim-report-card {
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: 12px;
+  box-shadow: var(--sim-shadow); overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.panel-accounts .sim-scope .sim-report-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, .09); border-color: #c7d6f0; }
+.panel-accounts .sim-scope .src-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 11px 13px; border-bottom: 1px solid var(--sim-line);
+  background: var(--sim-blue-soft);
+}
+.panel-accounts .sim-scope .src-id { font-size: 13px; font-weight: 800; color: var(--sim-blue-dark); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-accounts .sim-scope .src-body { padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; }
+.panel-accounts .sim-scope .src-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.panel-accounts .sim-scope .src-k { color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .src-v { color: var(--sim-ink); font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.panel-accounts .sim-scope .src-v.src-days { font-weight: 700; }
+
+.panel-accounts .sim-scope .stock-banner { background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: var(--sim-radius); box-shadow: var(--sim-shadow); margin-bottom: 16px; overflow: hidden; }
+.panel-accounts .sim-scope .stock-banner .tb { padding: 14px 18px; border-bottom: 1px solid var(--sim-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel-accounts .sim-scope .stock-banner .tb h3 { margin: 0; font-size: 15px; color: var(--sim-ink); }
+.panel-accounts .sim-scope .stock-banner .tb .ln { font-size: 12px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .stock-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 18px; }
+.panel-accounts .sim-scope .stock-stat {
+  background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 11px;
+  padding: 14px; display: flex; flex-direction: column; gap: 7px; position: relative; overflow: hidden;
+}
+.panel-accounts .sim-scope .stock-stat::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.panel-accounts .sim-scope .stock-stat .ss-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel-accounts .sim-scope .stock-stat .ss-lab { font-size: 11px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .stock-stat .ss-ic { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.panel-accounts .sim-scope .stock-stat .ss-num { font-size: 24px; font-weight: 800; color: var(--sim-ink); line-height: 1; }
+.panel-accounts .sim-scope .stock-avail {
+  grid-column: 1 / -1; background: var(--sim-blue-soft); border: 1px solid #dbeafe; border-radius: 11px;
+  padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+}
+.panel-accounts .sim-scope .stock-avail .sa-t { display: flex; align-items: center; gap: 10px; }
+.panel-accounts .sim-scope .stock-avail .sa-num { font-size: 26px; font-weight: 800; color: var(--sim-blue-dark); line-height: 1; }
+.panel-accounts .sim-scope .stock-avail .sa-lab { font-size: 12px; color: var(--sim-blue-dark); font-weight: 600; }
+.panel-accounts .sim-scope .stock-bar { height: 7px; border-radius: 99px; background: #dbeafe; overflow: hidden; width: 180px; }
+.panel-accounts .sim-scope .stock-bar > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #60a5fa, #2563eb); }
+
+.panel-accounts .sim-scope .stock-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; padding: 18px; }
+.panel-accounts .sim-scope .stock-card {
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: 12px;
+  box-shadow: var(--sim-shadow); overflow: hidden; display: flex; flex-direction: column;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.panel-accounts .sim-scope .stock-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, .09); border-color: #c7d6f0; }
+.panel-accounts .sim-scope .sc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 13px; border-bottom: 1px solid var(--sim-line); background: var(--sim-gray-soft); }
+.panel-accounts .sim-scope .sc-num { font-size: 13px; font-weight: 800; color: var(--sim-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-accounts .sim-scope .sc-body { padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.panel-accounts .sim-scope .sc-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.panel-accounts .sim-scope .sc-k { color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .sc-v { color: var(--sim-ink); font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.panel-accounts .sim-scope .sc-tag { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--sim-gray-soft); color: var(--sim-gray); }
+.panel-accounts .sim-scope .sc-actions { display: flex; gap: 6px; padding: 10px 13px; border-top: 1px solid var(--sim-line); background: #fbfdff; }
+
+.panel-accounts .sim-scope .table-wrap { overflow-x: auto; }
+.panel-accounts .sim-scope .sim-table {
+  width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1200px;
+}
+.panel-accounts .sim-scope .sim-table thead th {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--sim-blue-soft); color: var(--sim-blue-dark);
+  text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .03em;
+  border-bottom: 1px solid var(--sim-line); white-space: nowrap; cursor: pointer;
+  user-select: none;
+}
+.panel-accounts .sim-scope .sim-table thead th.sortable:hover { background: #dbeafe; }
+.panel-accounts .sim-scope .sim-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--sim-line); white-space: nowrap; color: var(--sim-ink); }
+.panel-accounts .sim-scope .sim-table tbody tr:hover { background: var(--sim-blue-soft); }
+.panel-accounts .sim-scope .sim-table tbody tr.selected { background: #e0f2fe; }
+.panel-accounts .sim-scope .sim-table td.num, .panel-accounts .sim-scope .sim-table th.num { text-align: right; }
+
+.panel-accounts .sim-scope .sort-arrow { font-size: 9px; margin-left: 3px; opacity: .6; }
+
+.panel-accounts .sim-scope .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+.panel-accounts .sim-scope .pill-active { background: var(--sim-green-soft); color: var(--sim-green); }
+.panel-accounts .sim-scope .pill-expiring { background: var(--sim-amber-soft); color: var(--sim-amber); }
+.panel-accounts .sim-scope .pill-expired { background: var(--sim-red-soft); color: var(--sim-red); }
+.panel-accounts .sim-scope .pill-replaced { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .pill-inactive { background: var(--sim-gray-soft); color: var(--sim-gray); }
+.panel-accounts .sim-scope .pill-neutral { background: var(--sim-gray-soft); color: var(--sim-gray); }
+
+.panel-accounts .sim-scope .days-cell { font-weight: 700; }
+.panel-accounts .sim-scope .days-good { color: var(--sim-green); }
+.panel-accounts .sim-scope .days-warn { color: var(--sim-amber); }
+.panel-accounts .sim-scope .days-urgent { color: var(--sim-red); }
+.panel-accounts .sim-scope .days-expired { color: var(--sim-red); }
+
+.panel-accounts .sim-scope .cell-actions { display: inline-flex; gap: 4px; }
+.panel-accounts .sim-scope .mini-btn {
+  border: 1px solid var(--sim-line); background: var(--sim-white); border-radius: 6px;
+  padding: 4px 8px; font-size: 11px; cursor: pointer; color: var(--sim-ink-soft); font-family: inherit;
+}
+.panel-accounts .sim-scope .mini-btn:hover { border-color: var(--sim-blue); color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .mini-btn.danger:hover { border-color: var(--sim-red); color: var(--sim-red); }
+
+.panel-accounts .sim-scope .toolbar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid var(--sim-line); background: #fbfdff;
+}
+.panel-accounts .sim-scope .sim-input, .panel-accounts .sim-scope .sim-select {
+  padding: 8px 12px; border: 1px solid var(--sim-line); border-radius: 8px;
+  font-size: 13px; color: var(--sim-ink); background: #fff; outline: none;
+  font-family: inherit;
+}
+.panel-accounts .sim-scope .sim-input:focus, .panel-accounts .sim-scope .sim-select:focus { border-color: var(--sim-blue); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.panel-accounts .sim-scope .search-input { min-width: 220px; }
+
+.panel-accounts .sim-scope .pagination {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 18px; border-top: 1px solid var(--sim-line); flex-wrap: wrap;
+}
+.panel-accounts .sim-scope .pages { display: flex; align-items: center; gap: 4px; }
+.panel-accounts .sim-scope .page-btn {
+  min-width: 30px; height: 30px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--sim-line); background: #fff; font-size: 12px; cursor: pointer; color: var(--sim-ink);
+}
+.panel-accounts .sim-scope .page-btn.active { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; }
+.panel-accounts .sim-scope .page-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.panel-accounts .sim-scope .modal-overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 1000;
+  display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto;
+}
+.panel-accounts .sim-scope .modal {
+  background: #fff; border-radius: 14px; width: 100%; max-width: 640px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.2); overflow: hidden; margin: auto 0;
+}
+.panel-accounts .sim-scope .modal.drawer { max-width: 520px; margin-left: auto; margin-right: 0; border-radius: 14px 0 0 14px; }
+.panel-accounts .sim-scope .modal-head {
+  padding: 16px 20px; border-bottom: 1px solid var(--sim-line);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.panel-accounts .sim-scope .modal-head h3 { margin: 0; font-size: 16px; color: var(--sim-ink); }
+.panel-accounts .sim-scope .modal-x { border: none; background: transparent; font-size: 20px; cursor: pointer; color: var(--sim-ink-soft); line-height: 1; }
+.panel-accounts .sim-scope .icon-btn { border: none; background: transparent; cursor: pointer; color: var(--sim-ink-soft); display: inline-flex; align-items: center; padding: 4px; }
+.panel-accounts .sim-scope .modal-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
+.panel-accounts .sim-scope .modal-foot { padding: 14px 20px; border-top: 1px solid var(--sim-line); display: flex; justify-content: flex-end; gap: 8px; }
+
+.panel-accounts .sim-scope .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.panel-accounts .sim-scope .form-grid .full { grid-column: 1 / -1; }
+.panel-accounts .sim-scope .form-row { display: flex; flex-direction: column; gap: 5px; }
+.panel-accounts .sim-scope .form-row label { font-size: 11px; font-weight: 600; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .form-row input, .panel-accounts .sim-scope .form-row select, .panel-accounts .sim-scope .form-row textarea {
+  padding: 9px 11px; border: 1px solid var(--sim-line); border-radius: 8px;
+  font-size: 13px; color: var(--sim-ink); background: #fff; outline: none; font-family: inherit;
+}
+.panel-accounts .sim-scope .form-row input:focus, .panel-accounts .sim-scope .form-row select:focus, .panel-accounts .sim-scope .form-row textarea:focus {
+  border-color: var(--sim-blue); box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+.panel-accounts .sim-scope .form-row.locked input { background: var(--sim-gray-soft); color: var(--sim-ink-soft); }
+
+.panel-accounts .sim-scope .detail-sections { display: flex; flex-direction: column; gap: 18px; }
+.panel-accounts .sim-scope .detail-sec h4 { margin: 0 0 10px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .detail-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; }
+.panel-accounts .sim-scope .detail-item .k { font-size: 11px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .detail-item .v { font-size: 13px; font-weight: 600; color: var(--sim-ink); }
+
+.panel-accounts .sim-scope .bulk-bar {
+  padding: 10px 18px; background: #e0f2fe; border-bottom: 1px solid var(--sim-line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+
+.panel-accounts .sim-scope .empty-state { padding: 60px 20px; text-align: center; }
+.panel-accounts .sim-scope .empty-state .big { font-size: 15px; font-weight: 700; color: var(--sim-ink); margin-bottom: 6px; }
+.panel-accounts .sim-scope .empty-state .small { font-size: 13px; color: var(--sim-ink-soft); margin-bottom: 18px; }
+
+.panel-accounts .sim-scope .sim-box { background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: var(--sim-radius); box-shadow: var(--sim-shadow); padding: 20px; }
+.panel-accounts .sim-scope .sim-box .num { font-size: 28px; font-weight: 700; line-height: 1.1; }
+.panel-accounts .sim-scope .sim-box .title { font-size: 12px; color: var(--sim-ink-soft); margin-top: 4px; }
+.panel-accounts .sim-scope .section-title { font-size: 16px; font-weight: 700; color: var(--sim-ink); margin: 0 0 4px; }
+.panel-accounts .sim-scope .section-sub { font-size: 12px; color: var(--sim-ink-soft); margin: 0 0 18px; }
+.panel-accounts .sim-scope .sim-space { margin-bottom: 24px; }
+
+.panel-accounts .sim-scope .progress { height: 8px; border-radius: 99px; background: #e2e8f0; overflow: hidden; }
+.panel-accounts .sim-scope .progress > span { display: block; height: 100%; }
+
+.panel-accounts .sim-scope .import-step { display: flex; gap: 18px; margin-bottom: 20px; }
+.panel-accounts .sim-scope .import-step .step {
+  flex: 1; padding: 14px; border: 1px solid var(--sim-line); border-radius: 10px;
+  text-align: center; font-size: 12px; color: var(--sim-ink-soft);
+}
+.panel-accounts .sim-scope .import-step .step.on { border-color: var(--sim-blue); background: var(--sim-blue-soft); color: var(--sim-blue-dark); font-weight: 600; }
+.panel-accounts .sim-scope .import-step .step.done { border-color: var(--sim-green); background: var(--sim-green-soft); color: var(--sim-green); }
+
+.panel-accounts .sim-scope .check-cell { width: 40px; }
+.panel-accounts .sim-scope .attr-tag { display: inline-block; font-size: 10px; background: var(--sim-blue-soft); color: var(--sim-blue-dark); border-radius: 5px; padding: 2px 6px; margin: 2px; }
+
+.panel-accounts .sim-scope .row-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.panel-accounts .sim-scope .row-toggle input { display: none; }
+.panel-accounts .sim-scope .switch { width: 36px; height: 20px; border-radius: 99px; background: #cbd5e1; position: relative; transition: background .15s; flex-shrink: 0; }
+.panel-accounts .sim-scope .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.panel-accounts .sim-scope .row-toggle input:checked + .switch { background: var(--sim-blue); }
+.panel-accounts .sim-scope .row-toggle input:checked + .switch::after { left: 18px; }
+
+.panel-accounts .sim-scope .login-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+
+.panel-accounts .sim-scope .dc-overlay {
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; overflow-y: auto; background: rgba(15, 23, 42, .5);
+}
+.panel-accounts .sim-scope .dc-modal {
+  background: #fff; border-radius: 17px; width: 100%; max-width: 400px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .25);
+  padding: 32px 28px 24px; text-align: center; margin: auto;
+}
+.panel-accounts .sim-scope .dc-icon {
+  width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 18px;
+  background: #fee2e2; color: #dc2626;
+  display: flex; align-items: center; justify-content: center;
+}
+.panel-accounts .sim-scope .dc-title { font-size: 19px; font-weight: 700; color: #0f172a; margin-bottom: 12px; }
+.panel-accounts .sim-scope .dc-desc { font-size: 14px; line-height: 1.55; color: #64748b; margin-bottom: 26px; }
+.panel-accounts .sim-scope .dc-desc strong { color: #0f172a; font-weight: 600; }
+.panel-accounts .sim-scope .dc-foot { display: flex; gap: 10px; }
+.panel-accounts .sim-scope .dc-btn {
+  flex: 1; height: 42px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s; font-family: inherit;
+}
+.panel-accounts .sim-scope .dc-btn:disabled { opacity: .6; cursor: not-allowed; }
+.panel-accounts .sim-scope .dc-btn.cancel { background: #fff; border-color: #e2e8f0; color: #334155; }
+.panel-accounts .sim-scope .dc-btn.cancel:hover:not(:disabled) { background: #f1f5f9; }
+.panel-accounts .sim-scope .dc-btn.delete { background: #dc2626; color: #fff; }
+.panel-accounts .sim-scope .dc-btn.delete:hover:not(:disabled) { background: #b91c1c; }
+
+.panel-accounts .sim-scope .kebab { position: relative; }
+.panel-accounts .sim-scope .kebab .mini-btn { margin: 0; }
+.panel-accounts .sim-scope .kebab-menu {
+  position: absolute; right: 0; top: 28px; z-index: 60;
+  background: #fff; border: 1px solid var(--sim-line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .14);
+  min-width: 96px; padding: 4px; overflow: hidden;
+}
+.panel-accounts .sim-scope .kebab-item {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  border: none; background: transparent; padding: 6px 10px;
+  font-size: 12.5px; font-weight: 500; border-radius: 5px;
+  letter-spacing: 0; line-height: 1.2; white-space: nowrap; font-family: inherit; color: var(--sim-ink);
+}
+.panel-accounts .sim-scope .kebab-item:hover { background: var(--sim-gray-soft); }
+
+.panel-accounts .sim-scope .exp-banner {
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: var(--sim-radius);
+  box-shadow: var(--sim-shadow); margin-bottom: 16px; overflow: hidden;
+}
+.panel-accounts .sim-scope .exp-banner-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; flex-wrap: wrap; }
+.panel-accounts .sim-scope .exp-banner-top h3 { margin: 0 0 3px; font-size: 17px; color: var(--sim-ink); }
+.panel-accounts .sim-scope .exp-banner-top .ln { font-size: 12.5px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .exp-total { display: flex; flex-direction: column; align-items: flex-end; background: #f0f9ff; border: 1px solid #dbeafe; padding: 8px 16px; border-radius: 12px; }
+.panel-accounts .sim-scope .exp-total .et-num { font-size: 22px; font-weight: 800; color: var(--sim-blue-dark); line-height: 1; }
+.panel-accounts .sim-scope .exp-total .et-lab { font-size: 11px; color: var(--sim-blue-dark); font-weight: 600; }
+
+.panel-accounts .sim-scope .exp-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; padding: 0 18px 16px; }
+.panel-accounts .sim-scope .exp-sum-tile { border-radius: 11px; padding: 13px 15px; display: flex; flex-direction: column; gap: 3px; border: 1px solid; }
+.panel-accounts .sim-scope .exp-sum-tile .est-num { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.panel-accounts .sim-scope .exp-sum-tile .est-lab { font-size: 11.5px; font-weight: 600; }
+.panel-accounts .sim-scope .exp-sum-tile.ex-red { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.panel-accounts .sim-scope .exp-sum-tile.ex-amber { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+.panel-accounts .sim-scope .exp-sum-tile.ex-blue { background: #f0f9ff; border-color: #bae6fd; color: #0369a1; }
+
+.panel-accounts .sim-scope .exp-chips { display: flex; gap: 8px; padding: 0 18px 16px; flex-wrap: wrap; }
+.panel-accounts .sim-scope .exp-chip {
+  border: 1px solid var(--sim-line); background: var(--sim-bg); color: var(--sim-ink-soft);
+  padding: 7px 15px; border-radius: 99px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.panel-accounts .sim-scope .exp-chip:hover { border-color: var(--sim-blue); color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .exp-chip.active { background: var(--sim-blue); border-color: var(--sim-blue); color: #fff; }
+
+.panel-accounts .sim-scope .exp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; padding: 18px; }
+.panel-accounts .sim-scope .exp-list { display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+.panel-accounts .sim-scope .exp-row {
+  position: relative; display: flex; align-items: center; gap: 16px;
+  background: var(--sim-white); border: 1px solid var(--sim-line); border-radius: 10px;
+  padding: 12px 16px; overflow: hidden;
+}
+.panel-accounts .sim-scope .exp-row:hover { border-color: #c9d7ef; background: #fbfdff; }
+.panel-accounts .sim-scope .er-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #94a3b8; }
+.panel-accounts .sim-scope .exp-row.row-expired .er-bar { background: #dc2626; }
+.panel-accounts .sim-scope .exp-row.row-urgent .er-bar { background: #f59e0b; }
+.panel-accounts .sim-scope .exp-row.row-ok .er-bar { background: #3b82f6; }
+.panel-accounts .sim-scope .er-status { flex-shrink: 0; }
+.panel-accounts .sim-scope .er-id { min-width: 150px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.panel-accounts .sim-scope .eri-top { font-size: 13px; font-weight: 800; color: var(--sim-ink); }
+.panel-accounts .sim-scope .eri-sub { font-size: 11.5px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .er-meta { display: flex; gap: 26px; flex: 1; flex-wrap: wrap; }
+.panel-accounts .sim-scope .er-cell { display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
+.panel-accounts .sim-scope .erk { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .erv { font-size: 12.5px; font-weight: 600; color: var(--sim-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+.panel-accounts .sim-scope .er-days { flex-shrink: 0; font-size: 12px; font-weight: 800; padding: 4px 12px; border-radius: 99px; background: var(--sim-gray-soft); color: var(--sim-gray); }
+.panel-accounts .sim-scope .exp-row.row-expired .er-days { background: #fee2e2; color: #b91c1c; }
+.panel-accounts .sim-scope .exp-row.row-urgent .er-days { background: #fef3c7; color: #b45309; }
+.panel-accounts .sim-scope .exp-row.row-ok .er-days { background: #dbeafe; color: #1d4ed8; }
+.panel-accounts .sim-scope .er-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.panel-accounts .sim-scope .er-actions .mini-btn { padding: 5px 10px; }
+
+/* --- Dashboard widgets --- */
+.panel-accounts .sim-scope .dash { display: flex; flex-direction: column; gap: 20px; }
+.panel-accounts .sim-scope .dash-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 16px 20px; border-radius: 14px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1px solid #bfdbfe;
+}
+.panel-accounts .sim-scope .dash-banner .b-txt { font-size: 14px; font-weight: 600; color: var(--sim-ink); }
+.panel-accounts .sim-scope .dash-banner .b-sub { font-size: 12px; color: var(--sim-ink-soft); margin-top: 2px; }
+.panel-accounts .sim-scope .dash-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.panel-accounts .sim-scope .dash-kpi {
+  position: relative; overflow: hidden;
+  background: var(--sim-white); border: 1px solid var(--sim-line);
+  border-radius: 14px; box-shadow: var(--sim-shadow);
+  padding: 18px;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.panel-accounts .sim-scope .dash-kpi:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15, 23, 42, .08); border-color: #d3dff0; }
+.panel-accounts .sim-scope .dash-kpi .kpi-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.panel-accounts .sim-scope .dash-kpi .kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.panel-accounts .sim-scope .dash-kpi .kpi-ic { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.panel-accounts .sim-scope .dash-kpi .kpi-label { font-size: 12px; font-weight: 600; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .dash-kpi .kpi-num { font-size: 30px; font-weight: 800; color: var(--sim-ink); line-height: 1.05; letter-spacing: -.02em; }
+.panel-accounts .sim-scope .dash-kpi .kpi-sub { font-size: 11px; color: var(--sim-ink-soft); margin-top: 4px; }
+.panel-accounts .sim-scope .dash-kpi .kpi-foot { margin-top: 12px; height: 4px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
+.panel-accounts .sim-scope .dash-kpi .kpi-foot > span { display: block; height: 100%; border-radius: 99px; }
+.panel-accounts .sim-scope .dash-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; }
+.panel-accounts .sim-scope .dash-panel {
+  background: var(--sim-white); border: 1px solid var(--sim-line);
+  border-radius: 14px; box-shadow: var(--sim-shadow); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.panel-accounts .sim-scope .dash-panel .panel-head {
+  padding: 14px 18px; border-bottom: 1px solid var(--sim-line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.panel-accounts .sim-scope .dash-panel .panel-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--sim-ink); }
+.panel-accounts .sim-scope .dash-panel .panel-head .ln { font-size: 11px; color: var(--sim-ink-soft); }
+.panel-accounts .sim-scope .panel-link {
+  font-size: 12px; font-weight: 600; color: var(--sim-blue); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+}
+.panel-accounts .sim-scope .panel-link:hover { color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .status-layout { display: flex; align-items: center; gap: 28px; padding: 20px; }
+.panel-accounts .sim-scope .donut { flex-shrink: 0; position: relative; }
+.panel-accounts .sim-scope .donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.panel-accounts .sim-scope .donut-center .n { font-size: 22px; font-weight: 800; color: var(--sim-ink); line-height: 1; }
+.panel-accounts .sim-scope .donut-center .l { font-size: 10px; color: var(--sim-ink-soft); margin-top: 2px; }
+.panel-accounts .sim-scope .legend { flex: 1; display: grid; gap: 8px; min-width: 0; }
+.panel-accounts .sim-scope .legend-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+  background: var(--sim-bg); border: 1px solid var(--sim-line);
+  transition: background .12s ease, transform .12s ease;
+}
+.panel-accounts .sim-scope .legend-row:hover { background: #fff; transform: translateX(2px); }
+.panel-accounts .sim-scope .legend-row .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.panel-accounts .sim-scope .legend-row .nm { font-size: 12px; color: var(--sim-ink-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-accounts .sim-scope .legend-row .vl { font-size: 14px; font-weight: 700; color: var(--sim-ink); }
+.panel-accounts .sim-scope .legend-row .pc { font-size: 11px; color: var(--sim-ink-soft); width: 44px; text-align: right; }
+.panel-accounts .sim-scope .inv-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.panel-accounts .sim-scope .inv-total { text-align: center; padding: 10px; border-radius: 12px; background: var(--sim-blue-soft); border: 1px solid #dbeafe; }
+.panel-accounts .sim-scope .inv-total .n { font-size: 30px; font-weight: 800; color: var(--sim-blue-dark); line-height: 1; }
+.panel-accounts .sim-scope .inv-total .l { font-size: 11px; color: var(--sim-blue-dark); margin-top: 4px; font-weight: 600; }
+.panel-accounts .sim-scope .inv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.panel-accounts .sim-scope .inv-item { background: var(--sim-bg); border: 1px solid var(--sim-line); border-radius: 10px; padding: 12px; }
+.panel-accounts .sim-scope .inv-item .t { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--sim-ink-soft); font-weight: 600; }
+.panel-accounts .sim-scope .inv-item .t .d { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.panel-accounts .sim-scope .inv-item .v { font-size: 22px; font-weight: 800; color: var(--sim-ink); margin-top: 6px; line-height: 1; }
+.panel-accounts .sim-scope .expiry-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 18px; }
+.panel-accounts .sim-scope .expiry-item { border: 1px solid var(--sim-line); border-radius: 11px; padding: 13px 14px; background: #fbfdff; }
+.panel-accounts .sim-scope .expiry-item .t { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.panel-accounts .sim-scope .expiry-item .t .lab { font-size: 12px; color: var(--sim-ink-soft); font-weight: 600; }
+.panel-accounts .sim-scope .expiry-item .t .val { font-size: 15px; font-weight: 800; color: var(--sim-ink); }
+.panel-accounts .sim-scope .expiry-item .bar { height: 7px; border-radius: 99px; background: #e8edf5; overflow: hidden; }
+.panel-accounts .sim-scope .expiry-item .bar > span { display: block; height: 100%; border-radius: 99px; transition: width .4s ease; }
+.panel-accounts .sim-scope .qa-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 16px; }
+.panel-accounts .sim-scope .qa-add { grid-column: 1 / -1; }
+.panel-accounts .sim-scope .qa-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 12px; border: 1px solid var(--sim-line); border-radius: 10px;
+  background: var(--sim-white); color: var(--sim-ink); text-decoration: none;
+  font-size: 12px; font-weight: 600;
+  transition: all .12s ease; cursor: pointer; font-family: inherit;
+}
+.panel-accounts .sim-scope .qa-item:hover { border-color: var(--sim-blue); background: var(--sim-blue-soft); color: var(--sim-blue-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37, 99, 235, .08); }
+.panel-accounts .sim-scope .qa-item .qic { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.panel-accounts .sim-scope .dash-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.panel-accounts .sim-scope .dash-table thead th {
+  text-align: left; padding: 9px 14px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--sim-ink-soft);
+  background: #f8fafc; border-bottom: 1px solid var(--sim-line); white-space: nowrap;
+}
+.panel-accounts .sim-scope .dash-table tbody td { padding: 9px 14px; border-bottom: 1px solid var(--sim-line); white-space: nowrap; color: var(--sim-ink); }
+.panel-accounts .sim-scope .dash-table tbody tr:last-child td { border-bottom: none; }
+.panel-accounts .sim-scope .dash-table tbody tr:hover { background: var(--sim-blue-soft); }
+.panel-accounts .sim-scope .dash-empty { padding: 26px 16px; text-align: center; }
+.panel-accounts .sim-scope .dash-empty .check {
+  width: 42px; height: 42px; margin: 0 auto 10px; border-radius: 50%;
+  background: var(--sim-green-soft); color: var(--sim-green);
+  display: flex; align-items: center; justify-content: center;
+}
+.panel-accounts .sim-scope .dash-empty .big { font-size: 14px; font-weight: 700; color: var(--sim-ink); }
+.panel-accounts .sim-scope .dash-empty .small { font-size: 12px; color: var(--sim-ink-soft); margin-top: 4px; }
+.panel-accounts .sim-scope .activity-list { padding: 4px 0; }
+.panel-accounts .sim-scope .activity-item { display: flex; align-items: flex-start; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--sim-line); }
+.panel-accounts .sim-scope .activity-item:last-child { border-bottom: none; }
+.panel-accounts .sim-scope .activity-item .aic {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  background: var(--sim-blue-soft); color: var(--sim-blue); display: flex; align-items: center; justify-content: center;
+}
+.panel-accounts .sim-scope .activity-item .at { display: flex; flex-direction: column; min-width: 0; }
+.panel-accounts .sim-scope .activity-item .tt { font-size: 13px; font-weight: 600; color: var(--sim-ink); }
+.panel-accounts .sim-scope .activity-item .dt { font-size: 12px; color: var(--sim-ink-soft); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-accounts .sim-scope .activity-item .md { font-size: 11px; color: var(--sim-blue); margin-top: 2px; }
+
+@media (max-width: 900px) {
+  .panel-accounts .sim-scope .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .panel-accounts .sim-scope .exp-row { flex-wrap: wrap; gap: 10px; }
+  .panel-accounts .sim-scope .er-meta { flex-basis: 100%; gap: 14px; }
+}
+@media (max-width: 560px) {
+  .panel-accounts .sim-scope .expiry-grid, .panel-accounts .sim-scope .inv-grid, .panel-accounts .sim-scope .qa-grid { grid-template-columns: 1fr; }
+  .panel-accounts .sim-scope .status-layout { flex-direction: column; align-items: center; }
+  .panel-accounts .sim-scope .legend { width: 100%; }
+}
+@media (max-width: 480px) {
+  .panel-accounts .sim-scope .dc-modal { padding: 28px 20px 20px; }
+}

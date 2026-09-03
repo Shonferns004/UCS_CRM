@@ -672,8 +672,15 @@ object OverlayManager {
             )
 
             opt.setOnClickListener {
+                // Selecting a Mode of Payment also clears the app-change guard
+                // so the user isn't stuck if they last captured from a different
+                // payment app. Without this, switching apps would keep blocking
+                // the next capture even after DP is re-selected.
                 ScraperConfig.setAll(
-                    mapOf("modeOfPayment" to name)
+                    mapOf(
+                        "modeOfPayment" to name,
+                        "lastCaptureApp" to ""
+                    )
                 )
 
                 dismissPaymentModal(context)
@@ -987,10 +994,13 @@ object OverlayManager {
             svc.captureTransaction()
 
             // Always bring the overlay back (show() is a no-op if already visible),
-            // even when the capture reported a failure message.
+            // even when the capture reported a failure message. The service re-shows
+            // it as soon as scroll + upload finish; this is only a safety fallback in
+            // case that path is interrupted, so it uses a longer delay so it doesn't
+            // pop up mid-scroll.
             Handler(Looper.getMainLooper()).postDelayed({
                 show(svc)
-            }, 2500)
+            }, 6000)
         }, 350)
     }
 

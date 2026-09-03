@@ -205,6 +205,19 @@ export async function markDisposed({ workerId, donorId, disposed = false }) {
   return res.rowCount > 0;
 }
 
+// Hard-remove a donor from the work_queue for a given worker across ALL cycles
+// (new/old and every ngo scope). Used when an assignment is deleted outright
+// (e.g. a DND disposition that removes the FRO's station/agent assignment) so
+// the donor can never be re-enqueued for this worker again.
+export async function removeFromQueue({ workerId, donorId }) {
+  const res = await db._pool.query(
+    `DELETE FROM work_queue
+      WHERE worker_id = $1 AND donor_id = $2`,
+    [workerId, donorId]
+  );
+  return res.rowCount > 0;
+}
+
 // Remove any active (PENDING/IN_PROGRESS/BUTTON_PRESSED) rows for a cycle
 // whose donor is no longer part of the current ordered set (e.g. the donor got
 // disposed/terminal outside this live flow). This keeps a handled donor from

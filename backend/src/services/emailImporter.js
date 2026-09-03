@@ -100,6 +100,34 @@ function normalizeSourceName(name) {
   return map[n] || name.trim();
 }
 
+// Bank alert sources come from a bank, not a person. Their credit emails carry
+// no real sender, so the payer is the bank itself.
+const BANK_SOURCES = new Set([
+  'Axis Bank', 'HDFC Bank', 'ICICI Bank', 'SBI', 'Yes Bank', 'Kotak Mahindra',
+  'RBL Bank', 'IDFC First Bank', 'IndusInd Bank', 'Federal Bank', 'Canara Bank',
+  'PNB', 'Bank of Baroda', 'Union Bank', 'Bank of India', 'Central Bank', 'DBS Bank',
+]);
+
+const isBankSource = (name) => !!name && BANK_SOURCES.has(name);
+
+/**
+ * Normalises a bank-alert reference into a clean payment id.
+ * e.g. "NEFT/INDBH01093431022/SEAT." -> "INDBH01093431022".
+ * Strips the "NEFT/"-style prefix, the trailing "/SEAT"-style suffix and any
+ * trailing punctuation.
+ */
+function cleanPaymentId(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim();
+  // X/MID/TAIL with a known transfer prefix: keep only the middle token.
+  const prefixed = s.match(/^(NEFT|IMPS|RTGS|UPI|UA|NACH|CHQ|FT)[:/]+\s*([^/]+)\//i);
+  if (prefixed) s = prefixed[2];
+  s = s.replace(/^(NEFT|IMPS|RTGS|UPI|UA|NACH|CHQ|FT)[:\/\s-]*/i, '');
+  s = s.replace(/\/.*$/, '');
+  s = s.replace(/\s*[.,;:]+$/, '').trim();
+  return s.length ? s : null;
+}
+
 async function getOrCreateSourceId(sources, name) {
   const normalized = normalizeSourceName(name);
   if (!normalized) return null;
@@ -162,6 +190,8 @@ Rules:
 - For bank transfer emails, set payment_source to the bank name
 - Transaction date: prefer date from email if present, else use null
 - sender_name: the person who made the payment (for banks, look for "from" or sender name in narration)
+- For bank credit alerts (NEFT/IMPS/RTGS/UPI to your account): there is NO sender person in the alert, so always set sender_name to the bank name (e.g. "Axis Bank", "HDFC Bank").
+- payment_id for bank alerts: if it looks like "NEFT/CODE/TAIL" or "IMPS/CODE/TAIL", return ONLY the middle token (e.g. "NEFT/INDBH01093431022/SEAT" -> "INDBH01093431022"). Return the raw digits/code without the NEFT/ prefix or trailing suffix.
 - If the email does NOT appear to be a payment/transaction notification, set all fields to null and confidence to "low"`,
         },
         { role: 'user', content: textToAnalyze },
@@ -287,9 +317,18 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySe
         }
         const details = await extractPaymentDetails(emailText, emailSubject, emailFrom);
 
-        if (details && details.confidence !== 'low' && details.amount != null) {
+if (details && details.confidence !== 'low' && details.amount != null) {
           let sourceName = details.payment_source;
           if (!sourceName && senderSource) sourceName = senderSource;
+
+          // Deterministic overrides for bank-alert emails:
+          // - The reference is usually wrapped like "NEFT/INDBH01093431022/SEAT"
+          //   where the usable payment id is only the middle token.
+          // - A bank credit alert carries no real sender person, so the payer is
+          //   the bank account that issued the alert.
+          const bankAlert = isBankSource(sourceName || senderSource);
+          if (details.payment_id != null) details.payment_id = cleanPaymentId(details.payment_id);
+          if (bankAlert) details.sender_name = sourceName || senderSource || details.sender_name;
 
           let sourceId = sourceName ? await getOrCreateSourceId(sources, sourceName) : null;
           const paymentSource = sourceName || senderSource || 'Google Pay';
@@ -345,6 +384,7 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySe
             source_id: sourceId || 1,
             amount: details.amount,
             payment_id: details.payment_id || null,
+            payer_name: details.sender_name || null,
             transaction_date: transactionDate,
             remarks: `[${account.name}] Auto-imported from email: ${emailSubject}`,
             created_by: null,
