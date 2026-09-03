@@ -16,7 +16,7 @@ const COLUMNS = [
   { key: 'imei', label: 'IMEI No.' },
   { key: 'status', label: 'Sim Card Status' },
   { key: 'team', label: 'Team' },
-  { key: 'signature', label: 'Remark' },
+  { key: 'signature', label: 'Owner' },
   { key: 'issue_date', label: 'Sim Card Issue Date' },
   { key: 'expiry_date', label: 'Auto Expiry Date' },
   { key: 'days_left', label: 'Sim Expiry Days Left', num: true },
