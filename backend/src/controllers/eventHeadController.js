@@ -1731,7 +1731,7 @@ export const setActivityStatus = async (req, res) => {
 // Raises corrected spellings for free-text fields typed in the event-head
 // "Create New Event" panel, so the team always types the right word. Uses the
 // existing GROQ integration. Falls back to no suggestions if no GROQ key.
-const SPELLING_MODEL = process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-20b';
+const SPELLING_MODEL = process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
 
 export const suggestEventSpelling = async (req, res) => {
   try {
@@ -1749,26 +1749,34 @@ export const suggestEventSpelling = async (req, res) => {
     const prompt = [
       'You are a careful spelling checker for an event-creation form.',
       'Below is a list of field values typed by a user (format: "fieldKey: value").',
-      'Return a JSON object mapping each fieldKey to its corrected spelling.',
+      '',
+      'For each fieldKey, decide whether the typed text contains a CLEAR spelling,',
+      'punctuation or simple grammar mistake. Fix ONLY clear mistakes.',
+      '',
       'Rules:',
       '- Fix ONLY clear spelling, punctuation and simple grammar mistakes.',
       '- Do NOT rewrite correct text, add words, invent content, or change meaning.',
       '- Keep proper nouns, brands, names, numbers, URLs and locations as-is unless clearly misspelled.',
       '- Capitalise words that are proper nouns (places, names) naturally.',
       '- Only include a fieldKey if the corrected text is actually different from the typed value.',
-      '- Output ONLY the JSON object. No markdown, no commentary, no code fences.',
       '',
+      'Return a JSON object where each key is a fieldKey and the value is an object:',
+      '{ "corrected": "<the corrected text>", "reason": "<short, human explanation of the fix>" }',
+      '',
+      'Do not be overly strict: also fix ANY obvious English spelling mistake you are confident about.',
+      '',
+      'Fields:',
       list,
     ].join('\n');
 
     const completion = await groq.chat.completions.create({
       messages: [
-        { role: 'system', content: 'You return strict JSON only. No markdown, no commentary.' },
+        { role: 'system', content: 'You return strict JSON only. No markdown, no commentary, no code fences.' },
         { role: 'user', content: prompt },
       ],
       model: SPELLING_MODEL,
-      max_tokens: 500,
-      temperature: 0.1,
+      max_tokens: 1200,
+      temperature: 0.3,
     });
 
     const text = (completion.choices?.[0]?.message?.content || '').trim();
@@ -1783,8 +1791,16 @@ export const suggestEventSpelling = async (req, res) => {
 
     const suggestions = {};
     for (const f of fields) {
-      const corrected = String(parsed[f.key] ?? '').trim();
-      if (corrected && corrected !== f.value) suggestions[f.key] = corrected;
+      const entry = parsed[f.key];
+      const corrected = typeof entry === 'object' && entry !== null
+        ? String(entry.corrected ?? '').trim()
+        : String(entry ?? '').trim();
+      const reason = typeof entry === 'object' && entry !== null
+        ? String(entry.reason ?? '').trim()
+        : 'looks like it may be spelled differently';
+      if (corrected && corrected !== f.value) {
+        suggestions[f.key] = { corrected, reason };
+      }
     }
 
     return res.json({ suggestions });
