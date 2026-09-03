@@ -5,6 +5,7 @@ import { confirmMatchCredit } from '../services/creditService.js';
 import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, voidReceipt, deleteReceiptSafely, bulkDeleteReceipts, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
+import { formatModeLabel } from '../services/modeLabels.js';
 import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -5093,18 +5094,10 @@ export const getReportData = async (req, res) => {
       .lte('receipt_date', dateTo);
     if (rErr) throw rErr;
 
-    const MODE_LABELS = {
-      upi: 'UPI', pum: 'PUM', 'icici bank': 'ICICI Bank', 'icici': 'ICICI Bank',
-      'google pay': 'Google Pay', 'googlepay': 'Google Pay', razorpay: 'Razorpay',
-      'razor pay': 'Razorpay', paytm: 'Paytm', freecharge: 'Freecharge',
-      cheque: 'Cheque', online: 'Online', 'saraswat bank': 'Saraswat Bank',
-    };
     const makeModeLabel = (m) => {
       const raw = String(m || '').trim();
       if (!raw) return 'Unknown';
-      const key = raw.toLowerCase();
-      if (MODE_LABELS[key]) return MODE_LABELS[key];
-      return raw.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+      return formatModeLabel(raw);
     };
 
     const sourceOrder = [];
