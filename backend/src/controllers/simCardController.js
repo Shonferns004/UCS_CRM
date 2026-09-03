@@ -124,12 +124,29 @@ export const editSimCard = async (req, res) => {
     if (!body.mobile_id || !String(body.mobile_id).trim()) {
       return res.status(400).json({ message: 'Mobile ID No. is required' });
     }
-    const patch = patchSimCard(body);
+    const writable = {};
+    const nonNullableText = ['mobile_id', 'device_model', 'imei', 'team', 'signature'];
+    for (const [k, v] of Object.entries(body || {})) {
+      if (k === 'id' || k === 'created_at' || k === 'updated_at') continue;
+      if (nonNullableText.includes(k)) {
+        writable[k] = v === null || v === undefined ? null : String(v);
+        if (writable[k] === '') writable[k] = null;
+        continue;
+      }
+      if (v === undefined) continue;
+      writable[k] = v === '' || v === null ? null : v;
+    }
+    const patch = writable;
+
     let daysLeft = null;
-    if (patch.expiry_date !== undefined) {
+    if ('expiry_date' in patch) {
       const computed = computeExpiry(patch.expiry_date);
       daysLeft = computed.daysLeft;
-      patch.status = finalStatus({ status: patch.status || 'Active' }, computed);
+      if (patch.status === null || patch.status === undefined) {
+        patch.status = finalStatus({ status: 'Active' }, computed);
+      } else {
+        patch.status = finalStatus({ status: patch.status }, computed);
+      }
     }
     const beforeSim = await getSimCardById(req.params.id);
     if (beforeSim) {
@@ -142,16 +159,19 @@ export const editSimCard = async (req, res) => {
         }
       }
       if (Object.keys(changedCols).length > 0) {
-        try {
-          await createSimCardHistory({
-            sim_card_id: beforeSim.id,
-            changed_by: req.user?.login_id || req.user?.name || req.user?.id || null,
-            changed_cols: changedCols,
-            before_data: beforeSim,
-            after_data: { ...beforeSim, ...patch },
-          });
-        } catch (e) {
-          // history write failure should not block the update
+        const changedBy = req.user?.login_id || req.user?.name || req.user?.id || null;
+        for (const [k, change] of Object.entries(changedCols)) {
+          try {
+            await createSimCardHistory({
+              sim_card_id: beforeSim.id,
+              changed_by: changedBy,
+              changed_cols: { [k]: change },
+              before_data: beforeSim,
+              after_data: { ...beforeSim, ...patch },
+            });
+          } catch (e) {
+            // history write failure should not block the update
+          }
         }
       }
     }
