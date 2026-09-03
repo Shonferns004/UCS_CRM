@@ -310,8 +310,13 @@ function PanelInner() {
     }
   }
 
-  function handleSaved() {
-    setFormOpen(false); setEditing(null); sim.refresh();
+  async function handleSaved() {
+    setFormOpen(false); setEditing(null);
+    try {
+      await sim.refresh();
+    } catch {
+      // keep current state on error
+    }
   }
 
   return (
