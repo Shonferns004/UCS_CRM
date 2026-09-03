@@ -25,7 +25,7 @@ const COLUMNS = [
   { key: 'replacement_count', label: 'Sim Card Repla. Count', num: true },
 ];
 
-export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }) {
+export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, onHistory }) {
   const { cards, refresh } = useSim();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
@@ -197,12 +197,15 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
                   <th className="check-cell">
                     <input type="checkbox" checked={selectedCount === pageRows.length && selectedCount > 0} onChange={toggleAll} />
                   </th>
-                  {COLUMNS.map((col) => (
-                    <th key={col.key} className={SORTABLE.includes(col.key) ? `sortable ${col.num ? 'num' : ''}` : (col.num ? 'num' : '')} onClick={() => SORTABLE.includes(col.key) && toggleSort(col.key)}>
-                      {col.label}
-                      {col.key === sortKey && <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                    </th>
-                  ))}
+                  {COLUMNS.map((col) => {
+                    const nokiaLabel = simName === 'Nokia' && (col.key === 'team' || col.key === 'signature') ? (col.key === 'team' ? 'Owner' : 'Remark') : col.label;
+                    return (
+                      <th key={col.key} className={SORTABLE.includes(col.key) ? `sortable ${col.num ? 'num' : ''}` : (col.num ? 'num' : '')} onClick={() => SORTABLE.includes(col.key) && toggleSort(col.key)}>
+                        {nokiaLabel}
+                        {col.key === sortKey && <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </th>
+                    );
+                  })}
                   {simName === 'Android' && <th>GB</th>}
                   <th>Actions</th>
                 </tr>
@@ -237,7 +240,7 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
                             <button className="mini-btn" onClick={() => setShowActions(showActions === c.id ? null : c.id)}>⋯</button>
                             {showActions === c.id && (
                               <div className="kebab-menu">
-                                {[['Add', () => onAdd()], ['View', () => onView(c)], ['Edit', () => onEdit(c)], ['Replace', () => onReplace(c)], ['Delete', () => handleDelete(c)]].map(([label, fn]) => (
+                                {[['Add', () => onAdd()], ['View', () => onView(c)], ['Edit', () => onEdit(c)], ['Replace', () => onReplace(c)], ['History', () => onHistory && onHistory(c)], ['Delete', () => handleDelete(c)]].map(([label, fn]) => (
                                   <button key={label} className="kebab-item" style={{ color: label === 'Delete' ? 'var(--sim-red)' : 'inherit' }} onClick={() => { setShowActions(null); fn(); }}>
                                     {label}
                                   </button>
