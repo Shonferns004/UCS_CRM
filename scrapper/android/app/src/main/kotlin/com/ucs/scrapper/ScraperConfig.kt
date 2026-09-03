@@ -16,7 +16,7 @@ object ScraperConfig {
     private const val ALIAS = "scraper_pin_key"
     private lateinit var prefs: SharedPreferences
 
-    const val DEFAULT_BACKEND_URL = "http://52.66.211.205"
+    const val DEFAULT_BACKEND_URL = "https://api.beingsevak.org"
     const val DEFAULT_API_KEY = "f045bdfa3a2583ba2386190e49fbb908b77c398887f04d95"
 
     fun init(context: Context) {
