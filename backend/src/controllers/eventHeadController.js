@@ -1123,6 +1123,119 @@ export const generateAllEventsReport = async (req, res) => {
   }
 };
 
+// ─── NGO MONTHLY REPORT ───
+// Groups events by NGO for a selected month/year and returns a per-NGO KPI
+// summary (event counts, submitted/completed, beneficiaries, budget). Supports
+// an optional ngo_id filter so the UI can show "All NGOs" or a single NGO.
+export const generateNgoMonthlyReport = async (req, res) => {
+  try {
+    const month = String(req.query.month || '').trim();
+    const year = String(req.query.year || '').trim();
+    const ngo_id = ownNgoId(req) || req.query.ngo_id || undefined;
+
+    if (!month || !year) {
+      return res.status(400).json({ message: 'month and year are required' });
+    }
+
+    const events = await EventHead.getAllEventHeadEvents({ ngo_id, month, year });
+    const ctx = await buildEventContextMaps();
+    const enriched = await enrichEvents(events, ctx);
+
+    // Event banners (uploaded when the event was created) from the media table,
+    // with the event's own banner column as the primary source.
+    const eventBannerMap = {};
+    const eventIds = enriched.map(e => e.id).filter(Boolean);
+    try {
+      const bannerRows = await EventHead.getBannerMediaByEvents(eventIds);
+      for (const row of bannerRows) {
+        if (!eventBannerMap[row.event_id]) eventBannerMap[row.event_id] = row.url;
+      }
+    } catch { /* banners are optional */ }
+
+    // NGO header banner (letter-head) mapped by NGO name/code.
+    const NGO_HEADER_BANNERS = {
+      mann: '/Letter%20Head%20MANN.png',
+      'mann care': '/Letter%20Head%20MANN.png',
+      'mann care foundation': '/Letter%20Head%20MANN.png',
+      aflf: '/Letter%20Head%20AFLF.png',
+      'aflf': '/Letter%20Head%20AFLF.png',
+      'ashray for life foundation': '/Letter%20Head%20AFLF.png',
+      bsct: '/Letter%20Head%20BSCT%20(1).png',
+      'bsct': '/Letter%20Head%20BSCT%20(1).png',
+      'beingsevak': '/Letter%20Head%20BSCT%20(1).png',
+    };
+    const ngoHeaderBanner = (name, code) => {
+      const k = String(name || code || '').trim().toLowerCase();
+      if (NGO_HEADER_BANNERS[k]) return NGO_HEADER_BANNERS[k];
+      for (const key of Object.keys(NGO_HEADER_BANNERS)) {
+        if (k.includes(key)) return NGO_HEADER_BANNERS[key];
+      }
+      return null;
+    };
+
+    const byNgo = new Map();
+    for (const e of enriched) {
+      const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
+      if (!byNgo.has(id)) {
+        byNgo.set(id, {
+          ngo_id: e.ngo_id != null ? e.ngo_id : null,
+          ngo_name: e.ngo_name || ctx.ngoMap[e.ngo_id] || `NGO ${e.ngo_id || ''}`.trim(),
+          banner: ngoHeaderBanner(e.ngo_name, ctx.ngoMap[e.ngo_id]),
+          events_count: 0,
+          submitted: 0,
+          completed: 0,
+          pending: 0,
+          beneficiaries: 0,
+          budget: 0,
+          events: [],
+        });
+      }
+      const row = byNgo.get(id);
+      row.events_count += 1;
+      const st = String(e.status || '').trim();
+      const norm = st.toLowerCase();
+      if (norm === 'submitted' || norm === 'submitted&' || norm === 'pending approval' || norm === 'approval pending') row.submitted += 1;
+      else if (st === 'Completed') row.completed += 1;
+      else row.pending += 1;
+      row.beneficiaries += Number(e.expected_beneficiaries) || 0;
+      row.budget += Number(e.budget) || 0;
+      row.events.push({
+        id: e.id,
+        name: e.name,
+        date: e.date || null,
+        day: e.date ? new Date(String(e.date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) : null,
+        sector_name: e.sector_name || null,
+        activity_name: e.activity_name || null,
+        venue: e.venue || null,
+        status: e.status || null,
+        budget: e.budget != null ? Number(e.budget) : null,
+        beneficiaries: e.expected_beneficiaries != null ? Number(e.expected_beneficiaries) : 0,
+        banner: e.banner || eventBannerMap[e.id] || null,
+      });
+    }
+
+    const ngos = [...byNgo.values()]
+      .map(n => ({ ...n, budget: Math.round(n.budget) }))
+      .sort((a, b) => a.ngo_name.localeCompare(b.ngo_name));
+
+    const totalEvents = ngos.reduce((s, n) => s + n.events_count, 0);
+    const totalBudget = ngos.reduce((s, n) => s + n.budget, 0);
+    const totalBeneficiaries = ngos.reduce((s, n) => s + n.beneficiaries, 0);
+
+    return res.json({
+      month: Number(month),
+      year: Number(year),
+      ngo_id: ngo_id || null,
+      ngos,
+      summary: { totalEvents, totalBudget, totalBeneficiaries },
+      generated_at: new Date(),
+    });
+  } catch (error) {
+    console.error('generateNgoMonthlyReport error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── APPROVALS LIST ───
 export const listApprovals = async (req, res) => {
   try {
