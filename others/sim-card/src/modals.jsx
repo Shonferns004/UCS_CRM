@@ -120,7 +120,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
             <Field label="GB" value={extra.gb} onChange={(v) => setE('gb', v)} placeholder="e.g. 64 GB" />
             <Field label="IMEI No." value={form.imei} onChange={(v) => set('imei', v)} />
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
-            <Field label="Signature" value={extra.signature} onChange={(v) => setE('signature', v)} />
+            <Field label="Remark" value={extra.signature} onChange={(v) => setE('signature', v)} />
             <div className="form-row">
               <label>SIM Type</label>
               <select value={extra.sim_type} onChange={(e) => setE('sim_type', e.target.value)}>
@@ -335,6 +335,75 @@ export function ReplaceModal({ card, open, onClose, onDone }) {
         <div className="modal-foot">
           <button className="sim-btn" onClick={onClose}>Cancel</button>
           <button className="sim-btn primary" onClick={handleReplace} disabled={saving}>{saving ? 'Replacing...' : 'Replace SIM'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SimHistoryModal({ card, open, onClose }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && card) {
+      setLoading(true);
+      setHistory([]);
+      fetchSimHistory(card.id)
+        .then((res) => setHistory(res?.data || res || []))
+        .catch(() => setHistory([]))
+        .finally(() => setLoading(false));
+    }
+  }, [open, card]);
+
+  if (!open || !card) return null;
+
+  const Item = ({ k, v }) => (
+    <div className="detail-item"><div className="k">{k}</div><div className="v">{v || '—'}</div></div>
+  );
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-head">
+          <h3>Sim Card History</h3>
+          <button className="modal-x" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="detail-sec" style={{ marginBottom: 14 }}>
+            <div className="detail-grid">
+              <Item k="Mobile ID" v={card.mobile_id} />
+              <Item k="Device & Model" v={card.device_model} />
+              <Item k="Team" v={card.team} />
+              <Item k="Remark" v={card.signature} />
+            </div>
+          </div>
+          {loading ? (
+            <div className="empty-state"><div className="small">Loading history...</div></div>
+          ) : history.length === 0 ? (
+            <div className="empty-state"><div className="small">No previous changes saved.</div></div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+              {history.map((h, idx) => (
+                <div key={h.id || idx} className="detail-sec">
+                  <div className="detail-grid">
+                    <Item k="Changed At" v={formatDate(h.changed_at)} />
+                    <Item k="Changed By" v={h.changed_by} />
+                  </div>
+                  {h.changed_cols ? (
+                    <div className="detail-grid">
+                      {Object.entries(h.changed_cols).map(([k, v]) => (
+                        <Item key={k} k={k} v={typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)} />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="sim-btn" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
