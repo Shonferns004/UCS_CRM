@@ -8,7 +8,7 @@ import {
   ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Building2, Monitor, Laptop, Smartphone, Phone,
   Lightbulb, Fan, Cctv, Armchair, Snowflake, Wind, Droplets, Plug, Network, Blinds, Server, HardDrive,
   Aperture, Guitar, ChefHat, Info, Sparkles, Loader2, RefreshCw, CalendarDays, ListChecks, Layers,
-  BadgeCheck, Trash2, UserPlus,
+  BadgeCheck, Trash2, UserPlus, Cpu, CircuitBoard,
 } from 'lucide-react'
 
 /* ================= CONSTANTS & HELPERS ================= */
@@ -32,6 +32,7 @@ const CAT_META = {
 }
 const catIcon = c => CAT_META[c] || Package
 const catColor = c => CAT_COLORS[CATEGORIES.indexOf(c) % CAT_COLORS.length] || MINT
+const isMachineAsset = c => c === 'Desktop' || c === 'Laptop'
 
 const ITEM_SUGGESTIONS = {
   'Desktop': ['Desktop', 'Desktop Computer', 'Dell Desktop', 'HP Desktop', 'Lenovo Desktop', 'Acer Desktop'],
@@ -116,10 +117,11 @@ function downloadCSV(csv, name) {
 
 function exportAssets(assets) {
   const rows = [['ASSET REGISTER'], ['Generated', new Date().toLocaleString('en-IN')], []]
-  rows.push(['Code', 'Name', 'Category', 'Location', 'Quantity', 'Team Leader', 'Brand', 'Model', 'Serial No', 'Condition', 'Status', 'Assigned To', 'Purchase Date', 'Price', 'Warranty Expiry', 'SIM Number', 'Remarks'])
+  rows.push(['Code', 'Name', 'Category', 'Location', 'Quantity', 'Team Leader', 'Owner Name', 'Brand', 'Model', 'Serial No', 'Hard Drive / SSD', 'RAM', 'Processor', 'Motherboard', 'Condition', 'Status', 'Assigned To', 'Purchase Date', 'Price', 'Warranty Expiry', 'SIM Number', 'Remarks'])
   assets.forEach(a => rows.push([
-    a.code, a.name, a.category, locOf(a), uq(a), a.team_leader || '',
+    a.code, a.name, a.category, locOf(a), uq(a), a.team_leader || '', a.owner_name || '',
     a.brand || '', a.model || '', a.serial_no || '',
+    a.storage || '', a.ram || '', a.processor || '', a.motherboard || '',
     a.condition || '', STATUS_META[a.status]?.label || a.status, a.assigned_to_name || '',
     a.purchase_date || '', a.purchase_price || 0, a.warranty_expiry || '', a.sim_number || '', a.remarks || '',
   ]))
@@ -149,6 +151,36 @@ function StatusBadge({ status }) {
   return (
     <span className="arx-badge" style={{ background: m.bg, color: m.text }}>
       <m.Icon size={12} strokeWidth={2.4} /> {m.label}
+    </span>
+  )
+}
+
+function SpecPop({ asset }) {
+  const isM = isMachineAsset(asset.category)
+  if (!isM) return null
+  const pretty = [
+    ['Hard Drive / SSD', asset.storage],
+    ['RAM', asset.ram],
+    ['Processor', asset.processor],
+    ['Motherboard', asset.motherboard],
+  ]
+  const filled = pretty.filter(([, v]) => v && String(v).trim())
+  return (
+    <span className="arx-spec-wrap">
+      <span className="arx-spec-trigger">{asset.name}</span>
+      <span className="arx-spec-pop">
+        <span className="arx-spec-title"><HardDrive size={11} /> Specifications</span>
+        {filled.length === 0 ? (
+          <span className="arx-spec-none">No specs recorded</span>
+        ) : (
+          filled.map(([k, v]) => (
+            <span className="arx-spec-row" key={k}>
+              <span className="arx-spec-k">{k}</span>
+              <span className="arx-spec-v">{v}</span>
+            </span>
+          ))
+        )}
+      </span>
     </span>
   )
 }
@@ -432,7 +464,7 @@ function ImportModal({ onClose, onImported, pushToast }) {
                         <input type="checkbox" checked={selected.length === rows.length}
                           onChange={e => setRows(rows.map(r => ({ ...r, include: e.target.checked })))} />
                       </th>
-                      <th>Code</th><th>Name</th><th>Category</th><th>Location</th><th>Qty</th><th>Team Leader</th>
+                      <th>Code</th><th>Name</th><th>Category</th><th>Location</th><th>Qty</th><th>Team Leader</th><th>Owner Name</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -448,6 +480,7 @@ function ImportModal({ onClose, onImported, pushToast }) {
                         <td>{r.location || '—'}</td>
                         <td>{r.quantity}</td>
                         <td>{r.team_leader || '—'}</td>
+                        <td>{r.owner_name || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -488,6 +521,7 @@ function AssetFormModal({ initial, onClose, onSave }) {
       location: '', quantity: 1, team_leader: '', condition: 'New', status: 'available',
       purchase_date: '', purchase_price: '', vendor: '', warranty_expiry: '',
       sim_number: '', sim_operator: '', sim_plan: '', remarks: '',
+      storage: '', ram: '', processor: '', motherboard: '', owner_name: '',
     }
   })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
@@ -533,12 +567,25 @@ function AssetFormModal({ initial, onClose, onSave }) {
             </Field>
             {!isMachine && <Field label="Quantity" icon={Boxes}><input type="number" min="1" value={f.quantity} onChange={e => set('quantity', e.target.value)} /></Field>}
             {isMachine && <Field label="Team Leader (opt.)" icon={UserCheck}><input value={f.team_leader} onChange={e => set('team_leader', e.target.value)} placeholder="e.g. Anjana Vyas" /></Field>}
+            <Field label="Owner Name" icon={UserCheck}><input value={f.owner_name} onChange={e => set('owner_name', e.target.value)} placeholder="e.g. Rajesh Kumar" /></Field>
             <Field label="Condition" icon={ShieldCheck}>
               <select value={f.condition} onChange={e => set('condition', e.target.value)}>
                 {CONDITIONS.map(c => <option key={c}>{c}</option>)}
               </select>
             </Field>
           </div>
+
+          {isMachine && (
+            <>
+              <div className="arx-fsec"><span><HardDrive size={13} /> Specifications</span></div>
+              <div className="arx-form-grid">
+                <Field label="Hard Drive / SSD" icon={HardDrive}><input value={f.storage} onChange={e => set('storage', e.target.value)} placeholder="e.g. 512GB NVMe SSD" /></Field>
+                <Field label="RAM" icon={Server}><input value={f.ram} onChange={e => set('ram', e.target.value)} placeholder="e.g. 16GB DDR4" /></Field>
+                <Field label="Processor" icon={Cpu}><input value={f.processor} onChange={e => set('processor', e.target.value)} placeholder="e.g. Intel i7-12700H" /></Field>
+                <Field label="Motherboard" icon={CircuitBoard}><input value={f.motherboard} onChange={e => set('motherboard', e.target.value)} placeholder="e.g. Dell 0T10XW" /></Field>
+              </div>
+            </>
+          )}
 
           <div className="arx-fsec"><span><IndianRupee size={13} /> Purchase & Warranty</span></div>
           <div className="arx-form-grid">
@@ -677,10 +724,17 @@ function AssetDetailModal({ asset, onClose, onAction, onEdit, onScrap, onLost })
     ['Location', locOf(asset) || '—'],
     ...(uq(asset) > 1 ? [['Quantity', <>{uq(asset)} pcs <em className="arx-kv-note">(grouped line item)</em></>]] : []),
     ['Team Leader', asset.team_leader || '—'],
+    ['Owner Name', asset.owner_name || '—'],
     ['Condition', asset.condition ? <span className="arx-cond" data-cond={asset.condition}>{asset.condition}</span> : '—'],
     ['Assigned To', asset.assigned_to_name ? <>{asset.assigned_to_name} <em className="arx-kv-note">since {fmtDate(asset.assigned_date)}</em></> : '—'],
     ['Purchase', <>{fmtDate(asset.purchase_date)} · {money(asset.purchase_price)}{asset.vendor ? ` · ${asset.vendor}` : ''}</>],
     ['Warranty', fmtDate(asset.warranty_expiry)],
+    ...(isMachineAsset(asset.category) ? [
+      ...(asset.storage ? [['Hard Drive / SSD', asset.storage]] : []),
+      ...(asset.ram ? [['RAM', asset.ram]] : []),
+      ...(asset.processor ? [['Processor', asset.processor]] : []),
+      ...(asset.motherboard ? [['Motherboard', asset.motherboard]] : []),
+    ] : []),
     ...(asset.sim_number ? [['SIM Number', <><code>{asset.sim_number}</code>{asset.sim_operator ? ` (${asset.sim_operator})` : ''}{asset.sim_plan ? ` · ${money(asset.sim_plan)}/month` : ''}</>]] : []),
     ...(asset.status === 'repair' ? [['Repair', <>{asset.repair_shop || '—'} · {money(asset.repair_cost)} · {repairDays} days</>]] : []),
     ...(totalRepair > 0 ? [['Total Repair Cost', money(totalRepair)]] : []),
@@ -934,7 +988,7 @@ export default function AssetRegister() {
     if (fCond !== 'all' && a.condition !== fCond) return false
     if (q.trim()) {
       const s = q.trim().toLowerCase()
-      return [a.code, a.name, a.brand, a.model, a.serial_no, a.assigned_to_name, a.sim_number, a.location, a.team_leader]
+      return [a.code, a.name, a.brand, a.model, a.serial_no, a.assigned_to_name, a.sim_number, a.location, a.team_leader, a.owner_name]
         .some(v => (v || '').toLowerCase().includes(s))
     }
     return true
@@ -1137,6 +1191,18 @@ export default function AssetRegister() {
         .arx-pill.on .n { background: rgba(255,255,255,.18); color: #fff; }
         .arx-pill.zero { opacity: .45; }
         .arx-pill.zero:hover { transform: none; }
+
+        /* ---------- name hover spec popover ---------- */
+        .arx-spec-wrap { position: relative; display: inline-block; max-width: 100%; }
+        .arx-spec-trigger { cursor: default; border-bottom: 1px dashed #c2d4cb; }
+        .arx-spec-pop { position: absolute; z-index: 40; top: calc(100% + 8px); left: 0; min-width: 220px; max-width: 300px; background: #fff; border: 1px solid var(--arx-line); border-radius: 12px; box-shadow: 0 18px 42px -18px rgba(16,31,25,.4); padding: 8px 10px; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .18s ease, transform .18s ease, visibility .18s; pointer-events: none; }
+        .arx-spec-wrap:hover .arx-spec-pop { opacity: 1; visibility: visible; transform: translateY(0); }
+        .arx-spec-title { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--arx-mint); padding: 2px 2px 6px; border-bottom: 1px solid var(--arx-line); margin-bottom: 5px; }
+        .arx-spec-row { display: flex; gap: 10px; align-items: baseline; padding: 4px 2px; }
+        .arx-spec-row + .arx-spec-row { border-top: 1px dashed #edf3f0; }
+        .arx-spec-k { flex: 0 0 108px; font-size: 11px; font-weight: 700; color: var(--arx-muted); }
+        .arx-spec-v { font-size: 12px; color: var(--arx-ink); word-break: break-word; }
+        .arx-spec-none { display: block; font-size: 11.5px; color: var(--arx-soft); padding: 4px 2px; }
 
         /* ---------- filter bar ---------- */
         .arx-fwrap { margin-bottom: 16px; animation: arxFadeUp .5s ease both; }
@@ -1551,6 +1617,7 @@ export default function AssetRegister() {
                     <STh label="Location" k="location" cls="col-loc" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <STh label="Qty" k="qty" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <th className="col-tl">Team Leader</th>
+                    <th>Owner Name</th>
                     <th>Assigned To</th>
                     <STh label="Status" k="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   </tr>
@@ -1561,7 +1628,7 @@ export default function AssetRegister() {
                     return (
                       <tr key={a.id} style={{ animationDelay: `${Math.min(i, 14) * 25}ms` }} onClick={() => setSelectedId(a.id)}>
                         <td className="arx-code">{a.code}</td>
-                        <td style={{ fontWeight: 700, color: 'var(--arx-ink)' }}>{a.name}</td>
+                        <td style={{ fontWeight: 700, color: 'var(--arx-ink)' }}>{isMachineAsset(a.category) ? <SpecPop asset={a} /> : a.name}</td>
                         <td>
                           <span className="arx-tcat">
                             <span className="ci" style={{ background: catColor(a.category) + '16', color: catColor(a.category) }}><CIcon size={14} /></span>
@@ -1571,6 +1638,7 @@ export default function AssetRegister() {
                         <td className="col-loc">{locOf(a) || '—'}</td>
                         <td><span className="arx-qty">{uq(a)}</span></td>
                         <td className="col-tl">{a.team_leader || '—'}</td>
+                        <td>{a.owner_name || '—'}</td>
                         <td>{a.assigned_to_name || '—'}</td>
                         <td><StatusBadge status={a.status} /></td>
                       </tr>
@@ -1590,12 +1658,13 @@ export default function AssetRegister() {
                     </div>
                     <div className="arx-mcard-name">
                       <span className="ci" style={{ background: catColor(a.category) + '16', color: catColor(a.category) }}><CIcon size={15} /></span>
-                      {a.name}
+                      {isMachineAsset(a.category) ? <SpecPop asset={a} /> : a.name}
                     </div>
                     <div className="arx-mcard-meta">
                       <span><MapPin size={12} /> {locOf(a) || '—'}</span>
                       <span><Boxes size={12} /> {uq(a)} {uq(a) > 1 ? 'units' : 'unit'}</span>
                       {a.team_leader && <span><UserCheck size={12} /> {a.team_leader}</span>}
+                      {a.owner_name && <span><UserCheck size={12} /> {a.owner_name}</span>}
                       {a.assigned_to_name && <span><UserPlus size={12} /> {a.assigned_to_name}</span>}
                     </div>
                     <ChevronRight size={16} className="arx-mchev" />
