@@ -30,6 +30,7 @@ import EmployeeDetail from '../hr/components/EmployeeDetail'
 import Offboarding from '../hr/components/Offboarding'
 import { fetchWorkerById } from '../hr/store'
 import AttendancePage from './pages/Attendance'
+import SimSection from './components/SimSection'
 
 const NAV = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
@@ -60,6 +61,38 @@ const NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
 ]
 
+const SIM_GROUP_ICON = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+
+const SIM_NAV = [
+  { id: 'sim-dashboard', path: '/accounts/sim/dashboard', label: 'Dashboard',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+    match: (p) => p === '/accounts/sim' || p === '/accounts/sim/dashboard' },
+  { id: 'sim-inventory', path: '/accounts/sim/inventory', label: 'All SIM Cards',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
+    match: (p) => p === '/accounts/sim/inventory' },
+  { id: 'sim-cards', path: '/accounts/sim/cards', label: 'SIM Inventory',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>,
+    match: (p) => p === '/accounts/sim/cards' },
+  { id: 'sim-expiring', path: '/accounts/sim/expiring', label: 'Expiring SIMs',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+    match: (p) => p.startsWith('/accounts/sim/expiring') },
+  { id: 'sim-replacements', path: '/accounts/sim/replacements', label: 'SIM Replacements',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
+    match: (p) => p === '/accounts/sim/replacements' },
+  { id: 'sim-history', path: '/accounts/sim/history', label: 'Replacement History',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg>,
+    match: (p) => p === '/accounts/sim/history' },
+  { id: 'sim-reports', path: '/accounts/sim/reports', label: 'SIM Reports',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+    match: (p) => p === '/accounts/sim/reports' },
+  { id: 'sim-import', path: '/accounts/sim/import', label: 'Import / Export',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+    match: (p) => p === '/accounts/sim/import' },
+  { id: 'sim-settings', path: '/accounts/sim/settings', label: 'Settings',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8L7 17M17 7l2.8-2.8"/></svg>,
+    match: (p) => p === '/accounts/sim/settings' },
+]
+
 const settingsViews = [
   { key: 'razorpay', label: 'Razorpay Accounts', width: 420,
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
@@ -83,6 +116,27 @@ const settingsViews = [
 
 function Sidebar({ open, onClose }) {
   const location = useLocation()
+  const [simOpen, setSimOpen] = useState(() => {
+    try {
+      const v = localStorage.getItem('accounts_sim_open')
+      if (v !== null) return v === '1'
+    } catch { /* storage unavailable */ }
+    return location.pathname.startsWith('/accounts/sim')
+  })
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/accounts/sim')) setSimOpen(true)
+  }, [location.pathname])
+
+  const toggleSim = () => {
+    setSimOpen((prev) => {
+      try { localStorage.setItem('accounts_sim_open', prev ? '0' : '1') } catch { /* storage unavailable */ }
+      return !prev
+    })
+  }
+
+  const simActive = location.pathname.startsWith('/accounts/sim')
+
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
@@ -108,6 +162,28 @@ function Sidebar({ open, onClose }) {
               </NavLink>
             )
           })}
+          <div className="snav-group">
+            <button type="button" onClick={toggleSim} aria-expanded={simOpen}
+              className={`snav-item snav-group-header${simActive ? ' active' : ''}`}>
+              <span className="ico">{SIM_GROUP_ICON}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>SIM Management</span>
+              </span>
+              <span className={`snav-chevron${simOpen ? ' open' : ''}`}>▸</span>
+            </button>
+            <div className={`snav-group-items${simOpen ? '' : ' collapsed'}`}>
+              {SIM_NAV.map(n => (
+                <NavLink key={n.id} to={n.path} onClick={onClose}
+                  data-nav-id={n.id}
+                  className={`snav-item snav-sub${n.match(location.pathname) ? ' active' : ''}`}>
+                  <span className="ico">{n.icon}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>{n.label}</span>
+                  </span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
         </nav>
       </aside>
     </>
@@ -225,6 +301,8 @@ export default function AccountsPanel() {
   }, [showMenu])
 
   const meta = NAV.find(n => location.pathname === n.path || (n.id === 'volunteers' && location.pathname.startsWith('/accounts/volunteers')) || (n.id === 'attendance' && location.pathname === '/accounts/attendance'))
+    || SIM_NAV.find(n => n.match(location.pathname))
+  const simMeta = SIM_NAV.some(n => n.match(location.pathname))
   const userName = user?.name || 'User'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const drawerSections = [
@@ -241,7 +319,7 @@ export default function AccountsPanel() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             <div>
-              <div className="eyebrow">Accounts</div>
+              <div className="eyebrow">{simMeta ? 'SIM Management' : 'Accounts'}</div>
               <h2>{meta?.label || 'Accounts'}</h2>
             </div>
           </div>
@@ -304,6 +382,7 @@ export default function AccountsPanel() {
             <Route path="incentive" element={<IncentiveSetup />} />
             <Route path="new-data" element={<NewData />} />
             <Route path="old-data" element={<OldData />} />
+            <Route path="sim/*" element={<SimSection />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>

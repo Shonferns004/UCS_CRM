@@ -2349,3 +2349,114 @@
 @media (max-width:820px){ .panel-event-head .eh-grid-2 { grid-template-columns:1fr; } }
 @media (max-width:560px){ .panel-event-head .eh-metrics { grid-template-columns:repeat(2,1fr); } .panel-event-head .content-body { padding:16px; } }
 @media (max-width:400px){ .panel-event-head .eh-metrics { grid-template-columns:1fr; } }
+
+/* -- Accounts: SIM Management sidebar group (collapsible dropdown) -- */
+.panel-accounts .snav-group { display:flex; flex-direction:column; }
+.panel-accounts .snav-group-header { width:100%; }
+.panel-accounts .snav-chevron { margin-left:auto; font-size:10px; transition:transform .2s; opacity:.6; flex-shrink:0; }
+.panel-accounts .snav-chevron.open { transform:rotate(90deg); }
+.panel-accounts .snav-group-items { display:flex; flex-direction:column; gap:2px; overflow:hidden; }
+.panel-accounts .snav-group-items.collapsed { display:none; }
+.panel-accounts .snav-item.snav-sub { padding-left:34px; font-size:12.5px; }
+
+/* -- Accounts: SIM section adapter (reuses sim-card page markup, Accounts theme) -- */
+.panel-accounts .sim-scope .sim-toolbar { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; margin-bottom:16px; }
+.panel-accounts .sim-scope .grid-4 { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; margin-bottom:24px; }
+.panel-accounts .sim-scope .sim-card { background:var(--card-bg); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px; }
+.panel-accounts .sim-scope .sim-card .ic { width:36px; height:36px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:#eff6ff; color:#2563eb; margin-bottom:12px; }
+.panel-accounts .sim-scope .sim-card .title { font-size:12px; color:var(--ink-soft); margin-bottom:4px; }
+.panel-accounts .sim-scope .sim-card .num { font-size:28px; font-weight:700; color:var(--ink); line-height:1.1; }
+.panel-accounts .sim-scope .sim-card .sub { font-size:11px; color:var(--ink-soft); margin-top:4px; }
+.panel-accounts .sim-scope .card-block { background:var(--card-bg); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:24px; overflow:hidden; }
+.panel-accounts .sim-scope .card-block .tb { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.panel-accounts .sim-scope .card-block .tb h3 { margin:0; font-size:15px; color:var(--ink); }
+.panel-accounts .sim-scope .card-block .tb .ln { font-size:12px; color:var(--ink-soft); }
+.panel-accounts .sim-scope .stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; padding:18px; }
+.panel-accounts .sim-scope .stat-g { background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:14px; }
+.panel-accounts .sim-scope .stat-g .lab { font-size:11px; color:var(--ink-soft); margin-bottom:6px; }
+.panel-accounts .sim-scope .stat-g .bar { height:8px; border-radius:99px; background:#e2e8f0; overflow:hidden; }
+.panel-accounts .sim-scope .stat-g .fill { height:100%; border-radius:99px; }
+.panel-accounts .sim-scope .stat-g .val { margin-top:6px; font-size:12px; font-weight:600; color:var(--ink); }
+.panel-accounts .sim-scope .table-wrap { overflow-x:auto; }
+.panel-accounts .sim-scope .sim-table { width:100%; border-collapse:collapse; font-size:13px; min-width:1200px; }
+.panel-accounts .sim-scope .sim-table thead th { background:#eff6ff; color:#1d4ed8; text-align:left; padding:10px 12px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; border-bottom:1px solid var(--line); white-space:nowrap; user-select:none; }
+.panel-accounts .sim-scope .sim-table thead th.sortable { cursor:pointer; }
+.panel-accounts .sim-scope .sim-table thead th.sortable:hover { background:#dbeafe; }
+.panel-accounts .sim-scope .sim-table tbody td { padding:10px 12px; border-bottom:1px solid var(--line); white-space:nowrap; color:var(--ink); }
+.panel-accounts .sim-scope .sim-table tbody tr:hover { background:#eff6ff; }
+.panel-accounts .sim-scope .sim-table tbody tr.selected { background:#e0f2fe; }
+.panel-accounts .sim-scope .sim-table td.num, .panel-accounts .sim-scope .sim-table th.num { text-align:right; }
+.panel-accounts .sim-scope .sort-arrow { font-size:9px; margin-left:3px; opacity:.6; }
+.panel-accounts .sim-scope .pill { display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:99px; font-size:11px; font-weight:600; }
+.panel-accounts .sim-scope .pill-active { background:#f0fdf4; color:#16a34a; }
+.panel-accounts .sim-scope .pill-expiring { background:#fffbeb; color:#d97706; }
+.panel-accounts .sim-scope .pill-expired { background:#fef2f2; color:#dc2626; }
+.panel-accounts .sim-scope .pill-replaced { background:#eff6ff; color:#1d4ed8; }
+.panel-accounts .sim-scope .pill-inactive { background:#f3f4f6; color:#6b7280; }
+.panel-accounts .sim-scope .pill-neutral { background:#f3f4f6; color:#6b7280; }
+.panel-accounts .sim-scope .days-cell { font-weight:700; }
+.panel-accounts .sim-scope .days-good { color:#16a34a; }
+.panel-accounts .sim-scope .days-warn { color:#d97706; }
+.panel-accounts .sim-scope .days-urgent { color:#dc2626; }
+.panel-accounts .sim-scope .days-expired { color:#dc2626; }
+.panel-accounts .sim-scope .cell-actions { display:inline-flex; gap:4px; }
+.panel-accounts .sim-scope .mini-btn { border:1px solid var(--line); background:var(--card-bg); border-radius:6px; padding:4px 8px; font-size:11px; font-family:inherit; cursor:pointer; color:var(--ink-soft); }
+.panel-accounts .sim-scope .mini-btn:hover { border-color:#2563eb; color:#1d4ed8; }
+.panel-accounts .sim-scope .mini-btn.danger:hover { border-color:#dc2626; color:#dc2626; }
+.panel-accounts .sim-scope .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line); background:#fbfdff; }
+.panel-accounts .sim-scope .sim-input, .panel-accounts .sim-scope .sim-select { padding:8px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:inherit; color:var(--ink); background:#fff; outline:none; }
+.panel-accounts .sim-scope .sim-input:focus, .panel-accounts .sim-scope .sim-select:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+.panel-accounts .sim-scope .search-input { min-width:220px; }
+.panel-accounts .sim-scope .pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; border-top:1px solid var(--line); flex-wrap:wrap; }
+.panel-accounts .sim-scope .pages { display:flex; align-items:center; gap:4px; }
+.panel-accounts .sim-scope .page-btn { min-width:30px; height:30px; padding:0 8px; border-radius:6px; border:1px solid var(--line); background:#fff; font-size:12px; cursor:pointer; color:var(--ink); }
+.panel-accounts .sim-scope .page-btn.active { background:#2563eb; border-color:#2563eb; color:#fff; }
+.panel-accounts .sim-scope .page-btn:disabled { opacity:.4; cursor:not-allowed; }
+.panel-accounts .sim-scope .modal { max-width:640px; border-radius:14px; }
+.panel-accounts .sim-scope .modal.drawer { max-width:520px; }
+.panel-accounts .sim-scope .modal-x { border:none; background:transparent; font-size:20px; cursor:pointer; color:var(--ink-soft); line-height:1; }
+.panel-accounts .sim-scope .icon-btn { border:none; background:transparent; cursor:pointer; color:var(--ink-soft); display:inline-flex; align-items:center; }
+.panel-accounts .sim-scope .modal-body { max-height:70vh; overflow-y:auto; }
+.panel-accounts .sim-scope .modal-foot { padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px; }
+.panel-accounts .sim-scope .sim-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; font-family:inherit; border:1px solid var(--line); background:var(--card-bg); color:var(--ink); cursor:pointer; white-space:nowrap; text-decoration:none; transition:all .12s ease; }
+.panel-accounts .sim-scope .sim-btn:hover { border-color:#2563eb; color:#1d4ed8; background:#eff6ff; }
+.panel-accounts .sim-scope .sim-btn.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+.panel-accounts .sim-scope .sim-btn.primary:hover { background:#1d4ed8; color:#fff; }
+.panel-accounts .sim-scope .sim-btn.danger { background:#fef2f2; border-color:#fecaca; color:#dc2626; }
+.panel-accounts .sim-scope .sim-btn.danger:hover { background:#dc2626; color:#fff; border-color:#dc2626; }
+.panel-accounts .sim-scope .sim-btn.ghost { background:transparent; border-color:transparent; }
+.panel-accounts .sim-scope .sim-btn:disabled { opacity:.55; cursor:not-allowed; }
+.panel-accounts .sim-scope .form-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.panel-accounts .sim-scope .form-grid .full { grid-column:1 / -1; }
+.panel-accounts .sim-scope .form-row { display:flex; flex-direction:column; gap:5px; }
+.panel-accounts .sim-scope .form-row label { font-size:11px; font-weight:600; color:var(--ink-soft); }
+.panel-accounts .sim-scope .form-row input, .panel-accounts .sim-scope .form-row select, .panel-accounts .sim-scope .form-row textarea { padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; font-family:inherit; color:var(--ink); background:#fff; outline:none; }
+.panel-accounts .sim-scope .form-row input:focus, .panel-accounts .sim-scope .form-row select:focus, .panel-accounts .sim-scope .form-row textarea:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+.panel-accounts .sim-scope .form-row.locked input { background:#f3f4f6; color:var(--ink-soft); }
+.panel-accounts .sim-scope .detail-sections { display:flex; flex-direction:column; gap:18px; }
+.panel-accounts .sim-scope .detail-sec h4 { margin:0 0 10px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#1d4ed8; }
+.panel-accounts .sim-scope .detail-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px 16px; }
+.panel-accounts .sim-scope .detail-item .k { font-size:11px; color:var(--ink-soft); }
+.panel-accounts .sim-scope .detail-item .v { font-size:13px; font-weight:600; color:var(--ink); }
+.panel-accounts .sim-scope .bulk-bar { padding:10px 18px; background:#e0f2fe; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.panel-accounts .sim-scope .empty-state .big { font-size:15px; font-weight:700; color:var(--ink); margin-bottom:6px; }
+.panel-accounts .sim-scope .empty-state .small { font-size:13px; color:var(--ink-soft); margin-bottom:18px; }
+.panel-accounts .sim-scope .sim-box { background:var(--card-bg); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; }
+.panel-accounts .sim-scope .section-title { font-size:16px; font-weight:700; color:var(--ink); margin:0 0 4px; }
+.panel-accounts .sim-scope .section-sub { font-size:12px; color:var(--ink-soft); margin:0 0 18px; }
+.panel-accounts .sim-scope .sim-space { margin-bottom:24px; }
+.panel-accounts .sim-scope .progress { height:8px; border-radius:99px; background:#e2e8f0; overflow:hidden; }
+.panel-accounts .sim-scope .progress > span { display:block; height:100%; }
+.panel-accounts .sim-scope .import-step { display:flex; gap:18px; margin-bottom:20px; }
+.panel-accounts .sim-scope .import-step .step { flex:1; padding:14px; border:1px solid var(--line); border-radius:10px; text-align:center; font-size:12px; color:var(--ink-soft); }
+.panel-accounts .sim-scope .import-step .step.on { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; font-weight:600; }
+.panel-accounts .sim-scope .import-step .step.done { border-color:#16a34a; background:#f0fdf4; color:#16a34a; }
+.panel-accounts .sim-scope .check-cell { width:40px; }
+.panel-accounts .sim-scope .attr-tag { display:inline-block; font-size:10px; background:#eff6ff; color:#1d4ed8; border-radius:5px; padding:2px 6px; margin:2px; }
+.panel-accounts .sim-scope .row-toggle { display:flex; align-items:center; gap:10px; cursor:pointer; }
+.panel-accounts .sim-scope .row-toggle input { display:none; }
+.panel-accounts .sim-scope .switch { width:36px; height:20px; border-radius:99px; background:#cbd5e1; position:relative; transition:background .15s; flex-shrink:0; }
+.panel-accounts .sim-scope .switch::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.2); }
+.panel-accounts .sim-scope .row-toggle input:checked + .switch { background:#2563eb; }
+.panel-accounts .sim-scope .row-toggle input:checked + .switch::after { left:18px; }
+.panel-accounts .sim-scope .login-error { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
