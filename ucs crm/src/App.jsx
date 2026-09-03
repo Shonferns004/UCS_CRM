@@ -190,7 +190,7 @@ export default function App() {
         } />
 
         <Route path="/sim/*" element={
-          <ProtectedRoute role={['super_admin', 'admin']}>
+          <ProtectedRoute role={['super_admin', 'admin', 'hr', 'accounts']}>
             <SimCardPanel />
           </ProtectedRoute>
         } />

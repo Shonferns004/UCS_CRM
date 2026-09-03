@@ -1,6 +1,5 @@
 import { createContext, useContext, useState } from 'react'
 import { getUser, clearSession, fetchSimCards, fetchInventory, addInventoryItem as apiAddInventoryItem, assignInventoryItem as apiAssignInventoryItem, updateInventoryStatus as apiUpdateInventoryStatus, deleteInventoryItem as apiDeleteInventoryItem } from './api'
-import { SIM_CARD_SEED } from './simCardSeedData'
 
 /* --- Auth context (provides user + logout, like the CRM useUcs) --- */
 const AuthContext = createContext(null)
@@ -31,7 +30,7 @@ export function useUcs() {
 export const SimContext = createContext(null)
 
 export function SimProvider({ children }) {
-  const [cards, setCards] = useState(SIM_CARD_SEED)
+  const [cards, setCards] = useState([])
   const [loading, setLoading] = useState(false)
   const [inventory, setInventory] = useState([])
   const [inventoryLoading, setInventoryLoading] = useState(false)
@@ -40,13 +39,11 @@ export function SimProvider({ children }) {
     setLoading(true)
     try {
       const data = await fetchSimCards()
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setCards(data)
-      } else {
-        setCards(SIM_CARD_SEED)
       }
     } catch {
-      setCards(SIM_CARD_SEED)
+      // keep current state on error
     } finally {
       setLoading(false)
     }

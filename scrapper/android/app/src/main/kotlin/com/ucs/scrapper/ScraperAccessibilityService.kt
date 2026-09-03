@@ -41,8 +41,17 @@ class ScraperAccessibilityService : AccessibilityService() {
     }
 
     @Volatile private var running = false
+    @Volatile private var captureInFlight = false
     private var stage: Stage = Stage.IDLE
     private var inspectMode = false
+
+    /**
+     * Transaction reference recovered by the Paytm parser from its copy-toast
+     * during [TransactionParser.surfaceHiddenText]. Persisted on the service
+     * (a singleton) because a fresh parser instance is built for each call;
+     * reset once per capture and read back by the parser's [parse] step.
+     */
+    @Volatile internal var recoveredRef: String? = null
 
     private var devicePin = ""
     private var gpayPin = ""
@@ -723,12 +732,25 @@ val pkg = root.packageName?.toString() ?: ""
      * record, and reports whether it was added or already existed.
      */
     fun captureTransaction() {
-        val root = rootInActiveWindow
+        var root = rootInActiveWindow
         if (root == null) {
             OverlayManager.emitResult(false, null, "No screen focused — open the transaction detail page first.")
             return
         }
+        // WebView receipts (e.g. Paytm Business) can briefly report an empty tree
+        // right after the overlay is removed, before their web content re-syncs.
+        // Retry a few times so we don't mistake that for a non-detail screen.
+        var emptyRetries = 0
+        while (textsJoined(root).isBlank() && emptyRetries < 3) {
+            android.os.SystemClock.sleep(250)
+            rootInActiveWindow?.let { root = it }
+            emptyRetries++
+        }
         val pkg = root.packageName?.toString() ?: ""
+        android.util.Log.d(
+            "UcsScrapper",
+            "captureTransaction pkg=[$pkg] text=[${textsJoined(root).take(400)}]"
+        )
         val detail = isTransactionDetailScreen(root)
         if (!detail) {
             OverlayManager.emitResult(false, null, "Not a transaction detail page. Open the transaction then tap Capture.")
@@ -749,8 +771,115 @@ val pkg = root.packageName?.toString() ?: ""
             return
         }
 
+        if (captureInFlight) {
+            OverlayManager.emitResult(false, null, "Capture already running — wait a moment.")
+            return
+        }
+        captureInFlight = true
+        // Reset the per-capture Paytm copy-toast reference so a stale id from a
+        // previous capture is never reused.
+        recoveredRef = null
+
+        // Route to the per-app parser. Single-page screens (e.g. Razorpay) can
+        // be read from the current frame directly with no scrolling; scrollable
+        // detail screens (e.g. GPay Business, Paytm) merge every frame's text
+        // so amount / date / reference / payer are captured across the fold.
+        val parser = parserFor(detectAppKind(pkg), this)
+        if (parser.needsScroll()) {
+            startScrollCollect(pkg, currentApp)
+        } else {
+            gatherCapture(pkg, currentApp, null)
+        }
+    }
+
+    /**
+     * Reads the currently visible frame's text into [acc], deduplicating by
+     * the raw string so repeated lines across frames are kept only once.
+     */
+    private fun addCurrentFrame(acc: MutableSet<String>) {
+        val root = rootInActiveWindow ?: return
+        val t = mutableListOf<String>()
+        collectTexts(root, t)
+        t.map { it.trim() }.filter { it.isNotEmpty() }.forEach { acc.add(it) }
+    }
+
+    /**
+     * Scrolls a scrollable detail screen and merges every visible frame's text.
+     *
+     * The detail page opens at its top, so the header (amount / payer) is already
+     * on the current frame. We only need to scroll DOWN to read the below-fold
+     * fields (date / reference / sender). A downward finger-swipe (swipeUp) moves
+     * the page down; scrolling back up is deliberately NOT done because a pull-down
+     * at the top triggers the app's pull-to-refresh and reloads the page mid-capture.
+     *
+     * Sequence: snapshot the current frame, then up to four downward scrolls,
+     * merging text each step. Stops early once a scroll adds nothing new (bottom).
+     */
+    private fun startScrollCollect(pkg: String, currentApp: String) {
+        val acc = LinkedHashSet<String>()
+        var steps = 0
+        var noNewFrames = 0
+        var firstRun = true
+
+        addCurrentFrame(acc)
+        val stepRunnable = object : Runnable {
+            override fun run() {
+                // Only check "did the last scroll add anything new" after the
+                // first scroll has actually happened; the very first run just
+                // moves the page (the seed frame was already captured above).
+                if (!firstRun) {
+                    val before = acc.size
+                    addCurrentFrame(acc)
+                    if (acc.size == before) {
+                        noNewFrames++
+                        if (noNewFrames >= 1) {
+                            surfaceHidden(pkg)
+                            gatherCapture(pkg, currentApp, acc.toList())
+                            return
+                        }
+                    } else {
+                        noNewFrames = 0
+                    }
+                }
+                firstRun = false
+                if (steps >= 4) {
+                    surfaceHidden(pkg)
+                    gatherCapture(pkg, currentApp, acc.toList())
+                    return
+                }
+                steps++
+                swipeUp()
+                handler.postDelayed(this, 400L)
+            }
+        }
+        handler.postDelayed(stepRunnable, 400L)
+    }
+
+    /**
+     * Asks this app's parser to surface text hidden behind an interaction (the
+     * Paytm parser taps the transaction-id "Copy" button so the full id appears
+     * in a toast, then stores it on the service). Called right before gathering
+     * so any recovery happens while the relevant row is on screen; safe to call
+     * more than once.
+     */
+    private fun surfaceHidden(pkg: String) {
+        try {
+            parserFor(detectAppKind(pkg), this).surfaceHiddenText(rootInActiveWindow)
+        } catch (ex: Exception) {
+            Log.w("UcsScrapper", "surfaceHiddenText failed: " + ex.message)
+        }
+    }
+
+    /**
+     * Builds the ScrapedTxn, parses it (using [merged] scroll text when provided),
+     * validates, and uploads it. Runs on the main thread for parsing; the upload
+     * itself is off-thread. Always finishes by re-showing the overlay.
+     */
+    private fun gatherCapture(pkg: String, currentApp: String, merged: List<String>?) {
+        val root = rootInActiveWindow
         val txn = ScrapedTxn(received = true)
-        parseDetailForApp(root, pkg, txn)
+        // Delegate field extraction to this app's dedicated parser.
+        parserFor(detectAppKind(pkg), this).parse(root, merged, txn)
         txn.bankName = ScraperConfig.get("receivedBank")
         txn.mop = ScraperConfig.get("modeOfPayment")?.ifBlank { null }
 
@@ -764,6 +893,10 @@ val pkg = root.packageName?.toString() ?: ""
         // Guard against an accidental re-tap on the same still-open transaction.
         if (ref != null && ref == OverlayManager.lastCaptureRef) {
             OverlayManager.emitResult(false, ref, "Same transaction already captured — open a new one.")
+            captureInFlight = false
+            Handler(Looper.getMainLooper()).postDelayed({
+                OverlayManager.show(this@ScraperAccessibilityService)
+            }, 1200)
             return
         }
 
@@ -771,6 +904,10 @@ val pkg = root.packageName?.toString() ?: ""
         val dateStr = txn.transactionDate?.trim()
         if (dateStr.isNullOrBlank()) {
             OverlayManager.emitResult(false, ref, "Could not read the transaction date.")
+            captureInFlight = false
+            Handler(Looper.getMainLooper()).postDelayed({
+                OverlayManager.show(this@ScraperAccessibilityService)
+            }, 1200)
             return
         }
 
@@ -826,39 +963,15 @@ val pkg = root.packageName?.toString() ?: ""
             if (uploadNow.transactionDate != null) {
                 emit("collected", mapOf("count" to 1))
             }
+            captureInFlight = false
             // Re-show overlay after a delay so user can capture another
             Handler(Looper.getMainLooper()).postDelayed({
                 OverlayManager.show(this@ScraperAccessibilityService)
-            }, 2000)
+            }, 1200)
         }.start()
     }
 
-    private fun parseDetailForApp(root: AccessibilityNodeInfo, pkg: String, txn: ScrapedTxn) {
-        val texts = mutableListOf<String>()
-        collectTexts(root, texts)
-        val joined = texts.joinToString("\n")
-
-        // Amount (common to all UPI receipt screens): ₹ / Rs / INR + number.
-        txn.amount = extractAmount(joined) ?: txn.amount
-
-        // Date + time.
-        val date = extractDate(joined)
-        if (date != null) txn.transactionDate = date
-        val time = parseTime(joined)
-        if (time != null) txn.paymentTime = time
-
-        // Transaction / UPI reference (app-agnostic patterns).
-        txn.paymentId = extractUpiRef(joined) ?: txn.paymentId
-
-        // Payer / sender heuristics.
-        txn.payerName = extractPayer(joined)
-        android.util.Log.d("UcsScrapper", "parseDetailForApp payer=[${txn.payerName}] ref=[${txn.paymentId}] joined=[${joined.take(600)}]")
-
-        // If still no date, guarantee today.
-        if (txn.transactionDate.isNullOrBlank()) txn.transactionDate = fallbackDate()
-    }
-
-    private fun extractAmount(joined: String): Double? {
+    internal fun extractAmount(joined: String): Double? {
         val patterns = listOf(
             Regex("[₹Rs.INR]{0,3}\\s*([\\d,]+(?:\\.\\d{1,2})?)\\s*(?:credited|debited|received|paid)", RegexOption.IGNORE_CASE),
             Regex("(?:amount|total|you (?:received|paid))\\s*[₹:$]?\\s*([\\d,]+(?:\\.\\d{1,2})?)", RegexOption.IGNORE_CASE),
@@ -872,21 +985,30 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun extractDate(joined: String): String? {
-        // Label "Date", "TXN Date", "Paid on".
-        Regex("(?:date|txn\\s*date|paid\\s*on)\\s*[:.]?\\s*(\\d{1,2}\\s+[A-Za-z]{3,9},?\\s*\\d{2,4}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2})", RegexOption.IGNORE_CASE)
-            .find(joined)?.let { return parseHeaderFromText(it.groupValues[1]) }
-        // Date + time in one line like "1 Sept 2026, 3:58 pm".
-        Regex("(\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9}(?:,\\s*)?\\s*\\d{2,4})", RegexOption.IGNORE_CASE)
-            .find(joined)?.let { return parseHeaderFromText(it.groupValues[1].replace(",", " ")) }
-        // Month-first "Mar 2, 2026" (Paytm)- parseHeaderFromText also handles
-        // month-first, but return it via the day-first parser for consistency.
-        Regex("([A-Za-z]{3,9})\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s*,?\\s*(\\d{2,4})", RegexOption.IGNORE_CASE)
+    internal fun extractDate(joined: String): String? {
+        val lines = textsDense(joined)
+        // A date that directly follows a label ("Date", "TXN Date", "Paid on").
+        for (i in 0 until lines.size) {
+            if (!Regex("^(?:date|txn\\s*date|paid\\s*on)\\s*[:.]?$", RegexOption.IGNORE_CASE).matches(lines[i])) continue
+            val next = lines.getOrNull(i + 1) ?: continue
+            parseDayMonth(next)?.let { return it }
+        }
+        // Day-first "d M, YYYY" with a real 4-digit year. Never match a 2-digit
+        // year after the month: on date lines like "30 AUG, 12:07 PM" the hour
+        // "12" would otherwise be swallowed as the year (giving 2012).
+        Regex("\\b(\\d{1,2})\\s+([A-Za-z]{3,9}),?\\s+(\\d{4})\\b", RegexOption.IGNORE_CASE)
+            .find(joined)?.let { m ->
+                val mon = monthNumber(m.groupValues[2]) ?: return@let null
+                return String.format(Locale.US, "%04d-%02d-%02d", m.groupValues[3].toInt(), mon, m.groupValues[1].toInt())
+            }
+        // Day-first "d M[,] hh:mm" with no year → current year (Razorpay
+        // "01 Sep, 11:46 pm", Paytm "04 May 2026").
+        parseDayMonth(joined)?.let { return it }
+        // Month-first "M d, YYYY".
+        Regex("\\b([A-Za-z]{3,9})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b", RegexOption.IGNORE_CASE)
             .find(joined)?.let { m ->
                 val mon = monthNumber(m.groupValues[1]) ?: return@let null
-                var y = m.groupValues[3].toIntOrNull() ?: return@let null
-                if (y in 0..99) y += 2000
-                return String.format(Locale.US, "%04d-%02d-%02d", y, mon, m.groupValues[2].toInt())
+                return String.format(Locale.US, "%04d-%02d-%02d", m.groupValues[3].toInt(), mon, m.groupValues[2].toInt())
             }
         // dd/mm/yyyy
         Regex("(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{2,4})").find(joined)
@@ -896,7 +1018,39 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun extractUpiRef(joined: String): String? {
+    /**
+     * Parses a day + month (optionally followed by a time) into yyyy-MM-dd.
+     * When no year is present it is inferred from the current date, walking
+     * back a year if the parsed month/day is still in the future today.
+     */
+    internal fun parseDayMonth(s: String): String? {
+        val m = Regex("\\b(\\d{1,2})\\s+([A-Za-z]{3,9})\\b").find(s) ?: return null
+        val day = m.groupValues[1].toInt()
+        if (day < 1 || day > 31) return null
+        val mon = monthNumber(m.groupValues[2]) ?: return null
+        var year = Calendar.getInstance().get(Calendar.YEAR)
+        if (isFuture(mon, day, year)) year -= 1
+        return String.format(Locale.US, "%04d-%02d-%02d", year, mon, day)
+    }
+
+    private fun isFuture(month: Int, day: Int, year: Int): Boolean {
+        val cal = Calendar.getInstance()
+        val nowY = cal.get(Calendar.YEAR)
+        val nowM = cal.get(Calendar.MONTH) + 1
+        val nowD = cal.get(Calendar.DAY_OF_MONTH)
+        val y = nowY + (year - nowY)
+        return when {
+            y > nowY -> true
+            y < nowY -> false
+            month > nowM -> true
+            month < nowM -> false
+            else -> day > nowD
+        }
+    }
+
+    internal fun extractUpiRef(joined: String): String? {
+        // Razorpay payment ids are "pay_" + alphanumeric (e.g. pay_TWrtyXO1x2cI7H).
+        Regex("\\bpay_[A-Za-z0-9]{8,}\\b").find(joined)?.let { return it.value }
         // Label + value, tolerant of "No:"/"Id:" suffixes and trailing labels
         // like "Copy". Works for "UPI Ref No: 525170991793", "Paytm Transaction
         // ID: 123456789012", GPay "UPI transaction ID: 111...".
@@ -915,7 +1069,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun extractPayer(joined: String): String? {
+    internal fun extractPayer(joined: String): String? {
         val lines = textsDense(joined)
         android.util.Log.d("UcsScrapper", "extractPayer joined=[$joined]")
 
@@ -953,7 +1107,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun textsDense(joined: String): List<String> {
+    internal fun textsDense(joined: String): List<String> {
         val out = mutableListOf<String>()
         for (t in joined.split("\n").map { it.trim() }.filter { it.isNotEmpty() }) {
             // Nodes often expose the same string via both `text` and
@@ -1099,7 +1253,7 @@ val pkg = root.packageName?.toString() ?: ""
 
         val payer = title?.replace(Regex("^(received from|payment from|paid you|sent to|paid to|transferred to|money|refund|top.?up|bank|income|cash|cashback)", RegexOption.IGNORE_CASE), "")?.trim()?.take(80)
 
-        val ref = Regex("UPI[/\\s]?([A-Za-z0-9_-]{10,})", RegexOption.IGNORE_CASE).find(joined)
+        val ref = Regex("UPI[ /]?([A-Za-z0-9_-]{10,})", RegexOption.IGNORE_CASE).find(joined)
             ?.groupValues?.get(1)?.replace(" ", "")
 
         val time = parseTime(joined)
@@ -1118,7 +1272,7 @@ val pkg = root.packageName?.toString() ?: ""
         )
     }
 
-    private fun parseTime(joined: String): String? {
+    internal fun parseTime(joined: String): String? {
         val m12 = Regex("(\\d{1,2}:\\d{2})\\s*(am|pm)", RegexOption.IGNORE_CASE).find(joined)
         if (m12 != null) {
             val parts = m12.groupValues[1].split(":")
@@ -1199,7 +1353,7 @@ val pkg = root.packageName?.toString() ?: ""
         return t
     }
 
-    private fun fallbackDate(): String {
+    internal fun fallbackDate(): String {
         val joined = textsJoined(rootInActiveWindow).lowercase()
         val cal = Calendar.getInstance()
         if (joined.contains("yesterday")) cal.add(Calendar.DAY_OF_YEAR, -1)
@@ -1238,6 +1392,15 @@ val pkg = root.packageName?.toString() ?: ""
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
+    /** Taps the center of [node]. Per-app parsers use this to interact with
+     *  non-clickable text nodes (e.g. Paytm's "Copy" label, whose tap is handled
+     *  by a webview at that screen coordinate). */
+    internal fun tapCenter(node: AccessibilityNodeInfo) {
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        tap(r.exactCenterX(), r.exactCenterY())
+    }
+
     private fun swipeUp() {
         val dm = resources.displayMetrics
         val w = dm.widthPixels.toFloat()
@@ -1245,6 +1408,25 @@ val pkg = root.packageName?.toString() ?: ""
         val p = Path().apply {
             moveTo(w * 0.5f, h * 0.80f)
             lineTo(w * 0.5f, h * 0.25f)
+        }
+        val stroke = GestureDescription.StrokeDescription(p, 0L, 300L)
+        dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    /** One downward scroll (/scroll down) gesture, exposed for per-app parsers
+     *  that need to bring below-the-fold content (e.g. Paytm's Copy row) into
+     *  view before interacting with it. */
+    internal fun swipeDownOnce() {
+        swipeUp()
+    }
+
+    private fun swipeDown() {
+        val dm = resources.displayMetrics
+        val w = dm.widthPixels.toFloat()
+        val h = dm.heightPixels.toFloat()
+        val p = Path().apply {
+            moveTo(w * 0.5f, h * 0.25f)
+            lineTo(w * 0.5f, h * 0.80f)
         }
         val stroke = GestureDescription.StrokeDescription(p, 0L, 300L)
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
@@ -1317,9 +1499,8 @@ val pkg = root.packageName?.toString() ?: ""
     }
 
     private fun isTransactionDetailScreen(root: AccessibilityNodeInfo): Boolean {
-        val text = textsJoined(root).lowercase()
-        return Regex("(transaction id|upi transaction|upi ref|reference no|payment id|paytm transaction|order id|google transaction id|paid to|received from|transaction status|ref number)")
-            .containsMatchIn(text)
+        val pkg = root.packageName?.toString() ?: ""
+        return parserFor(detectAppKind(pkg), this).isDetailScreen(root)
     }
 
     private fun isLikelyTransactionListScreen(root: AccessibilityNodeInfo, rowCount: Int): Boolean {
@@ -1353,7 +1534,7 @@ val pkg = root.packageName?.toString() ?: ""
         for (i in 0 until node.childCount) clickableRowsInner(node.getChild(i), out, seen)
     }
 
-    private fun findNode(root: AccessibilityNodeInfo?, pred: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+    internal fun findNode(root: AccessibilityNodeInfo?, pred: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         if (root == null) return null
         if (pred(root)) return root
         for (i in 0 until root.childCount) {
@@ -1363,7 +1544,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun collectTexts(node: AccessibilityNodeInfo?, out: MutableList<String>) {
+    internal fun collectTexts(node: AccessibilityNodeInfo?, out: MutableList<String>) {
         if (node == null) return
         node.text?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
         node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
@@ -1374,7 +1555,15 @@ val pkg = root.packageName?.toString() ?: ""
         }
     }
 
-    private fun textsJoined(root: AccessibilityNodeInfo): String {
+    internal fun collectByResourceId(node: AccessibilityNodeInfo?, id: String, out: MutableList<String>) {
+        if (node == null) return
+        if ((node.viewIdResourceName ?: "").endsWith(id)) {
+            node.text?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
+        }
+        for (i in 0 until node.childCount) collectByResourceId(node.getChild(i), id, out)
+    }
+
+    internal fun textsJoined(root: AccessibilityNodeInfo): String {
         val out = mutableListOf<String>()
         collectTexts(root, out)
         return out.joinToString(" · ")

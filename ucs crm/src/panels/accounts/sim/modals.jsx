@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { toast } from './Toast';
+import { toast } from '../../../components/Toast';
 import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory } from './api';
 import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
 
@@ -118,7 +118,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
             <Field label="Mobile ID No.*" value={form.mobile_id} onChange={(v) => set('mobile_id', v)} />
             <Field label="Device & Model Name" value={form.device_model} onChange={(v) => set('device_model', v)} />
             <Field label="GB" value={extra.gb} onChange={(v) => setE('gb', v)} placeholder="e.g. 64 GB" />
-            <Field label="IMEI No." value={form.imei} onChange={(v) => set('imei', v)} />
+            <Field label="IMEI No." value={form.imei} onChange={(v) => setE('imei', v)} />
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
             <Field label="Remark" value={extra.signature} onChange={(v) => setE('signature', v)} />
             <div className="form-row">
