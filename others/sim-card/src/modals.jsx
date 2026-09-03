@@ -415,24 +415,6 @@ function historyRows(list) {
   return rows;
 }
 
-const HARDCODED_HISTORY = [
-  {
-    id: 1,
-    changed_at: new Date(Date.now() - 2 * 86400000).toISOString(),
-    changed_cols: { team: { old: null, new: 'UFS 1' } },
-  },
-  {
-    id: 2,
-    changed_at: new Date(Date.now() - 86400000).toISOString(),
-    changed_cols: { signature: { old: 'Old Remark', new: 'SS' } },
-  },
-  {
-    id: 3,
-    changed_at: new Date().toISOString(),
-    changed_cols: { device_model: { old: 'Old Model', new: 'RMX3506' } },
-  },
-];
-
 export function SimHistoryModal({ card, open, onClose }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -450,7 +432,7 @@ export function SimHistoryModal({ card, open, onClose }) {
 
   if (!open || !card) return null;
 
-  const rows = historyRows(history.length ? history : HARDCODED_HISTORY);
+  const rows = historyRows(history);
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>

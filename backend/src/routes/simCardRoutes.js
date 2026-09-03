@@ -13,11 +13,10 @@ import {
   importSimCards,
   historyForSim,
 } from '../controllers/simCardController.js';
-import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-const MANAGERS = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 const ANY_AUTH = authenticate;
 
 router.get('/', ANY_AUTH, listSimCards);
@@ -26,13 +25,13 @@ router.get('/:id', ANY_AUTH, getSimCard);
 router.get('/:id/replacements', ANY_AUTH, replaceHistoryForSim);
 router.get('/:id/history', ANY_AUTH, historyForSim);
 
-router.post('/', MANAGERS, addSimCard);
-router.post('/import', MANAGERS, importSimCards);
-router.post('/replacements/bulk', MANAGERS, updateStatusBulk);
-router.post('/replacements/bulk-delete', MANAGERS, deleteBulk);
-router.post('/:id/replace', MANAGERS, replaceSimCard);
+router.post('/', ANY_AUTH, addSimCard);
+router.post('/import', ANY_AUTH, importSimCards);
+router.post('/replacements/bulk', ANY_AUTH, updateStatusBulk);
+router.post('/replacements/bulk-delete', ANY_AUTH, deleteBulk);
+router.post('/:id/replace', ANY_AUTH, replaceSimCard);
 
-router.put('/:id', MANAGERS, editSimCard);
-router.delete('/:id', MANAGERS, removeSimCard);
+router.put('/:id', ANY_AUTH, editSimCard);
+router.delete('/:id', ANY_AUTH, removeSimCard);
 
 export default router;
