@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import { canonicalProject, getSources, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { findAutoMatches } from './autoMatchService.js';
+import { formatModeLabel } from './modeLabels.js';
 
 // ---------------------------------------------------------------------------
 // AI Payment Scraper service (scrapper/ device app ingest)
@@ -68,9 +69,8 @@ const cleanName = (value) => {
 };
 
 const cleanMode = (value) => {
-  if (!value) return null;
-  const s = String(value).trim().toUpperCase();
-  return s.length ? s.slice(0, 20) : null;
+  const s = formatModeLabel(value);
+  return s ? s.slice(0, 20) : null;
 };
 
 const fingerprintKey = (txn, projectId) => {
