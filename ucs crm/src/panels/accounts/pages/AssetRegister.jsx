@@ -32,7 +32,7 @@ const CAT_META = {
 }
 const catIcon = c => CAT_META[c] || Package
 const catColor = c => CAT_COLORS[CATEGORIES.indexOf(c) % CAT_COLORS.length] || MINT
-const isMachineAsset = c => c === 'Desktop' || c === 'Laptop'
+const isMachineAsset = c => c === 'Desktop' || c === 'Laptop' || c === 'Server Desktop'
 
 const ITEM_SUGGESTIONS = {
   'Desktop': ['Desktop', 'Desktop Computer', 'Dell Desktop', 'HP Desktop', 'Lenovo Desktop', 'Acer Desktop'],
@@ -526,7 +526,7 @@ function AssetFormModal({ initial, onClose, onSave }) {
   })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const isSim = f.category === 'Android Mobile' || f.category === 'Nokia Mobile'
-  const isMachine = f.category === 'Desktop' || f.category === 'Laptop'
+  const isMachine = f.category === 'Desktop' || f.category === 'Laptop' || f.category === 'Server Desktop'
   useEsc(onClose)
 
   return (
