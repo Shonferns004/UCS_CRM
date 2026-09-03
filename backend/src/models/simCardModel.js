@@ -94,3 +94,23 @@ export const bulkInsertSimCards = async (rows) => {
   if (error) throw error;
   return data || [];
 };
+
+export const createSimCardHistory = async (entry) => {
+  const { data, error } = await db
+    .from('sim_card_history')
+    .insert([entry])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const getSimCardHistory = async (simCardId) => {
+  const { data, error } = await db
+    .from('sim_card_history')
+    .select('*')
+    .eq('sim_card_id', simCardId)
+    .order('id', { ascending: true });
+  if (error) throw error;
+  return data || [];
+};

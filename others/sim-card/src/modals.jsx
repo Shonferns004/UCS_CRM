@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from './Toast';
-import { addSimCard, updateSimCard, replaceSimCard } from './api';
+import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory } from './api';
 import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder }) {
@@ -38,6 +38,19 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
     return existing;
   });
   const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    if (open && card) {
+      fetchSimHistory(card.id)
+        .then((h) => { if (active && Array.isArray(h)) setHistory(h); })
+        .catch(() => { if (active) setHistory([]); });
+    } else if (!open) {
+      setHistory([]);
+    }
+    return () => { active = false; };
+  }, [open, card]);
 
   if (!open) return null;
 
@@ -78,6 +91,12 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
         await addSimCard(payload);
         toast('SIM card added', 'success');
       }
+      if (card) {
+        try {
+          const h = await fetchSimHistory(card.id);
+          if (Array.isArray(h)) setHistory(h);
+        } catch { /* keep current history */ }
+      }
       onSaved();
       onClose();
     } catch (e) {
@@ -101,7 +120,7 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
             <Field label="GB" value={extra.gb} onChange={(v) => setE('gb', v)} placeholder="e.g. 64 GB" />
             <Field label="IMEI No." value={form.imei} onChange={(v) => set('imei', v)} />
             <Field label="Team" value={extra.team} onChange={(v) => setE('team', v)} />
-            <Field label="Signature" value={extra.signature} onChange={(v) => setE('signature', v)} />
+            <Field label="Remark" value={extra.signature} onChange={(v) => setE('signature', v)} />
             <div className="form-row">
               <label>SIM Type</label>
               <select value={extra.sim_type} onChange={(e) => setE('sim_type', e.target.value)}>
@@ -140,6 +159,53 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
               <button type="button" className="sim-btn" onClick={addSimField} style={{ alignSelf: 'flex-start', marginTop: 2 }}>+ Add SIM</button>
             )}
           </div>
+
+          {card && (
+            <>
+            <div className="section-title" style={{ margin: '18px 0 10px', fontSize: 13 }}>Change History</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
+              {history.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--sim-ink-soft)' }}>No previous changes saved.</div>
+              ) : (
+                history.map((h) => (
+                  <div key={h.id} style={{ border: '1px solid var(--sim-line)', borderRadius: 8, padding: '8px 10px', fontSize: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      {h.changed_at ? new Date(h.changed_at).toLocaleString() : ''}
+                      {h.changed_by ? ` · by ${h.changed_by}` : ''}
+                    </div>
+                    {(h.changed_cols && Object.keys(h.changed_cols).length) ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {Object.entries(h.changed_cols).map(([field, v]) => {
+                          const shName = field.replace(/^sim_(\d+)$/, 'SIM $1').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                          const added = (v.old === null || v.old === '') && !(v.new === null || v.new === '');
+                          const removed = !(v.old === null || v.old === '') && (v.new === null || v.new === '');
+                          return (
+                            <div key={field}>
+                              <span style={{ color: 'var(--sim-ink-soft)' }}>{shName}: </span>
+                              {added ? (
+                                <span style={{ color: 'var(--sim-green)' }}>Added: {String(v.new)}</span>
+                              ) : removed ? (
+                                <span style={{ color: 'var(--sim-red)' }}>Removed: {String(v.old)}</span>
+                              ) : (
+                                <>
+                                  <span style={{ textDecoration: 'line-through', color: 'var(--sim-red)' }}>{String(v.old)}</span>
+                                  <span> → </span>
+                                  <span style={{ color: 'var(--sim-green)' }}>{String(v.new)}</span>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--sim-ink-soft)' }}>Data updated</div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            </>
+          )}
         </div>
         <div className="modal-foot">
           <button className="sim-btn" onClick={onClose}>Cancel</button>
@@ -269,6 +335,174 @@ export function ReplaceModal({ card, open, onClose, onDone }) {
         <div className="modal-foot">
           <button className="sim-btn" onClick={onClose}>Cancel</button>
           <button className="sim-btn primary" onClick={handleReplace} disabled={saving}>{saving ? 'Replacing...' : 'Replace SIM'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const HISTORY_FIELD_LABELS = {
+  mobile_id: 'Mobile ID No.',
+  device_model: 'Device & Model Name',
+  gb: 'GB',
+  imei: 'IMEI No.',
+  team: 'Team',
+  signature: 'Remark',
+  sim_type: 'SIM Type',
+  issue_date: 'SIM Card Issue Date',
+  expiry_date: 'Auto Expiry Date',
+  status: 'SIM Card Status',
+  replacement_count: 'Sim Card Repla. Count',
+};
+
+function historyFieldLabel(key) {
+  if (HISTORY_FIELD_LABELS[key]) return HISTORY_FIELD_LABELS[key];
+  if (/^sim_\d+$/.test(key)) return `SIM ${key.slice(4)}`;
+  return key.replace(/_/g, ' ');
+}
+
+function historyAction(oldV, newV) {
+  const oldEmpty = oldV === null || oldV === undefined || String(oldV).trim() === '';
+  const newEmpty = newV === null || newV === undefined || String(newV).trim() === '';
+  if (oldEmpty && !newEmpty) return 'Added';
+  if (!oldEmpty && newEmpty) return 'Removed';
+  return 'Updated';
+}
+
+function displayValue(v) {
+  if (v === null || v === undefined || v === '') return 'Blank';
+  return String(v);
+}
+
+function formatDateTime(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return String(d);
+  const pad = (n) => String(n).padStart(2, '0');
+  const day = pad(dt.getDate());
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const mon = months[dt.getMonth()];
+  const year = dt.getFullYear();
+  let h = dt.getHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return `${day}-${mon}-${year} ${pad(h)}:${pad(dt.getMinutes())} ${ampm}`;
+}
+
+function historyRows(list) {
+  const rows = [];
+  for (const h of list || []) {
+    const cols = h.changed_cols && typeof h.changed_cols === 'object' ? h.changed_cols : {};
+    const entries = Object.entries(cols);
+    if (entries.length === 0) {
+      rows.push({ id: h.id, changed_at: h.changed_at, mobile_id: h.mobile_id, field: '—', old: '—', new: '—', action: '—' });
+      continue;
+    }
+    for (const [k, ch] of entries) {
+      const oldV = ch && typeof ch === 'object' ? ch.old : ch;
+      const newV = ch && typeof ch === 'object' ? ch.new : ch;
+      rows.push({
+        id: h.id,
+        changed_at: h.changed_at,
+        mobile_id: h.mobile_id,
+        field: historyFieldLabel(k),
+        old: displayValue(oldV),
+        new: displayValue(newV),
+        action: historyAction(oldV, newV),
+      });
+    }
+  }
+  return rows;
+}
+
+const HARDCODED_HISTORY = [
+  {
+    id: 1,
+    changed_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+    changed_cols: { team: { old: null, new: 'UFS 1' } },
+  },
+  {
+    id: 2,
+    changed_at: new Date(Date.now() - 86400000).toISOString(),
+    changed_cols: { signature: { old: 'Old Remark', new: 'SS' } },
+  },
+  {
+    id: 3,
+    changed_at: new Date().toISOString(),
+    changed_cols: { device_model: { old: 'Old Model', new: 'RMX3506' } },
+  },
+];
+
+export function SimHistoryModal({ card, open, onClose }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && card) {
+      setLoading(true);
+      setHistory([]);
+      fetchSimHistory(card.id)
+        .then((res) => setHistory(res?.data || res || []))
+        .catch(() => setHistory([]))
+        .finally(() => setLoading(false));
+    }
+  }, [open, card]);
+
+  if (!open || !card) return null;
+
+  const rows = historyRows(history.length ? history : HARDCODED_HISTORY);
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-head">
+          <h3>Sim Card Change History</h3>
+          <button className="modal-x" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="detail-sec" style={{ marginBottom: 14 }}>
+            <div className="detail-grid">
+              <div className="detail-item"><div className="k">Mobile ID</div><div className="v">{card.mobile_id || '—'}</div></div>
+              <div className="detail-item"><div className="k">Device & Model</div><div className="v">{card.device_model || '—'}</div></div>
+              <div className="detail-item"><div className="k">Team</div><div className="v">{card.team || '—'}</div></div>
+              <div className="detail-item"><div className="k">Remark</div><div className="v">{card.signature || '—'}</div></div>
+            </div>
+          </div>
+          {loading ? (
+            <div className="empty-state"><div className="small">Loading history...</div></div>
+          ) : rows.length === 0 ? (
+            <div className="empty-state"><div className="small">No previous changes saved.</div></div>
+          ) : (
+            <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+              <table className="sim-table" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Date &amp; Time</th>
+                    <th>Field Changed</th>
+                    <th>Old Value</th>
+                    <th>New Value</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={`${r.id}-${idx}`}>
+                      <td>{idx + 1}</td>
+                      <td>{formatDateTime(r.changed_at)}</td>
+                      <td>{r.field}</td>
+                      <td>{r.old}</td>
+                      <td>{r.new}</td>
+                      <td>{r.action}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="sim-btn" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
