@@ -56,9 +56,10 @@ const buildEventContextMaps = async () => {
     EventHead.getAllActivities().catch(() => []),
   ]);
   const ngoMap = {}; for (const n of ngos) ngoMap[n.id] = n.name || n.code;
+  const ngoCodeMap = {}; for (const n of ngos) ngoCodeMap[n.id] = (n.code || n.name || '').toLowerCase();
   const sectorMap = {}; for (const s of sectors) sectorMap[s.id] = s.name;
   const activityMap = {}; for (const a of activities) activityMap[a.id] = a.name;
-  return { ngoMap, sectorMap, activityMap };
+  return { ngoMap, ngoCodeMap, sectorMap, activityMap };
 };
 
 // Load activities for a set of events from the join table (falling back to the
@@ -1164,6 +1165,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
       'bsct': '/Letter%20Head%20BSCT%20(1).png',
       'beingsevak': '/Letter%20Head%20BSCT%20(1).png',
     };
+    // NGO logos mapped by NGO code.
+    const NGO_LOGOS = {
+      mann: '/logo/mann-logo.png',
+      aflf: '/logo/aflf-logo.png',
+      bsct: '/logo/beingsevak-logo.png',
+    };
     const ngoHeaderBanner = (name, code) => {
       const k = String(name || code || '').trim().toLowerCase();
       if (NGO_HEADER_BANNERS[k]) return NGO_HEADER_BANNERS[k];
@@ -1177,9 +1184,12 @@ export const generateNgoMonthlyReport = async (req, res) => {
     for (const e of enriched) {
       const id = e.ngo_id != null ? String(e.ngo_id) : 'unknown';
       if (!byNgo.has(id)) {
+        const code = ctx.ngoCodeMap ? (ctx.ngoCodeMap[e.ngo_id] || '') : '';
         byNgo.set(id, {
           ngo_id: e.ngo_id != null ? e.ngo_id : null,
           ngo_name: e.ngo_name || ctx.ngoMap[e.ngo_id] || `NGO ${e.ngo_id || ''}`.trim(),
+          code,
+          logo: NGO_LOGOS[code] || (code ? `/logo/${code}-logo.png` : null),
           banner: ngoHeaderBanner(e.ngo_name, ctx.ngoMap[e.ngo_id]),
           events_count: 0,
           submitted: 0,

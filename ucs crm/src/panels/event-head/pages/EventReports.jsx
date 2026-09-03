@@ -1,5 +1,58 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchEvents, generateEventReport, generateAllEventsReport, generateNgoMonthlyReport, fetchWorkspaceNgos } from '../store'
+
+// Per-NGO brand theme (colors + logo) keyed by NGO code. Colors match the
+// uploaded AFLF/BSCT/MANN report images.
+const NGO_THEMES = {
+  mann: {
+    name: 'MANN',
+    fullName: 'Mann Care Foundation',
+    logo: '/logo/mann-logo.png',
+    color: '#F42D92',
+    colorDark: '#C23875',
+    colorLight: '#FAB6DF',
+    banner: '/Letter%20Head%20MANN.png',
+  },
+  bsct: {
+    name: 'BSCT',
+    fullName: 'Being Sevak Charitable Trust',
+    logo: '/logo/beingsevak-logo.png',
+    color: '#204E8C',
+    colorDark: '#1a3f70',
+    colorLight: '#cfe0f5',
+    banner: '/Letter%20Head%20BSCT%20(1).png',
+  },
+  aflf: {
+    name: 'AFLF',
+    fullName: 'Ashray for Life Foundation',
+    logo: '/logo/aflf-logo.png',
+    color: '#0B0B0B',
+    accent: '#88A201',
+    colorDark: '#0B0B0B',
+    colorLight: '#eef2c7',
+    banner: '/Letter%20Head%20AFLF.png',
+  },
+}
+const DEFAULT_THEME = {
+  name: 'REPORT',
+  fullName: 'Report',
+  logo: null,
+  color: '#0f172a',
+  colorDark: '#0f172a',
+  colorLight: '#e2e8f0',
+  banner: null,
+}
+const ngoTheme = (n) => {
+  const code = String(n.code || '').toLowerCase()
+  return NGO_THEMES[code] || DEFAULT_THEME
+}
+const codeForName = (name) => {
+  const k = String(name || '').toLowerCase()
+  if (k.includes('mann')) return 'mann'
+  if (k.includes('aflf') || k.includes('ashray')) return 'aflf'
+  if (k.includes('bsct') || k.includes('being')) return 'bsct'
+  return ''
+}
 
 const REPORT_TYPES = [
   { id: 'summary', label: 'Event Summary' },
@@ -185,6 +238,41 @@ export default function EventReports() {
       { key: 'budget', label: 'Budget', render: r => money(r.budget) },
     ]
     exportCSV(cols, rows, `monthly-report-${monthlyYear}-${monthlyMonth}.csv`)
+  }
+
+  const monthlyMonthLabel = monthlyData
+    ? new Date(Number(monthlyData.year), Number(monthlyData.month) - 1, 1).toLocaleString('en-IN', { month: 'long' })
+    : new Date(Number(monthlyYear), Number(monthlyMonth) - 1, 1).toLocaleString('en-IN', { month: 'long' })
+  const monthlyYearLabel = monthlyData ? String(monthlyData.year) : String(monthlyYear)
+
+  const exportMonthlyExcel = async () => {
+    const XLSX = await import('xlsx-js-style')
+    const rows = (monthlyData?.ngos || []).flatMap(n => n.events.map(e => ({
+      ngo: n.ngo_name, event: e.name, sector: e.sector_name, activity: e.activity_name,
+      date: e.date || '', day: e.day || '', venue: e.venue || '', status: e.status || '',
+      beneficiaries: Number(e.beneficiaries) || 0, budget: Number(e.budget) || 0,
+    })))
+    const headers = ['NGO', 'Event', 'Sector', 'Activity', 'Date', 'Day', 'Venue', 'Status', 'Beneficiaries', 'Budget (₹)']
+    const aoa = [headers, ...rows.map(r => [
+      r.ngo, r.event, r.sector, r.activity, r.date, r.day, r.venue, r.status, r.beneficiaries, r.budget,
+    ])]
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    ws['!cols'] = [{ wch: 18 }, { wch: 26 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 13 }, { wch: 12 }]
+    if (!ws['!rows']) ws['!rows'] = []
+    ws['!rows'][0] = { hpt: 22 }
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Monthly Report')
+    XLSX.writeFile(wb, `monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.xlsx`)
+  }
+
+  const monthlyReportElRef = useRef(null)
+  const exportMonthlyPDF = async () => {
+    const el = monthlyReportElRef.current
+    if (!el) return
+    const { default: jsPDF } = await import('jspdf')
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    pdf.html(el, { margin: [8, 8, 8, 8], autoPaging: 'slice', x: 0, y: 0, width: 210 })
+      .then(() => pdf.save(`monthly-report-${monthlyYearLabel}-${monthlyMonthLabel}.pdf`))
   }
 
   const ev = reportData?.event || {}
@@ -374,7 +462,11 @@ export default function EventReports() {
             <button className="btn btn-primary btn-sm" onClick={generateMonthly} disabled={monthlyLoading}>
               {monthlyLoading ? 'Loading…' : 'Generate Monthly Report'}
             </button>
-            {monthlyData && <button className="btn btn-sm" onClick={exportMonthlyCSV}>Download CSV</button>}
+            {monthlyData && <>
+              <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none' }} onClick={exportMonthlyPDF}>Download PDF</button>
+              <button className="btn btn-sm" style={{ background: '#16a34a', color: '#fff', border: 'none' }} onClick={exportMonthlyExcel}>Download Excel</button>
+              <button className="btn btn-sm" onClick={exportMonthlyCSV}>Download CSV</button>
+            </>}
           </div>
         </div>
         <div className="card-pad" style={{ paddingTop: 8 }}>
@@ -388,7 +480,7 @@ export default function EventReports() {
             <div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
                 <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
-                  {new Date(Number(monthlyData.year), Number(monthlyData.month) - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                  {monthlyMonthLabel} {monthlyYearLabel}
                 </span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.summary.totalEvents} events</span>
                 <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>{monthlyData.ngos.length} NGO{monthlyData.ngos.length === 1 ? '' : 's'}</span>
@@ -398,71 +490,78 @@ export default function EventReports() {
 
               {monthlyData.ngos.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 12 }}>No events found for this month.</div>}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                {monthlyData.ngos.map(n => (
-                  <div key={String(n.ngo_id)} style={{ border: '2px solid #0f172a', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
-                    {/* NGO header banner — fills the top of the card */}
-                    {n.banner ? (
-                      <div style={{ position: 'relative', background: '#0f172a', minHeight: 120 }}>
-                        <img src={n.banner} alt={n.ngo_name} style={{ width: '100%', minHeight: 120, maxHeight: 200, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
-                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: 'linear-gradient(transparent, rgba(15,23,42,0.85))', color: '#fff', padding: '26px 16px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
-                          <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: 0.5, textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>{n.ngo_name}</div>
-                          <div style={{ fontSize: 12, color: '#cbd5e1' }}>{n.events_count} event{n.events_count === 1 ? '' : 's'}</div>
+              <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
+                {monthlyData.ngos.map(n => {
+                  const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: codeForName(n.ngo_name) })
+                  const headerBg = theme.color
+                  const logo = n.logo || theme.logo
+                  const bannerSrc = n.banner || theme.banner
+                  return (
+                    <div key={String(n.ngo_id)} style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
+                      {/* Themed header with this NGO's own logo + colors */}
+                      <div style={{ background: headerBg, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        {logo ? (
+                          <img src={logo} alt={n.ngo_name} style={{ width: 46, height: 46, objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 3 }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                        ) : (
+                          <div style={{ width: 46, height: 46, borderRadius: 8, background: 'rgba(255,255,255,0.25)', color: '#fff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{theme.name.slice(0, 1)}</div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 150 }}>
+                          <div style={{ fontWeight: 900, fontSize: 19, letterSpacing: 0.5, color: '#fff' }}>{n.ngo_name}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.9)' }}>{n.events_count} event{n.events_count === 1 ? '' : 's'} this month</div>
+                        </div>
+                        <div style={{ textAlign: 'right', color: '#fff' }}>
+                          <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.85, fontWeight: 700 }}>MONTHLY REPORT</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase' }}>{monthlyMonthLabel} {monthlyYearLabel}</div>
                         </div>
                       </div>
-                    ) : (
-                      <div style={{ background: '#0f172a', color: '#fff', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                        <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: 0.5 }}>{n.ngo_name}</div>
-                        <div style={{ fontSize: 12, color: '#cbd5e1' }}>{n.events_count} event{n.events_count === 1 ? '' : 's'}</div>
-                      </div>
-                    )}
 
-                    {/* Month banner strip */}
-                    <div style={{ textAlign: 'center', padding: '14px 16px', background: '#2036bd', color: '#fff' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, opacity: 0.85 }}>MONTHLY REPORT</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
-                        {new Date(Number(monthlyData.year), Number(monthlyData.month) - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
-                      </div>
-                    </div>
+                      {/* Optional letterhead band */}
+                      {bannerSrc && (
+                        <div style={{ height: 84, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `3px solid ${headerBg}` }}>
+                          <img src={bannerSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                        </div>
+                      )}
 
-                    {/* Event banner boxes — event images + name + date */}
-                    <div style={{ padding: '16px' }}>
-                      {n.events.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No events for this month.</div>}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 14 }}>
-                        {n.events.map((ev, i) => (
-                          <div key={ev.id ?? i} style={{
-                            border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', background: '#fff',
-                            display: 'flex', flexDirection: 'column',
-                          }}>
-                            {ev.banner ? (
-                              <div style={{ width: '100%', height: 110, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
-                              </div>
-                            ) : (
-                              <div style={{ width: '100%', height: 110, background: 'linear-gradient(135deg,#2036bd,#0ea5e9)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>EVENT BANNER</div>
-                            )}
-                            <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', lineHeight: 1.3 }}>{ev.name}</div>
-                              <div style={{ fontSize: 11, color: '#6b7280' }}>{fmtDate(ev.date)}</div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                                <span style={{ fontSize: 11, color: '#2563eb', fontWeight: 600 }}>
-                                  {Number(ev.beneficiaries) > 0 ? `${Number(ev.beneficiaries).toLocaleString('en-IN')} beneficiaries` : 'Expected: —'}
-                                </span>
-                                <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '2px 7px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>
+                      {/* Event banner boxes — event images + name + date */}
+                      <div style={{ padding: '14px 16px' }}>
+                        {n.events.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No events for this month.</div>}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
+                          {n.events.map((ev, i) => (
+                            <div key={ev.id ?? i} style={{
+                              border: `1px solid ${theme.colorLight}`, borderRadius: 8, overflow: 'hidden', background: '#fff',
+                              display: 'flex', flexDirection: 'column',
+                            }}>
+                              {ev.banner ? (
+                                <div style={{ width: '100%', height: 110, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                                </div>
+                              ) : (
+                                <div style={{ width: '100%', height: 110, background: theme.color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>EVENT BANNER</div>
+                              )}
+                              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', lineHeight: 1.3 }}>{ev.name}</div>
+                                <div style={{ fontSize: 11, color: '#6b7280' }}>{ev.day} · {fmtDate(ev.date)}</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                  <span style={{ fontSize: 11, color: theme.color, fontWeight: 700 }}>
+                                    {Number(ev.beneficiaries) > 0 ? `${Number(ev.beneficiaries).toLocaleString('en-IN')} beneficiaries` : 'Expected: —'}
+                                  </span>
+                                  <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '2px 7px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Themed footer */}
+                      <div style={{ borderTop: `3px solid ${headerBg}`, background: theme.colorLight, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: theme.colorDark }}>Total Family: {n.beneficiaries.toLocaleString('en-IN')}+</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: theme.colorDark }}>Budget: {money(n.budget)}</div>
+                        <div style={{ fontSize: 11, color: theme.colorDark, opacity: 0.8 }}>{n.ngo_name} · {monthlyMonthLabel} {monthlyYearLabel}</div>
                       </div>
                     </div>
-
-                    {/* Total Family footer */}
-                    <div style={{ borderTop: '2px solid #0f172a', background: '#f1f5f9', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>Total Family: {n.beneficiaries.toLocaleString('en-IN')}+</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Budget: {money(n.budget)}</div>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
