@@ -259,6 +259,10 @@ export default function MyDonors() {
   const [activeDonor, setActiveDonor] = useState(null);
   const [listStatusFilter, setListStatusFilter] = useState('all');
   const [listHideDonated, setListHideDonated] = useState(false);
+  // Preserves the list's vertical scroll position while the FRO opens a lead
+  // and returns (or disposes it), so the list doesn't snap back to the top.
+  const listScrollRef = useRef(null);
+  const savedListScrollRef = useRef(0);
   const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -427,6 +431,17 @@ export default function MyDonors() {
       startDonorView(target.id)
     }
   }, [index, donors, activeDonor, externalDonor, endDonorView, startDonorView]);
+
+  // When returning to the list from an opened lead, restore the previously
+  // saved scroll position so the FRO doesn't get thrown back to the top.
+  useEffect(() => {
+    if (!activeDonor) {
+      const el = listScrollRef.current;
+      if (el && savedListScrollRef.current) {
+        el.scrollTop = savedListScrollRef.current;
+      }
+    }
+  }, [activeDonor]);
 
   useEffect(() => {
     getMyStations().then(s => {
@@ -1266,6 +1281,9 @@ export default function MyDonors() {
         : null;
       const found = donors.findIndex(x => x.id === d.id && x.ngo_id === d.ngo_id);
       if (found >= 0) setIndex(found);
+      // Remember where the FRO was before opening the lead so going back (or
+      // disposing) returns them to the same spot instead of the top of the list.
+      if (listScrollRef.current) savedListScrollRef.current = listScrollRef.current.scrollTop;
       setActiveDonor(keyed || d);
       setSelected(null); setNotes(''); setLeadAmount('');
     };
@@ -1339,7 +1357,7 @@ export default function MyDonors() {
         )}
 
         {/* List */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div ref={listScrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead style={{ position: 'sticky', top: 0, background: 'var(--card-bg)', zIndex: 2 }}>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
