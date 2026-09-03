@@ -621,18 +621,16 @@ export const getPagarExportData = async (month) => {
     //  2) library/pg are AGENT buckets (agent_name = library/pg, project_id is still bsct) -> Library/PG cards
     //  3) otherwise the project must resolve to bsct/aflf/mann -> the NGO card pool
     const isSuspenseish = rawAgent === '' || agentLower === 'na' || agentLower === 'suspense';
-    if (isSuspenseish) {
-      const cat = categoryByNgo['suspense'];
-      cat['Other'] = (cat['Other'] || 0) + amount;
-      cat.total += amount;
-      continue;
-    }
-
-    // library/pg receipts are tagged by agent_name (their project_id is
-    // still 'bsct'), so match on agent_name — same as getReportData.
-    if (agentLower === 'library' || agentLower === 'pg') {
-      const cat = categoryByNgo[agentLower];
-      cat['Other'] = (cat['Other'] || 0) + amount;
+    if (isSuspenseish || agentLower === 'library' || agentLower === 'pg') {
+      // Suspense / Library / PG category receipts. Split by the receipt's own
+      // project_id into the BSCT/AFLF/MANN columns (dynamic) so the salary file
+      // rows reflect the report's project breakdown. project-less receipts stay
+      // in Other (counted in the category total, but no NGO column).
+      const catKey = isSuspenseish ? 'suspense' : agentLower;
+      const cat = categoryByNgo[catKey];
+      const ngoName = projectToNgo[proj];
+      if (ngoName) cat[ngoName] = (cat[ngoName] || 0) + amount;
+      else cat['Other'] = (cat['Other'] || 0) + amount;
       cat.total += amount;
       continue;
     }
@@ -667,17 +665,6 @@ export const getPagarExportData = async (month) => {
       cat[ngoName] = (cat[ngoName] || 0) + amount;
       cat.total += amount;
     }
-  }
-
-  // Unattributed (No Agent) = every bsct/aflf/mann receipt NOT credited to a
-  // worker or a category bucket this month. Computed as the residual per project
-  // so the file's BSCT/MANN/AFLF columns always equal the Collection Report cards.
-  const unattributedByNgo = { BSCT: 0, AFLF: 0, MANN: 0 };
-  for (const k of ['BSCT', 'AFLF', 'MANN']) {
-    let attributed = 0;
-    for (const ck of Object.keys(categoryByNgo)) attributed += categoryByNgo[ck][k] || 0;
-    for (const uk of Object.keys(NgoByWorker)) attributed += NgoByWorker[uk][k] || 0;
-    unattributedByNgo[k] = Math.max(0, Math.round((totalNgo[k] - attributed) * 100) / 100);
   }
 
   // Merge manual daily_achievements (manual wins for that day's total)
@@ -799,55 +786,14 @@ export const getPagarExportData = async (month) => {
     });
   }
 
-  // Category collection rows (PG / Library / Suspense) - receipts whose
+  // Category collection rows (Pg / Library / Suspense) - receipts whose
   // agent_name is the category label, shown as trailing rows in the salary file.
   const categoryLabels = { pg: 'Pg', library: 'Library', suspense: 'Suspense', anjana_fro: 'Anjana FRO', priyank_shah: 'Priyank Shah' };
-  for (const c of ['pg', 'library', 'suspense', 'anjana_fro', 'priyank_shah']) {
-    const cat = categoryByNgo[c];
-    const label = categoryLabels[c];
-    rows.push({
-      id: null,
-      name: label,
-      status: 'CATEGORY',
-      department: '',
-      account_holder_name: '',
-      account_holder_relation: '',
-      bank_name: '',
-      account_number: '',
-      station: '',
-      doj: '',
-      salary: 0,
-      target: 0,
-      achieved: cat.total,
-      achieved_bsct: cat.BSCT || 0,
-      achieved_aflf: cat.AFLF || 0,
-      achieved_mann: cat.MANN || 0,
-      gross_present_days: 0,
-      training_sunday_ded: 0,
-      net_present_days: 0,
-      month_salary: 0,
-      monthly_incentive: 0,
-      total_aki: 0,
-      aki_payout: 0,
-      gross_payable: 0,
-      advance_deduction: 0,
-      net_payable: 0,
-      daily: {},
-      days_in_month: daysInMonth,
-      start_date: startDate,
-    });
-  }
-
-  // Unattributed (No Agent) row - receipts the reports count but that are not
-  // credited to any worker or category bucket this month. Adding it makes the
-  // salary file's BSCT/MANN/AFLF columns tally exactly with the Collection
-  // Report cards.
-  const unattributedTotal = unattributedByNgo.BSCT + unattributedByNgo.AFLF + unattributedByNgo.MANN;
-  rows.push({
+  const makeCategoryRow = (label, cat, status, department) => rows.push({
     id: null,
-    name: 'Unattributed (No Agent)',
-    status: 'UNATTRIBUTED',
-    department: '',
+    name: label,
+    status,
+    department,
     account_holder_name: '',
     account_holder_relation: '',
     bank_name: '',
@@ -856,10 +802,10 @@ export const getPagarExportData = async (month) => {
     doj: '',
     salary: 0,
     target: 0,
-    achieved: unattributedTotal,
-    achieved_bsct: unattributedByNgo.BSCT,
-    achieved_aflf: unattributedByNgo.AFLF,
-    achieved_mann: unattributedByNgo.MANN,
+    achieved: cat.total,
+    achieved_bsct: cat.BSCT || 0,
+    achieved_aflf: cat.AFLF || 0,
+    achieved_mann: cat.MANN || 0,
     gross_present_days: 0,
     training_sunday_ded: 0,
     net_present_days: 0,
@@ -875,15 +821,25 @@ export const getPagarExportData = async (month) => {
     start_date: startDate,
   });
 
+  // Pg / Library / Suspense stay trailing CATEGORY rows.
+  for (const c of ['pg', 'library', 'suspense']) {
+    makeCategoryRow(categoryLabels[c], categoryByNgo[c], 'CATEGORY', '');
+  }
+
+  // Anjana FRO / Priyank Shah are treated as ACTIVE FRO rows (so they live in
+  // the Active section and feed the Active FRO + Grand totals), with zero
+  // salary / target / present-days since they are pure collection buckets.
+  for (const c of ['anjana_fro', 'priyank_shah']) {
+    makeCategoryRow(categoryLabels[c], categoryByNgo[c], 'ACTIVE', 'FRO');
+  }
+
   // Sort: Active first (by dept), then Absconded (by dept), then other
-  // non-active (Offboarded/Inactive/etc), then CATEGORY rows, then
-  // UNATTRIBUTED row last.
+  // non-active (Offboarded/Inactive/etc), then CATEGORY rows (Pg/Library/Suspense).
   const deptOrder = { 'FRO': 0, 'Digital': 1, 'Admin': 2, 'NGO Admin': 3, 'Event Manager': 4, 'Housekeeping': 5, 'HR': 6, 'HR-Recruiter': 7 };
   const statusGroup = (s) => {
     if (s === 'ACTIVE') return 0;
     if (s === 'ABSCONDED' || s === 'ABSCOND') return 1;
     if (s === 'CATEGORY') return 3;
-    if (s === 'UNATTRIBUTED') return 4;
     return 2;
   };
   rows.sort((a, b) => {
