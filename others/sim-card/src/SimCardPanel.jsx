@@ -4,7 +4,7 @@ import { useUcs } from './store';
 import { SimProvider, useSim } from './store';
 import { Icon } from './components';
 import ToastContainer from './Toast';
-import { SimFormModal, SimViewModal, ReplaceModal } from './modals';
+import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal } from './modals';
 import { deleteSimCard, importSimCards } from './api';
 import { toast } from './Toast';
 import { exportToCSV, exportToExcel } from './helpers';
@@ -283,6 +283,7 @@ function PanelInner() {
   const [formKey, setFormKey] = useState(0);
   const [viewCard, setViewCard] = useState(null);
   const [replaceCard, setReplaceCard] = useState(null);
+  const [historyCard, setHistoryCard] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [deleteCard, setDeleteCard] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -360,7 +361,7 @@ function PanelInner() {
             <Routes>
               <Route index element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
               <Route path="dashboard" element={<Dashboard onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} />} />
-              <Route path="inventory" element={<Inventory onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={(c) => setDeleteCard(c)} />} />
+              <Route path="inventory" element={<Inventory onAdd={openAdd} onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onDelete={(c) => setDeleteCard(c)} onHistory={setHistoryCard} />} />
               <Route path="cards" element={<SimInventory />} />
               <Route path="expiring" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onAdd={openAdd} />} />
               <Route path="expiring/:tab" element={<Expiring onView={setViewCard} onEdit={openEdit} onReplace={setReplaceCard} onAdd={openAdd} />} />
@@ -374,6 +375,7 @@ function PanelInner() {
       <SimFormModal key={formKey} open={formOpen} card={editing} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={handleSaved} />
       <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard); }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null); } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
+      <SimHistoryModal card={historyCard} open={!!historyCard} onClose={() => setHistoryCard(null)} />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => setImportOpen(false)} />
       <DeleteConfirmModal card={deleteCard} deleting={deleting} onClose={() => { if (!deleting) setDeleteCard(null); }} onConfirm={() => deleteCard && doDelete(deleteCard)} />
     </div>

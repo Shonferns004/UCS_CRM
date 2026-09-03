@@ -9,6 +9,8 @@ import {
   getReplacementsBySimCard,
   deleteReplacementsBySimCard,
   bulkInsertSimCards,
+  createSimCardHistory,
+  getSimCardHistory,
 } from '../models/simCardModel.js';
 
 export const SIM_STATUSES = ['Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
@@ -122,15 +124,68 @@ export const editSimCard = async (req, res) => {
     if (!body.mobile_id || !String(body.mobile_id).trim()) {
       return res.status(400).json({ message: 'Mobile ID No. is required' });
     }
-    const patch = patchSimCard(body);
+    const writable = {};
+    const nonNullableText = ['mobile_id', 'device_model', 'imei', 'team', 'signature'];
+    for (const [k, v] of Object.entries(body || {})) {
+      if (k === 'id' || k === 'created_at' || k === 'updated_at') continue;
+      if (nonNullableText.includes(k)) {
+        writable[k] = v === null || v === undefined ? null : String(v);
+        if (writable[k] === '') writable[k] = null;
+        continue;
+      }
+      if (v === undefined) continue;
+      writable[k] = v === '' || v === null ? null : v;
+    }
+    const patch = writable;
+
     let daysLeft = null;
-    if (patch.expiry_date !== undefined) {
+    if ('expiry_date' in patch) {
       const computed = computeExpiry(patch.expiry_date);
       daysLeft = computed.daysLeft;
-      patch.status = finalStatus({ status: patch.status || 'Active' }, computed);
+      if (patch.status === null || patch.status === undefined) {
+        patch.status = finalStatus({ status: 'Active' }, computed);
+      } else {
+        patch.status = finalStatus({ status: patch.status }, computed);
+      }
+    }
+    const beforeSim = await getSimCardById(req.params.id);
+    if (beforeSim) {
+      const changedCols = {};
+      for (const [k, v] of Object.entries(patch)) {
+        if (k === 'updated_at') continue;
+        const prev = beforeSim[k];
+        if (String(prev ?? '') !== String(v ?? '')) {
+          changedCols[k] = { old: prev ?? null, new: v ?? null };
+        }
+      }
+      if (Object.keys(changedCols).length > 0) {
+        const changedBy = req.user?.login_id || req.user?.name || req.user?.id || null;
+        for (const [k, change] of Object.entries(changedCols)) {
+          try {
+            await createSimCardHistory({
+              sim_card_id: beforeSim.id,
+              changed_by: changedBy,
+              changed_cols: { [k]: change },
+              before_data: beforeSim,
+              after_data: { ...beforeSim, ...patch },
+            });
+          } catch (e) {
+            // history write failure should not block the update
+          }
+        }
+      }
     }
     const sim = await updateSimCard(req.params.id, patch);
     return res.json({ message: 'SIM card updated', sim, daysLeft });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const historyForSim = async (req, res) => {
+  try {
+    const history = await getSimCardHistory(req.params.id);
+    return res.json(history);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
