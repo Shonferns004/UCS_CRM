@@ -288,7 +288,10 @@ export const unifiedLogin = async (req, res) => {
 // Super admin, NGO admin, or FRO may "work as" an FRO. The impersonated token
 // keeps the operator's identity (imposter_id) so collection credit, accounts
 // verification, and notifications follow the operator, while donor/assignment
-// ownership follows the impersonated FRO (token id).
+// ownership follows the impersonated FRO (token id). Absconded / deactivated
+// FROs (is_active=false, employment_status='absconded') remain coverable via
+// work-as — direct login as the absconder stays blocked, but replacement FROs
+// take over their stations through this flow.
 export const impersonateFRO = async (req, res) => {
   try {
     const { worker_id } = req.body;
@@ -306,7 +309,9 @@ export const impersonateFRO = async (req, res) => {
 
     // Any staff role may work as any FRO (the list shows everyone): each switch
     // is gated by a fresh single-use admin-generated code below, which is the
-    // real authorization. Deactivated FROs stay selectable for data coverage.
+    // real authorization. Deactivated / absconded FROs intentionally stay
+    // selectable via work-as so another FRO can cover their stations; the
+    // absconder's own login remains blocked (is_active=false).
     const operatorRole = req.user.role;
     if (!['fro', 'super_admin', 'master', 'admin', 'accounts', 'hr'].includes(operatorRole)) {
       return res.status(403).json({ message: 'Not allowed to impersonate an FRO' });
