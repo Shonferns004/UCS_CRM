@@ -200,11 +200,6 @@ export default function FROPanel() {
   }
 
   const pickImpersonateTarget = (worker) => {
-    const isAbs = String(worker?.employment_status || '').toLowerCase().trim() === 'absconded'
-    if (isAbs) {
-      const ok = window.confirm(`${worker.name} is marked absconded. You will cover their stations \u2014 donors stay under ${worker.name}, collection credit goes to you. Continue?`)
-      if (!ok) return
-    }
     setShowWorkAs(false)
     setPendingTarget(worker)
     setCodeInput('')
