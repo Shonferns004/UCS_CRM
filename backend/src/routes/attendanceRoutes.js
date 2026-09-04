@@ -12,10 +12,10 @@ router.get('/today', authenticate, todayStatus);
 router.get('/today-all', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), todayAll);
 router.get('/history', authenticate, myHistory);
 router.get('/all', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), listAll);
-router.post('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), createAttendanceByHR);
-router.put('/:id', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), updateAttendanceRecord);
+router.post('/', authenticateRole('super_admin', 'admin', 'hr'), createAttendanceByHR);
+router.put('/:id', authenticateRole('super_admin', 'admin', 'hr'), updateAttendanceRecord);
 router.put('/:id/verify-selfie', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), verifySelfie);
-router.delete('/:id', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), deleteAttendanceRecord);
-router.get('/worker/:id', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkerMonthlyAttendance);
+router.delete('/:id', authenticateRole('super_admin', 'admin', 'hr'), deleteAttendanceRecord);
+router.get('/worker/:id', authenticateRole('super_admin', 'admin', 'hr'), getWorkerMonthlyAttendance);
 
 export default router;
