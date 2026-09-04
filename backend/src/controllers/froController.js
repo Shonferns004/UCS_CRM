@@ -925,6 +925,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_date: r.receipt_date || e.transaction_date,
         receipt_time: r.receipt_time || e.payment_time,
         project_id: r.project_id || e.project_id,
+        payment_id: e.payment_id || null,
         has_receipt: true,
         // Only an explicit Accounts assignment (manual-verify save) parks an
         // entry as "waiting for receipt number". A missing receipt number alone
@@ -947,6 +948,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_date: e.transaction_date,
         receipt_time: e.payment_time,
         project_id: e.project_id,
+        payment_id: e.payment_id || null,
         has_receipt: false,
         waiting_receipt_no: !!e.verify_fro_worker_id,
       });
@@ -981,6 +983,7 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_date: r.receipt_date,
       receipt_time: r.receipt_time,
       project_id: r.project_id,
+      payment_id: r.payment_id || null,
       kind: r.has_receipt ? 'entry' : 'no_receipt',
       waiting_receipt_no: r.waiting_receipt_no || false,
       _bank_audit_entry_id: r.entry_id,

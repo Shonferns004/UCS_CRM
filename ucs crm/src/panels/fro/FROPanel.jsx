@@ -590,11 +590,14 @@ export default function FROPanel() {
                   {!workAsLoading && (
                     <div style={{ maxHeight: 260, overflowY: 'auto' }}>
                       {filteredFroList.map(w => {
-                        const inactive = w.is_active === false || w.employment_status === 'terminated'
+                        const isAbsconded = String(w.employment_status || '').toLowerCase().trim() === 'absconded'
+                        const isInactive = w.is_active === false || w.employment_status === 'terminated'
                         return (
                         <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
                           <span style={{ fontWeight: 600 }}>{w.name}</span>
-                          {inactive && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '1px 7px' }}>INACTIVE</span>}
+                          {isAbsconded
+                            ? <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#991b1b', background: '#fee2e2', borderRadius: 6, padding: '1px 7px' }}>ABS</span>
+                            : isInactive && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '1px 7px' }}>INACTIVE</span>}
                           {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
                         </div>
                         )
@@ -652,6 +655,11 @@ export default function FROPanel() {
               </div>
               {waPhase === 'stations' ? (
                 <>
+                  {String(pendingTarget?.employment_status || '').toLowerCase().trim() === 'absconded' && (
+                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11, lineHeight: 1.4 }}>
+                      ⚠ Absconded FRO — covering their stations. Donor ownership stays with {pendingTarget.name}; collection credit goes to you.
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
                     Select which stations you want to work on. Taken stations stay with their current operator.
                   </div>
@@ -698,6 +706,11 @@ export default function FROPanel() {
                 </>
               ) : (
                 <>
+                  {String(pendingTarget?.employment_status || '').toLowerCase().trim() === 'absconded' && (
+                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11, lineHeight: 1.4 }}>
+                      ⚠ Absconded FRO — covering their stations. Donor ownership stays with {pendingTarget.name}; collection credit goes to you.
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
                     Stations: <b style={{ color: 'var(--ink)' }}>{[...new Set(pickedPairs().map(p => p.station))].join(', ') || '—'}</b>{' '}
                     <span onClick={() => setWaPhase('stations')} style={{ color: 'var(--sage)', cursor: 'pointer', textDecoration: 'underline' }}>(change)</span>

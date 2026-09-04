@@ -226,6 +226,39 @@ export const unifiedLogin = async (req, res) => {
         return res.json({ token, role: 'hr', user: safeHR, message: 'Login successful' });
       }
 
+      // Allow workers to log in with custom ids like ngo@fro (not @ufs). This covers renamed NGO admin logins.
+      const workerByLogin = await getWorkerByLoginId(identifier);
+      if (workerByLogin) {
+        if (workerByLogin.is_active === false || workerByLogin.employment_status === 'terminated') {
+          return res.status(403).json({ message: 'Account is deactivated' });
+        }
+        const isMatch = await bcrypt.compare(password, workerByLogin.password);
+        if (!isMatch) {
+          return res.status(401).json({ message: 'Invalid password' });
+        }
+        const dept = (workerByLogin.department || '').toLowerCase().trim();
+        let wRole;
+        if (dept === 'hr') wRole = 'hr';
+        else if (dept.includes('recruit')) wRole = 'recruiter';
+        else if (dept === 'admin') wRole = 'accounts';
+        else if (dept === 'fro') wRole = 'fro';
+        else if (dept === 'ngo admin') wRole = 'admin';
+        else if (dept === 'digital' || dept.includes('develop')) wRole = 'digital';
+        else if (dept.includes('event')) wRole = 'event_head';
+        else wRole = 'worker';
+        const token = jwt.sign(
+          { id: workerByLogin.id, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, name: workerByLogin.name, role: wRole, department: workerByLogin.department },
+          process.env.JWT_SECRET,
+          { expiresIn: expiry }
+        );
+        return res.json({
+          token,
+          role: wRole,
+          user: { id: workerByLogin.id, name: workerByLogin.name, email: workerByLogin.email, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, department: workerByLogin.department },
+          message: 'Login successful',
+        });
+      }
+
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -288,7 +321,10 @@ export const unifiedLogin = async (req, res) => {
 // Super admin, NGO admin, or FRO may "work as" an FRO. The impersonated token
 // keeps the operator's identity (imposter_id) so collection credit, accounts
 // verification, and notifications follow the operator, while donor/assignment
-// ownership follows the impersonated FRO (token id).
+// ownership follows the impersonated FRO (token id). Absconded / deactivated
+// FROs (is_active=false, employment_status='absconded') remain coverable via
+// work-as — direct login as the absconder stays blocked, but replacement FROs
+// take over their stations through this flow.
 export const impersonateFRO = async (req, res) => {
   try {
     const { worker_id } = req.body;
@@ -306,7 +342,9 @@ export const impersonateFRO = async (req, res) => {
 
     // Any staff role may work as any FRO (the list shows everyone): each switch
     // is gated by a fresh single-use admin-generated code below, which is the
-    // real authorization. Deactivated FROs stay selectable for data coverage.
+    // real authorization. Deactivated / absconded FROs intentionally stay
+    // selectable via work-as so another FRO can cover their stations; the
+    // absconder's own login remains blocked (is_active=false).
     const operatorRole = req.user.role;
     if (!['fro', 'super_admin', 'master', 'admin', 'accounts', 'hr'].includes(operatorRole)) {
       return res.status(403).json({ message: 'Not allowed to impersonate an FRO' });

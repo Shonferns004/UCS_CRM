@@ -26,10 +26,9 @@ const NGO_THEMES = {
     name: 'AFLF',
     fullName: 'Ashray for Life Foundation',
     logo: '/logo/aflf-logo.png',
-    color: '#0B0B0B',
-    accent: '#88A201',
-    colorDark: '#0B0B0B',
-    colorLight: '#eef2c7',
+    color: '#6B21A8',
+    colorDark: '#4C1D95',
+    colorLight: '#EDE9FE',
     banner: '/Letter%20Head%20AFLF.png',
   },
 }
@@ -137,6 +136,268 @@ function Table({ cols, rows }) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// MANN-only "MONTH IN ACTION" mosaic layout.
+// Featured hero + alternating large/small photo cells + a
+// 3-column impact row. Every event cell shows its banner and
+// all of its information.
+// ─────────────────────────────────────────────────────────────
+function MonthInActionLayout({ n, theme, monthLabel, yearLabel }) {
+  const events = n.events || []
+  const ev = (i) => events[i]
+
+  const infoLine = (icon, label, value) => (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+      <span style={{ width: 15, textAlign: 'center', fontSize: 11, flexShrink: 0 }}>{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.4, color: '#6b7280', fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#1a1a2e', lineHeight: 1.3, wordBreak: 'break-word' }}>{value || '—'}</div>
+      </div>
+    </div>
+  )
+
+  // An event photo cell with a full-info panel beneath the banner.
+  const Cell = ({ e, big, badge }) => {
+    if (!e) return null
+    const eBadge = badge !== false ? (
+      <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[e.status] || '#6b7280', borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{e.status || '—'}</span>
+    ) : null
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${theme.colorLight}`, borderRadius: big ? 12 : 10, overflow: 'hidden', background: '#fff' }}>
+        <div style={{ position: 'relative', width: '100%', height: big ? 180 : 130, background: '#f1f5f9', overflow: 'hidden' }}>
+          {e.banner ? (
+            <img src={e.banner} alt={e.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={x => { x.currentTarget.style.display = 'none' }} />
+          ) : (
+            <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
+          )}
+          {eBadge}
+        </div>
+        <div style={{ padding: big ? '12px 14px' : '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+          <div style={{ fontSize: big ? 15 : 13, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{e.name}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: big ? 'repeat(2, 1fr)' : '1fr', gap: big ? 8 : 6 }}>
+            {infoLine('📅', 'Date', `${fmtDate(e.date)}${e.day ? ` · ${e.day.split(' ')[0]}` : ''}`)}
+            {infoLine('📍', 'Venue', e.venue)}
+            {infoLine('🏷', 'Sector', e.sector_name)}
+            {infoLine('🎯', 'Activity', e.activity_name)}
+            {infoLine('👥', 'Beneficiaries', Number(e.beneficiaries || 0).toLocaleString('en-IN') + ' families')}
+            {infoLine('💰', 'Budget', money(e.budget))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ border: `2px solid ${theme.color}`, borderRadius: 14, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
+      {/* Themed header */}
+      <div style={{ background: theme.color, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <img src={n.logo || theme.logo} alt={n.ngo_name} style={{ width: 46, height: 46, objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 3 }} onError={e => { e.currentTarget.style.display = 'none' }} />
+        <div style={{ flex: 1, minWidth: 150 }}>
+          <div style={{ fontWeight: 900, fontSize: 19, letterSpacing: 0.5, color: '#fff' }}>{n.ngo_name}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.9)' }}>{n.events_count} event{n.events_count === 1 ? '' : 's'} this month</div>
+        </div>
+        <div style={{ textAlign: 'right', color: '#fff' }}>
+          <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.85, fontWeight: 700 }}>MONTHLY REPORT</div>
+          <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase' }}>{monthLabel} {yearLabel}</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px 16px 8px' }}>
+        {events.length === 0 ? (
+          <div style={{ color: '#9ca3af', fontSize: 13, padding: '8px 0 24px', textAlign: 'center' }}>No events for this month.</div>
+        ) : (
+          <>
+            {/* Section title */}
+            <div style={{ fontSize: 15, letterSpacing: 3, color: theme.color, fontWeight: 800, textAlign: 'center', textTransform: 'uppercase' }}>📸 Month in Action</div>
+            <div style={{ fontSize: 11, letterSpacing: 2, color: '#6b7280', fontWeight: 600, textAlign: 'center', textTransform: 'uppercase' }}>Stories • People • Impact</div>
+            <div style={{ width: 70, height: 3, background: theme.color, margin: '8px auto 14px', borderRadius: 2 }} />
+
+            {/* 1 · Featured hero — large photo */}
+            <div style={{ marginBottom: 12 }}>
+              <Cell e={events[0]} big />
+            </div>
+
+            {/* 2 · Large then small */}
+            {events[1] && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12, marginBottom: 12 }}>
+                <Cell e={events[1]} big />
+                <Cell e={events[2]} />
+              </div>
+            )}
+
+            {/* 3 · Small then large */}
+            {events[3] && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 12, marginBottom: 12 }}>
+                <Cell e={events[3]} />
+                <Cell e={events[4]} big />
+              </div>
+            )}
+
+            {/* 4 · People / Participation / Impact strip */}
+            <div style={{ background: `linear-gradient(90deg, ${theme.color}, ${theme.colorDark})`, color: '#fff', textAlign: 'center', padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 800, letterSpacing: 3, marginBottom: 12 }}>
+              PEOPLE • PARTICIPATION • IMPACT
+            </div>
+
+            {/* 5 · 3-column impact row */}
+            {(events[5] || events[6] || events[7]) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+                <Cell e={events[5]} />
+                <Cell e={events[6]} />
+                <Cell e={events[7]} />
+              </div>
+            )}
+
+            {/* 6 · Any remaining events */}
+            {events.length > 8 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+                {events.slice(8).map((e, i) => <Cell key={e.id ?? i} e={e} />)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Themed footer */}
+      <div style={{ borderTop: `3px solid ${theme.color}`, background: theme.colorLight, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: theme.colorDark }}>Total Family: {n.beneficiaries.toLocaleString('en-IN')}+</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: theme.colorDark }}>Budget: {money(n.budget)}</div>
+        <div style={{ fontSize: 11, color: theme.colorDark, opacity: 0.8 }}>{n.ngo_name} · {monthLabel} {yearLabel}</div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// AFLF-only "GLIMPSES FROM THE FIELD" mosaic layout.
+// Featured photo on the left (tall) with event cells around it,
+// then rows of photo cells. Every event shows its banner and all
+// of its information.
+// ─────────────────────────────────────────────────────────────
+function GlimpsesLayout({ n, theme, monthLabel, yearLabel }) {
+  const events = n.events || []
+
+  const infoLine = (icon, label, value) => (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+      <span style={{ width: 15, textAlign: 'center', fontSize: 11, flexShrink: 0 }}>{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.4, color: '#6b7280', fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#1a1a2e', lineHeight: 1.3, wordBreak: 'break-word' }}>{value || '—'}</div>
+      </div>
+    </div>
+  )
+
+  const Cell = ({ e, big, wide }) => {
+    if (!e) return null
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${theme.colorLight}`, borderRadius: big ? 12 : 10, overflow: 'hidden', background: '#fff', height: '100%' }}>
+        <div style={{ position: 'relative', width: '100%', height: big ? 190 : (wide ? 150 : 130), background: '#f1f5f9', overflow: 'hidden', flexShrink: 0 }}>
+          {e.banner ? (
+            <img src={e.banner} alt={e.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={x => { x.currentTarget.style.display = 'none' }} />
+          ) : (
+            <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
+          )}
+          <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[e.status] || '#6b7280', borderRadius: 999, padding: '3px 9px', textTransform: 'uppercase' }}>{e.status || '—'}</span>
+        </div>
+        <div style={{ padding: big ? '12px 14px' : '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+          <div style={{ fontSize: big ? 15 : 13, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{e.name}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: big || wide ? 'repeat(2, 1fr)' : '1fr', gap: big ? 8 : 6 }}>
+            {infoLine('📅', 'Date', `${fmtDate(e.date)}${e.day ? ` · ${e.day.split(' ')[0]}` : ''}`)}
+            {infoLine('📍', 'Venue', e.venue)}
+            {infoLine('🏷', 'Sector', e.sector_name)}
+            {infoLine('🎯', 'Activity', e.activity_name)}
+            {infoLine('👥', 'Beneficiaries', Number(e.beneficiaries || 0).toLocaleString('en-IN') + ' families')}
+            {infoLine('💰', 'Budget', money(e.budget))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const ev = (i) => events[i]
+  const rest = events.slice(11)
+
+  return (
+    <div style={{ border: `2px solid ${theme.color}`, borderRadius: 14, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
+      {/* Themed header */}
+      <div style={{ background: theme.color, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <img src={n.logo || theme.logo} alt={n.ngo_name} style={{ width: 46, height: 46, objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 3 }} onError={e => { e.currentTarget.style.display = 'none' }} />
+        <div style={{ flex: 1, minWidth: 150 }}>
+          <div style={{ fontWeight: 900, fontSize: 19, letterSpacing: 0.5, color: '#fff' }}>{n.ngo_name}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.9)' }}>{n.events_count} event{n.events_count === 1 ? '' : 's'} this month</div>
+        </div>
+        <div style={{ textAlign: 'right', color: '#fff' }}>
+          <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.85, fontWeight: 700 }}>MONTHLY REPORT</div>
+          <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase' }}>{monthLabel} {yearLabel}</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px 16px 8px' }}>
+        {events.length === 0 ? (
+          <div style={{ color: '#9ca3af', fontSize: 13, padding: '8px 0 24px', textAlign: 'center' }}>No events for this month.</div>
+        ) : (
+          <>
+            {/* Section title */}
+            <div style={{ fontSize: 15, letterSpacing: 3, color: theme.color, fontWeight: 800, textAlign: 'center', textTransform: 'uppercase' }}>📸 Glimpses From The Field</div>
+            <div style={{ width: 70, height: 3, background: theme.color, margin: '10px auto 14px', borderRadius: 2 }} />
+
+            {/* Featured (left, tall) + right column (2, 3, 4) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 12, marginBottom: 12 }}>
+              <Cell e={ev(0)} big />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <Cell e={ev(1)} wide />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, flex: 1 }}>
+                  <Cell e={ev(2)} />
+                  <Cell e={ev(3)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Row of three: 5, 6, 7 */}
+            {(ev(4) || ev(5) || ev(6)) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+                <Cell e={ev(4)} />
+                <Cell e={ev(5)} />
+                <Cell e={ev(6)} />
+              </div>
+            )}
+
+            {/* Row of two: 8, 9 */}
+            {(ev(7) || ev(8)) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <Cell e={ev(7)} />
+                <Cell e={ev(8)} />
+              </div>
+            )}
+
+            {/* Row of three: 10, 11, 12 */}
+            {(ev(9) || ev(10) || ev(11)) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+                <Cell e={ev(9)} />
+                <Cell e={ev(10)} />
+                <Cell e={ev(11)} />
+              </div>
+            )}
+
+            {/* Any remaining events */}
+            {rest.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                {rest.map((e, i) => <Cell key={e.id ?? i} e={e} />)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Themed footer */}
+      <div style={{ borderTop: `3px solid ${theme.color}`, background: theme.colorLight, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: theme.colorDark }}>Total Family: {n.beneficiaries.toLocaleString('en-IN')}+</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: theme.colorDark }}>Budget: {money(n.budget)}</div>
+        <div style={{ fontSize: 11, color: theme.colorDark, opacity: 0.8 }}>{n.ngo_name} · {monthLabel} {yearLabel}</div>
+      </div>
+    </div>
+  )
+}
+
 export default function EventReports() {
   const [events, setEvents] = useState([])
   const [selectedEvent, setSelectedEvent] = useState('')
@@ -190,12 +451,13 @@ export default function EventReports() {
 
   const filteredEvents = events.filter(e => !statusFilter || (statusFilter === 'Submitted' ? isSubmitted(e.status) : String(e.status) === statusFilter))
 
-  const generate = async () => {
-    if (!selectedEvent) return
+  const generate = async (forceId) => {
+    const id = forceId || selectedEvent
+    if (!id) return
     setLoading(true)
     setReportData(null)
     try {
-      const data = await generateEventReport(selectedEvent, reportType)
+      const data = await generateEventReport(id, reportType)
       setReportData(data)
     } catch (err) { alert('Failed to generate report') }
     finally { setLoading(false) }
@@ -392,7 +654,7 @@ export default function EventReports() {
             <option value="">All Events</option>
             <option value="Draft">Draft only</option>
           </select>
-          <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, maxWidth: 320 }}>
+          <select value={selectedEvent} onChange={e => { const v = e.target.value; setSelectedEvent(v); if (v) generate(v); else setReportData(null) }} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, maxWidth: 320 }}>
             <option value="">Select Event</option>
             {[...filteredEvents].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || 0).map(ev => (
               <option key={ev.id} value={ev.id}>
@@ -492,12 +754,20 @@ export default function EventReports() {
 
               <div ref={monthlyReportElRef} style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 4 }}>
                 {monthlyData.ngos.map(n => {
-                  const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: codeForName(n.ngo_name) })
+                  const nameCode = codeForName(n.ngo_name)
+                  const rawCode = String(n.code || '').toLowerCase()
+                  const code = nameCode || (['aflf', 'bsct', 'mann'].includes(rawCode) ? rawCode : '')
+                  const theme = n.code ? ngoTheme(n) : ngoTheme({ ...n, code: nameCode || rawCode })
                   const headerBg = theme.color
                   const logo = n.logo || theme.logo
                   const bannerSrc = n.banner || theme.banner
                   return (
-                    <div key={String(n.ngo_id)} style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
+                    code === 'mann'
+                      ? <MonthInActionLayout n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
+                      : (code === 'aflf'
+                          ? <GlimpsesLayout n={n} theme={theme} monthLabel={monthlyMonthLabel} yearLabel={monthlyYearLabel} />
+                          : (
+                          <div key={String(n.ngo_id)} style={{ border: `2px solid ${headerBg}`, borderRadius: 12, overflow: 'hidden', background: '#fff', pageBreakInside: 'avoid' }}>
                       {/* Themed header with this NGO's own logo + colors */}
                       <div style={{ background: headerBg, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                         {logo ? (
@@ -525,32 +795,82 @@ export default function EventReports() {
                       {/* Event banner boxes — event images + name + date */}
                       <div style={{ padding: '14px 16px' }}>
                         {n.events.length === 0 && <div style={{ color: '#9ca3af', fontSize: 13, padding: 8 }}>No events for this month.</div>}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
-                          {n.events.map((ev, i) => (
-                            <div key={ev.id ?? i} style={{
-                              border: `1px solid ${theme.colorLight}`, borderRadius: 8, overflow: 'hidden', background: '#fff',
-                              display: 'flex', flexDirection: 'column',
-                            }}>
-                              {ev.banner ? (
-                                <div style={{ width: '100%', height: 110, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+
+                        {code === 'aflf' || code === 'bsct' ? (
+                          /* ── OLD LAYOUT structure (BSCT) with full event info ── */
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
+                            {n.events.map((ev, i) => (
+                              <div key={ev.id ?? i} style={{
+                                border: `1px solid ${theme.colorLight}`, borderRadius: 8, overflow: 'hidden', background: '#fff',
+                                display: 'flex', flexDirection: 'column',
+                              }}>
+                                <div style={{ position: 'relative', width: '100%', height: 140, background: '#f1f5f9', overflow: 'hidden' }}>
+                                  {ev.banner ? (
+                                    <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                                  ) : (
+                                    <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
+                                  )}
+                                  <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '2px 8px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>
                                 </div>
-                              ) : (
-                                <div style={{ width: '100%', height: 110, background: theme.color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>EVENT BANNER</div>
-                              )}
-                              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', lineHeight: 1.3 }}>{ev.name}</div>
-                                <div style={{ fontSize: 11, color: '#6b7280' }}>{ev.day} · {fmtDate(ev.date)}</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                                  <span style={{ fontSize: 11, color: theme.color, fontWeight: 700 }}>
-                                    {Number(ev.beneficiaries) > 0 ? `${Number(ev.beneficiaries).toLocaleString('en-IN')} beneficiaries` : 'Expected: —'}
-                                  </span>
-                                  <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '2px 7px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>
+                                <div style={{ padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{ev.name}</div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
+                                    <span>📅 {fmtDate(ev.date)}{ev.day ? ` · ${ev.day.split(' ')[0]}` : ''}</span>
+                                    {ev.venue && <span>📍 {ev.venue}</span>}
+                                  </div>
+                                  {(ev.sector_name || ev.activity_name) && (
+                                    <div style={{ fontSize: 11, color: '#4b5563', fontWeight: 600, lineHeight: 1.35 }}>
+                                      🏷 {ev.sector_name && ev.activity_name ? `${ev.sector_name} · ${ev.activity_name}` : (ev.sector_name || ev.activity_name)}
+                                    </div>
+                                  )}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, borderTop: `1px solid ${theme.colorLight}`, paddingTop: 7 }}>
+                                    <span style={{ fontSize: 11, color: '#1a1a2e', fontWeight: 700 }}>
+                                      👥 {Number(ev.beneficiaries) > 0 ? `${Number(ev.beneficiaries).toLocaleString('en-IN')} families` : 'Expected: —'}
+                                    </span>
+                                    <span style={{ fontSize: 11, color: theme.color, fontWeight: 700 }}>💰 {money(ev.budget)}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        ) : (
+                          /* ── CURRENT STYLE: larger full-info cards (MANN + others) ── */
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                            {n.events.map((ev, i) => (
+                              <div key={ev.id ?? i} style={{
+                                border: `1px solid ${theme.colorLight}`, borderRadius: 10, overflow: 'hidden', background: '#fff',
+                                display: 'flex', flexDirection: 'column',
+                              }}>
+                                <div style={{ position: 'relative', width: '100%', height: 150, background: '#f1f5f9', overflow: 'hidden' }}>
+                                  {ev.banner ? (
+                                    <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                                  ) : (
+                                    <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
+                                  )}
+                                  <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, color: '#fff', background: STATUS_COLOR[ev.status] || '#6b7280', borderRadius: 999, padding: '2px 8px', textTransform: 'uppercase' }}>{ev.status || '—'}</span>
+                                </div>
+                                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 800, color: '#1a1a2e', lineHeight: 1.25 }}>{ev.name}</div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', fontSize: 12, color: '#6b7280', fontWeight: 600 }}>
+                                    <span>📅 {fmtDate(ev.date)}{ev.day ? ` · ${ev.day.split(' ')[0]}` : ''}</span>
+                                    {ev.venue && <span>📍 {ev.venue}</span>}
+                                  </div>
+                                  {(ev.sector_name || ev.activity_name) && (
+                                    <div style={{ fontSize: 11, color: '#4b5563', fontWeight: 600, lineHeight: 1.35 }}>
+                                      🏷 {ev.sector_name && ev.activity_name ? `${ev.sector_name} · ${ev.activity_name}` : (ev.sector_name || ev.activity_name)}
+                                    </div>
+                                  )}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, borderTop: `1px solid ${theme.colorLight}`, paddingTop: 8 }}>
+                                    <span style={{ fontSize: 12, color: '#1a1a2e', fontWeight: 700 }}>
+                                      👥 {Number(ev.beneficiaries) > 0 ? `${Number(ev.beneficiaries).toLocaleString('en-IN')} families` : 'Expected: —'}
+                                    </span>
+                                    <span style={{ fontSize: 12, color: theme.color, fontWeight: 700 }}>💰 {money(ev.budget)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Themed footer */}
@@ -560,7 +880,7 @@ export default function EventReports() {
                         <div style={{ fontSize: 11, color: theme.colorDark, opacity: 0.8 }}>{n.ngo_name} · {monthlyMonthLabel} {monthlyYearLabel}</div>
                       </div>
                     </div>
-                  )
+                  )))
                 })}
               </div>
             </div>

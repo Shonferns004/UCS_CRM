@@ -45,6 +45,14 @@ class ScraperAccessibilityService : AccessibilityService() {
     private var stage: Stage = Stage.IDLE
     private var inspectMode = false
 
+    /**
+     * Transaction reference recovered by the Paytm parser from its copy-toast
+     * during [TransactionParser.surfaceHiddenText]. Persisted on the service
+     * (a singleton) because a fresh parser instance is built for each call;
+     * reset once per capture and read back by the parser's [parse] step.
+     */
+    @Volatile internal var recoveredRef: String? = null
+
     private var devicePin = ""
     private var gpayPin = ""
     private var gpayLockType = "pin"
@@ -724,12 +732,25 @@ val pkg = root.packageName?.toString() ?: ""
      * record, and reports whether it was added or already existed.
      */
     fun captureTransaction() {
-        val root = rootInActiveWindow
+        var root = rootInActiveWindow
         if (root == null) {
             OverlayManager.emitResult(false, null, "No screen focused — open the transaction detail page first.")
             return
         }
+        // WebView receipts (e.g. Paytm Business) can briefly report an empty tree
+        // right after the overlay is removed, before their web content re-syncs.
+        // Retry a few times so we don't mistake that for a non-detail screen.
+        var emptyRetries = 0
+        while (textsJoined(root).isBlank() && emptyRetries < 3) {
+            android.os.SystemClock.sleep(250)
+            rootInActiveWindow?.let { root = it }
+            emptyRetries++
+        }
         val pkg = root.packageName?.toString() ?: ""
+        android.util.Log.d(
+            "UcsScrapper",
+            "captureTransaction pkg=[$pkg] text=[${textsJoined(root).take(400)}]"
+        )
         val detail = isTransactionDetailScreen(root)
         if (!detail) {
             OverlayManager.emitResult(false, null, "Not a transaction detail page. Open the transaction then tap Capture.")
@@ -755,20 +776,20 @@ val pkg = root.packageName?.toString() ?: ""
             return
         }
         captureInFlight = true
+        // Reset the per-capture Paytm copy-toast reference so a stale id from a
+        // previous capture is never reused.
+        recoveredRef = null
 
-        // Razorpay's detail screen fits on a single page, so its resource-id
-        // fields can be read directly from the current frame with no scrolling.
-        if (pkg.contains("razorpay")) {
+        // Route to the per-app parser. Single-page screens (e.g. Razorpay) can
+        // be read from the current frame directly with no scrolling; scrollable
+        // detail screens (e.g. GPay Business, Paytm) merge every frame's text
+        // so amount / date / reference / payer are captured across the fold.
+        val parser = parserFor(detectAppKind(pkg), this)
+        if (parser.needsScroll()) {
+            startScrollCollect(pkg, currentApp)
+        } else {
             gatherCapture(pkg, currentApp, null)
-            return
         }
-
-        // Scrollable detail screens (e.g. GPay Business) can split the fields
-        // across the fold: how much you see depends on where the scroll stopped.
-        // Rather than parsing a single snapshot, scroll up to the top and then
-        // back down the page, merging the text of every frame into one buffer
-        // so amount / date / reference / payer are all captured.
-        startScrollCollect(pkg, currentApp)
     }
 
     /**
@@ -812,6 +833,7 @@ val pkg = root.packageName?.toString() ?: ""
                     if (acc.size == before) {
                         noNewFrames++
                         if (noNewFrames >= 1) {
+                            surfaceHidden(pkg)
                             gatherCapture(pkg, currentApp, acc.toList())
                             return
                         }
@@ -821,6 +843,7 @@ val pkg = root.packageName?.toString() ?: ""
                 }
                 firstRun = false
                 if (steps >= 4) {
+                    surfaceHidden(pkg)
                     gatherCapture(pkg, currentApp, acc.toList())
                     return
                 }
@@ -833,6 +856,21 @@ val pkg = root.packageName?.toString() ?: ""
     }
 
     /**
+     * Asks this app's parser to surface text hidden behind an interaction (the
+     * Paytm parser taps the transaction-id "Copy" button so the full id appears
+     * in a toast, then stores it on the service). Called right before gathering
+     * so any recovery happens while the relevant row is on screen; safe to call
+     * more than once.
+     */
+    private fun surfaceHidden(pkg: String) {
+        try {
+            parserFor(detectAppKind(pkg), this).surfaceHiddenText(rootInActiveWindow)
+        } catch (ex: Exception) {
+            Log.w("UcsScrapper", "surfaceHiddenText failed: " + ex.message)
+        }
+    }
+
+    /**
      * Builds the ScrapedTxn, parses it (using [merged] scroll text when provided),
      * validates, and uploads it. Runs on the main thread for parsing; the upload
      * itself is off-thread. Always finishes by re-showing the overlay.
@@ -840,9 +878,8 @@ val pkg = root.packageName?.toString() ?: ""
     private fun gatherCapture(pkg: String, currentApp: String, merged: List<String>?) {
         val root = rootInActiveWindow
         val txn = ScrapedTxn(received = true)
-        // For screen-specific branches (Razorpay) parse the live root; otherwise
-        // feed the merged scroll text so off-screen fields are included.
-        parseDetailForApp(root, pkg, txn, merged)
+        // Delegate field extraction to this app's dedicated parser.
+        parserFor(detectAppKind(pkg), this).parse(root, merged, txn)
         txn.bankName = ScraperConfig.get("receivedBank")
         txn.mop = ScraperConfig.get("modeOfPayment")?.ifBlank { null }
 
@@ -934,97 +971,7 @@ val pkg = root.packageName?.toString() ?: ""
         }.start()
     }
 
-    private fun parseDetailForApp(root: AccessibilityNodeInfo?, pkg: String, txn: ScrapedTxn, merged: List<String>? = null) {
-        // Razorpay uses stable resource-ids on its payment-detail page, so its
-        // fields (amount / payment id / date / customer) are read from nodes
-        // directly rather than relying on free-text heuristics.
-        if (pkg.contains("razorpay")) {
-            if (root != null) parseRazorpayDetail(root, txn)
-            if (txn.transactionDate.isNullOrBlank()) txn.transactionDate = fallbackDate()
-            android.util.Log.d("UcsScrapper", "razorpay payer=[${txn.payerName}] ref=[${txn.paymentId}] amt=[${txn.amount}] date=[${txn.transactionDate}]")
-            return
-        }
-
-        // Prefer the merged text collected by scrolling the (scrollable) detail
-        // screen; it contains fields that may sit below the visible fold. If no
-        // merged text was supplied, fall back to the current frame's text.
-        val texts: List<String> = merged ?: run {
-            val m = mutableListOf<String>()
-            if (root != null) collectTexts(root, m)
-            m
-        }
-        val joined = texts.joinToString("\n")
-
-        // Amount (common to all UPI receipt screens): ₹ / Rs / INR + number.
-        txn.amount = extractAmount(joined) ?: txn.amount
-
-        // Date + time.
-        val date = extractDate(joined)
-        if (date != null) txn.transactionDate = date
-        val time = parseTime(joined)
-        if (time != null) txn.paymentTime = time
-
-        // Transaction / UPI reference (app-agnostic patterns).
-        txn.paymentId = extractUpiRef(joined) ?: txn.paymentId
-
-        // Payer / sender heuristics.
-        txn.payerName = extractPayer(joined)
-        android.util.Log.d("UcsScrapper", "parseDetailForApp payer=[${txn.payerName}] ref=[${txn.paymentId}] joined=[${joined.take(600)}]")
-
-        // If still no date, guarantee today.
-        if (txn.transactionDate.isNullOrBlank()) txn.transactionDate = fallbackDate()
-    }
-
-    private fun parseRazorpayDetail(root: AccessibilityNodeInfo, txn: ScrapedTxn) {
-        // Amount node ("₹ 300.00").
-        val amountNode = findNode(root) { it.viewIdResourceName?.endsWith("ds-amount") == true }
-        amountNode?.text?.toString()?.let { raw ->
-            Regex("([\\d,]+(?:\\.\\d{1,2})?)").find(raw)?.groupValues?.get(1)
-                ?.replace(",", "")?.toDoubleOrNull()?.takeIf { it > 0 }?.let { txn.amount = it }
-        }
-        if (txn.amount == null) extractAmount(textsJoined(root))?.let { txn.amount = it }
-
-        // Razorpay renders every detail field as a "label" node followed by a
-        // "value" node, both with resource-id "ds-text". Walk them in order.
-        val dsTexts = mutableListOf<String>()
-        collectByResourceId(root, "ds-text", dsTexts)
-        val dense = textsDense(dsTexts.joinToString("\n"))
-        for (i in 0 until dense.size) {
-            val cur = dense[i].trim()
-            val value = dense.getOrNull(i + 1)?.trim() ?: continue
-            when {
-                cur.equals("Payment ID", true) -> {
-                    txn.paymentId = extractUpiRef(value) ?: value.trim()
-                }
-                cur.equals("Created On", true) -> {
-                    parseDayMonth(value)?.let { txn.transactionDate = it }
-                    parseTime(value)?.let { txn.paymentTime = it }
-                }
-            }
-        }
-
-        // Payer: Razorpay's "customer details" card lists the paying customer's
-        // email (or phone) — the closest thing to a sender on a business
-        // payment account. Prefer the email; strip the "@...com" part so the
-        // payer name is just the account name, not the whole address.
-        val email = findNode(root) {
-            Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
-                .matches(it.text?.toString()?.trim() ?: "")
-        }
-        if (email != null) {
-            val raw = email.text?.toString()?.trim() ?: ""
-            val local = raw.substringBefore('@').trim().takeIf { it.isNotEmpty() } ?: raw
-            txn.payerName = local.take(80)
-        } else {
-            val phone = findNode(root) {
-                val t = it.text?.toString()?.trim() ?: ""
-                Regex("^\\+?\\d{10,13}$").matches(t)
-            }
-            if (phone != null) txn.payerName = phone.text?.toString()?.trim()?.take(80)
-        }
-    }
-
-    private fun extractAmount(joined: String): Double? {
+    internal fun extractAmount(joined: String): Double? {
         val patterns = listOf(
             Regex("[₹Rs.INR]{0,3}\\s*([\\d,]+(?:\\.\\d{1,2})?)\\s*(?:credited|debited|received|paid)", RegexOption.IGNORE_CASE),
             Regex("(?:amount|total|you (?:received|paid))\\s*[₹:$]?\\s*([\\d,]+(?:\\.\\d{1,2})?)", RegexOption.IGNORE_CASE),
@@ -1038,7 +985,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun extractDate(joined: String): String? {
+    internal fun extractDate(joined: String): String? {
         val lines = textsDense(joined)
         // A date that directly follows a label ("Date", "TXN Date", "Paid on").
         for (i in 0 until lines.size) {
@@ -1076,7 +1023,7 @@ val pkg = root.packageName?.toString() ?: ""
      * When no year is present it is inferred from the current date, walking
      * back a year if the parsed month/day is still in the future today.
      */
-    private fun parseDayMonth(s: String): String? {
+    internal fun parseDayMonth(s: String): String? {
         val m = Regex("\\b(\\d{1,2})\\s+([A-Za-z]{3,9})\\b").find(s) ?: return null
         val day = m.groupValues[1].toInt()
         if (day < 1 || day > 31) return null
@@ -1101,7 +1048,7 @@ val pkg = root.packageName?.toString() ?: ""
         }
     }
 
-    private fun extractUpiRef(joined: String): String? {
+    internal fun extractUpiRef(joined: String): String? {
         // Razorpay payment ids are "pay_" + alphanumeric (e.g. pay_TWrtyXO1x2cI7H).
         Regex("\\bpay_[A-Za-z0-9]{8,}\\b").find(joined)?.let { return it.value }
         // Label + value, tolerant of "No:"/"Id:" suffixes and trailing labels
@@ -1122,7 +1069,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun extractPayer(joined: String): String? {
+    internal fun extractPayer(joined: String): String? {
         val lines = textsDense(joined)
         android.util.Log.d("UcsScrapper", "extractPayer joined=[$joined]")
 
@@ -1160,7 +1107,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun textsDense(joined: String): List<String> {
+    internal fun textsDense(joined: String): List<String> {
         val out = mutableListOf<String>()
         for (t in joined.split("\n").map { it.trim() }.filter { it.isNotEmpty() }) {
             // Nodes often expose the same string via both `text` and
@@ -1325,7 +1272,7 @@ val pkg = root.packageName?.toString() ?: ""
         )
     }
 
-    private fun parseTime(joined: String): String? {
+    internal fun parseTime(joined: String): String? {
         val m12 = Regex("(\\d{1,2}:\\d{2})\\s*(am|pm)", RegexOption.IGNORE_CASE).find(joined)
         if (m12 != null) {
             val parts = m12.groupValues[1].split(":")
@@ -1406,7 +1353,7 @@ val pkg = root.packageName?.toString() ?: ""
         return t
     }
 
-    private fun fallbackDate(): String {
+    internal fun fallbackDate(): String {
         val joined = textsJoined(rootInActiveWindow).lowercase()
         val cal = Calendar.getInstance()
         if (joined.contains("yesterday")) cal.add(Calendar.DAY_OF_YEAR, -1)
@@ -1445,6 +1392,15 @@ val pkg = root.packageName?.toString() ?: ""
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 
+    /** Taps the center of [node]. Per-app parsers use this to interact with
+     *  non-clickable text nodes (e.g. Paytm's "Copy" label, whose tap is handled
+     *  by a webview at that screen coordinate). */
+    internal fun tapCenter(node: AccessibilityNodeInfo) {
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        tap(r.exactCenterX(), r.exactCenterY())
+    }
+
     private fun swipeUp() {
         val dm = resources.displayMetrics
         val w = dm.widthPixels.toFloat()
@@ -1455,6 +1411,13 @@ val pkg = root.packageName?.toString() ?: ""
         }
         val stroke = GestureDescription.StrokeDescription(p, 0L, 300L)
         dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    /** One downward scroll (/scroll down) gesture, exposed for per-app parsers
+     *  that need to bring below-the-fold content (e.g. Paytm's Copy row) into
+     *  view before interacting with it. */
+    internal fun swipeDownOnce() {
+        swipeUp()
     }
 
     private fun swipeDown() {
@@ -1536,22 +1499,8 @@ val pkg = root.packageName?.toString() ?: ""
     }
 
     private fun isTransactionDetailScreen(root: AccessibilityNodeInfo): Boolean {
-        val text = textsJoined(root).lowercase()
         val pkg = root.packageName?.toString() ?: ""
-        // Razorpay's transactions LIST also contains the word "payment id"
-        // ("Search using payment id" box), so a bare keyword match would turn
-        // the list into a false "detail" screen. Require the actual detail
-        // markers instead: its amount node ("ds-amount") plus either the
-        // Payment ID / Created On label pair or the "Payment Amount" title.
-        if (pkg.contains("razorpay")) {
-            val hasAmountNode = findNode(root) { it.viewIdResourceName?.endsWith("ds-amount") == true } != null
-            if (!hasAmountNode) return false
-            return text.contains("payment amount") ||
-                (text.contains("payment id") && text.contains("created on"))
-        }
-
-        return Regex("(transaction id|upi transaction|upi ref|reference no|payment id|paytm transaction|order id|google transaction id|paid to|received from|transaction status|ref number)")
-            .containsMatchIn(text)
+        return parserFor(detectAppKind(pkg), this).isDetailScreen(root)
     }
 
     private fun isLikelyTransactionListScreen(root: AccessibilityNodeInfo, rowCount: Int): Boolean {
@@ -1585,7 +1534,7 @@ val pkg = root.packageName?.toString() ?: ""
         for (i in 0 until node.childCount) clickableRowsInner(node.getChild(i), out, seen)
     }
 
-    private fun findNode(root: AccessibilityNodeInfo?, pred: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+    internal fun findNode(root: AccessibilityNodeInfo?, pred: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         if (root == null) return null
         if (pred(root)) return root
         for (i in 0 until root.childCount) {
@@ -1595,7 +1544,7 @@ val pkg = root.packageName?.toString() ?: ""
         return null
     }
 
-    private fun collectTexts(node: AccessibilityNodeInfo?, out: MutableList<String>) {
+    internal fun collectTexts(node: AccessibilityNodeInfo?, out: MutableList<String>) {
         if (node == null) return
         node.text?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
         node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
@@ -1606,7 +1555,7 @@ val pkg = root.packageName?.toString() ?: ""
         }
     }
 
-    private fun collectByResourceId(node: AccessibilityNodeInfo?, id: String, out: MutableList<String>) {
+    internal fun collectByResourceId(node: AccessibilityNodeInfo?, id: String, out: MutableList<String>) {
         if (node == null) return
         if ((node.viewIdResourceName ?: "").endsWith(id)) {
             node.text?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
@@ -1614,7 +1563,7 @@ val pkg = root.packageName?.toString() ?: ""
         for (i in 0 until node.childCount) collectByResourceId(node.getChild(i), id, out)
     }
 
-    private fun textsJoined(root: AccessibilityNodeInfo): String {
+    internal fun textsJoined(root: AccessibilityNodeInfo): String {
         val out = mutableListOf<String>()
         collectTexts(root, out)
         return out.joinToString(" · ")
