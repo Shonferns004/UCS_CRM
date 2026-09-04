@@ -24,6 +24,7 @@ export default function Attendance() {
   const [allRecords, setAllRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [previewImg, setPreviewImg] = useState(null);
 
   // detailed drill-down (read-only)
@@ -95,6 +96,9 @@ export default function Attendance() {
   });
 
   const filtered = merged.filter(r => {
+    const isAbs = String(r.employment_status || '').toLowerCase().trim() === 'absconded';
+    if (statusFilter === 'active' && isAbs) return false;
+    if (statusFilter === 'absconded' && !isAbs) return false;
     if (!search) return true;
     const name = r.name || '';
     const dept = r.department || '';
@@ -104,22 +108,24 @@ export default function Attendance() {
   const punchedIn = filtered.filter(r => r.hasPunch).length;
   const noPunch = filtered.filter(r => !r.hasPunch).length;
 
-  // detailed worker attendance for selected month (read-only)
+  // detailed worker attendance for selected month (read-only) — hide future dates, most recent first
   const workerRecords = (() => {
     if (!selectedWorker) return [];
     const recs = allRecords.filter(a => a.worker_id === selectedWorker.id);
     const [y, m] = workerMonth.split('-').map(Number);
     const daysInMonth = new Date(y, m, 0).getDate();
+    const todayStr = getIstDateStr(new Date());
     const filled = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const ds = `${workerMonth}-${String(d).padStart(2, '0')}`;
+      if (ds > todayStr) continue;
       const existing = recs.find(r => {
         const rd = r.date || (r.punch_in_time ? getIstDateStr(new Date(r.punch_in_time)) : '');
         return rd === ds;
       });
       filled.push(existing || { id: null, date: ds, status: 'absent', punch_in_time: null, punch_out_time: null, late_minutes: 0, worker_id: selectedWorker.id });
     }
-    return filled;
+    return filled.reverse();
   })();
 
   if (selectedWorker) {
@@ -183,6 +189,10 @@ export default function Attendance() {
           <span style={{ fontSize: 13, color: '#6b7280' }}>
             {punchedIn} punched in · {noPunch} no punch · {filtered.length} total
           </span>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13, background: 'white' }}>
+            <option value="active">Active</option>
+            <option value="absconded">Absconded</option>
+          </select>
           <input
             type="text"
             placeholder="Search name or department..."
