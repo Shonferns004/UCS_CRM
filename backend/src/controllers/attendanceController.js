@@ -8,7 +8,9 @@ import {
   deleteAttendance,
   getMonthlyAttendance,
   getTodayAttendanceAll,
+  getFirstQRCode,
 } from '../models/attendanceModel.js';
+import db from '../config/db.js';
 import { getQRByCode } from '../models/qrModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave, getApprovedLeaves } from '../models/leaveModel.js';
@@ -246,6 +248,127 @@ export const createAttendanceByHR = async (req, res) => {
     };
     const result = await createAttendance(record);
     return res.status(201).json({ message: 'Attendance created', attendance: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const BUCKET_NAME = 'worker-documents';
+
+const ensureBucket = async () => {
+  const { data: buckets } = await db.storage.listBuckets();
+  const exists = buckets?.some((b) => b.name === BUCKET_NAME);
+  if (!exists) {
+    await db.storage.createBucket(BUCKET_NAME, { public: true });
+  }
+};
+
+export const hrSelfiePunch = async (req, res) => {
+  try {
+    const { worker_id, type, selfie_base64, mime_type, latitude, longitude } = req.body;
+
+    if (!worker_id) {
+      return res.status(400).json({ message: 'worker_id is required' });
+    }
+    if (!type || !['punch_in', 'punch_out'].includes(type)) {
+      return res.status(400).json({ message: 'type must be punch_in or punch_out' });
+    }
+    if (!selfie_base64) {
+      return res.status(400).json({ message: 'Selfie image is required' });
+    }
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ message: 'Latitude and longitude are required' });
+    }
+
+    const worker = await getWorkerById(worker_id);
+    if (!worker) {
+      return res.status(404).json({ message: 'Worker not found' });
+    }
+
+    const qr = await getFirstQRCode();
+    if (!qr) {
+      return res.status(404).json({ message: 'No office location configured' });
+    }
+    const distance = haversineDistance(qr.latitude, qr.longitude, latitude, longitude);
+    if (distance > qr.radius_meters) {
+      return res.status(403).json({
+        message: `Outside range (${Math.round(distance)}m / ${qr.radius_meters}m)`,
+      });
+    }
+
+    await ensureBucket();
+    const buffer = Buffer.from(selfie_base64, 'base64');
+    const contentType = mime_type || 'image/jpeg';
+    const ext = contentType.split('/')[1] || 'jpg';
+    const fileName = `selfies/${worker_id}_${type}_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await db.storage
+      .from(BUCKET_NAME)
+      .upload(fileName, buffer, { contentType, upsert: true });
+    if (uploadError) {
+      return res.status(500).json({ message: 'Upload failed: ' + uploadError.message });
+    }
+
+    const { data: publicUrlData } = db.storage
+      .from(BUCKET_NAME)
+      .getPublicUrl(fileName);
+    const selfieUrl = publicUrlData?.publicUrl;
+
+    const now = new Date();
+    const existing = await getTodayAttendance(worker_id);
+
+    if (type === 'punch_in') {
+      if (existing && existing.punch_in_time) {
+        return res.status(400).json({ message: 'Already punched in today' });
+      }
+
+      const lateMinutes = await calculateLateMinutes(now, worker_id);
+      const status = lateMinutes > 0 ? 'late' : 'present';
+
+      if (existing) {
+        const updated = await updateAttendance(existing.id, {
+          punch_in_time: now.toISOString(),
+          punch_in_lat: latitude,
+          punch_in_lng: longitude,
+          punch_in_selfie_url: selfieUrl,
+          late_minutes: lateMinutes,
+          status,
+          selfie_status: 'approved',
+        });
+        return res.json({ message: 'Punch-in recorded', attendance: updated, lateMinutes });
+      }
+
+      const attendance = await createAttendance({
+        worker_id,
+        date: istDateStr(now),
+        punch_in_time: now.toISOString(),
+        punch_in_lat: latitude,
+        punch_in_lng: longitude,
+        punch_in_selfie_url: selfieUrl,
+        late_minutes: lateMinutes,
+        status,
+        selfie_status: 'approved',
+      });
+      return res.status(201).json({ message: 'Punch-in recorded', attendance, lateMinutes });
+    }
+
+    if (type === 'punch_out') {
+      if (!existing || !existing.punch_in_time) {
+        return res.status(400).json({ message: 'No punch in record for today' });
+      }
+      if (existing.punch_out_time) {
+        return res.status(400).json({ message: 'Already punched out today' });
+      }
+
+      const updated = await updateAttendance(existing.id, {
+        punch_out_time: now.toISOString(),
+        punch_out_lat: latitude,
+        punch_out_lng: longitude,
+        punch_out_selfie_url: selfieUrl,
+        selfie_status: 'approved',
+      });
+      return res.json({ message: 'Punch-out recorded', attendance: updated });
+    }
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

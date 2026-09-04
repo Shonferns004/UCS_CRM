@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { punchIn, punchOut, todayStatus, myHistory, listAll, updateAttendanceRecord, createAttendanceByHR, deleteAttendanceRecord, getWorkerMonthlyAttendance, verifySelfie, todayAll } from '../controllers/attendanceController.js';
+import { punchIn, punchOut, todayStatus, myHistory, listAll, updateAttendanceRecord, createAttendanceByHR, deleteAttendanceRecord, getWorkerMonthlyAttendance, verifySelfie, todayAll, hrSelfiePunch } from '../controllers/attendanceController.js';
 import { selfiePunch } from '../controllers/selfiePunchController.js';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
@@ -8,6 +8,7 @@ const router = Router();
 router.post('/punch-in', authenticate, punchIn);
 router.post('/punch-out', authenticate, punchOut);
 router.post('/selfie-punch', authenticate, selfiePunch);
+router.post('/hr-selfie-punch', authenticateRole('super_admin', 'admin', 'hr'), hrSelfiePunch);
 router.get('/today', authenticate, todayStatus);
 router.get('/today-all', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), todayAll);
 router.get('/history', authenticate, myHistory);
