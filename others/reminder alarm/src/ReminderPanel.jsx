@@ -163,19 +163,6 @@ function PanelInner() {
               active={!onSettings && activeFilter === ''}
               onClick={() => { setActiveFilter(''); navigate('/rem') }}
             />
-            <div className="rem-side-label" style={{ marginTop: 8 }}>Views</div>
-            <SidebarButton
-              label="Completed"
-              icon="check"
-              active={!onSettings && activeFilter === 'completed'}
-              onClick={() => { setActiveFilter('completed'); navigate('/rem') }}
-            />
-            <SidebarButton
-              label="Overdue"
-              icon="clock"
-              active={!onSettings && activeFilter === 'overdue'}
-              onClick={() => { setActiveFilter('overdue'); navigate('/rem') }}
-            />
             <div className="rem-side-label" style={{ marginTop: 8 }}>System</div>
             <SidebarButton
               label="Reminder Settings"
