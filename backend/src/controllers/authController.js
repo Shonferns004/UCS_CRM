@@ -226,6 +226,39 @@ export const unifiedLogin = async (req, res) => {
         return res.json({ token, role: 'hr', user: safeHR, message: 'Login successful' });
       }
 
+      // Allow workers to log in with custom ids like ngo@fro (not @ufs). This covers renamed NGO admin logins.
+      const workerByLogin = await getWorkerByLoginId(identifier);
+      if (workerByLogin) {
+        if (workerByLogin.is_active === false || workerByLogin.employment_status === 'terminated') {
+          return res.status(403).json({ message: 'Account is deactivated' });
+        }
+        const isMatch = await bcrypt.compare(password, workerByLogin.password);
+        if (!isMatch) {
+          return res.status(401).json({ message: 'Invalid password' });
+        }
+        const dept = (workerByLogin.department || '').toLowerCase().trim();
+        let wRole;
+        if (dept === 'hr') wRole = 'hr';
+        else if (dept.includes('recruit')) wRole = 'recruiter';
+        else if (dept === 'admin') wRole = 'accounts';
+        else if (dept === 'fro') wRole = 'fro';
+        else if (dept === 'ngo admin') wRole = 'admin';
+        else if (dept === 'digital' || dept.includes('develop')) wRole = 'digital';
+        else if (dept.includes('event')) wRole = 'event_head';
+        else wRole = 'worker';
+        const token = jwt.sign(
+          { id: workerByLogin.id, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, name: workerByLogin.name, role: wRole, department: workerByLogin.department },
+          process.env.JWT_SECRET,
+          { expiresIn: expiry }
+        );
+        return res.json({
+          token,
+          role: wRole,
+          user: { id: workerByLogin.id, name: workerByLogin.name, email: workerByLogin.email, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, department: workerByLogin.department },
+          message: 'Login successful',
+        });
+      }
+
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
