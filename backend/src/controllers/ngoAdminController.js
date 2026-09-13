@@ -1141,6 +1141,54 @@ export const getFroPerformance = async (req, res) => {
       if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
     }
 
+    // Monthly target pacing: every Sunday except the last Sunday is paid leave.
+    // This makes a 30-day month with four Sundays contain 27 working days.
+    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthLastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    let lastSunday = 0;
+    for (let day = monthLastDay; day >= 1; day--) {
+      if (new Date(now.getFullYear(), now.getMonth(), day).getDay() === 0) {
+        lastSunday = day;
+        break;
+      }
+    }
+    let workingDays = 0;
+    for (let day = 1; day <= monthLastDay; day++) {
+      const sunday = new Date(now.getFullYear(), now.getMonth(), day).getDay() === 0;
+      if (!sunday || day === lastSunday) workingDays++;
+    }
+
+    const monthStartStr = `${monthStr}-01`;
+    const monthEndStr = `${monthStr}-${String(monthLastDay).padStart(2, '0')}`;
+    const { data: monthlyTargets } = await db
+      .from('fro_targets')
+      .select('fro_worker_id, ngo_id, target_amount, achieved_target')
+      .in('ngo_id', ngoIds)
+      .eq('month', monthStartStr);
+    const targetMap = {};
+    for (const target of monthlyTargets || []) {
+      const current = targetMap[target.fro_worker_id];
+      if (!current || Number(target.target_amount || 0) > current.target_amount) {
+        targetMap[target.fro_worker_id] = {
+          target_amount: Number(target.target_amount || 0),
+          achieved_target: target.achieved_target == null ? null : Number(target.achieved_target),
+        };
+      }
+    }
+
+    const { data: monthlyAttendance } = await db
+      .from('attendance')
+      .select('worker_id, date, status')
+      .gte('date', monthStartStr)
+      .lte('date', monthEndStr)
+      .in('worker_id', workerIds);
+    const workedDaysMap = {};
+    for (const row of monthlyAttendance || []) {
+      if (row.status !== 'present' && row.status !== 'late') continue;
+      if (!workedDaysMap[row.worker_id]) workedDaysMap[row.worker_id] = new Set();
+      workedDaysMap[row.worker_id].add(String(row.date).slice(0, 10));
+    }
+
     const performance = froWorkers.map(w => {
       const bs = batchStats;
       const coll = bs.monthCollection[w.id] || 0;
@@ -1148,6 +1196,15 @@ export const getFroPerformance = async (req, res) => {
       const talkSec = includesToday ? (liveStatusMap[w.id] || 0) : 0;
       const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
       const attPct = attendanceMap[w.id] != null ? attendanceMap[w.id] : null;
+      const target = targetMap[w.id] || { target_amount: 0, achieved_target: null };
+      const monthlyTarget = target.target_amount;
+      const achievedTarget = target.achieved_target != null ? target.achieved_target : coll;
+      const workedDays = workedDaysMap[w.id]?.size || 0;
+      const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
+      const remainingDays = Math.max(workingDays - workedDays, 0);
+      const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
+      const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
+      const performancePct = perDayCollection > 0 ? (averageCollection / perDayCollection) * 100 : 0;
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
@@ -1157,34 +1214,20 @@ export const getFroPerformance = async (req, res) => {
         data_used: wa.connected,
         data_total: wa.total,
         attendance_pct: attPct,
+        monthly_target: monthlyTarget,
+        achieved_target: achievedTarget,
+        working_days: workingDays,
+        worked_days: workedDays,
+        remaining_working_days: remainingDays,
+        per_day_collection: perDayCollection,
+        remaining_target: remainingTarget,
+        average_collection: averageCollection,
+        performance_pct: Math.round(performancePct * 10) / 10,
       };
     });
 
-    const maxColl = Math.max(...performance.map(p => p.collection_amount), 1);
-    const maxLeads = Math.max(...performance.map(p => p.lead_done_count), 1);
-    const maxTalk = Math.max(...performance.map(p => p.avg_talk_seconds), 1);
-    const maxData = Math.max(...performance.map(p => p.data_used), 1);
-
-    const isSingleWorker = performance.length <= 1;
-    const scored = performance.map(p => ({
-      ...p,
-      score: isSingleWorker
-        ? Math.round((
-            (p.collection_amount > 0 ? 0.35 : 0) +
-            (p.lead_done_count > 0 ? 0.30 : 0) +
-            (p.avg_talk_seconds > 0 ? 0.175 : 0) +
-            (p.data_used > 0 ? 0.175 : 0)
-          ) * 100) / 100
-        : Math.round((
-            (p.collection_amount / maxColl) * 0.35 +
-            (p.lead_done_count / maxLeads) * 0.30 +
-            (p.avg_talk_seconds / maxTalk) * 0.175 +
-            (p.data_used / maxData) * 0.175
-          ) * 100) / 100,
-    }));
-
-    scored.sort((a, b) => a.score - b.score);
-    return res.json(scored);
+    performance.sort((a, b) => a.performance_pct - b.performance_pct);
+    return res.json(performance);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -5047,7 +5090,7 @@ export const getTLDashboard = async (req, res) => {
       // this FRO. The listed FRO (cbd) is not present — show offline, but let the
       // UI annotate "abc work as cbd" via work_as_operator_name.
       const workAsName = (lsFresh && ls.work_as_operator_id && ls.work_as_operator_name) ? ls.work_as_operator_name : null;
-      // True current idle streak while the FRO panel's 2-minute call-idle
+      // True current idle streak while the FRO panel's 5-minute combined
       // detector has them flagged idle (idle_since = streak start).
       const idleMinutes = (!workAsName && ls.status === 'idle' && lsFresh && ls.idle_since)
         ? Math.floor((now - new Date(ls.idle_since)) / 60000)
@@ -5130,10 +5173,10 @@ export const getTLDashboard = async (req, res) => {
     const topByConv = [...performance].filter(p => p.data_total > 0).sort((a, b) => b.conversion_pct - a.conversion_pct).slice(0, 10);
     const bottomByTarget = [...performance].filter(p => p.target_amount > 0).sort((a, b) => a.target_pct - b.target_pct).slice(0, 10);
 
-    // 8. Idle Alerts (15 min no activity)
+    // 8. Legacy stale-heartbeat alerts (15 min without a status update)
     const { data: idleFros } = await db
       .from('fro_live_status')
-      .select('worker_id, status, updated_at, today_talk_seconds, today_idle_seconds, work_as_operator_id')
+      .select('worker_id, status, updated_at, idle_since, today_talk_seconds, today_idle_seconds, work_as_operator_id')
       .in('worker_id', workerIds)
       .in('status', ['online', 'idle']);
     
@@ -5156,7 +5199,8 @@ export const getTLDashboard = async (req, res) => {
         };
       });
 
-    // 8b. Call-idle alerts (2 min no calls, from the FRO panel detector,
+    // 8b. Combined activity alerts (5 min without mouse movement or calls,
+    // from the FRO panel detector,
     //     driven by idle_since on fro_live_status). These power the NGO
     //     admin dashboard idle badge, banner Notify buttons, and hourly
     //     productivity-alert Notify buttons.
@@ -5684,7 +5728,7 @@ export const notifyFroHandler = async (req, res) => {
     }
 
     // Always write a notification_log entry (drives FRO bell + realtime broadcast)
-    await notifyWorker(workerId, 'You are marked idle', 'Your FRO has been idle for over 2 minutes. Please resume calling.', 'idle_alert');
+    await notifyWorker(workerId, 'You are marked idle', 'Your FRO has had no mouse movement or call activity for over 5 minutes. Please resume calling.', 'idle_alert');
 
     return res.json({ message: 'Notification sent', sent: 1 });
   } catch (error) {

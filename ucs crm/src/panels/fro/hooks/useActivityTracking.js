@@ -3,12 +3,12 @@ import { api } from '../api/auth';
 
 export function useActivityTracking(userId, options = {}) {
   const {
-    idleThreshold = 15 * 60 * 1000, // 15 minutes (browser idle, legacy)
+    idleThreshold = 5 * 60 * 1000, // 5 minutes without mouse activity
     heartbeatInterval = 30 * 1000,  // 30 seconds
     onIdle,
     onActive,
     onHeartbeat,
-    callIdleThreshold = 3 * 60 * 1000, // 3 minutes (call-based idle)
+    callIdleThreshold = 5 * 60 * 1000, // 5 minutes without call activity
     onCallIdle,
     onCallResume,
     isExempt, // () => boolean — true while on a call, on break, or in a donor view
@@ -26,14 +26,20 @@ export function useActivityTracking(userId, options = {}) {
   const cbsRef = useRef({});
   cbsRef.current = { onIdle, onActive, onHeartbeat, onCallIdle, onCallResume, isExempt };
 
-  // ---------- Browser-idle timer (legacy, 15 min) ----------
-  // Mouse/keyboard reset this timer only. It never drives backend status.
+  // ---------- Mouse-idle timer ----------
+  // Mouse inactivity is one side of the OR-based idle rule.
   const resetIdleTimer = useCallback(() => {
     const now = Date.now();
     lastActivityRef.current = now;
 
     if (isIdleRef.current) {
       isIdleRef.current = false;
+      if (!callIdleConditionRef.current) {
+        isCallIdleRef.current = false;
+        setIsCallIdle(false);
+        setCallIdleSince(null);
+        cbsRef.current.onCallResume?.();
+      }
       cbsRef.current.onActive?.();
     }
 
@@ -44,20 +50,25 @@ export function useActivityTracking(userId, options = {}) {
     idleTimerRef.current = setTimeout(() => {
       isIdleRef.current = true;
       cbsRef.current.onIdle?.();
+      if (!isCallIdleRef.current && !cbsRef.current.isExempt?.()) {
+        cbsRef.current.onCallIdle?.(new Date(lastActivityRef.current).toISOString());
+      }
     }, idleThreshold);
   }, [idleThreshold]);
 
-  // ---------- Call-idle engine (3 min) ----------
-  // Tracks time since the last call event (call start/end, disposition save,
-  // donor view open/close, break end). Mouse/keyboard DO NOT reset this.
+  // ---------- Call-idle engine ----------
+  // Call inactivity is the other side of the OR-based idle rule. Mouse
+  // activity does not reset this timer.
   const lastCallActivityRef = useRef(Date.now());
+  const callIdleConditionRef = useRef(false);
   const isCallIdleRef = useRef(false);
   const [isCallIdle, setIsCallIdle] = useState(false);
   const [callIdleSince, setCallIdleSince] = useState(null); // ISO string
 
   const resetCallActivity = useCallback(() => {
     lastCallActivityRef.current = Date.now();
-    if (isCallIdleRef.current) {
+    callIdleConditionRef.current = false;
+    if (isCallIdleRef.current && !isIdleRef.current && !callIdleConditionRef.current) {
       isCallIdleRef.current = false;
       setIsCallIdle(false);
       setCallIdleSince(null);
@@ -65,13 +76,13 @@ export function useActivityTracking(userId, options = {}) {
     }
   }, []);
 
-  // Check every 15 seconds. Fires onCallIdle exactly once per idle streak;
-  // idle_since = last real call activity so "Idle Xm" is accurate.
+  // Check every 15 seconds. Fires onCallIdle exactly once per idle streak.
   const checkCallIdle = useCallback(() => {
     if (!userIdRef.current) return;
     if (cbsRef.current.isExempt?.()) return; // on call / on break / in donor view
     const elapsed = Date.now() - lastCallActivityRef.current;
     if (elapsed > callIdleThreshold) {
+      callIdleConditionRef.current = true;
       if (!isCallIdleRef.current) {
         isCallIdleRef.current = true;
         const since = new Date(lastCallActivityRef.current).toISOString();
@@ -79,12 +90,15 @@ export function useActivityTracking(userId, options = {}) {
         setIsCallIdle(true);
         cbsRef.current.onCallIdle?.(since);
       }
-    } else if (isCallIdleRef.current) {
+    } else {
       // Safety net (e.g. clock jump) — normal clears go through resetCallActivity
-      isCallIdleRef.current = false;
-      setIsCallIdle(false);
-      setCallIdleSince(null);
-      cbsRef.current.onCallResume?.();
+      callIdleConditionRef.current = false;
+      if (isCallIdleRef.current && !isIdleRef.current) {
+        isCallIdleRef.current = false;
+        setIsCallIdle(false);
+        setCallIdleSince(null);
+        cbsRef.current.onCallResume?.();
+      }
     }
   }, [callIdleThreshold]);
 
@@ -116,12 +130,12 @@ export function useActivityTracking(userId, options = {}) {
     }
   }, []);
 
-  // ---------- Browser activity listeners ----------
+  // ---------- Mouse activity listeners ----------
   useEffect(() => {
-    const events = ['mousedown', 'mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    const events = ['mousemove'];
 
     const handleActivity = () => {
-      resetIdleTimer(); // only resets the legacy browser-idle timer
+      resetIdleTimer();
     };
 
     events.forEach(event => {

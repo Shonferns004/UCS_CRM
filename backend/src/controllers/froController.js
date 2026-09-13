@@ -3593,7 +3593,7 @@ export const updateLiveStatus = async (req, res) => {
       payload.on_break = true;
     }
     // idle_since: the start of the current idle streak (drives "Idle Xm" on
-    // the NGO admin dashboard). The FRO panel sets it when the 2-minute
+    // the NGO admin dashboard). The FRO panel sets it when the 5-minute
     // call-idle detector fires and clears it on resume.
     if (idle_since !== undefined) payload.idle_since = parseTs(idle_since);
     if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
