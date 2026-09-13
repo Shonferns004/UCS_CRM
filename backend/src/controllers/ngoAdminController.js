@@ -1204,11 +1204,13 @@ export const getFroPerformance = async (req, res) => {
       const remainingDays = Math.max(workingDays - workedDays, 0);
       const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
       const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
-      const performancePct = perDayCollection > 0 ? (averageCollection / perDayCollection) * 100 : 0;
+      const todayCollection = Number(bs.todayCollection[w.id] || 0);
+      const performancePct = perDayCollection > 0 ? (todayCollection / perDayCollection) * 100 : 0;
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
         collection_amount: coll,
+        today_collection: todayCollection,
         lead_done_count: leads,
         avg_talk_seconds: talkSec,
         data_used: wa.connected,
