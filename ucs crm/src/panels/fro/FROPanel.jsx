@@ -682,6 +682,10 @@ useEffect(() => onFroAction((action) => {
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: '#e7f3ec', border: '1px solid #bce5cd', marginTop: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', display: 'inline-block', boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' }} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: .4 }}>Active</span>
+            </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
@@ -1078,7 +1082,7 @@ useEffect(() => onFroAction((action) => {
       <NoticePopup />
       {froBroadcast && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
-          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }'}</style>
+          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } } @keyframes froActivePulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }'}</style>
           <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
             <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
             <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>

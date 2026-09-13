@@ -3605,6 +3605,17 @@ export const updateLiveStatus = async (req, res) => {
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     if (error) throw error;
 
+    // CRM presence heartbeat: any live-status write means the user is active
+    // on the CRM — keep their login session fresh for Telecaller Performance.
+    try {
+      await db._pool.query(
+        `UPDATE auth_sessions SET last_active_at = now() WHERE user_id = $1 AND logged_out_at IS NULL`,
+        [String(workerId)]
+      );
+    } catch (e) {
+      // Non-fatal: auth_sessions may be absent until migration 125 is applied.
+    }
+
     return res.json({ message: 'Status updated' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
