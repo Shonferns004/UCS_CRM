@@ -2136,6 +2136,8 @@ export default function Dashboard() {
                     <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
                     <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Collection</th>
+                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Monthly Target</th>
+                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Worked Days</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Avg Required</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Performance</th>
@@ -2147,6 +2149,8 @@ export default function Dashboard() {
                       <td style={{fontSize:10, fontWeight: i < 3 ? 700 : 400, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', padding:'5px 8px'}}>#{i + 1}</td>
                       <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.worked_days}/{p.working_days}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center', fontWeight:700, color: p.performance_pct > 100 ? '#2563eb' : '#16a34a', fontSize:11, padding:'5px 8px'}}>
@@ -2159,7 +2163,7 @@ export default function Dashboard() {
                 {topPerformers.length > 10 && (
                   <tfoot>
                     <tr>
-                       <td colSpan={6} style={{padding:0}}>
+                       <td colSpan={8} style={{padding:0}}>
                         <button onClick={() => setShowAllTopPerformers(!showAllTopPerformers)}
                           style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
                           {showAllTopPerformers ? '▲ Show Less' : `View All ${topPerformers.length} FROs →`}
@@ -2198,6 +2202,8 @@ export default function Dashboard() {
                     <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
                     <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Collection</th>
+                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Monthly Target</th>
+                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Worked Days</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Avg Required</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Performance</th>
@@ -2209,6 +2215,8 @@ export default function Dashboard() {
                       <td style={{color:'var(--ink-soft)', fontSize:10, padding:'5px 8px'}}>{i + 1}</td>
                       <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.worked_days}/{p.working_days}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center', fontWeight:700, color:'#dc2626', fontSize:11, padding:'5px 8px'}}>
@@ -2221,7 +2229,7 @@ export default function Dashboard() {
                  {lowPerformers.length > 10 && (
                   <tfoot>
                     <tr>
-                       <td colSpan={6} style={{padding:0}}>
+                       <td colSpan={8} style={{padding:0}}>
                         <button onClick={() => setShowAllLowPerformers(!showAllLowPerformers)}
                           style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
                            {showAllLowPerformers ? '▲ Show Less' : `View All ${lowPerformers.length} FROs →`}
