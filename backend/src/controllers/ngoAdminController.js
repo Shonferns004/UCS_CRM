@@ -1204,7 +1204,8 @@ export const getFroPerformance = async (req, res) => {
       const remainingDays = Math.max(workingDays - workedDays, 0);
       const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
       const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
-      const todayCollection = Number(bs.todayCollection[w.id] || 0);
+const todayCollection = Number(bs.todayCollection[w.id] || 0);
+      const avgRequired = remainingDays > 0 ? (perDayCollection - todayCollection) / remainingDays : 0;
       const performancePct = perDayCollection > 0 ? (todayCollection / perDayCollection) * 100 : 0;
       return {
         fro_id: w.id,
@@ -1222,6 +1223,7 @@ export const getFroPerformance = async (req, res) => {
         worked_days: workedDays,
         remaining_working_days: remainingDays,
         per_day_collection: perDayCollection,
+        avg_required: Math.round(avgRequired),
         remaining_target: remainingTarget,
         average_collection: averageCollection,
         performance_pct: Math.round(performancePct * 10) / 10,
