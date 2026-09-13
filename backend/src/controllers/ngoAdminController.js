@@ -4684,16 +4684,59 @@ export const getTLDashboard = async (req, res) => {
     if (isNaN(rangeStart.valueOf())) rangeStart = todayStart;
     if (isNaN(rangeEnd.valueOf())) rangeEnd = todayEnd;
 
-    // 1. Live status counts (fresh rows only; stale rows count as offline)
+    // 1. Live status counts — driven by LOGIN PRESENCE (auth_sessions) plus the
+    //    current call state. An FRO is present only while they hold a fresh CRM
+    //    login session (logged_out_at NULL and heartbeat < 2 min old).
     const { data: liveStatus } = await db.from('fro_live_status').select('worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name').in('worker_id', workerIds);
     const liveFreshCutoff = new Date(now.getTime() - 2 * 60 * 1000);
     const isLiveFresh = (s) => s.updated_at && new Date(s.updated_at) >= liveFreshCutoff;
     // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
     // NOT present, so it never counts as calling/idle/online (it counts offline).
     const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
-    const calling = (liveStatus || []).filter(s => s.status === 'on_call' && isLiveFresh(s) && !isWorkAs(s)).length;
-    const idle = (liveStatus || []).filter(s => s.status === 'idle' && isLiveFresh(s) && !isWorkAs(s)).length;
-    const online = (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
+
+    // Login presence: auth_sessions rows recorded on every UCS CRM login, kept
+    // fresh by the FRO-panel heartbeat, and closed on explicit logout.
+    const sessionByUser = {};
+    let useLoginPresence = true;
+    try {
+      const { data: sessions } = await db.from('auth_sessions').select('user_id, last_active_at, logged_out_at').in('user_id', workerIds);
+      for (const s of sessions || []) sessionByUser[String(s.user_id)] = s;
+    } catch (e) {
+      useLoginPresence = false; // auth_sessions missing → legacy stale-based logic
+    }
+    const isPresent = (wid) => {
+      if (!useLoginPresence) return true;
+      const s = sessionByUser[String(wid)];
+      return !!s && !s.logged_out_at && s.last_active_at && (now - new Date(s.last_active_at)) <= 2 * 60 * 1000;
+    };
+
+    // Logout counts: today (IST) and all-time, from explicit logout events.
+    const logoutCounts = {};
+    try {
+      if (workerIds.length > 0) {
+        const nowIst = new Date(now.getTime() + 5.5 * 3600 * 1000);
+        const istTodayStart = new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()));
+        const logoutRows = await sql(
+          `SELECT user_id,
+                  COUNT(*) FILTER (WHERE logged_out_at >= $1::timestamptz) AS today,
+                  COUNT(*) AS total
+           FROM auth_logout_events
+           WHERE user_id = ANY($2::text[])
+           GROUP BY user_id`,
+          [istTodayStart.toISOString(), workerIds.map(String)]
+        );
+        for (const r of logoutRows) logoutCounts[r.user_id] = { today: Number(r.today || 0), total: Number(r.total || 0) };
+      }
+    } catch (e) { /* auth_logout_events missing until migration 125 */ }
+
+    const livePresent = (s) => isLiveFresh(s) && !isWorkAs(s) && isPresent(s.worker_id);
+    const callingRows = (liveStatus || []).filter(s => s.status === 'on_call' && livePresent(s));
+    const idleRows = (liveStatus || []).filter(s => s.status === 'idle' && livePresent(s));
+    const calling = callingRows.length;
+    const idle = idleRows.length;
+    const online = useLoginPresence
+      ? froWorkers.filter(w => isPresent(w.id) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id))).length
+      : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
     const offline = froWorkers.length - calling - idle - online;
 
     // 2. Call analytics for the selected range
@@ -5010,6 +5053,16 @@ export const getTLDashboard = async (req, res) => {
         ? Math.floor((now - new Date(ls.idle_since)) / 60000)
         : 0;
 
+      // Login-presence driven status: online requires a fresh, non-logged-out
+      // CRM session. Call state only refines it while the FRO is present.
+      let status = 'offline';
+      if (isPresent(w.id) && !workAsName) {
+        if (ls.status === 'on_call' && lsFresh) status = 'on_call';
+        else if (ls.status === 'idle' && lsFresh) status = 'idle';
+        else status = 'online';
+      }
+      const lc = logoutCounts[String(w.id)] || { today: 0, total: 0 };
+
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
@@ -5054,9 +5107,11 @@ export const getTLDashboard = async (req, res) => {
         targetPct: targetPct,
         target_amount: targetAmt,
         target_pct: targetPct,
-        status: workAsName ? 'offline' : ((ls.status && lsFresh) ? ls.status : 'offline'),
+        status,
         work_as_operator_name: workAsName,
         idleMinutes: idleMinutes,
+        logout_today: lc.today,
+        logout_total: lc.total,
         claims_pending: claims.pending,
         claims_verified: claims.verified,
         claims_rejected: claims.rejected,
@@ -5141,6 +5196,8 @@ const tlPayload = {
         calling,
         idle,
         offline,
+        logouts_today: Object.values(logoutCounts).reduce((s, c) => s + c.today, 0),
+        logouts_total: Object.values(logoutCounts).reduce((s, c) => s + c.total, 0),
         total_calls: totalCalls,
         connected,
         not_connected: notConnected,

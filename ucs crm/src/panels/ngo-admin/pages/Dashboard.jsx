@@ -1608,23 +1608,24 @@ export default function Dashboard() {
     const headers1 = [
       'Telecaller', 'Login ID', 'Period', 'Total Calls', 'Connected',
       ...CONNECTED_STATUS_COLUMNS.map(c => c.label),
-      'Non-Connected', 'Interested', 'Amount (₹)', 'Live Status'
+      'Non-Connected', 'Interested', 'Amount (₹)', 'Logouts Today', 'Logouts Total', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
       p.fro_name, p.fro_login_id || '', periodLabel, c.calls, c.connected,
       ...CONNECTED_STATUS_COLUMNS.map(col => c.statuses[col.key] || 0),
-      c.nonConnected, c.interested, c.received, p.status || 'offline'
+      c.nonConnected, c.interested, c.received, p.logout_today || 0, p.logout_total || 0, p.status || 'offline'
     ]);
     const t1 = calcRows1.reduce((a, { p, c }) => ({
       calls: a.calls + c.calls, connected: a.connected + c.connected, nonConnected: a.nonConnected + c.nonConnected,
       interested: a.interested + c.interested, donors: a.donors + (p.receivedDonors || 0), amount: a.amount + c.received,
+      logoutsToday: a.logoutsToday + (p.logout_today || 0), logoutsTotal: a.logoutsTotal + (p.logout_total || 0),
       statuses: CONNECTED_STATUS_COLUMNS.map((col, i) => a.statuses[i] + (c.statuses[col.key] || 0)),
-    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, statuses: CONNECTED_STATUS_COLUMNS.map(() => 0) });
-    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, '']);
+    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, logoutsToday: 0, logoutsTotal: 0, statuses: CONNECTED_STATUS_COLUMNS.map(() => 0) });
+    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.logoutsToday, t1.logoutsTotal, '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
-    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 14 } }];
+    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 16 } }];
     ws1['!rows'] = [{ hpt: 30 }, { hpt: 28 }];
     XLSX.utils.sheet_add_aoa(ws1, [headers1], { origin: 'A2' });
     XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
@@ -1632,21 +1633,21 @@ export default function Dashboard() {
     ws1['!cols'] = [
       { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
       ...CONNECTED_STATUS_COLUMNS.map(() => ({ wch: 16 })),
-      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }
+      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
     ];
     styleCell(ws1, 0, 0, TITLE);
-    for (let c = 0; c <= 14; c++) styleCell(ws1, 1, c, HDR);
-    const numCols1 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+    for (let c = 0; c <= 16; c++) styleCell(ws1, 1, c, HDR);
+    const numCols1 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     for (let r = 2; r < 2 + aoa1.length; r++) {
-      for (let c = 0; c <= 14; c++) {
+      for (let c = 0; c <= 16; c++) {
         const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols1.includes(c) ? 'center' : 'left' } };
         if (c === 13) s.numFmt = AMT.numFmt;
         styleCell(ws1, r, c, s);
       }
     }
-    for (let c = 0; c <= 14; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 13 ? AMT.numFmt : undefined });
+    for (let c = 0; c <= 16; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 13 ? AMT.numFmt : undefined });
     ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
-    ws1['!autofilter'] = { ref: `A2:O${1 + aoa1.length}` };
+    ws1['!autofilter'] = { ref: `A2:Q${1 + aoa1.length}` };
     XLSX.utils.book_append_sheet(wb, ws1, 'Telecaller Performance');
 
     // ── Sheet 2: Hourly Performance (subtotals per telecaller) ──────
@@ -2691,6 +2692,8 @@ export default function Dashboard() {
                         {thSub('Conn', PERIOD_LABELS[dashPeriod], '#16a34a')}
                         {CONNECTED_STATUS_COLUMNS.map(c => thSub(STATUS_SHORT[c.key] || c.label, PERIOD_LABELS[dashPeriod], c.color, 'perf-hide-mobile'))}
                         {thSub('Recvd Amt', PERIOD_LABELS[dashPeriod], '#3f4a38')}
+                        {thSub('Logouts', 'Today', '#7c3aed')}
+                        {thSub('Logouts', 'Total', '#7c3aed')}
                       </tr>
                     </thead>
                     <tbody>
@@ -2712,6 +2715,8 @@ export default function Dashboard() {
                             <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (p.receivedAmount_range || 0) > 0 ? '#166534' : 'var(--ink-soft)' }}>
                               {fmt(p.receivedAmount_range)}
                             </td>
+                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600, color: (p.logout_today || 0) > 0 ? '#7c3aed' : 'var(--ink-soft)', fontSize: 12 }}>{p.logout_today || 0}</td>
+                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600, color: (p.logout_total || 0) > 0 ? '#7c3aed' : 'var(--ink-soft)', fontSize: 12 }}>{p.logout_total || 0}</td>
                           </tr>
                         );
                       })}
