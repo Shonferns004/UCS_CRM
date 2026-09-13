@@ -1161,7 +1161,7 @@ export const getFroPerformance = async (req, res) => {
     const monthStartStr = `${monthStr}-01`;
     const monthEndStr = `${monthStr}-${String(monthLastDay).padStart(2, '0')}`;
     const { data: monthlyTargets } = await db
-      .from('fro_targets')
+      .from('fro_monthly_targets')
       .select('fro_worker_id, ngo_id, target_amount, achieved_target')
       .in('ngo_id', ngoIds)
       .eq('month', monthStartStr);
