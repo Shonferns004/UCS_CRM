@@ -1028,6 +1028,7 @@ export default function Dashboard() {
   const [showAllTopPerformers, setShowAllTopPerformers] = useState(false);
   const [froSearch, setFroSearch] = useState('');
   const [perfPage, setPerfPage] = useState(1);
+  const [perfStatusFilter, setPerfStatusFilter] = useState('all');
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
   const [selectedFro, setSelectedFro] = useState(null);
   const [hourlyExportFrom, setHourlyExportFrom] = useState(() => toIstDate());
@@ -1284,7 +1285,7 @@ export default function Dashboard() {
   const [followups, setFollowups] = useState([]);
   const [followupTab, setFollowupTab] = useState('overdue');
 
-  useEffect(() => { setPerfPage(1); }, [froSearch, dashPeriod, customFrom, customTo, selectedNgoId, selectedFroId, perfSort]);
+  useEffect(() => { setPerfPage(1); }, [froSearch, dashPeriod, customFrom, customTo, selectedNgoId, selectedFroId, perfStatusFilter, perfSort]);
   const [followupLoading, setFollowupLoading] = useState(false);
   const [showFollowups, setShowFollowups] = useState(true);
   const [followupMode, setFollowupMode] = useState('bucket');
@@ -1331,7 +1332,7 @@ export default function Dashboard() {
         .finally(() => { inFlight = false; });
     };
     fetchTl();
-    const interval = setInterval(fetchTl, 30000);
+    const interval = setInterval(fetchTl, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [selectedNgoId, dashPeriod, customFrom, customTo, selectedFroId]);
 
@@ -2568,10 +2569,21 @@ export default function Dashboard() {
       {/* Section 6: Telecaller Performance */}
       {perfRows.length > 0 && (() => {
         const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], offline: ['offline'] };
-        const bucketRows = Object.fromEntries(Object.keys(statusBuckets).map(k => [
-          k,
-          perfRows.filter(p => (statusBuckets[k] || []).includes(p.status || 'offline')),
-        ]));
+        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.idle.includes(p.status) ? 'idle' : 'offline';
+        const bucketRows = {
+          online: perfRows.filter(p => statusOf(p) === 'online'),
+          idle: perfRows.filter(p => statusOf(p) === 'idle'),
+          offline: perfRows.filter(p => statusOf(p) === 'offline'),
+        };
+        const viewRows = perfStatusFilter === 'all'
+          ? perfRows.filter(p => statusOf(p) !== 'offline')
+          : bucketRows[perfStatusFilter] || [];
+        const bucketCounts = {
+          all: perfRows.filter(p => statusOf(p) !== 'offline').length,
+          online: bucketRows.online.length,
+          idle: bucketRows.idle.length,
+          offline: bucketRows.offline.length,
+        };
         const ncOf = (p) => p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
         const statusesOf = (p) => p.connectedStatuses_range || {};
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
@@ -2595,7 +2607,7 @@ export default function Dashboard() {
           ...METRICS.map(m => ({ key: m.key, label: m.full, val: m.val })),
         ];
         const ranked = (p) => perfRows.indexOf(p);
-        const sortedRows = [...perfRows].sort((a, b) => {
+        const sortedRows = [...viewRows].sort((a, b) => {
           if (!perfSort.key) return 0;
           const col = COLUMNS.find(c => c.key === perfSort.key);
           if (!col) return 0;
@@ -2650,10 +2662,11 @@ export default function Dashboard() {
           );
         };
 
-        const summaryCards = [
-          { key: 'online', label: 'Online', sub: 'Active on calls/system', icon: '📞', count: bucketRows.online.length, color: '#16a34a', bg: '#f0fdf4' },
-          { key: 'idle', label: 'Idle', sub: 'Logged in but inactive', icon: '◷', count: bucketRows.idle.length, color: '#2F80D9', bg: '#eff6ff' },
-          { key: 'offline', label: 'Offline', sub: 'Not logged in', icon: '⦸', count: bucketRows.offline.length, color: '#ef4444', bg: '#fef2f2' },
+        const statusFilters = [
+          { key: 'all', label: 'All', color: '#334155' },
+          { key: 'online', label: 'Online', color: '#16a34a' },
+          { key: 'idle', label: 'Idle', color: '#2F80D9' },
+          { key: 'offline', label: 'Offline', color: '#94a3b8' },
         ];
 
         const periodOptions = [
@@ -2682,7 +2695,7 @@ export default function Dashboard() {
               <div style={{ flex: 1, minWidth: 220 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <h3 style={{ fontSize: 24, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{perfRows.length} FROs</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{viewRows.length} FROs</span>
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 400, color: '#64748B', marginTop: 4 }}>Live performance overview of all telecallers</div>
               </div>
@@ -2713,20 +2726,36 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Status summary cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, padding: '18px 24px 4px' }}>
-              {summaryCards.map(c => (
-                <div key={c.key} style={{ borderRadius: 12, border: '1px solid #eef2f6', background: '#fff', padding: '16px 18px', boxShadow: '0 1px 4px rgba(15,23,42,.03)', display: 'flex', alignItems: 'center', gap: 14, justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 10, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{c.icon}</div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: '#64748B' }}>{c.label}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{c.sub}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 30, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.count}</div>
-                </div>
-              ))}
+            {/* Status filter pills */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '18px 24px 0' }}>
+              {statusFilters.map(f => {
+                const active = perfStatusFilter === f.key;
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setPerfStatusFilter(f.key)}
+                    title={`Show ${f.label} FROs`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 999,
+                      border: `1.5px solid ${active ? f.color : '#e2e8f0'}`,
+                      background: active ? `${f.color}14` : '#fff',
+                      color: active ? f.color : '#64748B',
+                      fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      transition: 'all .18s ease', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {f.key !== 'all' && (
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: f.color, display: 'inline-block', flexShrink: 0 }} />
+                    )}
+                    <span>{f.label}</span>
+                    <span style={{
+                      minWidth: 18, height: 18, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                      background: active ? f.color : '#eef1f6', color: active ? '#fff' : '#64748B',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'all .18s ease',
+                    }}>{bucketCounts[f.key]}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Performance table */}
@@ -2755,21 +2784,22 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {pageRows.map((p, i) => {
-                      const st = FRO_STATUS_META[p.status] || FRO_STATUS_META.offline;
                       const live = p.status === 'online' || p.status === 'on_call';
+                      const idle = p.status === 'idle';
+                      const highlighted = live || idle;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>{start + i}</td>
                           <td className="pf-stick" style={{ position: 'sticky', left: 46, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                               {live && (
-                                <span className="pf-live-dot" title="Online" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
+                                <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
                               )}
-                              <span style={{ fontWeight: live ? 700 : 600, color: live ? '#15803d' : '#17233C' }}>{p.fro_name}</span>
+                              {idle && (
+                                <span className="pf-idle-dot" title="Idle · no recent activity" style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-block', flexShrink: 0 }} />
+                              )}
+                              <span style={{ fontWeight: highlighted ? 700 : 600, color: live ? '#15803d' : (idle ? '#2F80D9' : '#17233C') }}>{p.fro_name}</span>
                             </div>
-                            {!live && (
-                              <div style={{ fontSize: 11, fontWeight: 500, color: st.name || '#94a3b8', marginTop: 2 }}>{st.label}</div>
-                            )}
                             {p.work_as_operator_name && (
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>⚡ {p.work_as_operator_name} work as {p.fro_name}</div>
                             )}
@@ -2820,12 +2850,23 @@ export default function Dashboard() {
             </div>
 
             <style>{`
-              @keyframes pfPulse {
+              @keyframes pfPulseGreen {
                 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
                 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
                 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
               }
-              .pf-live-dot { animation: pfPulse 1.8s ease-out infinite; }
+              @keyframes pfPulseBlue {
+                0% { box-shadow: 0 0 0 0 rgba(47,128,217,.45); }
+                70% { box-shadow: 0 0 0 7px rgba(47,128,217,0); }
+                100% { box-shadow: 0 0 0 0 rgba(47,128,217,0); }
+              }
+              .pf-live-dot { animation: pfPulseGreen 1.8s ease-out infinite; }
+              .pf-idle-dot { animation: pfPulseBlue 1.8s ease-out infinite; }
+              .perf-scroll { scrollbar-width: thin; scrollbar-color: #d3dae4 transparent; -ms-overflow-style: -ms-autohiding-scrollbar; }
+              .perf-scroll::-webkit-scrollbar:horizontal { display: none; }
+              .perf-scroll::-webkit-scrollbar:vertical { width: 10px; }
+              .perf-scroll::-webkit-scrollbar-track:vertical { background: transparent; }
+              .perf-scroll::-webkit-scrollbar-thumb:vertical { background: #d3dae4; border-radius: 999px; border: 2px solid #fff; }
               .perf-table tbody tr:hover td { background: #f8fafc; }
               .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
             `}</style>
