@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../api/auth'
 
 const fmt = (n) => {
@@ -11,6 +11,19 @@ const fmtDate = (d) => {
   const dt = new Date(d)
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+// A stale DB could hold duplicate rows for the same (min, max) range, which would
+// make the UI list every range twice. Keep a single row per range — preferring an
+// active one — so the screen never shows "double" ranges.
+const uniqueByRange = (rows) => {
+  const map = new Map()
+  for (const s of rows || []) {
+    const key = `${Number(s.min_amount)}-${Number(s.max_amount)}`
+    const cur = map.get(key)
+    if (!cur || (!cur.is_active && s.is_active)) map.set(key, s)
+  }
+  return [...map.values()]
 }
 
 const inputStyle = {
@@ -514,7 +527,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
 }
 
 // ─── FRO Lead Summary ─────────────────────────────────────
-function FroLeadSummary({ fros, champion, settings, date, onSelectFro }) {
+function FroLeadSummary({ fros, champions, settings, date, onSelectFro }) {
   return (
     <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, background: 'var(--card-bg)', overflow: 'hidden' }}>
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -544,7 +557,7 @@ function FroLeadSummary({ fros, champion, settings, date, onSelectFro }) {
           </thead>
           <tbody>
             {fros.map(fro => {
-              const isChampion = champion && champion.fro_id === fro.fro_id
+              const isChampion = (champions || []).some(c => c.fro_id === fro.fro_id)
               const slabLabel = fro.slab
                 ? `₹${fmt(fro.slab.min_amount)} – ₹${fmt(fro.slab.max_amount)}`
                 : '—'
@@ -618,7 +631,7 @@ function FroRow({ fro, isChampion, slabLabel, onSelect }) {
 }
 
 // ─── FRO Detail Modal ─────────────────────────────────────
-function FroDetailModal({ froId, date, champion, onClose }) {
+function FroDetailModal({ froId, date, champions, onClose }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -665,7 +678,7 @@ function FroDetailModal({ froId, date, champion, onClose }) {
 
   if (!detail) return null
 
-  const isChampion = champion && champion.fro_id === detail.fro_id
+  const isChampion = (champions || []).some(c => c.fro_id === detail.fro_id)
   const slabLabel = detail.slab
     ? `₹${fmt(detail.slab.min_amount)} – ₹${fmt(detail.slab.max_amount)} · min ₹${fmt(detail.slab.min_lead_amount)}`
     : '—'
@@ -790,11 +803,14 @@ export default function LeadIncentive() {
   const [loading, setLoading] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
   const [savingSlab, setSavingSlab] = useState(false)
-  const [announced, setAnnounced] = useState(null)
+  const [announced, setAnnounced] = useState([])
   const [announceOpen, setAnnounceOpen] = useState(false)
   const [announceMsg, setAnnounceMsg] = useState('')
   const [announcing, setAnnouncing] = useState(false)
   const [detailFroId, setDetailFroId] = useState(null)
+
+  // Only one row per range may ever reach the UI (fixes "double" ranges).
+  const uniqueSlabs = useMemo(() => uniqueByRange(slabs), [slabs])
 
   const loadSettings = useCallback(async () => {
     try {
@@ -822,8 +838,7 @@ export default function LeadIncentive() {
   const loadAnnouncement = useCallback(async () => {
     try {
       const r = await api(`/incentive/lead/champion/current?date=${date}`, { _prefix: 'ucs' })
-      if (r && r.announcement) setAnnounced(r.announcement)
-      else setAnnounced(null)
+      setAnnounced(Array.isArray(r?.champions) ? r.champions : [])
     } catch { /* ignore */ }
   }, [date])
 
@@ -934,10 +949,11 @@ export default function LeadIncentive() {
         method: 'POST', _prefix: 'ucs',
         body: JSON.stringify({ date, message: announceMsg.trim() }),
       })
-      if (r && r.announcement) {
-        setAnnounced(r.announcement)
+      if (r && Array.isArray(r.announcements)) {
+        setAnnounced(r.announcements)
         setAnnounceOpen(false)
         setAnnounceMsg('')
+        loadSummary()
       }
     } catch (e) {
       alert(e.message || 'Failed to announce')
@@ -961,14 +977,14 @@ export default function LeadIncentive() {
             onChange={e => setDate(e.target.value)}
             style={{ ...inputStyle, width: 160 }}
           />
-          <button onClick={loadSummary} style={btnStyle('var(--card-bg)', 'var(--ink)')}>↻ Refresh</button>
+          <button onClick={() => { loadSlabs(); loadSummary() }} style={btnStyle('var(--card-bg)', 'var(--ink)')}>↻ Refresh</button>
         </div>
       </div>
 
       {/* Lead Rules */}
       <LeadRulesSettings
         settings={settings}
-        slabs={slabs}
+        slabs={uniqueSlabs}
         onSave={saveSettings}
         onUpdateSlab={updateSlabRates}
         onApplyAll={applyAllRates}
@@ -977,10 +993,10 @@ export default function LeadIncentive() {
       />
 
       {/* Slab Config */}
-      <SlabConfig slabs={slabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} />
+      <SlabConfig slabs={uniqueSlabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} />
 
       {/* Champion */}
-      {announced ? (
+      {announced && announced.length > 0 ? (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
           borderRadius: 14, background: 'linear-gradient(135deg,#dcfce7,#bbf7d0)',
@@ -988,18 +1004,20 @@ export default function LeadIncentive() {
         }}>
           <span style={{ fontSize: 24 }}>🏆</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#166534' }}>
-              Champion Announced: {announced.fro_name}
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#166534', marginBottom: 4 }}>
+              Range Champions Announced for {date}
             </div>
-            <div style={{ fontSize: 12, color: '#15803d', marginTop: 2 }}>
-              ₹{fmt(announced.total_amount)} · {announced.qualified_leads || 0} qualified leads · Total ₹{fmt(announced.total_incentive)}
-            </div>
+            {announced.map(a => (
+              <div key={a.id} style={{ fontSize: 12.5, fontWeight: 700, color: '#15803d', marginTop: 2 }}>
+                {a.slab_label ? `🏆 ${a.slab_label} → ` : '🏆 '}{a.fro_name} · ₹{fmt(a.total_amount)} · {a.qualified_leads || 0} qualified leads · Total ₹{fmt(a.total_incentive)}
+              </div>
+            ))}
           </div>
           <span style={{ padding: '5px 12px', borderRadius: 999, background: '#22c55e', color: '#fff', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>
             ✓ ANNOUNCED
           </span>
         </div>
-      ) : summary?.champion && (
+      ) : (summary?.champions && summary.champions.length > 0) ? (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
           borderRadius: 14, background: 'linear-gradient(135deg,#fef3c7,#fde68a)',
@@ -1008,17 +1026,20 @@ export default function LeadIncentive() {
           <span style={{ fontSize: 28 }}>🏆</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>
-              Today's Leader: {summary.champion.fro_name}
+              Today's Range Winners ({summary.champions.length})
             </div>
             <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
-              Highest collection: ₹{fmt(summary.champion.total_amount)} from qualified leads
+              {summary.champions.map(c => `🏆 ${c.fro_name} (${c.slab_label})`).join('  ·  ')}
+            </div>
+            <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>
+              First FRO to hit a range's Minimum Lead Amount (by verified_at) wins that range.
             </div>
           </div>
           <button onClick={() => setAnnounceOpen(true)} style={btnStyle('linear-gradient(90deg,#b45309,#f59e0b)')}>
-            🎉 Announce Champion
+            🎉 Announce Range Winners
           </button>
         </div>
-      )}
+      ) : null}
 
       {/* FRO Summary */}
       {loading ? (
@@ -1028,7 +1049,7 @@ export default function LeadIncentive() {
       ) : (
         <FroLeadSummary
           fros={summary?.fros || []}
-          champion={summary?.champion || null}
+          champions={summary?.champions || []}
           settings={settings}
           date={date}
           onSelectFro={id => setDetailFroId(id)}
@@ -1040,19 +1061,30 @@ export default function LeadIncentive() {
         <FroDetailModal
           froId={detailFroId}
           date={date}
-          champion={summary?.champion || null}
+          champions={summary?.champions || []}
           onClose={() => setDetailFroId(null)}
         />
       )}
 
       {/* Announce Champion Modal */}
-      {announceOpen && summary?.champion && (
+      {announceOpen && summary?.champions && summary.champions.length > 0 && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99991, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ width: 'min(400px,100%)', borderRadius: 16, padding: 22, background: 'var(--card-bg)', border: '2px solid #f59e0b', boxShadow: '0 24px 60px rgba(0,0,0,.35)' }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>🏆 Announce Champion for {date}?</div>
+          <div style={{ width: 'min(420px,100%)', borderRadius: 16, padding: 22, background: 'var(--card-bg)', border: '2px solid #f59e0b', boxShadow: '0 24px 60px rgba(0,0,0,.35)' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>🏆 Announce Range Winners for {date}?</div>
             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 8 }}>
-              <b style={{ color: 'var(--ink)' }}>{summary.champion.fro_name}</b> has the highest collection (₹{fmt(summary.champion.total_amount)}).
-              This will lock them as today's champion and notify every panel.
+              {summary.champions.map(c => (
+                <div key={c.slab_id} style={{ padding: '8px 0', borderBottom: '1px dashed var(--line)' }}>
+                  <div style={{ fontWeight: 800, color: 'var(--ink)' }}>
+                    🏆 {c.slab_label} → {c.fro_name}
+                  </div>
+                  <div style={{ fontSize: 11.5, marginTop: 2 }}>
+                    First qualified lead at ₹{fmt(c.hit_amount)} · Total incentive ₹{fmt(c.total_incentive)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 8 }}>
+              This locks each range's first-hitter and notifies every panel.
             </div>
             <div style={{ marginTop: 14 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>Message (optional)</label>
