@@ -36,8 +36,8 @@ function useUser() {
   } catch { return null; }
 }
 
-// Small bottom-right side card for today's champion (FRO only).
-function ChampionSidePopup({ announcement, isYou, onClose }) {
+// Small bottom-right side card for today's range champion (FRO only).
+function ChampionSidePopup({ announcement, isYou, onClose, stackIndex = 0 }) {
   const initials = String(announcement.fro_name || 'W')
     .split(' ')
     .slice(0, 2)
@@ -47,7 +47,7 @@ function ChampionSidePopup({ announcement, isYou, onClose }) {
   const hasPhoto = !!announcement.winner_photo_url && !imgErr;
 
   return (
-    <div style={{ position: 'fixed', right: 16, bottom: 196, zIndex: 99995, width: 'min(340px, calc(100vw - 32px))' }}>
+    <div style={{ position: 'fixed', right: 16, bottom: 196 + stackIndex * 12, zIndex: 99995 + stackIndex, width: 'min(340px, calc(100vw - 32px))' }}>
       <style>{CELEB_CSS}</style>
       <div style={{
         borderRadius: 16, overflow: 'hidden', boxShadow: '0 20px 48px rgba(0,0,0,.3)',
@@ -63,7 +63,7 @@ function ChampionSidePopup({ announcement, isYou, onClose }) {
           <div style={{ flex: 1, fontSize: 13, fontWeight: 800, color: '#fff' }}>
             {isYou ? 'You are today\'s Champion!' : 'Today\'s Champion'}
           </div>
-          <span style={{ fontSize: 10.5, fontWeight: 800, background: '#fff', color: '#166534', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>DAILY WINNER</span>
+          <span style={{ fontSize: 10.5, fontWeight: 800, background: '#fff', color: '#166534', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{announcement.slab_label || 'DAILY WINNER'}</span>
           <button onClick={onClose} aria-label="Close" style={{
             width: 26, height: 26, borderRadius: 50, border: 'none', cursor: 'pointer',
             background: 'rgba(0,0,0,.18)', color: '#fff', fontWeight: 800, fontSize: 13, lineHeight: 1,
@@ -147,29 +147,33 @@ export function ChampionCard({ announcement }) {
   );
 }
 
-// Shared hook: fetch today's champion + realtime celebration.
+// Shared hook: fetch today's range champions + realtime celebration.
+// Each announced range (one per incentive_slab) contributes a winner; every FRO
+// panel sees all of them.
 export function useLeadChampion() {
   const user = useUser();
-  const [current, setCurrent] = useState(null);
-  const [celebrate, setCelebrate] = useState(null);
+  const [current, setCurrent] = useState([]);
+  const [celebrates, setCelebrates] = useState([]);
   const celebrationShownRef = useRef(new Set());
 
   const load = useCallback(async () => {
     try {
       const today = todayLocal();
       const r = await api('/incentive/lead/champion/current?date=' + today, { _prefix: 'ucs' });
-      const a = r?.announcement;
-      // Only the current day's announcement may ever celebrate.
-      if (!a || String(a.announcement_date).slice(0, 10) !== today) {
-        setCurrent(null);
-        return;
-      }
-      setCurrent(a);
+      const anns = Array.isArray(r?.champions) ? r.champions : [];
+      // Only the current day's announcements may ever celebrate.
+      const todays = anns.filter(a => String(a.announcement_date || '').slice(0, 10) === today);
+      setCurrent(todays);
       // Auto-celebrate once per announcement id.
-      if (!celebrationShownRef.current.has(a.id) && !readSet(CELEB_KEY).has(String(a.id))) {
-        celebrationShownRef.current.add(a.id);
-        addToSet(CELEB_KEY, a.id);
-        setCelebrate(a);
+      const fresh = todays.filter(
+        a => a?.id && !celebrationShownRef.current.has(a.id) && !readSet(CELEB_KEY).has(String(a.id))
+      );
+      if (fresh.length > 0) {
+        for (const a of fresh) {
+          celebrationShownRef.current.add(a.id);
+          addToSet(CELEB_KEY, a.id);
+        }
+        setCelebrates(prev => [...prev, ...fresh]);
       }
     } catch { /* 401/offline */ }
   }, []);
@@ -180,7 +184,22 @@ export function useLeadChampion() {
     debMsg.current = setTimeout(() => load(), 1200);
   }, [load]);
 
-  useRealtime('lead_champion_announcements', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
+  // Deletes must stop the champion immediately: if a deleted announcement is
+  // being shown, remove it from current + the open popups right away (no 1.2s
+  // debounce / 9s auto-dismiss wait), then refresh to be sure.
+  useRealtime('lead_champion_announcements', {
+    event: '*',
+    onInsert: reloadSoon,
+    onUpdate: reloadSoon,
+    onDelete: (row) => {
+      if (row?.id) {
+        const id = String(row.id);
+        setCurrent(prev => (prev || []).filter(a => String(a.id) !== id));
+        setCelebrates(prev => (prev || []).filter(a => String(a.id) !== id));
+      }
+      reloadSoon();
+    },
+  });
 
   useEffect(() => {
     load();
@@ -188,36 +207,41 @@ export function useLeadChampion() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Auto-dismiss after 9s.
+  // Auto-dismiss all open celebration popups after 9s.
   useEffect(() => {
-    if (!celebrate) return;
-    const t = setTimeout(() => setCelebrate(null), 9000);
+    if (!celebrates || celebrates.length === 0) return;
+    const t = setTimeout(() => setCelebrates([]), 9000);
     return () => clearTimeout(t);
-  }, [celebrate]);
+  }, [celebrates]);
 
-  const isChampion = !!(current && user && current.fro_worker_id === user.id);
+  const closeCelebrate = (id) =>
+    setCelebrates(prev => (prev || []).filter(a => String(a.id) !== String(id)));
+
+  const isChampion = !!(user && (current || []).some(a => a.fro_worker_id === user.id));
 
   return {
-    current,
-    celebrate,
-    closeCelebrate: () => setCelebrate(null),
+    current: current || [],
+    celebrates: celebrates || [],
+    closeCelebrate,
     isChampion,
     you: user?.id || null,
   };
 }
 
 export default function LeadChampionCelebration() {
-  const { celebrate, closeCelebrate, isChampion, you } = useLeadChampion();
+  const { celebrates, closeCelebrate, isChampion, you } = useLeadChampion();
   return (
     <>
       <style>{CELEB_CSS}</style>
-      {celebrate && (
+      {(celebrates || []).map((a, i) => (
         <ChampionSidePopup
-          announcement={celebrate}
-          isYou={isChampion && celebrate?.fro_worker_id === you}
-          onClose={closeCelebrate}
+          key={String(a.id)}
+          announcement={a}
+          isYou={isChampion && a?.fro_worker_id === you}
+          onClose={() => closeCelebrate(a.id)}
+          stackIndex={i}
         />
-      )}
+      ))}
     </>
   );
 }

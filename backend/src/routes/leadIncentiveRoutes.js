@@ -11,9 +11,12 @@ import {
   dailySummaryHandler,
   froDetailHandler,
   currentChampionHandler,
+  leaderboardHandler,
   announceChampionHandler,
   championHistoryHandler,
   deleteChampionHandler,
+  getSlabFrosHandler,
+  setSlabFrosHandler,
 } from '../controllers/leadIncentiveController.js';
 
 const router = Router();
@@ -33,12 +36,16 @@ router.post('/slabs', sirLevel, createSlabHandler);
 router.put('/slabs/apply-all', sirLevel, applyAllSlabsHandler);
 router.put('/slabs/:id', sirLevel, updateSlabHandler);
 router.delete('/slabs/:id', sirLevel, deleteSlabHandler);
+// Which FROs compete in a range (⚙️ Configure).
+router.get('/slabs/:id/fros', sirLevel, getSlabFrosHandler);
+router.put('/slabs/:id/fros', sirLevel, setSlabFrosHandler);
 
 // Lead incentive summary
 router.get('/lead-summary', sirLevel, dailySummaryHandler);
 router.get('/lead-summary/fro/:id', sirLevel, froDetailHandler);
 
 // Champion announcement
+router.get('/leaderboard', popupLevel, leaderboardHandler);
 router.get('/champion/current', popupLevel, currentChampionHandler);
 router.get('/champion/history', sirLevel, championHistoryHandler);
 router.post('/champion/announce', sirLevel, announceChampionHandler);

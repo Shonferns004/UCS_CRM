@@ -29,32 +29,66 @@ export const getSlabById = async (id) => {
   return data;
 };
 
-export const createSlab = async ({
-  min_amount,
-  max_amount,
-  incentive_amount,
-  min_lead_amount = 300,
-  lead_rate = 20,
-}) => {
+export const createSlab = async ({ min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate }) => {
+  const minLead = min_lead_amount ?? 300;
+  const rate = lead_rate ?? 20;
+
+  // A soft-deleted (is_active=false) row may still exist for this exact range,
+  // and the unique index on (min_amount, max_amount) would reject a straight
+  // insert. Reactivate it instead so admins can bring a deleted range back.
+  const { data: existing } = await db
+    .from('incentive_slabs')
+    .select('id')
+    .eq('min_amount', min_amount)
+    .eq('max_amount', max_amount)
+    .maybeSingle();
+
+  if (existing) {
+    const { data, error } = await db
+      .from('incentive_slabs')
+      .update({
+        min_amount,
+        max_amount,
+        incentive_amount,
+        min_lead_amount: minLead,
+        lead_rate: rate,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
   const { data, error } = await db
     .from('incentive_slabs')
-    .insert([{ min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate, is_active: true }])
+    .insert([{
+      min_amount,
+      max_amount,
+      incentive_amount,
+      min_lead_amount: minLead,
+      lead_rate: rate,
+      is_active: true,
+    }])
     .select()
     .single();
   if (error) throw error;
   return data;
 };
 
-export const updateSlab = async (id, {
-  min_amount,
-  max_amount,
-  incentive_amount,
-  min_lead_amount = 300,
-  lead_rate = 20,
-}) => {
+export const updateSlab = async (id, { min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate }) => {
   const { data, error } = await db
     .from('incentive_slabs')
-    .update({ min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate, updated_at: new Date().toISOString() })
+    .update({
+      min_amount,
+      max_amount,
+      incentive_amount,
+      min_lead_amount: min_lead_amount ?? 300,
+      lead_rate: lead_rate ?? 20,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', id)
     .select()
     .single();
@@ -85,4 +119,39 @@ export const updateAllSlabs = async ({ min_lead_amount, lead_rate }) => {
     .select();
   if (error) throw error;
   return data || [];
+};
+
+// ─── FRO ↔ Range assignments (which FROs compete in a slab's competition) ───
+
+export const getSlabFros = async (slabId) => {
+  const { data, error } = await db
+    .from('incentive_slab_fros')
+    .select('fro_worker_id')
+    .eq('slab_id', slabId);
+  if (error) throw error;
+  return (data || []).map(r => r.fro_worker_id);
+};
+
+export const getAllSlabAssignments = async () => {
+  const { data, error } = await db
+    .from('incentive_slab_fros')
+    .select('*');
+  if (error) throw error;
+  return data || [];
+};
+
+export const setSlabFros = async (slabId, froIds) => {
+  const ids = (froIds || []).filter(Boolean);
+  const { error: delErr } = await db
+    .from('incentive_slab_fros')
+    .delete()
+    .eq('slab_id', slabId);
+  if (delErr) throw delErr;
+  if (ids.length === 0) return [];
+  const { data, error } = await db
+    .from('incentive_slab_fros')
+    .insert(ids.map(fro_worker_id => ({ slab_id: slabId, fro_worker_id })))
+    .select();
+  if (error) throw error;
+  return (data || []).map(r => r.fro_worker_id);
 };
