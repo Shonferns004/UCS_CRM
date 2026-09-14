@@ -203,18 +203,20 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
             {/* Category */}
             <div className="form-row">
               <label>Category</label>
-              <select
-                className="rem-select"
+              <input
+                className="rem-input"
                 value={form.category}
                 onChange={handleChange('category')}
-              >
-                <option value="">-- Select --</option>
+                placeholder="Type or select category"
+                list="category-list"
+              />
+              <datalist id="category-list">
                 {CATEGORIES.map((c) => (
-                  <option key={c.key} value={c.key}>
+                  <option key={c.key} value={c.label}>
                     {c.label}
                   </option>
                 ))}
-              </select>
+              </datalist>
             </div>
 
             {/* Owner */}
