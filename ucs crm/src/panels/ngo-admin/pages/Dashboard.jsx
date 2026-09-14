@@ -1198,18 +1198,23 @@ export default function Dashboard() {
     const perfById = new Map();
     for (const p of (tlData?.performance || [])) perfById.set(p.fro_id, p);
 
-    // ALL FROs — even those with 0 idle time — sorted highest idle first.
-    const idle = Object.values(byFro).map(f => {
-      const totalIdleMins = Math.round(((perfById.get(f.id)?.today_idle_seconds) || 0) / 60);
-      return {
-        id: f.id,
-        name: f.name,
-        idleMinutes: totalIdleMins,
-        calls: f.calls,
-        connected: f.connected,
-        workAsName: workAsNameById.get(f.id) || perfById.get(f.id)?.work_as_operator_name || null,
-      };
-    }).sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
+    // Only FROs present right now (online / on-call / idle) — offline ones are left out.
+    const idle = Object.values(byFro)
+      .filter(f => {
+        const st = perfById.get(f.id)?.status;
+        return st && st !== 'offline';
+      })
+      .map(f => {
+        const totalIdleMins = Math.round(((perfById.get(f.id)?.today_idle_seconds) || 0) / 60);
+        return {
+          id: f.id,
+          name: f.name,
+          idleMinutes: totalIdleMins,
+          calls: f.calls,
+          connected: f.connected,
+          workAsName: workAsNameById.get(f.id) || perfById.get(f.id)?.work_as_operator_name || null,
+        };
+      }).sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
 
     const noCalls = Object.values(byFro).filter(f => f.calls === 0);
     noCalls.sort((a, b) => a.name.localeCompare(b.name));
