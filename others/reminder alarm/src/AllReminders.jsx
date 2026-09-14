@@ -77,9 +77,13 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     }
     const activeReminders = reminders.filter(r => !r.is_deleted)
     const seenIds = new Set()
+    const seenKeys = new Set()
     const uniqueReminders = activeReminders.filter(r => {
       if (seenIds.has(r.id)) return false
       seenIds.add(r.id)
+      const key = `${r.title}||${r.category}||${r.owner}`
+      if (seenKeys.has(key)) return false
+      seenKeys.add(key)
       return true
     })
     const dbItems = uniqueReminders.map(r => {
@@ -176,10 +180,19 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }, [sourceItems, activeFilter, search, ownerFilter, statusFilter])
 
   const displayRows = useMemo(() => {
+    const sorted = [...filtered].sort((a, b) => {
+      const ga = (a._group || '').toLowerCase()
+      const gb = (b._group || '').toLowerCase()
+      if (ga !== gb) return ga.localeCompare(gb)
+      const sa = (a._sub || '').toLowerCase()
+      const sb = (b._sub || '').toLowerCase()
+      if (sa !== sb) return sa.localeCompare(sb)
+      return (a.title || '').localeCompare(b.title || '')
+    })
     const rows = []
     let lastGroup = null
     let lastSub = null
-    for (const it of filtered) {
+    for (const it of sorted) {
       if (it._group !== lastGroup) {
         rows.push({ kind: 'group', label: it._group })
         lastGroup = it._group
