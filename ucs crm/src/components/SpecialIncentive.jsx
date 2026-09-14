@@ -4,10 +4,86 @@ import { useRealtime } from '../hooks/useRealtime';
 import { CoinsBag } from './AkiBanner';
 import { useUcs } from '../store';
 import { requestNotifPermission, showDesktopNotification } from '../utils/desktopNotif';
+import beingMp3 from '../assets/audio/being.mp3';
+import mannMp3 from '../assets/audio/mann.mp3';
+import ashrayMp3 from '../assets/audio/ashray.mp3';
+import ngoMp3 from '../assets/audio/ngo.mp3';
 
 const SEEN_KEY = 'si_seen_v1';
 const CELEB_KEY = 'si_celeb_v1';
 const CELEB_PHOTO_KEY = 'si_celeb_photo_v1';
+
+// One recycled Audio object per file so repeated incentives don't re-download.
+const siAudioCache = {};
+let siAudioUnlocked = false;
+let siPendingAudioSrc = null;
+const getSiAudio = (src) => {
+  if (!siAudioCache[src]) {
+    try {
+      const a = new Audio(src);
+      a.preload = 'auto';
+      siAudioCache[src] = a;
+    } catch { siAudioCache[src] = null; }
+  }
+  return siAudioCache[src] || null;
+};
+// NGO-specific intro sound when the "Sir ka Incentive" popup appears:
+// BSCT -> being, MANN -> mann, ASHRAY -> ashray, everything else / all-NGO -> ngo.
+const ngoAudioFor = (ngoName) => {
+  const name = String(ngoName || '').toUpperCase();
+  if (name.includes('BSCT') || name.includes('BS') || name.includes('BEING') || name.includes('SEVAK')) return beingMp3;
+  if (name.includes('MANN') || name.includes('MAA')) return mannMp3;
+  if (name.includes('ASHRAY') || name.includes('AFL')) return ashrayMp3;
+  return ngoMp3;
+};
+const playSiAudioSrc = (src) => {
+  if (!siAudioUnlocked) {
+    siPendingAudioSrc = src;
+    return;
+  }
+  try {
+    const a = getSiAudio(src);
+    if (a) {
+      a.muted = false;
+      a.volume = 1;
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch { /* ignore */ }
+};
+const warmupSiAudio = () => {
+  if (siAudioUnlocked) return;
+  siAudioUnlocked = true;
+  const pending = siPendingAudioSrc;
+  siPendingAudioSrc = null;
+  for (const src of [beingMp3, mannMp3, ashrayMp3, ngoMp3]) {
+    if (src === pending) continue;
+    const a = getSiAudio(src);
+    if (!a) continue;
+    try {
+      a.muted = true;
+      a.volume = 0;
+      const p = a.play();
+      if (p && p.then) p.then(() => {
+        a.pause();
+        a.currentTime = 0;
+        a.muted = false;
+        a.volume = 1;
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }
+  // Keep this synchronous: setTimeout would lose the browser's user gesture.
+  if (pending) playSiAudioSrc(pending);
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', warmupSiAudio, { once: false, passive: true });
+  window.addEventListener('keydown', warmupSiAudio, { once: false });
+  window.addEventListener('touchstart', warmupSiAudio, { once: false, passive: true });
+}
+const playNgoAudio = (ngoName) => {
+  playSiAudioSrc(ngoAudioFor(ngoName));
+};
 
 const fmt = (n) => {
   const v = Number(n);
@@ -428,6 +504,7 @@ export function useSpecialIncentive() {
     if (popupInc && !notifiedRef.current.has(popupInc.id)) {
       notifiedRef.current.add(popupInc.id);
       try { if (navigator.vibrate) navigator.vibrate(300); } catch { /* ignore */ }
+      playNgoAudio(popupInc.ngo_name);
       requestNotifPermission().then(() => {
         showDesktopNotification('Sir ka Incentive LIVE 🎯', popupInc.title || 'New special incentive is live — go collect!');
       }).catch(() => {});
@@ -534,7 +611,7 @@ export default function SpecialIncentive() {
             <div
               key={inc.id}
               style={{ position: 'relative', cursor: 'pointer' }}
-              onClick={() => { setOpenModalId(inc.id); closePopup(); }}
+              onClick={() => { playNgoAudio(inc.ngo_name); setOpenModalId(inc.id); closePopup(); }}
             >
               <div
                 onClick={(e) => { e.stopPropagation(); dismissCard(inc.id); }}

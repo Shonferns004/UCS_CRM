@@ -137,16 +137,16 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
     .order('verified_at', { ascending: false });
 
   const allLeads = leads || [];
-  // Per-slab thresholds: each slab carries its own qualify amount + per-lead
-  // reward, falling back to the global settings when not set.
-  const minLead = slab?.min_lead_amount != null
+  // Per-range rules: each slab/range carries its own Minimum Lead Amount and
+  // ₹ per Qualified Lead. Fall back to the old global settings if missing.
+  const minLead = slab && slab.min_lead_amount != null
     ? Number(slab.min_lead_amount)
     : (Number(settings.min_lead_amount) || 300);
-  const leadRate = slab?.lead_rate != null
+  const leadRate = slab && slab.lead_rate != null
     ? Number(slab.lead_rate)
     : (Number(settings.lead_rate) || 20);
 
-  // Filter qualified leads (amount >= min_lead_amount)
+  // Filter qualified leads (amount >= range's min_lead_amount)
   const qualifiedLeads = allLeads.filter(l => Number(l.amount_collected) >= minLead);
   const totalAmount = qualifiedLeads.reduce((sum, l) => sum + (Number(l.amount_collected) || 0), 0);
 
