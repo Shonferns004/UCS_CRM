@@ -235,7 +235,7 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
               <label>Description</label>
               <textarea
                 className="rem-textarea"
-                rows={3}
+                rows={2}
                 value={form.description}
                 onChange={handleChange('description')}
                 placeholder="Description"
