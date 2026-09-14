@@ -137,11 +137,13 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
 
   const catMatch = (itemCat, filterCat) => {
     if (!filterCat) return true
-    if (itemCat === filterCat) return true
-    const itemLabel = categoryLabel(itemCat)
-    if (itemLabel === filterCat) return true
-    const filterLabel = categoryLabel(filterCat)
-    if (itemCat === filterLabel) return true
+    const ic = (itemCat || '').toLowerCase()
+    const fc = (filterCat || '').toLowerCase()
+    if (ic === fc) return true
+    const itemLabel = (categoryLabel(itemCat) || '').toLowerCase()
+    if (itemLabel === fc) return true
+    const filterLabel = (categoryLabel(filterCat) || '').toLowerCase()
+    if (ic === filterLabel) return true
     if (itemLabel === filterLabel) return true
     return false
   }
@@ -153,7 +155,11 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       if (VIEW_FILTERS[activeFilter]) {
         list = list.filter(it => matchesView(it, activeFilter))
       } else {
-        list = list.filter(it => catMatch(it.category, activeFilter))
+        const filterLabel = (categoryLabel(activeFilter) || activeFilter).toLowerCase()
+        list = list.filter(it => {
+          const itemLabel = (categoryLabel(it.category) || it.category || '').toLowerCase()
+          return itemLabel === filterLabel
+        })
       }
     }
 
