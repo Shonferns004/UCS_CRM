@@ -2475,7 +2475,14 @@ export default function Dashboard() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ height: 38, padding: '0 14px', border: '1px solid #dbe5f1', borderRadius: 9, background: '#f8fafc', display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: '#17233C', whiteSpace: 'nowrap' }}>📅 {hourlyDate}</span>
-                  <span style={{ height: 38, padding: '0 14px', border: '1px solid #dbe5f1', borderRadius: 9, background: '#f8fafc', display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: '#64748B', whiteSpace: 'nowrap' }}>◷ {hourlyAlerts.elapsed}/12 elapsed hrs</span>
+                  <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
+                  <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
+                  <input
+                    type="date"
+                    value={hourlyDate}
+                    onChange={e => setHourlyDate(e.target.value)}
+                    style={{ height: 34, padding: '0 8px', borderRadius: 8, border: '1px solid #dbe5f1', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: '#f8fafc', color: '#17233C' }}
+                  />
                 </div>
               </div>
 
@@ -2516,27 +2523,18 @@ export default function Dashboard() {
                     onChange={e => setIdleSearch(e.target.value)}
                     style={{ flex: 1, minWidth: 280, maxWidth: 620, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C' }}
                   />
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
-                    <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
-                    <input
-                      type="date"
-                      value={hourlyDate}
-                      onChange={e => setHourlyDate(e.target.value)}
-                      style={{ height: 34, padding: '0 8px', borderRadius: 8, border: '1px solid #dbe5f1', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: '#f8fafc', color: '#17233C' }}
-                    />
-                    <button
-                      onClick={handleHourlyExport}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 34, padding: '0 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid #e2e8f0', background: '#fff', color: '#17233C', cursor: 'pointer' }}
-                    >
-                      <Download width="12" height="12" /> Export XLSX
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleHourlyExport}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 34, padding: '0 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid #e2e8f0', background: '#fff', color: '#17233C', cursor: 'pointer' }}
+                  >
+                    <Download width="12" height="12" /> Export XLSX
+                  </button>
                 </div>
               )}
 
               {/* Body: loading / empty states / table */}
               {(() => {
+                const colSep = { borderLeft: '1px solid #eef2f6' };
                 const idleTone = (mins) => (
                   mins >= 120
                     ? { level: 'High', color: '#dc2626', bg: '#fee2e2' }
@@ -2557,7 +2555,6 @@ export default function Dashboard() {
                           <div style={{ flex: 1, height: 20, background: '#eef2f6', borderRadius: 999 }} />
                           <div style={{ flex: 1, height: 14, background: '#eef2f6', borderRadius: 6 }} />
                           <div style={{ flex: 1, height: 14, background: '#eef2f6', borderRadius: 6 }} />
-                          <div style={{ flex: 1, height: 28, background: '#eef2f6', borderRadius: 8 }} />
                         </div>
                       ))}
                     </div>
@@ -2588,11 +2585,10 @@ export default function Dashboard() {
                       <thead>
                         <tr>
                           <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>FRO Name</th>
-                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>Idle Hrs</th>
-                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>Calls</th>
-                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>Connected</th>
-                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>Alert</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>Action</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Idle Hrs</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Calls</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Connected</th>
+                          <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2611,17 +2607,14 @@ export default function Dashboard() {
                                   </div>
                                 )}
                               </td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
                                 <span style={{ minWidth: 42, height: 28, padding: '0 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', background: tone.bg, color: tone.color, animation: 'countPop .3s ease-out' }}>
                                   {formatIdleDuration(f.idleMinutes)}
                                 </span>
                               </td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#17233C', fontWeight: 600 }}>{f.calls}</td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#16a34a', fontWeight: 700 }}>{f.connected}</td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center' }}>
-                                <span style={{ padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: tone.bg, color: tone.color, whiteSpace: 'nowrap' }}>{tone.level}</span>
-                              </td>
-                              <td style={{ padding: '8px 16px', textAlign: 'center' }}>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#17233C', fontWeight: 600, ...colSep }}>{f.calls}</td>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#16a34a', fontWeight: 700, ...colSep }}>{f.connected}</td>
+                              <td style={{ padding: '8px 16px', textAlign: 'center', ...colSep }}>
                                 <button
                                   onClick={() => handleNotifyFro(f.id, f.name)}
                                   disabled={notifyingFroId === f.id}
@@ -2725,7 +2718,7 @@ export default function Dashboard() {
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: '10px 8px', textAlign: 'center', cursor: 'pointer', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>
+            style={{ background: '#fff', padding: '10px 8px', textAlign: 'center', cursor: 'pointer', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
@@ -2733,7 +2726,7 @@ export default function Dashboard() {
           <th rowSpan={2} style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '12px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6' }}>{children}</th>
         );
         const groupTh = (label, color, bg, span) => (
-          <th colSpan={span} style={{ background: bg, color, padding: '9px 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>{label}</th>
+          <th colSpan={span} style={{ background: bg, color, padding: '9px 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
         );
 
         const metricCell = (p, m) => {
@@ -2742,7 +2735,7 @@ export default function Dashboard() {
           const show = v > 0;
           if (m.pill && show) {
             return (
-              <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center' }}>
+              <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
                 <span
                   onClick={click}
                   title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
@@ -2753,7 +2746,7 @@ export default function Dashboard() {
             );
           }
           return (
-            <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center' }}>
+            <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
               {show ? <span onClick={click} style={{ fontSize: 13, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
             </td>
           );

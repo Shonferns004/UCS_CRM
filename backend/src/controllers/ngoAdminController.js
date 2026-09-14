@@ -4738,6 +4738,19 @@ export const getTLDashboard = async (req, res) => {
     // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
     // NOT present, so it never counts as calling/idle/online (it counts offline).
     const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
+    // Work-as operator presence: a fresh covered row means the OPERATOR is the
+    // one physically working that panel right now. The operator carries the
+    // presence (online/idle/on_call mirroring the covered row's call state)
+    // while the covered FRO counts offline. Covers case where the operator has
+    // no own live_status/auth_session (e.g. acting via admin/work-as setup).
+    const workAsByOp = new Map();
+    for (const s of liveStatus || []) {
+      if (s.work_as_operator_id && isLiveFresh(s)) {
+        const op = String(s.work_as_operator_id);
+        if (!workAsByOp.has(op)) workAsByOp.set(op, s);
+      }
+    }
+    const isOperatorActive = (wid) => workAsByOp.has(String(wid));
 
     // Login presence: auth_sessions rows recorded on every UCS CRM login and
     // closed on explicit logout. Online = an open session (logged_out_at IS
@@ -4779,13 +4792,24 @@ export const getTLDashboard = async (req, res) => {
     const livePresent = (s) => isLiveFresh(s) && !isWorkAs(s) && isPresent(s.worker_id);
     const callingRows = (liveStatus || []).filter(s => s.status === 'on_call' && livePresent(s));
     const idleRows = (liveStatus || []).filter(s => s.status === 'idle' && livePresent(s));
-    const calling = callingRows.length;
-    const idle = idleRows.length;
+    // Operators working covered FRO panels carry that panel's call state too —
+    // an operator mid-call on a covered station counts as calling.
+    const opCalling = froWorkers.filter(w => {
+      const row = workAsByOp.get(String(w.id));
+      return row && row.status === 'on_call' && !callingRows.some(s => String(s.worker_id) === String(w.id));
+    });
+    const opIdle = froWorkers.filter(w => {
+      const row = workAsByOp.get(String(w.id));
+      return row && row.status === 'idle' && !idleRows.some(s => String(s.worker_id) === String(w.id));
+    });
+    const calling = callingRows.length + opCalling.length;
+    const idle = idleRows.length + opIdle.length;
     // FROs whose panel is being operated by another worker (work-as) are treated
     // as absent today: the covering operator carries the online/calling/idle state.
     const workAsCoveredIds = new Set((liveStatus || []).filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
+    const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
     const online = useLoginPresence
-      ? froWorkers.filter(w => !workAsCoveredIds.has(String(w.id)) && isPresent(w.id) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id))).length
+      ? froWorkers.filter(w => !coveredOnly(String(w.id)) && (isPresent(w.id) || isOperatorActive(w.id)) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id)) && !opCalling.some(o => String(o.id) === String(w.id)) && !opIdle.some(o => String(o.id) === String(w.id))).length
       : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
     const offline = froWorkers.length - calling - idle - online;
 
@@ -5097,18 +5121,33 @@ export const getTLDashboard = async (req, res) => {
       // this FRO. The listed FRO (cbd) is not present — show offline, but let the
       // UI annotate "abc work as cbd" via work_as_operator_name.
       const workAsName = (lsFresh && ls.work_as_operator_id && ls.work_as_operator_name) ? ls.work_as_operator_name : null;
+      // A worker actively operating a covered FRO's panel carries that panel's
+      // presence — they are the one physically working right now (even if their
+      // own live_status row is stale / they have no own auth_session).
+      const acting = workAsByOp.get(String(w.id));
+      const workAsLabel = acting ? null : workAsName;
       // True current idle streak while the FRO panel's 5-minute combined
       // detector has them flagged idle (idle_since = streak start).
-      const idleMinutes = (!workAsName && ls.status === 'idle' && lsFresh && ls.idle_since)
-        ? Math.floor((now - new Date(ls.idle_since)) / 60000)
-        : 0;
+      const idleMinutes = acting
+        ? (acting.status === 'idle' && acting.idle_since ? Math.floor((now - new Date(acting.idle_since)) / 60000) : 0)
+        : (!workAsName && ls.status === 'idle' && lsFresh && ls.idle_since)
+          ? Math.floor((now - new Date(ls.idle_since)) / 60000)
+          : 0;
 
       // Login-presence driven status: online requires a fresh, non-logged-out
       // CRM session. Call state only refines it while the FRO is present. A FRO
       // covered by another operator (work-as) is absent from the field — show
       // them offline; the covering operator carries the presence.
       let status = 'offline';
-      if (isPresent(w.id) && !workAsName) {
+      if (acting) {
+        if (acting.status === 'on_call') {
+          status = 'on_call';
+        } else if (acting.status === 'idle') {
+          status = 'idle';
+        } else {
+          status = 'online';
+        }
+      } else if (isPresent(w.id) && !workAsName) {
         if (ls.status === 'on_call' && lsFresh) {
           status = 'on_call';
         } else if (ls.status === 'idle' && lsFresh) {
@@ -5164,7 +5203,7 @@ export const getTLDashboard = async (req, res) => {
         target_amount: targetAmt,
         target_pct: targetPct,
         status,
-        work_as_operator_name: workAsName,
+        work_as_operator_name: workAsLabel,
         idleMinutes: idleMinutes,
         today_idle_seconds: ls.today_idle_seconds || 0,
         logout_today: lc.today,
