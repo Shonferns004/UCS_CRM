@@ -5103,10 +5103,16 @@ export const getTLDashboard = async (req, res) => {
       // Login-presence driven status: online requires a fresh, non-logged-out
       // CRM session. Call state only refines it while the FRO is present.
       let status = 'offline';
-      if (isPresent(w.id) && !workAsName) {
-        if (ls.status === 'on_call' && lsFresh) status = 'on_call';
-        else if (ls.status === 'idle' && lsFresh) status = 'idle';
-        else status = 'online';
+      if (isPresent(w.id)) {
+        if (workAsName) {
+          status = 'online';
+        } else if (ls.status === 'on_call' && lsFresh) {
+          status = 'on_call';
+        } else if (ls.status === 'idle' && lsFresh) {
+          status = 'idle';
+        } else {
+          status = 'online';
+        }
       }
       const lc = logoutCounts[String(w.id)] || { today: 0, total: 0 };
 
