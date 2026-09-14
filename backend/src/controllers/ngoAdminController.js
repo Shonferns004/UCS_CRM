@@ -4781,8 +4781,11 @@ export const getTLDashboard = async (req, res) => {
     const idleRows = (liveStatus || []).filter(s => s.status === 'idle' && livePresent(s));
     const calling = callingRows.length;
     const idle = idleRows.length;
+    // FROs whose panel is being operated by another worker (work-as) are treated
+    // as absent today: the covering operator carries the online/calling/idle state.
+    const workAsCoveredIds = new Set((liveStatus || []).filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
     const online = useLoginPresence
-      ? froWorkers.filter(w => isPresent(w.id) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id))).length
+      ? froWorkers.filter(w => !workAsCoveredIds.has(String(w.id)) && isPresent(w.id) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id))).length
       : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
     const offline = froWorkers.length - calling - idle - online;
 
@@ -5101,12 +5104,12 @@ export const getTLDashboard = async (req, res) => {
         : 0;
 
       // Login-presence driven status: online requires a fresh, non-logged-out
-      // CRM session. Call state only refines it while the FRO is present.
+      // CRM session. Call state only refines it while the FRO is present. A FRO
+      // covered by another operator (work-as) is absent from the field — show
+      // them offline; the covering operator carries the presence.
       let status = 'offline';
-      if (isPresent(w.id)) {
-        if (workAsName) {
-          status = 'online';
-        } else if (ls.status === 'on_call' && lsFresh) {
+      if (isPresent(w.id) && !workAsName) {
+        if (ls.status === 'on_call' && lsFresh) {
           status = 'on_call';
         } else if (ls.status === 'idle' && lsFresh) {
           status = 'idle';
