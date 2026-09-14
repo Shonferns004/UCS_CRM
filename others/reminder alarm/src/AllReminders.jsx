@@ -81,16 +81,20 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     const uniqueReminders = activeReminders.filter(r => {
       if (seenIds.has(r.id)) return false
       seenIds.add(r.id)
-      const key = `${r.title}||${r.category}||${r.owner}`
+      const normCat = (categoryLabel(r.category) || r.category || '').toLowerCase()
+      const normOwner = (r.owner || '').toLowerCase()
+      const normTitle = (r.title || '').toLowerCase()
+      const key = `${normTitle}||${normCat}||${normOwner}`
       if (seenKeys.has(key)) return false
       seenKeys.add(key)
       return true
     })
     const dbItems = uniqueReminders.map(r => {
       const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
+      const grp = categoryLabel(r.category) || r.category || 'Other'
       return {
         category: r.category || 'OTHER_BILL',
-        _group: categoryLabel(r.category) || r.category || 'Other',
+        _group: grp,
         _sub: '',
         _dbId: r.id,
         _dbStatus: computed,
