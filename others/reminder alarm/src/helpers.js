@@ -132,6 +132,16 @@ export function categoryLabel(key) {
   return found ? found.label : key || '—'
 }
 
+export function normalizeCategory(val) {
+  if (!val) return 'Other'
+  const lower = val.toLowerCase()
+  const byKey = CATEGORIES.find(c => c.key === val)
+  if (byKey) return byKey.label
+  const byLabel = CATEGORIES.find(c => c.label.toLowerCase() === lower)
+  if (byLabel) return byLabel.label
+  return val
+}
+
 export function categoryIcon(key) {
   const found = CATEGORIES.find(c => c.key === key)
   return found ? found.icon : 'bell'

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRem } from './store'
-import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon } from './helpers'
+import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon, normalizeCategory } from './helpers'
 import { computeEffectiveDueDate } from './notifications'
 import { Icon } from './components'
 import { toast } from './Toast'
@@ -81,7 +81,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     const uniqueReminders = activeReminders.filter(r => {
       if (seenIds.has(r.id)) return false
       seenIds.add(r.id)
-      const normCat = (categoryLabel(r.category) || r.category || '').toLowerCase()
+      const normCat = normalizeCategory(r.category).toLowerCase()
       const normOwner = (r.owner || '').toLowerCase()
       const normTitle = (r.title || '').toLowerCase()
       const key = `${normTitle}||${normCat}||${normOwner}`
@@ -91,7 +91,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     })
     const dbItems = uniqueReminders.map(r => {
       const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
-      const grp = categoryLabel(r.category) || r.category || 'Other'
+      const grp = normalizeCategory(r.category)
       return {
         category: grp,
         _group: grp,
@@ -133,7 +133,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     const byLabel = new Map()
     sourceItems.forEach(it => {
       if (!it.category) return
-      const label = categoryLabel(it.category)
+      const label = normalizeCategory(it.category)
       if (!byLabel.has(label)) byLabel.set(label, it.category)
     })
     return Array.from(byLabel.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, key]) => key)
@@ -141,15 +141,9 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
 
   const catMatch = (itemCat, filterCat) => {
     if (!filterCat) return true
-    const ic = (itemCat || '').toLowerCase()
-    const fc = (filterCat || '').toLowerCase()
-    if (ic === fc) return true
-    const itemLabel = (categoryLabel(itemCat) || '').toLowerCase()
-    if (itemLabel === fc) return true
-    const filterLabel = (categoryLabel(filterCat) || '').toLowerCase()
-    if (ic === filterLabel) return true
-    if (itemLabel === filterLabel) return true
-    return false
+    const ic = normalizeCategory(itemCat).toLowerCase()
+    const fc = normalizeCategory(filterCat).toLowerCase()
+    return ic === fc
   }
 
   const filtered = useMemo(() => {
@@ -159,9 +153,9 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       if (VIEW_FILTERS[activeFilter]) {
         list = list.filter(it => matchesView(it, activeFilter))
       } else {
-        const filterLabel = (categoryLabel(activeFilter) || activeFilter).toLowerCase()
+        const filterLabel = normalizeCategory(activeFilter).toLowerCase()
         list = list.filter(it => {
-          const itemLabel = (categoryLabel(it.category) || it.category || '').toLowerCase()
+          const itemLabel = normalizeCategory(it.category).toLowerCase()
           return itemLabel === filterLabel
         })
       }
@@ -172,7 +166,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       list = list.filter(it =>
         it.title.toLowerCase().includes(q) ||
         (it.owner || '').toLowerCase().includes(q) ||
-        categoryLabel(it.category).toLowerCase().includes(q) ||
+        normalizeCategory(it.category).toLowerCase().includes(q) ||
         (it._group || '').toLowerCase().includes(q) ||
         (it._sub || '').toLowerCase().includes(q) ||
         (it.frequency || '').toLowerCase().includes(q) ||
@@ -192,7 +186,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }, [sourceItems, activeFilter, search, ownerFilter, statusFilter])
 
   const displayRows = useMemo(() => {
-    const selectedGroup = activeFilter && !VIEW_FILTERS[activeFilter] ? (categoryLabel(activeFilter) || activeFilter) : null
+    const selectedGroup = activeFilter && !VIEW_FILTERS[activeFilter] ? normalizeCategory(activeFilter) : null
     const sorted = [...filtered].sort((a, b) => {
       const ga = (a._group || '').toLowerCase()
       const gb = (b._group || '').toLowerCase()
@@ -285,7 +279,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   const activeLabel = activeFilter ? (
     VIEW_FILTERS[activeFilter]
       ? ({ completed: 'Completed', overdue: 'Overdue', dueToday: 'Due Today', dueTomorrow: 'Due Tomorrow', dueThisWeek: 'Due This Week', upcoming: 'Upcoming', renewalsThisMonth: 'Renewals This Month', attention: 'Needs Attention' })[activeFilter]
-      : categoryLabel(activeFilter)
+      : normalizeCategory(activeFilter)
   ) : 'All Reminders'
 
   return (
@@ -320,7 +314,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
           <select className="rem-select" value={catDropdownVal} onChange={e => handleCategoryChange(e.target.value)}>
             <option value="">All Categories</option>
             {categories.map(c => (
-              <option key={c} value={c}>{categoryLabel(c)}</option>
+              <option key={c} value={c}>{normalizeCategory(c)}</option>
             ))}
           </select>
           <select className="rem-select" value={ownerFilter} onChange={e => { setOwnerFilter(e.target.value); setPage(1) }}>
@@ -394,7 +388,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
                         <Icon name={categoryIcon(it.category)} size={14} />
-                        {categoryLabel(it.category)}
+                        {normalizeCategory(it.category)}
                       </span>
                     </td>
                     <td>
