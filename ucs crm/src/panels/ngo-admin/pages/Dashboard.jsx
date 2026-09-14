@@ -1165,7 +1165,19 @@ export default function Dashboard() {
 
   const [tlData, setTlData] = useState(null);
 
-  // Derived: day totals + per-FRO productivity alerts for the selected hourly date
+  // Format a minute count as "3 min" / "1 hr 10 min" / "2 hr"
+  const formatIdleDuration = (mins) => {
+    if (!mins || mins < 0) return '—';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return `${m} min`;
+    if (m === 0) return `${h} hr`;
+    return `${h} hr ${m} min`;
+  };
+
+  // Derived: day totals + per-FRO productivity alerts for the selected hourly date.
+  // Idle duration comes from the live idle streak (fro_live_status.idle_since),
+  // the same source that powers the Telecaller Performance "Idle Xm" pill.
   const hourlyAlerts = useMemo(() => {
     const workAsNameById = new Map();
     for (const pf of (tlData?.performance || [])) {
@@ -1174,29 +1186,27 @@ export default function Dashboard() {
     const byFro = {};
     for (const r of hourlyFroRows) {
       if (!r.fro_worker_id) continue;
-      if (!byFro[r.fro_worker_id]) byFro[r.fro_worker_id] = { id: r.fro_worker_id, name: r.fro_name || 'Unknown', calls: 0, connected: 0, slots: Array(12).fill(0), workAsName: workAsNameById.get(r.fro_worker_id) || null };
+      if (!byFro[r.fro_worker_id]) byFro[r.fro_worker_id] = { id: r.fro_worker_id, name: r.fro_name || 'Unknown', calls: 0, connected: 0, workAsName: workAsNameById.get(r.fro_worker_id) || null };
       const f = byFro[r.fro_worker_id];
       f.calls += r.calls || 0;
       f.connected += r.connected || 0;
-      const idx = parseInt(r.hour, 10) - 9;
-      if (idx >= 0 && idx < 12) f.slots[idx] = r.calls || 0;
     }
     const isToday = hourlyDate === toIstDate();
     const nowIstHour = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
     // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
     const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
-    const idle = [];
-    const noCalls = [];
-    for (const f of Object.values(byFro)) {
-      if (f.calls > 0) {
-        let idleSlots = 0;
-        for (let i = 0; i < elapsed; i++) if (f.slots[i] === 0) idleSlots++;
-        if (idleSlots > 0) idle.push({ ...f, idleSlots });
-      } else {
-        noCalls.push(f);
-      }
-    }
-    idle.sort((a, b) => b.idleSlots - a.idleSlots || a.name.localeCompare(b.name));
+    const idle = (tlData?.performance || [])
+      .filter(p => p.status === 'idle' && p.idleMinutes > 0)
+      .map(p => ({
+        id: p.fro_id,
+        name: p.fro_name || byFro[p.fro_id]?.name || 'Unknown',
+        idleMinutes: Math.max(1, Math.round(p.idleMinutes)),
+        calls: byFro[p.fro_id]?.calls || 0,
+        connected: byFro[p.fro_id]?.connected || 0,
+        workAsName: workAsNameById.get(p.fro_id) || p.work_as_operator_name || null,
+      }));
+    const noCalls = Object.values(byFro).filter(f => f.calls === 0);
+    idle.sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
     noCalls.sort((a, b) => a.name.localeCompare(b.name));
     return { idle, noCalls, elapsed, isToday };
   }, [hourlyFroRows, hourlyDate, tlData]);
@@ -2293,20 +2303,6 @@ export default function Dashboard() {
           return next;
         });
 
-        // Compress idle slot indices into "09–12, 15–17" IST hour ranges
-        const idleRangesOf = (f, elapsed) => {
-          const ranges = [];
-          let s = null;
-          for (let i = 0; i < elapsed; i++) {
-            if (f.slots[i] === 0) { if (s === null) s = i; }
-            else if (s !== null) { ranges.push([s, i - 1]); s = null; }
-          }
-          if (s !== null) ranges.push([s, elapsed - 1]);
-          return ranges.map(([a, b]) => a === b
-            ? `${String(9 + a).padStart(2, '0')}:00`
-            : `${String(9 + a).padStart(2, '0')}–${String(10 + b).padStart(2, '0')}`).join(', ');
-        };
-
         return (
           <>
             {/* Header card: date controls + day summary chips */}
@@ -2467,7 +2463,7 @@ export default function Dashboard() {
                 {hourlyLoading ? (
                   <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading productivity data...</div>
                 ) : hourlyAlerts.elapsed === 0 ? (
-                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Working window hasn't started yet — alerts begin from 10:00 IST</div>
+                  <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
                 ) : hourlyAlerts.idle.length === 0 && hourlyAlerts.noCalls.length === 0 ? (
                   <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#16a34a', fontWeight: 600 }}>All FROs made calls in every elapsed working hour</div>
                 ) : (
@@ -2475,24 +2471,21 @@ export default function Dashboard() {
                     {hourlyAlerts.idle.length > 0 && (
                       <div style={{ padding: '10px 14px 4px' }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', marginBottom: 6 }}>
-                          FROs with idle hours — zero calls during elapsed working hours
+                          FROs idle right now — live idle streak (no call activity)
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                           <thead>
                             <tr>
-                              <th style={{ width: 24, fontSize: 10, padding: '6px 8px', textAlign: 'left', color: 'var(--ink-soft)' }}>#</th>
                               <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'left', color: 'var(--ink-soft)' }}>FRO</th>
-                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'center', color: 'var(--ink-soft)' }}>Idle Hours</th>
+                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'center', color: 'var(--ink-soft)' }}>Idle Duration</th>
                               <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', color: 'var(--ink-soft)' }}>Calls</th>
                               <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'right', color: 'var(--ink-soft)' }}>Connected</th>
-                              <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'left', color: 'var(--ink-soft)' }}>Idle Slots (IST)</th>
                               <th style={{ fontSize: 10, padding: '6px 8px', textAlign: 'center', color: 'var(--ink-soft)' }}>Alert</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {hourlyAlerts.idle.slice(0, showAllIdleAlerts ? hourlyAlerts.idle.length : 8).map((f, i) => (
+                            {hourlyAlerts.idle.slice(0, showAllIdleAlerts ? hourlyAlerts.idle.length : 8).map((f) => (
                               <tr key={f.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                                <td style={{ fontSize: 10, fontWeight: 700, color: i < 3 ? '#dc2626' : 'var(--ink-soft)', padding: '5px 8px' }}>{i + 1}</td>
                                 <td style={{ fontWeight: 600, padding: '5px 8px' }}>
                                   {f.name}
                                   {f.workAsName && (
@@ -2503,17 +2496,16 @@ export default function Dashboard() {
                                 </td>
                                 <td style={{ padding: '5px 8px', textAlign: 'center' }}>
                                   <span style={{
-                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, height: 16, padding: '0 6px',
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', padding: '1px 8px',
                                     borderRadius: 999, fontSize: 10, fontWeight: 700, animation: 'countPop .3s ease-out',
-                                    background: f.idleSlots >= 4 ? '#fee2e2' : f.idleSlots >= 2 ? '#ffedd5' : '#fef9c3',
-                                    color: f.idleSlots >= 4 ? '#dc2626' : f.idleSlots >= 2 ? '#ea580c' : '#a16207',
+                                    background: f.idleMinutes >= 120 ? '#fee2e2' : f.idleMinutes >= 60 ? '#ffedd5' : '#fef9c3',
+                                    color: f.idleMinutes >= 120 ? '#dc2626' : f.idleMinutes >= 60 ? '#ea580c' : '#a16207',
                                   }}>
-                                    {f.idleSlots}
+                                    {formatIdleDuration(f.idleMinutes)}
                                   </span>
                                 </td>
                                 <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600 }}>{f.calls}</td>
                                 <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{f.connected}</td>
-                                <td style={{ padding: '5px 8px', fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{idleRangesOf(f, hourlyAlerts.elapsed) || '—'}</td>
                                 <td style={{ padding: '5px 8px', textAlign: 'center' }}>
                                   <button
                                     onClick={() => handleNotifyFro(f.id, f.name)}
@@ -2760,8 +2752,7 @@ export default function Dashboard() {
                 <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1120, width: '100%' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
-                      {stickyTh('#', 0)}
-                      {stickyTh('FRO Name', 46)}
+                      {stickyTh('FRO Name', 0)}
                       {groupTh('CALL ACTIVITY', '#be123c', '#FFF1F3', 4)}
                       {groupTh('FIELD / FOLLOW-UP', '#1d4ed8', '#EFF6FF', 2)}
                       {groupTh('OTHER', '#047857', '#ECFDF5', 2)}
@@ -2777,14 +2768,13 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedRows.map((p, i) => {
+                    {sortedRows.map((p) => {
                       const live = p.status === 'online' || p.status === 'on_call';
                       const idle = p.status === 'idle';
                       const highlighted = live || idle;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>{i + 1}</td>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 46, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                               {live && (
                                 <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
@@ -2829,11 +2819,10 @@ export default function Dashboard() {
               }
               .pf-live-dot { animation: pfPulseGreen 1.8s ease-out infinite; }
               .pf-idle-dot { animation: pfPulseBlue 1.8s ease-out infinite; }
-              .perf-scroll { scrollbar-width: thin; scrollbar-color: #d3dae4 transparent; -ms-overflow-style: -ms-autohiding-scrollbar; }
+              .perf-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+              .perf-scroll::-webkit-scrollbar { width: 0; height: 0; }
               .perf-scroll::-webkit-scrollbar:horizontal { display: none; }
-              .perf-scroll::-webkit-scrollbar:vertical { width: 10px; }
-              .perf-scroll::-webkit-scrollbar-track:vertical { background: transparent; }
-              .perf-scroll::-webkit-scrollbar-thumb:vertical { background: #d3dae4; border-radius: 999px; border: 2px solid #fff; }
+              .perf-scroll::-webkit-scrollbar:vertical { display: none; }
               .perf-table tbody tr:hover td { background: #f8fafc; }
               .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
             `}</style>
