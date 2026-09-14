@@ -180,9 +180,16 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }, [sourceItems, activeFilter, search, ownerFilter, statusFilter])
 
   const displayRows = useMemo(() => {
+    const selectedGroup = activeFilter && !VIEW_FILTERS[activeFilter] ? (categoryLabel(activeFilter) || activeFilter) : null
     const sorted = [...filtered].sort((a, b) => {
       const ga = (a._group || '').toLowerCase()
       const gb = (b._group || '').toLowerCase()
+      if (selectedGroup) {
+        const aMatch = ga === selectedGroup.toLowerCase()
+        const bMatch = gb === selectedGroup.toLowerCase()
+        if (aMatch && !bMatch) return -1
+        if (!aMatch && bMatch) return 1
+      }
       if (ga !== gb) return ga.localeCompare(gb)
       const sa = (a._sub || '').toLowerCase()
       const sb = (b._sub || '').toLowerCase()
