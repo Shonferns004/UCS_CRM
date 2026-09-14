@@ -1194,18 +1194,35 @@ export default function Dashboard() {
     const nowIstHour = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
     // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
     const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
-    const idle = (tlData?.performance || [])
-      .filter(p => p.status === 'idle' && p.idleMinutes > 0)
-      .map(p => ({
-        id: p.fro_id,
-        name: p.fro_name || byFro[p.fro_id]?.name || 'Unknown',
-        idleMinutes: Math.max(1, Math.round(p.idleMinutes)),
-        calls: byFro[p.fro_id]?.calls || 0,
-        connected: byFro[p.fro_id]?.connected || 0,
-        workAsName: workAsNameById.get(p.fro_id) || p.work_as_operator_name || null,
-      }));
+
+    // today_idle_seconds per FRO from live status (tl-data).
+    // For today this is the true running idle accumulator; for past days
+    // we fall back to zero-call-hour slots (each slot = 60 min).
+    const perfById = new Map();
+    for (const p of (tlData?.performance || [])) perfById.set(p.fro_id, p);
+
+    const zeroCallSlotCount = {};
+    for (const r of hourlyFroRows) {
+      if (!r.fro_worker_id) continue;
+      if ((r.calls || 0) === 0) zeroCallSlotCount[r.fro_worker_id] = (zeroCallSlotCount[r.fro_worker_id] || 0) + 1;
+    }
+
+    // ALL FROs — even those with 0 idle time — sorted highest idle first.
+    const idle = Object.values(byFro).map(f => {
+      const totalIdleMins = isToday
+        ? Math.round(((perfById.get(f.id)?.today_idle_seconds) || 0) / 60)
+        : (zeroCallSlotCount[f.id] || 0) * 60;
+      return {
+        id: f.id,
+        name: f.name,
+        idleMinutes: totalIdleMins,
+        calls: f.calls,
+        connected: f.connected,
+        workAsName: workAsNameById.get(f.id) || perfById.get(f.id)?.work_as_operator_name || null,
+      };
+    }).sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
+
     const noCalls = Object.values(byFro).filter(f => f.calls === 0);
-    idle.sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
     noCalls.sort((a, b) => a.name.localeCompare(b.name));
     return { idle, noCalls, elapsed, isToday };
   }, [hourlyFroRows, hourlyDate, tlData]);

@@ -5166,6 +5166,7 @@ export const getTLDashboard = async (req, res) => {
         status,
         work_as_operator_name: workAsName,
         idleMinutes: idleMinutes,
+        today_idle_seconds: ls.today_idle_seconds || 0,
         logout_today: lc.today,
         logout_total: lc.total,
         claims_pending: claims.pending,
