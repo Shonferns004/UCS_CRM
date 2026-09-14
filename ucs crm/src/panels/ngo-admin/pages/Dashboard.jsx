@@ -90,16 +90,7 @@ const toIstDate = (d = new Date()) =>
 
 const PERIOD_LABELS = { today: 'Today', yesterday: 'Yesterday', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
 
-const ScoreFormulaLegend = () => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: '1px solid var(--line)', fontSize: 9, color: 'var(--ink-soft)' }}>
-    <span style={{ fontWeight: 700 }}>Daily performance&nbsp;=</span>
-    <span style={{ background: '#eff6ff', color: '#2563eb', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #2563eb22' }}>Today&apos;s collection / Per-day target × 100</span>
-    <span style={{ background: '#fef2f2', color: '#dc2626', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #dc262622' }}>&lt;100% Low</span>
-    <span style={{ background: '#f0fdf4', color: '#16a34a', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #16a34a22' }}>&ge;100% High</span>
-  </div>
-);
 
-const performanceLabel = (pct) => pct > 100 ? 'Above Target' : pct === 100 ? 'On Target' : 'Below Target';
 
 const NGO_TABS = [
   ['', 'All'],
@@ -1022,8 +1013,8 @@ export default function Dashboard() {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
   const [weakPerformers, setWeakPerformers] = useState([]);
   const [weakLoading, setWeakLoading] = useState(false);
-  const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
-  const [showAllTopPerformers, setShowAllTopPerformers] = useState(false);
+  const [highPerfSearch, setHighPerfSearch] = useState('');
+  const [lowPerfSearch, setLowPerfSearch] = useState('');
   const [froSearch, setFroSearch] = useState('');
   const [perfStatusFilter, setPerfStatusFilter] = useState('all');
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
@@ -1153,6 +1144,16 @@ export default function Dashboard() {
   // Top performers = same global-filtered dataset, best score first
   const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
   const lowPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct < 100).sort((a, b) => a.performance_pct - b.performance_pct), [weakPerformers]);
+
+  // Independent per-panel search (High / Low)
+  const highRows = useMemo(
+    () => topPerformers.filter(p => (p.fro_name || '').toLowerCase().includes(highPerfSearch.trim().toLowerCase())),
+    [topPerformers, highPerfSearch]
+  );
+  const lowRows = useMemo(
+    () => lowPerformers.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
+    [lowPerformers, lowPerfSearch]
+  );
 
   // NGO filter pills from the admin's accessible NGOs
   const ngoFilterPills = useMemo(() => (accessibleNgos || []).filter(n => n && n.id).map(n => ({
@@ -2135,133 +2136,227 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* REQUIREMENT 2: Target-paced top and low performers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 16 }}>
-        {/* Left: Top Performance */}
-        <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-head">
-            <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: '#f59e0b' }}>🏆</span> High Performance (≥100%)
-            </h3>
-            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-<span style={{ fontSize:10, color:'var(--ink-soft)', fontWeight:500 }}>Daily target pace</span>
-              {weakLoading && <span style={{ fontSize:10, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
-                Loading…
-              </span>}
+      {/* Target-paced High / Low performance panels */}
+      <div className="performance-sections">
+        {/* ── High Performance ── */}
+        <div className="performance-card">
+          <div className="performance-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+              <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>🏆</span>
+              <div style={{ minWidth: 0 }}>
+                <h3 className="performance-title" style={{ color: '#14532D' }}>High Performance (&ge;100%)</h3>
+                <p style={{ fontSize: 13, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who have achieved their daily collection target</p>
+              </div>
             </div>
+            {weakLoading
+              ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
+              : <span style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
           </div>
-          <ScoreFormulaLegend />
-          <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
-            {topPerformers.length > 0 ? (
-              <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
-                    <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Today&apos;s Collection</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Monthly Target</th>
-<th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
-<th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Worked Days</th>
-                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Performance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topPerformers.slice(0, showAllTopPerformers ? topPerformers.length : 10).map((p, i) => (
-                    <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{fontSize:10, fontWeight: i < 3 ? 700 : 400, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', padding:'5px 8px'}}>#{i + 1}</td>
-                      <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
-<td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.worked_days}/{p.working_days}</td>
-                      <td style={{textAlign:'center', fontWeight:700, color: p.performance_pct > 100 ? '#2563eb' : '#16a34a', fontSize:11, padding:'5px 8px'}}>
-                        {Number(p.performance_pct || 0).toFixed(1)}%
-                        <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)' }}>{performanceLabel(p.performance_pct)}</div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                {topPerformers.length > 10 && (
-                  <tfoot>
-                    <tr>
-<td colSpan={7} style={{padding:0}}>
-                        <button onClick={() => setShowAllTopPerformers(!showAllTopPerformers)}
-                          style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
-                          {showAllTopPerformers ? '▲ Show Less' : `View All ${topPerformers.length} FROs →`}
-                        </button>
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 20px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Per-day target × 100</b>
+            </span>
+            <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
+              <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% Low</span>
+            </span>
+          </div>
+
+          <div style={{ padding: '12px 20px' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search FRO name..."
+              value={highPerfSearch}
+              onChange={e => setHighPerfSearch(e.target.value)}
+              style={{ width: '100%', height: 40, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div className="performance-table-wrapper" style={{ flex: 1 }}>
+            {weakLoading ? (
+              <div style={{ minHeight: 360, padding: '4px 20px' }}>
+                {[0,1,2,3,4,5].map(i => (
+                  <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                    <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 70, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 55, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 90, height: 18, background: '#eef2f6', borderRadius: 999 }} />
+                  </div>
+                ))}
+              </div>
+            ) : highRows.length === 0 ? (
+              <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                  {topPerformers.length === 0 ? 'No FROs are currently above the daily target.' : 'No FROs match your search.'}
+                </div>
+              </div>
             ) : (
-              <div style={{ padding: 16, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>No performing FROs yet</div>
+              <div style={{ minHeight: 360, maxHeight: 460, overflowY: 'auto' }}>
+                <table className="performance-table">
+                  <colgroup>
+                    <col style={{ width: 42 }} />
+                    <col style={{ width: '24%' }} />
+                    <col style={{ width: '17%' }} />
+                    <col style={{ width: '17%' }} />
+                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '18%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      {['#','FRO','Today\'s Collection','Monthly Target','Daily Target','Worked Days','Performance'].map((h, ci) => (
+                        <th key={ci} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {highRows.map((p, i) => (
+                      <tr key={p.fro_id} className="performance-row" style={{ minHeight: 54, borderBottom: '1px solid #edf1f5' }}>
+                        <td style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#64748b' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22 }}>
+                            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#17233C', fontSize: 13, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 12 }}>{p.worked_days}/{p.working_days}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <div style={{ fontWeight: 700, color: '#16a34a', fontSize: 12, marginBottom: 6 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
+                          <div style={{ width: '100%', height: 7, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(Number(p.performance_pct || 0), 100)}%`, height: '100%', borderRadius: 'inherit', background: '#16a34a' }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+          </div>
+
+          <div style={{ padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 14px', border: '1px solid #bbf7d0', borderRadius: 10, background: '#f0fdf4' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#16a34a' }}>📈 Total High Performers: {topPerformers.length} FROs</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs have achieved at least 100% of their daily collection target.</div>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#14532D', whiteSpace: 'nowrap' }}>Keep it up! 🎉</span>
+            </div>
           </div>
         </div>
 
-        {/* Right: Low Collection / Weak Performers */}
-        <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-head">
-            <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: '#dc2626' }}>⚠️</span> Low Performance (&lt;100%)
-            </h3>
-            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-<span style={{ fontSize:10, color:'var(--ink-soft)', fontWeight:500 }}>Daily target pace</span>
-              {weakLoading && <span style={{ fontSize:10, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
-                Loading…
-              </span>}
+        {/* ── Low Performance ── */}
+        <div className="performance-card">
+          <div className="performance-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+              <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#FFF1F2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>⚠️</span>
+              <div style={{ minWidth: 0 }}>
+                <h3 className="performance-title" style={{ color: '#991B1B' }}>Low Performance (&lt;100%)</h3>
+                <p style={{ fontSize: 13, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who are below their daily collection target</p>
+              </div>
             </div>
+            {weakLoading
+              ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
+              : <span style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
           </div>
-          <ScoreFormulaLegend />
-          <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
-            {lowPerformers.length > 0 ? (
-              <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{width:24, fontSize:10, padding:'6px 8px', textAlign:'left'}}>#</th>
-                    <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Today&apos;s Collection</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Monthly Target</th>
-<th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
-<th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Worked Days</th>
-                    <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Performance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lowPerformers.slice(0, showAllLowPerformers ? lowPerformers.length : 10).map((p, i) => (
-                    <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{color:'var(--ink-soft)', fontSize:10, padding:'5px 8px'}}>{i + 1}</td>
-                      <td style={{fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.fro_name}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
-<td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.worked_days}/{p.working_days}</td>
-                      <td style={{textAlign:'center', fontWeight:700, color:'#dc2626', fontSize:11, padding:'5px 8px'}}>
-                        {Number(p.performance_pct || 0).toFixed(1)}%
-                        <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)' }}>Low</div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                 {lowPerformers.length > 10 && (
-                  <tfoot>
-                    <tr>
-<td colSpan={7} style={{padding:0}}>
-                        <button onClick={() => setShowAllLowPerformers(!showAllLowPerformers)}
-                          style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
-                           {showAllLowPerformers ? '▲ Show Less' : `View All ${lowPerformers.length} FROs →`}
-                        </button>
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 20px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Per-day target × 100</b>
+            </span>
+            <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
+              <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% Low</span>
+            </span>
+          </div>
+
+          <div style={{ padding: '12px 20px' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search FRO name..."
+              value={lowPerfSearch}
+              onChange={e => setLowPerfSearch(e.target.value)}
+              style={{ width: '100%', height: 40, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div className="performance-table-wrapper" style={{ flex: 1 }}>
+            {weakLoading ? (
+              <div style={{ minHeight: 360, padding: '4px 20px' }}>
+                {[0,1,2,3,4,5].map(i => (
+                  <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                    <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 70, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 55, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                    <div style={{ width: 90, height: 18, background: '#eef2f6', borderRadius: 999 }} />
+                  </div>
+                ))}
+              </div>
+            ) : lowRows.length === 0 ? (
+              <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                  {lowPerformers.length === 0 ? 'All FROs have reached the daily target. 🎉' : 'No FROs match your search.'}
+                </div>
+              </div>
             ) : (
-               <div style={{ padding: 16, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>No FROs below 100%</div>
+              <div style={{ minHeight: 360, maxHeight: 460, overflowY: 'auto' }}>
+                <table className="performance-table">
+                  <colgroup>
+                    <col style={{ width: 42 }} />
+                    <col style={{ width: '24%' }} />
+                    <col style={{ width: '17%' }} />
+                    <col style={{ width: '17%' }} />
+                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '18%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      {['#','FRO','Today\'s Collection','Monthly Target','Daily Target','Worked Days','Performance'].map((h, ci) => (
+                        <th key={ci} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lowRows.map((p, i) => (
+                      <tr key={p.fro_id} className="performance-row" style={{ minHeight: 54, borderBottom: '1px solid #edf1f5' }}>
+                        <td style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#64748b' }}>{i + 1}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#17233C', fontSize: 13, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 12 }}>{p.worked_days}/{p.working_days}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 12, marginBottom: 6 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
+                          <div style={{ width: '100%', height: 7, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(Number(p.performance_pct || 0), 100)}%`, height: '100%', borderRadius: 'inherit', background: '#EF4444' }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+          </div>
+
+          <div style={{ padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 14px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#EF4444' }}>👥 Total Low Performers: {lowPerformers.length} FROs</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs are below 100% of their daily collection target.</div>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them! 💪</span>
+            </div>
           </div>
         </div>
       </div>
