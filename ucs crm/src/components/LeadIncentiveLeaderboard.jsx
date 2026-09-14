@@ -61,7 +61,7 @@ export function useLeadIncentiveLeaderboard() {
     try {
       const date = todayLocal();
       const r = await api(`/incentive/lead/leaderboard?date=${date}`, { _prefix: 'ucs' });
-      if (r && r.has_activity) setData(r);
+      if (r && Array.isArray(r.ranges)) setData(r);
       else setData({ has_activity: false, ranges: [], champions: [] });
     } catch { /* 401 / not launched yet / offline */ }
     finally { setLoading(false); }
@@ -74,6 +74,7 @@ export function useLeadIncentiveLeaderboard() {
   }, [load]);
 
   useRealtime('lead_champion_announcements', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
+  useRealtime('incentive_slabs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
 
   useEffect(() => {
     load();
@@ -176,6 +177,8 @@ export default function LeadIncentiveLeaderboard() {
 
   const isFro = !!user && (user.role === 'fro' || user.role === 'worker');
   const hasActivity = !!data.has_activity;
+  const ranges = data.ranges || [];
+  const competitionLive = ranges.length > 0;
 
   // "NEW" pulse when competition first appears this session; reset dismissal too.
   useEffect(() => {
@@ -191,9 +194,10 @@ export default function LeadIncentiveLeaderboard() {
 
   if (!isFro) return null;
   if (!open && dismissed) return null;
-  if (!open && !hasActivity) return null;
+  // Show whenever a competition is running (admin configured ranges), even if no
+  // FRO has a qualified lead yet — only hide when nothing is live.
+  if (!open && !competitionLive) return null;
 
-  const ranges = data.ranges || [];
   const you = user?.id || null;
 
   return (
@@ -233,7 +237,7 @@ export default function LeadIncentiveLeaderboard() {
                           {leader.name}{leader.won ? ' 🏆' : ''}
                         </span>
                       ) : (
-                        <span style={{ color: 'var(--ink-soft)' }}>—</span>
+                        <span style={{ color: '#c2410c', fontWeight: 700 }}>🏁 no lead</span>
                       )}
                     </div>
                   );
