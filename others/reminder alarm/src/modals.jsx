@@ -324,6 +324,7 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
             )}
 
             {/* Priority */}
+            {!isEdit && (
             <div className="form-row">
               <label>Priority</label>
               <select
@@ -338,6 +339,7 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
                 ))}
               </select>
             </div>
+            )}
 
             {/* Status */}
             <div className="form-row">
@@ -365,7 +367,9 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
               />
             </div>
 
-            {/* Toggles */}
+            {/* Toggles - only in add mode */}
+            {!isEdit && (
+            <>
             <div className="form-row">
               <label>Alarm Enabled</label>
               <div className="row-toggle">
@@ -451,6 +455,8 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
                 placeholder="Additional notes"
               />
             </div>
+            </>
+            )}
           </div>
         </div>
 
