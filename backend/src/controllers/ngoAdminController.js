@@ -1205,7 +1205,6 @@ export const getFroPerformance = async (req, res) => {
       const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
       const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
 const todayCollection = Number(bs.todayCollection[w.id] || 0);
-      const avgRequired = remainingDays > 0 ? (perDayCollection - todayCollection) / remainingDays : 0;
       const performancePct = perDayCollection > 0 ? (todayCollection / perDayCollection) * 100 : 0;
       return {
         fro_id: w.id,
@@ -1223,7 +1222,6 @@ const todayCollection = Number(bs.todayCollection[w.id] || 0);
         worked_days: workedDays,
         remaining_working_days: remainingDays,
         per_day_collection: perDayCollection,
-        avg_required: Math.round(avgRequired),
         remaining_target: remainingTarget,
         average_collection: averageCollection,
         performance_pct: Math.round(performancePct * 10) / 10,
@@ -4741,8 +4739,10 @@ export const getTLDashboard = async (req, res) => {
     // NOT present, so it never counts as calling/idle/online (it counts offline).
     const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
 
-    // Login presence: auth_sessions rows recorded on every UCS CRM login, kept
-    // fresh by the FRO-panel heartbeat, and closed on explicit logout.
+    // Login presence: auth_sessions rows recorded on every UCS CRM login and
+    // closed on explicit logout. Online = an open session (logged_out_at IS
+    // NULL) — no 2-minute liveness window, so panel/FRO activity keeps working
+    // without losing status mid-day.
     const sessionByUser = {};
     let useLoginPresence = true;
     try {
@@ -4754,7 +4754,7 @@ export const getTLDashboard = async (req, res) => {
     const isPresent = (wid) => {
       if (!useLoginPresence) return true;
       const s = sessionByUser[String(wid)];
-      return !!s && !s.logged_out_at && s.last_active_at && (now - new Date(s.last_active_at)) <= 2 * 60 * 1000;
+      return !!s && !s.logged_out_at;
     };
 
     // Logout counts: today (IST) and all-time, from explicit logout events.
