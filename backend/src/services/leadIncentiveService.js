@@ -1,5 +1,5 @@
 import db, { sql } from '../config/db.js';
-import { getActiveSlabs, getAllSlabAssignments } from '../models/incentiveSlabModel.js';
+import { getActiveSlabs, getAllSlabAssignments, getStoppedSlabIds } from '../models/incentiveSlabModel.js';
 import { getSettings } from '../models/incentiveSettingsModel.js';
 import {
   getAnnouncementByDateAndSlab,
@@ -343,8 +343,21 @@ export const getFroRanks = async (date) => {
   const summary = await getDailySummary(date);
   const fros = summary.fros || [];
   const champions = summary.champions || [];
-  const slabs = summary.slabs || [];
+  let slabs = summary.slabs || [];
   const settings = summary.settings || {};
+
+  // Ranges whose live competition was stopped by an admin for this date are
+  // hidden from the FRO-facing leaderboard (corner card + big popup). Standings
+  // stay computed for the admin summary/history, only the live view is cleared.
+  const stopped = await getStoppedSlabIds();
+  const stoppedForDate = new Set(
+    (stopped || [])
+      .filter(s => String(s.stopped_date).slice(0, 10) === String(date).slice(0, 10))
+      .map(s => s.id),
+  );
+  if (stoppedForDate.size > 0) {
+    slabs = slabs.filter(s => !stoppedForDate.has(s.id));
+  }
 
   const ids = [...new Set(fros.map(f => f.fro_id))];
   const photoMap = {};
@@ -389,10 +402,124 @@ export const getFroRanks = async (date) => {
     });
   }
 
-  const has_activity = champions.length > 0 || fros.some(f => (f.qualified_leads || 0) > 0);
-  const championsWithPhoto = champions.map(c => ({ ...c, photo_url: photoMap[c.fro_id] || null }));
+  const visibleChampions = champions.filter(c => !stoppedForDate.has(c.slab_id));
+  const has_activity = visibleChampions.length > 0
+    || fros.some(f => (f.qualified_leads || 0) > 0 && f.slab && !stoppedForDate.has(f.slab.id));
+  const championsWithPhoto = visibleChampions.map(c => ({ ...c, photo_url: photoMap[c.fro_id] || null }));
 
   return { date, has_activity, ranges, champions: championsWithPhoto };
+};
+
+// Admin stops a range's live competition for a date: removes the range from the
+// FRO-facing leaderboard for that date, deletes any today announcements for it,
+// and clears the rule/winner popups (notification_log) sent to every panel so the
+// competition is truly gone from all sides. The slab itself stays configured.
+export const stopSlabCompetition = async ({ slabId, date, userId }) => {
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+
+  // 1) Remove today's announcement rows for this range (champion banner/history).
+  const { data: removed, error: delErr } = await db
+    .from('lead_champion_announcements')
+    .delete()
+    .eq('announcement_date', targetDate)
+    .eq('slab_id', slabId)
+    .select('id');
+  if (delErr) throw delErr;
+
+  // 2) Drop the rule-update popups (single-range + all-ranges) sent to FROs.
+  try {
+    await db.from('notification_log').delete()
+      .eq('type', 'lead_rule_update')
+      .or(`reference_id.eq.${slabId},reference_id.eq.all-ranges`);
+  } catch (e) { console.error('[lead rules stop] clear popups:', e?.message); }
+
+  // 3) Drop champion notification rows for the removed announcements.
+  const removedIds = (removed || []).map(r => String(r.id));
+  if (removedIds.length > 0) {
+    try {
+      await db.from('notification_log').delete()
+        .eq('type', 'lead_champion')
+        .in('reference_id', removedIds);
+    } catch (e) { console.error('[lead rules stop] clear banners:', e?.message); }
+  }
+
+  // 4) Mark the range stopped for this date so the FRO live view hides it.
+  const { data: slab, error: updErr } = await db
+    .from('incentive_slabs')
+    .update({ stopped_date: targetDate, updated_at: new Date().toISOString() })
+    .eq('id', slabId)
+    .select()
+    .single();
+  if (updErr) throw updErr;
+
+  return {
+    ok: true,
+    slab_id: slabId,
+    stopped_date: targetDate,
+    removed_announcements: removedIds.length,
+    stoppedBy: userId || null,
+    slab,
+  };
+};
+
+// Admin stops ALL live range competitions for a date. Same behaviour as
+// stopSlabCompetition but applied to every active range at once.
+export const stopAllSlabsCompetition = async ({ date, userId }) => {
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+
+  const { data: slabs } = await db
+    .from('incentive_slabs')
+    .select('id')
+    .eq('is_active', true);
+  const activeIds = (slabs || []).map(s => s.id);
+
+  // 1) Remove every today announcement row.
+  const { data: removed, error: delErr } = await db
+    .from('lead_champion_announcements')
+    .delete()
+    .eq('announcement_date', targetDate)
+    .select('id');
+  if (delErr) throw delErr;
+
+  // 2) Drop all rule-update popups (all-ranges + every single-range reference).
+  try {
+    const popupIds = [...activeIds.map(id => String(id)), 'all-ranges'];
+    await db.from('notification_log').delete()
+      .eq('type', 'lead_rule_update')
+      .in('reference_id', popupIds);
+  } catch (e) { console.error('[lead rules stop all] clear popups:', e?.message); }
+
+  // 3) Drop champion notification rows for the removed announcements.
+  const removedIds = (removed || []).map(r => String(r.id));
+  if (removedIds.length > 0) {
+    try {
+      await db.from('notification_log').delete()
+        .eq('type', 'lead_champion')
+        .in('reference_id', removedIds);
+    } catch (e) { console.error('[lead rules stop all] clear banners:', e?.message); }
+  }
+
+  // 4) Mark every active range stopped for this date.
+  let updatedRecs = [];
+  if (activeIds.length > 0) {
+    const { data: updated, error: updErr } = await db
+      .from('incentive_slabs')
+      .update({ stopped_date: targetDate, updated_at: new Date().toISOString() })
+      .eq('is_active', true)
+      .in('id', activeIds)
+      .select();
+    if (updErr) throw updErr;
+    updatedRecs = updated || [];
+  }
+
+  return {
+    ok: true,
+    stopped_date: targetDate,
+    stopped_slabs: activeIds.length,
+    removed_announcements: removedIds.length,
+    stoppedBy: userId || null,
+    slabs: updatedRecs,
+  };
 };
 
 // Admin announces the range winners for a date. Locks each range's first-hitter
