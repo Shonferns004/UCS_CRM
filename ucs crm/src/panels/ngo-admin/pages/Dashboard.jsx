@@ -38,15 +38,6 @@ const CONNECTED_STATUS_COLUMNS = [
   { key: 'dnd', label: 'DND', color: '#16a34a' },
 ];
 
-const STATUS_SHORT = {
-  scheduled: 'FU',
-  callback: 'C/B',
-  office_program_visit: 'Off/Prog Visit',
-  promise_pay_wa_email: 'P-Pay/WA/Email',
-  not_interested_np: 'NI/Disc/NP',
-  dnd: 'DND',
-};
-
 // FRO hourly call target: 200 connected calls per FRO per day over a 12-hr
 // (09:00–21:00) working window => ~17 connected calls/hr.
 const HOURS_IN_WORKDAY = 12;
@@ -97,7 +88,9 @@ const PER_PAGE = 50;
 const toIstDate = (d = new Date()) =>
   new Date(new Date(d).getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
 
-const PERIOD_LABELS = { today: 'Today', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
+const PERIOD_LABELS = { today: 'Today', yesterday: 'Yesterday', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
+
+const TL_PER_PAGE = 10;
 
 const ScoreFormulaLegend = () => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: '1px solid var(--line)', fontSize: 9, color: 'var(--ink-soft)' }}>
@@ -1034,7 +1027,8 @@ export default function Dashboard() {
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
   const [showAllTopPerformers, setShowAllTopPerformers] = useState(false);
   const [froSearch, setFroSearch] = useState('');
-  const [perfTab, setPerfTab] = useState('online');
+  const [perfPage, setPerfPage] = useState(1);
+  const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
   const [selectedFro, setSelectedFro] = useState(null);
   const [hourlyExportFrom, setHourlyExportFrom] = useState(() => toIstDate());
   const [hourlyExportTo, setHourlyExportTo] = useState(() => toIstDate());
@@ -1054,6 +1048,7 @@ export default function Dashboard() {
   const activeRange = useMemo(() => {
     const now = new Date();
     if (dashPeriod === 'today') return { from: toIstDate(), to: toIstDate() };
+    if (dashPeriod === 'yesterday') { const d = toIstDate(new Date(Date.now() - 86400000)); return { from: d, to: d }; }
     if (dashPeriod === 'weekly') {
       const s = new Date(now); s.setDate(now.getDate() - now.getDay());
       return { from: toIstDate(s), to: toIstDate(now) };
@@ -1288,6 +1283,8 @@ export default function Dashboard() {
   ), [tlData, froSearch]);
   const [followups, setFollowups] = useState([]);
   const [followupTab, setFollowupTab] = useState('overdue');
+
+  useEffect(() => { setPerfPage(1); }, [froSearch, dashPeriod, customFrom, customTo, selectedNgoId, selectedFroId, perfSort]);
   const [followupLoading, setFollowupLoading] = useState(false);
   const [showFollowups, setShowFollowups] = useState(true);
   const [followupMode, setFollowupMode] = useState('bucket');
@@ -1304,6 +1301,7 @@ export default function Dashboard() {
       if (selectedNgoId !== 'all') params.push(`ngo_id=${selectedNgoId}`);
       let from, to;
       if (dashPeriod === 'today') { from = toIstDate(); to = from; }
+      else if (dashPeriod === 'yesterday') { from = toIstDate(new Date(Date.now() - 86400000)); to = from; }
       else if (dashPeriod === 'weekly') {
         const now = new Date();
         const start = new Date(now); start.setDate(now.getDate() - now.getDay());
@@ -1819,7 +1817,7 @@ export default function Dashboard() {
     <div>
       <div className="filter-bar">
         <div style={{ display: 'inline-flex', gap: 4, padding: 4, background: '#eef1f6', borderRadius: 12 }}>
-          {[['today', 'Today'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['custom', 'Custom']].map(([val, label]) => (
+          {[['today', 'Today'], ['yesterday', 'Yesterday'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['custom', 'Custom']].map(([val, label]) => (
             <button key={val} onClick={() => setDashPeriod(val)} style={{ fontSize: 12.5, fontWeight: 700, padding: '7px 15px', borderRadius: 9, border: 'none', cursor: 'pointer', background: dashPeriod === val ? '#111827' : 'transparent', color: dashPeriod === val ? '#fff' : '#475569', transition: 'background .12s, color .12s' }}>{label}</button>
           ))}
         </div>
@@ -2567,189 +2565,269 @@ export default function Dashboard() {
 
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
-      {/* Section 6: Telecaller Performance Table */}
+      {/* Section 6: Telecaller Performance */}
       {perfRows.length > 0 && (() => {
-        const sc = (p) => FRO_STATUS_META[p.status] || FRO_STATUS_META.offline;
         const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], offline: ['offline'] };
         const bucketRows = Object.fromEntries(Object.keys(statusBuckets).map(k => [
           k,
           perfRows.filter(p => (statusBuckets[k] || []).includes(p.status || 'offline')),
         ]));
         const ncOf = (p) => p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
-        const currentRows = [...(bucketRows[perfTab] || [])].sort((a, b) =>
-          ((b.connected_range || 0) - (a.connected_range || 0)) ||
-          (ncOf(b) - ncOf(a)) ||
-          ((b.receivedAmount_range || 0) - (a.receivedAmount_range || 0))
-        );
+        const statusesOf = (p) => p.connectedStatuses_range || {};
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
-        const nameCell = (p) => {
-          const m = sc(p);
-          const live = p.status === 'on_call' || p.status === 'online';
+
+        const METRICS = [
+          { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
+          { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', filterType: 'connected' },
+          { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', filterType: 'connected', status: 'scheduled' },
+          { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, filterType: 'connected', status: 'callback' },
+          { key: 'off', param: 'OFF/PROG VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, filterType: 'connected', status: 'office_program_visit' },
+          { key: 'ppay', param: 'P-PAY/WA/EMAIL', full: 'P-Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, filterType: 'connected', status: 'promise_pay_wa_email' },
+          { key: 'ni', param: 'NI/DISC/NP', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, filterType: 'connected', status: 'not_interested_np' },
+          { key: 'dnd', param: 'DND', full: 'Do Not Disturb', val: (p) => statusesOf(p).dnd || 0, pill: false, filterType: 'connected', status: 'dnd' },
+          { key: 'recvd', param: 'RECVD AMT', full: 'Received Amount', val: (p) => p.receivedAmount_range || 0, pill: true, color: '#166534', bg: '#f0fdf4', display: (v) => fmt(v) },
+          { key: 'lt', param: 'LOGOUTS TODAY', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff' },
+          { key: 'ltot', param: 'LOGOUTS TOTAL', full: 'Logouts Total', val: (p) => p.logout_total || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff' },
+        ];
+
+        const COLUMNS = [
+          { key: 'name', label: 'FRO Name', val: (p) => (p.fro_name || '').toLowerCase() },
+          ...METRICS.map(m => ({ key: m.key, label: m.full, val: m.val })),
+        ];
+        const ranked = (p) => perfRows.indexOf(p);
+        const sortedRows = [...perfRows].sort((a, b) => {
+          if (!perfSort.key) return 0;
+          const col = COLUMNS.find(c => c.key === perfSort.key);
+          if (!col) return 0;
+          const va = col.val(a); const vb = col.val(b);
+          if (va < vb) return -1 * perfSort.dir;
+          if (va > vb) return 1 * perfSort.dir;
+          return ranked(a) - ranked(b);
+        });
+        const totalPages = Math.max(1, Math.ceil(sortedRows.length / TL_PER_PAGE));
+        const pg = Math.min(perfPage, totalPages);
+        const pageRows = sortedRows.slice((pg - 1) * TL_PER_PAGE, pg * TL_PER_PAGE);
+        const setSort = (key) => setPerfSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: 1 });
+        const sortIcon = (key) => (
+          <span style={{ color: perfSort.key === key ? '#2F80D9' : '#cbd5e1', fontSize: 9 }}>
+            {perfSort.key === key ? (perfSort.dir === 1 ? '▲' : '▼') : '↕'}
+          </span>
+        );
+
+        const subHeader = (m) => (
+          <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
+            style={{ background: '#fff', padding: '10px 8px', textAlign: 'center', cursor: 'pointer', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{m.param}{sortIcon(m.key)}</span>
+          </th>
+        );
+        const stickyTh = (children, left) => (
+          <th rowSpan={2} style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '12px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6' }}>{children}</th>
+        );
+        const groupTh = (label, color, bg, span) => (
+          <th colSpan={span} style={{ background: bg, color, padding: '9px 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>{label}</th>
+        );
+
+        const metricCell = (p, m) => {
+          const v = m.val(p);
+          const click = m.filterType ? (e) => { e.stopPropagation(); if (v > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: m.filterType, status: m.status }); } : null;
+          const show = v > 0;
+          if (m.pill && show) {
+            return (
+              <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center' }}>
+                <span
+                  onClick={click}
+                  title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, padding: '2px 9px', borderRadius: 7, background: m.bg, color: m.color, fontSize: 13, fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  {m.display ? m.display(v) : v}
+                </span>
+              </td>
+            );
+          }
           return (
-            <td style={{ padding: '10px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span title={m.label} style={{ width: 8, height: 8, borderRadius: '50%', background: m.dot, display: 'inline-block', animation: live ? 'pulseDot 2s infinite' : 'none' }} />
-                <span style={{ color: m.name || undefined }}>{p.fro_name}</span>
-                {p.status === 'idle' && p.idleMinutes > 0 && (
-                  <span
-                    title={`No call activity for ${p.idleMinutes} min — click Notify to alert`}
-                    onClick={(e) => { e.stopPropagation(); handleNotifyFro(p.fro_id, p.fro_name); }}
-                    style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a', cursor: 'pointer', animation: 'countPop .3s ease-out', fontFamily: 'inherit' }}
-                  >
-                    Idle {p.idleMinutes}m{notifyingFroId === p.fro_id ? ' •…' : ''}
-                  </span>
-                )}
-              </span>
-              {p.work_as_operator_name && (
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>
-                  ⚡ {p.work_as_operator_name} work as {p.fro_name}
-                </div>
-              )}
+            <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center' }}>
+              {show ? <span onClick={click} style={{ fontSize: 13, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
             </td>
           );
         };
-        const cntCell = (key, count, color, onClick) => (
-          <td key={key} style={{ padding: '10px', textAlign: 'right', color: count > 0 ? color : 'var(--ink-soft)', fontWeight: 600, cursor: count > 0 ? 'pointer' : 'default', fontSize: 12 }}
-            onClick={onClick}>
-            <span style={{ textDecoration: count > 0 ? 'underline' : 'none', textUnderlineOffset: 2 }}>{count > 0 ? count : '—'}</span>
-          </td>
-        );
-        const tH = (children, extra, cls) => (
-          <th className={cls} style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)', ...extra }}>{children}</th>
-        );
-        const thSub = (label, sub, color, cls) => (
-          <th className={cls} style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', color: color || '#3f4a38', fontWeight: 700, borderBottom: '2px solid var(--line)' }}>
-            <span style={{ display: 'block', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3 }}>{label}</span>
-            {sub && <span style={{ display: 'block', fontSize: 8, color: 'var(--ink-soft)', fontWeight: 500 }}>{sub}</span>}
-          </th>
-        );
-        const tabs = [
-          { key: 'online', label: 'Online', count: bucketRows.online.length, color: '#16a34a' },
-          { key: 'idle', label: 'Idle', count: bucketRows.idle.length, color: '#d97706' },
-          { key: 'offline', label: 'Offline', count: bucketRows.offline.length, color: '#dc2626' },
+
+        const summaryCards = [
+          { key: 'online', label: 'Online', sub: 'Active on calls/system', icon: '📞', count: bucketRows.online.length, color: '#16a34a', bg: '#f0fdf4' },
+          { key: 'idle', label: 'Idle', sub: 'Logged in but inactive', icon: '◷', count: bucketRows.idle.length, color: '#2F80D9', bg: '#eff6ff' },
+          { key: 'offline', label: 'Offline', sub: 'Not logged in', icon: '⦸', count: bucketRows.offline.length, color: '#ef4444', bg: '#fef2f2' },
         ];
+
+        const periodOptions = [
+          { value: 'today', label: 'Today' },
+          { value: 'yesterday', label: 'Yesterday' },
+          { value: 'weekly', label: 'This Week' },
+          { value: 'monthly', label: 'This Month' },
+          { value: 'custom', label: 'Custom Date' },
+        ];
+
+        const start = sortedRows.length === 0 ? 0 : (pg - 1) * TL_PER_PAGE + 1;
+        const end = Math.min(pg * TL_PER_PAGE, sortedRows.length);
+        const pageItems = [];
+        for (let i = 1; i <= totalPages; i++) {
+          if (totalPages <= 7 || i === 1 || i === totalPages || Math.abs(i - pg) <= 1) {
+            if (pageItems.length && pageItems[pageItems.length - 1] !== i - 1) pageItems.push('gap');
+            pageItems.push(i);
+          }
+        }
+
         return (
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-              <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                Telecaller Performance
-                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}> — {perfRows.length} FROs</span>
-              </h3>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16 }}>
+
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #eef2f6', display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 24, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{perfRows.length} FROs</span>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 400, color: '#64748B', marginTop: 4 }}>Live performance overview of all telecallers</div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
-                  placeholder="Search FRO name..."
+                  placeholder="🔍 Search FRO name..."
                   value={froSearch}
                   onChange={e => setFroSearch(e.target.value)}
-                  style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', width: 150, background: 'var(--bg)', color: 'var(--ink)' }}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 180, background: '#f7fafc', color: '#17233C' }}
                 />
+                <select
+                  value={dashPeriod}
+                  onChange={e => setDashPeriod(e.target.value)}
+                  title="Date filter"
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C', cursor: 'pointer' }}
+                >
+                  {periodOptions.map(o => <option key={o.value} value={o.value}>{o.value === 'custom' ? `📅 ${o.label}` : `📅 ${o.label} ▾`}</option>)}
+                </select>
                 <button
                   onClick={handleTelecallerExport}
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: 'none', background: 'var(--sage)', color: '#fff', cursor: 'pointer' }}
-                  title="Export Day-wise summary and FRO hourly sheets"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: 'none', background: '#2F80D9', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  title="Export Telecaller Performance report (XLSX)"
                 >
-                  <Download width="12" height="12" />
+                  <Download width="14" height="14" />
                   Export Full Report (XLSX)
                 </button>
               </div>
             </div>
 
-            {/* Tab bar */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '2px 16px 10px' }}>
-              {tabs.map(t => {
-                const active = perfTab === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    onClick={() => setPerfTab(t.key)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999,
-                      border: active ? `1.5px solid ${t.color}` : '1px solid var(--line)',
-                      background: active ? `${t.color}14` : 'var(--bg, #fff)',
-                      color: active ? t.color : 'var(--ink-soft)',
-                      fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      transition: 'all .18s ease',
-                      boxShadow: active ? `0 2px 8px ${t.color}2e` : 'none',
-                    }}
-                  >
-                    <span>●</span>
-                    <span>{t.label}</span>
-                    <span style={{
-                      minWidth: 20, height: 18, padding: '0 7px', borderRadius: 999, fontSize: 10, fontWeight: 700,
-                      background: active ? t.color : 'var(--line)', color: '#fff',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'background .18s ease', animation: 'countPop .3s ease-out',
-                    }}>
-                      <AnimatedNumber value={t.count} />
-                    </span>
-                  </button>
-                );
-              })}
+            {/* Status summary cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, padding: '18px 24px 4px' }}>
+              {summaryCards.map(c => (
+                <div key={c.key} style={{ borderRadius: 12, border: '1px solid #eef2f6', background: '#fff', padding: '16px 18px', boxShadow: '0 1px 4px rgba(15,23,42,.03)', display: 'flex', alignItems: 'center', gap: 14, justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{c.icon}</div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .4, color: '#64748B' }}>{c.label}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{c.sub}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: c.color, lineHeight: 1 }}>{c.count}</div>
+                </div>
+              ))}
             </div>
 
-            {/* View */}
-            <div key={perfTab} className="perf-view">
-              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 440, overflowY: 'auto' }}>
+            {/* Performance table */}
+            <div className="perf-scroll" style={{ margin: '16px 24px 0', overflow: 'auto', maxHeight: 540, borderRadius: 12, border: '1px solid #eef2f6' }}>
+              {pageRows.length === 0 ? (
+                <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
+              ) : (
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1120, width: '100%' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
+                    <tr>
+                      {stickyTh('#', 0)}
+                      {stickyTh('FRO Name', 46)}
+                      {groupTh('CALL ACTIVITY', '#be123c', '#FFF1F3', 4)}
+                      {groupTh('FIELD / FOLLOW-UP', '#1d4ed8', '#EFF6FF', 2)}
+                      {groupTh('OTHER', '#047857', '#ECFDF5', 2)}
+                      {groupTh('RECEIPTS', '#b45309', '#FFF8E7', 1)}
+                      {groupTh('LOGOUTS', '#6d28d9', '#F4EEFF', 2)}
+                    </tr>
+                    <tr>
+                      {METRICS.slice(0, 4).map(subHeader)}
+                      {METRICS.slice(4, 6).map(subHeader)}
+                      {METRICS.slice(6, 8).map(subHeader)}
+                      {METRICS.slice(8, 9).map(subHeader)}
+                      {METRICS.slice(9, 11).map(subHeader)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageRows.map((p, i) => {
+                      const st = FRO_STATUS_META[p.status] || FRO_STATUS_META.offline;
+                      const live = p.status === 'online' || p.status === 'on_call';
+                      return (
+                        <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>{start + i}</td>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 46, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                              {live && (
+                                <span className="pf-live-dot" title="Online" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
+                              )}
+                              <span style={{ fontWeight: live ? 700 : 600, color: live ? '#15803d' : '#17233C' }}>{p.fro_name}</span>
+                            </div>
+                            {!live && (
+                              <div style={{ fontSize: 11, fontWeight: 500, color: st.name || '#94a3b8', marginTop: 2 }}>{st.label}</div>
+                            )}
+                            {p.work_as_operator_name && (
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>⚡ {p.work_as_operator_name} work as {p.fro_name}</div>
+                            )}
+                            {p.status === 'idle' && p.idleMinutes > 0 && (
+                              <span
+                                title={`No call activity for ${p.idleMinutes} min — click Notify to alert`}
+                                onClick={(e) => { e.stopPropagation(); handleNotifyFro(p.fro_id, p.fro_name); }}
+                                style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a', cursor: 'pointer', marginTop: 4, display: 'inline-block', fontFamily: 'inherit' }}
+                              >
+                                Idle {p.idleMinutes}m{notifyingFroId === p.fro_id ? ' •…' : ''}
+                              </span>
+                            )}
+                          </td>
+                          {METRICS.map(mx => metricCell(p, mx))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
 
-                {currentRows.length === 0 ? (
-                  <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>
-                    No FROs currently {tabs.find(t => t.key === perfTab)?.label}.
-                  </div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr>
-                        {tH('Name', { textAlign: 'left' })}
-                        {thSub('Non-Conn', PERIOD_LABELS[dashPeriod], '#dc2626')}
-                        {thSub('Conn', PERIOD_LABELS[dashPeriod], '#16a34a')}
-                        {CONNECTED_STATUS_COLUMNS.map(c => thSub(STATUS_SHORT[c.key] || c.label, PERIOD_LABELS[dashPeriod], c.color, 'perf-hide-mobile'))}
-                        {thSub('Recvd Amt', PERIOD_LABELS[dashPeriod], '#3f4a38')}
-                        {thSub('Logouts', 'Today', '#7c3aed')}
-                        {thSub('Logouts', 'Total', '#7c3aed')}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentRows.map((p, i) => {
-                        const total = p.connected_range || 0;
-                        const ncTotal = ncOf(p);
-                        const statuses = p.connectedStatuses_range || {};
-                        return (
-                          <tr key={p.fro_id} className="perf-row-in" style={{ borderBottom: '1px solid var(--line)', animationDelay: `${Math.min(i, 10) * 25}ms` }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                            onMouseLeave={e => e.currentTarget.style.background = ''}>
-                            {nameCell(p)}
-                            {cntCell(`nc-total-${p.fro_id}`, ncTotal, '#dc2626', (e) => { e.stopPropagation(); if (ncTotal > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected' }); })}
-                            {cntCell(`conn-total-${p.fro_id}`, total, '#16a34a', (e) => { e.stopPropagation(); if (total > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'connected' }); })}
-                            {CONNECTED_STATUS_COLUMNS.map(col => {
-                              const c = statuses[col.key] || 0;
-                              return cntCell(col.key, c, col.color, (e) => { e.stopPropagation(); if (c > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'connected', status: col.key }); });
-                            })}
-                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (p.receivedAmount_range || 0) > 0 ? '#166534' : 'var(--ink-soft)' }}>
-                              {fmt(p.receivedAmount_range)}
-                            </td>
-                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600, color: (p.logout_today || 0) > 0 ? '#7c3aed' : 'var(--ink-soft)', fontSize: 12 }}>{p.logout_today || 0}</td>
-                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600, color: (p.logout_total || 0) > 0 ? '#7c3aed' : 'var(--ink-soft)', fontSize: 12 }}>{p.logout_total || 0}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-
+            {/* Pagination */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 24px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 500 }}>Showing {start}–{end} of {sortedRows.length} FROs</div>
+              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                <button
+                  onClick={() => setPerfPage(Math.max(1, pg - 1))}
+                  disabled={pg === 1}
+                  style={{ minWidth: 28, height: 28, borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: pg === 1 ? '#cbd5e1' : '#334155', fontSize: 13, fontWeight: 700, cursor: pg === 1 ? 'default' : 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
+                >‹</button>
+                {pageItems.map((it, idx) => it === 'gap' ? <span key={`g${idx}`} style={{ fontSize: 12, color: '#94a3b8', padding: '0 2px' }}>…</span> : (
+                  <button
+                    key={it}
+                    onClick={() => setPerfPage(it)}
+                    style={{
+                      minWidth: 28, height: 28, borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                      background: it === pg ? '#2F80D9' : '#fff', color: it === pg ? '#fff' : '#334155',
+                    }}
+                  >{it}</button>
+                ))}
+                <button
+                  onClick={() => setPerfPage(Math.min(totalPages, pg + 1))}
+                  disabled={pg === totalPages}
+                  style={{ minWidth: 28, height: 28, borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: pg === totalPages ? '#cbd5e1' : '#334155', fontSize: 13, fontWeight: 700, cursor: pg === totalPages ? 'default' : 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
+                >›</button>
               </div>
             </div>
 
             <style>{`
-              .perf-view { animation: perfFadeSlide .25s ease-out; }
-              .perf-row-in { animation: perfRowIn .3s both; }
-              @keyframes perfFadeSlide { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-              @keyframes perfRowIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
-              @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
-              @keyframes pulseDot { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
-              @media (max-width: 768px) {
-                .perf-hide-mobile { display: none !important; }
+              @keyframes pfPulse {
+                0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
+                70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
+                100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
               }
+              .pf-live-dot { animation: pfPulse 1.8s ease-out infinite; }
+              .perf-table tbody tr:hover td { background: #f8fafc; }
+              .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
             `}</style>
           </div>
         );
