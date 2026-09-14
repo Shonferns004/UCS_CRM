@@ -1836,12 +1836,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
+  gap: 12px;
+  padding: 14px 16px;
   min-width: 0;
 }
 .panel-ngo-admin .performance-title {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1.25;
   color: #17233c;
@@ -1851,14 +1851,13 @@
 .panel-ngo-admin .performance-table-wrapper {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
+  overflow: hidden;
 }
 .panel-ngo-admin .performance-table {
   width: 100%;
-  min-width: 680px;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 11px;
 }
 .panel-ngo-admin .performance-row {
   transition: background-color 150ms ease;
