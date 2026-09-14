@@ -1139,16 +1139,6 @@ export default function Dashboard() {
   const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
   const lowPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct < 100).sort((a, b) => a.performance_pct - b.performance_pct), [weakPerformers]);
 
-  // Independent per-panel search (High / Low)
-  const highRows = useMemo(
-    () => topPerformers.filter(p => (p.fro_name || '').toLowerCase().includes(highPerfSearch.trim().toLowerCase())),
-    [topPerformers, highPerfSearch]
-  );
-  const lowRows = useMemo(
-    () => lowPerformers.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
-    [lowPerformers, lowPerfSearch]
-  );
-
   // NGO filter pills from the admin's accessible NGOs
   const ngoFilterPills = useMemo(() => (accessibleNgos || []).filter(n => n && n.id).map(n => ({
     id: n.id,
@@ -1158,6 +1148,32 @@ export default function Dashboard() {
   })), [accessibleNgos]);
 
   const [tlData, setTlData] = useState(null);
+
+  // Live presence set — offline (absent) FROs are excluded from High/Low panels
+  const presentFroIds = useMemo(() => {
+    if (!tlData?.performance) return null;
+    return new Set(tlData.performance.filter(p => p.status && p.status !== 'offline').map(p => p.fro_id));
+  }, [tlData]);
+
+  // Present-only base lists (search-independent counts for footers / empty states)
+  const topPresent = useMemo(() => {
+    if (!presentFroIds) return topPerformers;
+    return topPerformers.filter(p => presentFroIds.has(p.fro_id));
+  }, [topPerformers, presentFroIds]);
+  const lowPresent = useMemo(() => {
+    if (!presentFroIds) return lowPerformers;
+    return lowPerformers.filter(p => presentFroIds.has(p.fro_id));
+  }, [lowPerformers, presentFroIds]);
+
+  // Independent per-panel search (High / Low)
+  const highRows = useMemo(
+    () => topPresent.filter(p => (p.fro_name || '').toLowerCase().includes(highPerfSearch.trim().toLowerCase())),
+    [topPresent, highPerfSearch]
+  );
+  const lowRows = useMemo(
+    () => lowPresent.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
+    [lowPresent, lowPerfSearch]
+  );
 
   // Format a minute count as "3 min" / "1 hr 10 min" / "2 hr"
   const formatIdleDuration = (mins) => {
@@ -2136,19 +2152,19 @@ export default function Dashboard() {
         <div className="performance-card">
           <div className="performance-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-              <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>🏆</span>
+              <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🏆</span>
               <div style={{ minWidth: 0 }}>
                 <h3 className="performance-title" style={{ color: '#14532D' }}>High Performance (&ge;100%)</h3>
-                <p style={{ fontSize: 13, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who have achieved their daily collection target</p>
+                <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who have achieved their daily collection target</p>
               </div>
             </div>
             {weakLoading
               ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
-              : <span style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
+              : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 20px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Per-day target × 100</b>
             </span>
             <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2157,21 +2173,21 @@ export default function Dashboard() {
             </span>
           </div>
 
-          <div style={{ padding: '12px 20px' }}>
+          <div style={{ padding: '10px 16px' }}>
             <input
               type="text"
               placeholder="🔍 Search FRO name..."
               value={highPerfSearch}
               onChange={e => setHighPerfSearch(e.target.value)}
-              style={{ width: '100%', height: 40, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+              style={{ width: '100%', height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
             />
           </div>
 
           <div className="performance-table-wrapper" style={{ flex: 1 }}>
             {weakLoading ? (
-              <div style={{ minHeight: 360, padding: '4px 20px' }}>
+              <div style={{ minHeight: 320, padding: '4px 16px' }}>
                 {[0,1,2,3,4,5].map(i => (
-                  <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
                     <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
                     <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
                     <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
@@ -2183,46 +2199,46 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : highRows.length === 0 ? (
-              <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+              <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                 <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                  {topPerformers.length === 0 ? 'No FROs are currently above the daily target.' : 'No FROs match your search.'}
+                  {topPresent.length === 0 ? 'No FROs are currently above the daily target.' : 'No FROs match your search.'}
                 </div>
               </div>
             ) : (
-              <div style={{ minHeight: 360, maxHeight: 460, overflowY: 'auto' }}>
+              <div style={{ minHeight: 320, maxHeight: 420, overflowY: 'auto' }}>
                 <table className="performance-table">
                   <colgroup>
-                    <col style={{ width: 42 }} />
-                    <col style={{ width: '24%' }} />
-                    <col style={{ width: '17%' }} />
-                    <col style={{ width: '17%' }} />
+                    <col style={{ width: 30 }} />
+                    <col style={{ width: '23%' }} />
+                    <col style={{ width: '15%' }} />
                     <col style={{ width: '15%' }} />
                     <col style={{ width: '13%' }} />
-                    <col style={{ width: '18%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '16%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      {['#','FRO','Today\'s Collection','Monthly Target','Daily Target','Worked Days','Performance'].map((h, ci) => (
-                        <th key={ci} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right' }}>{h}</th>
+                      {['#','FRO','Today\'s','Monthly Tgt','Daily Tgt','Worked','Perf'].map((h, ci) => (
+                        <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {highRows.map((p, i) => (
-                      <tr key={p.fro_id} className="performance-row" style={{ minHeight: 54, borderBottom: '1px solid #edf1f5' }}>
-                        <td style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#64748b' }}>
+                      <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
+                        <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22 }}>
                             {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                           </span>
                         </td>
-                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#17233C', fontSize: 13, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 12 }}>{p.worked_days}/{p.working_days}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          <div style={{ fontWeight: 700, color: '#16a34a', fontSize: 12, marginBottom: 6 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
-                          <div style={{ width: '100%', height: 7, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                        <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                          <div style={{ fontWeight: 700, color: '#16a34a', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
+                          <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
                             <div style={{ width: `${Math.min(Number(p.performance_pct || 0), 100)}%`, height: '100%', borderRadius: 'inherit', background: '#16a34a' }} />
                           </div>
                         </td>
@@ -2234,13 +2250,13 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div style={{ padding: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 14px', border: '1px solid #bbf7d0', borderRadius: 10, background: '#f0fdf4' }}>
+          <div style={{ padding: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #bbf7d0', borderRadius: 10, background: '#f0fdf4' }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#16a34a' }}>📈 Total High Performers: {topPerformers.length} FROs</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs have achieved at least 100% of their daily collection target.</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>📈 Total High Performers: {topPresent.length} FROs</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs have achieved at least 100% of their daily collection target.</div>
               </div>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#14532D', whiteSpace: 'nowrap' }}>Keep it up! 🎉</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#14532D', whiteSpace: 'nowrap' }}>Keep it up! 🎉</span>
             </div>
           </div>
         </div>
@@ -2249,19 +2265,19 @@ export default function Dashboard() {
         <div className="performance-card">
           <div className="performance-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-              <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#FFF1F2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>⚠️</span>
+              <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#FFF1F2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>⚠️</span>
               <div style={{ minWidth: 0 }}>
                 <h3 className="performance-title" style={{ color: '#991B1B' }}>Low Performance (&lt;100%)</h3>
-                <p style={{ fontSize: 13, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who are below their daily collection target</p>
+                <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who are below their daily collection target</p>
               </div>
             </div>
             {weakLoading
               ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
-              : <span style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
+              : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 20px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Per-day target × 100</b>
             </span>
             <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2270,21 +2286,21 @@ export default function Dashboard() {
             </span>
           </div>
 
-          <div style={{ padding: '12px 20px' }}>
+          <div style={{ padding: '10px 16px' }}>
             <input
               type="text"
               placeholder="🔍 Search FRO name..."
               value={lowPerfSearch}
               onChange={e => setLowPerfSearch(e.target.value)}
-              style={{ width: '100%', height: 40, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 12px', fontSize: 13, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+              style={{ width: '100%', height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
             />
           </div>
 
           <div className="performance-table-wrapper" style={{ flex: 1 }}>
             {weakLoading ? (
-              <div style={{ minHeight: 360, padding: '4px 20px' }}>
+              <div style={{ minHeight: 320, padding: '4px 16px' }}>
                 {[0,1,2,3,4,5].map(i => (
-                  <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
                     <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
                     <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
                     <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
@@ -2296,42 +2312,42 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : lowRows.length === 0 ? (
-              <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+              <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                 <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                  {lowPerformers.length === 0 ? 'All FROs have reached the daily target. 🎉' : 'No FROs match your search.'}
+                  {lowPresent.length === 0 ? 'All FROs have reached the daily target. 🎉' : 'No FROs match your search.'}
                 </div>
               </div>
             ) : (
-              <div style={{ minHeight: 360, maxHeight: 460, overflowY: 'auto' }}>
+              <div style={{ minHeight: 320, maxHeight: 420, overflowY: 'auto' }}>
                 <table className="performance-table">
                   <colgroup>
-                    <col style={{ width: 42 }} />
-                    <col style={{ width: '24%' }} />
-                    <col style={{ width: '17%' }} />
-                    <col style={{ width: '17%' }} />
+                    <col style={{ width: 30 }} />
+                    <col style={{ width: '23%' }} />
+                    <col style={{ width: '15%' }} />
                     <col style={{ width: '15%' }} />
                     <col style={{ width: '13%' }} />
-                    <col style={{ width: '18%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '16%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      {['#','FRO','Today\'s Collection','Monthly Target','Daily Target','Worked Days','Performance'].map((h, ci) => (
-                        <th key={ci} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right' }}>{h}</th>
+                      {['#','FRO','Today\'s','Monthly Tgt','Daily Tgt','Worked','Perf'].map((h, ci) => (
+                        <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {lowRows.map((p, i) => (
-                      <tr key={p.fro_id} className="performance-row" style={{ minHeight: 54, borderBottom: '1px solid #edf1f5' }}>
-                        <td style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#64748b' }}>{i + 1}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#17233C', fontSize: 13, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 12 }}>{p.worked_days}/{p.working_days}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 12, marginBottom: 6 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
-                          <div style={{ width: '100%', height: 7, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                      <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
+                        <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b' }}>{i + 1}</td>
+                        <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                          <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
+                          <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
                             <div style={{ width: `${Math.min(Number(p.performance_pct || 0), 100)}%`, height: '100%', borderRadius: 'inherit', background: '#EF4444' }} />
                           </div>
                         </td>
@@ -2343,13 +2359,13 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div style={{ padding: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '12px 14px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
+          <div style={{ padding: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#EF4444' }}>👥 Total Low Performers: {lowPerformers.length} FROs</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs are below 100% of their daily collection target.</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>👥 Total Low Performers: {lowPresent.length} FROs</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs are below 100% of their daily collection target.</div>
               </div>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them! 💪</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them! 💪</span>
             </div>
           </div>
         </div>
