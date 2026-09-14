@@ -26,6 +26,7 @@ import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive from '../../components/SpecialIncentive'
 import RangeRulePopup from '../../components/RangeRulePopup'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
+import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
@@ -1079,6 +1080,7 @@ useEffect(() => onFroAction((action) => {
       <SpecialIncentive />
       <RangeRulePopup />
       <LeadChampionCelebration />
+      <LeadIncentiveLeaderboard />
       <NoticePopup />
       {froBroadcast && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
