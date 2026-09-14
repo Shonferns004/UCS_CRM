@@ -9,6 +9,52 @@ export const getAllSlabs = async () => {
   return data || [];
 };
 
+// Stop a range's live competition for a specific date (admin action). The slab
+// itself stays active/configurable; only the FRO live view excludes it.
+export const stopSlabForDate = async (id, date) => {
+  const { data, error } = await db
+    .from('incentive_slabs')
+    .update({ stopped_date: date, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+// Clear a stopped marker — used when the competition is restarted for a range.
+export const clearSlabStop = async (id) => {
+  const { data, error } = await db
+    .from('incentive_slabs')
+    .update({ stopped_date: null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+// Clear stopped markers on every slab (apply-all / announce restarts everything).
+export const clearAllSlabStops = async () => {
+  const { data, error } = await db
+    .from('incentive_slabs')
+    .update({ stopped_date: null, updated_at: new Date().toISOString() })
+    .eq('is_active', true)
+    .select();
+  if (error) throw error;
+  return data || [];
+};
+
+// Ids of slabs with a live-stop marker (admin excluded / FRO hidden).
+export const getStoppedSlabIds = async () => {
+  const { data, error } = await db
+    .from('incentive_slabs')
+    .select('id, stopped_date')
+    .not('stopped_date', 'is', null);
+  if (error) throw error;
+  return data || [];
+};
+
 export const getActiveSlabs = async () => {
   const { data, error } = await db
     .from('incentive_slabs')
