@@ -104,7 +104,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
         if (si) meta = { group: si.group || categoryLabel(r.category), sub: '' }
       }
       if (!meta) meta = { group: categoryLabel(r.category) || 'Other', sub: '' }
-      const computed = r.derivedStatus || r.status || 'Upcoming'
+      const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
       return {
         category: r.category || 'OTHER_BILL',
         _group: meta.group,
