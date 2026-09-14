@@ -1055,12 +1055,6 @@ export default function Dashboard() {
     if (activeRange.to) setHourlyExportTo(activeRange.to);
   }, [activeRange]);
 
-  // Collapse expanded performer lists when the global filter or NGO tab changes
-  useEffect(() => {
-    setShowAllTopPerformers(false);
-    setShowAllLowPerformers(false);
-  }, [activeRange, selectedNgoId]);
-
   // Fetch FRO-level hourly performance when date range or NGO changes
   useEffect(() => {
     let cancelled = false;
