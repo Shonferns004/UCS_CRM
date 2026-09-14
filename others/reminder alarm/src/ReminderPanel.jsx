@@ -272,7 +272,7 @@ function PanelInner() {
         </div>
       </div>
 
-      <ReminderFormModal key={formKey} open={formOpen} reminder={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} />
+      <ReminderFormModal key={formKey} open={formOpen} reminder={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} onDelete={(c) => { setFormOpen(false); setEditing(null); setDeleteId(c) }} />
       <HistoryModal reminderId={historyId} reminder={historyReminder} open={!!historyId} onClose={() => { setHistoryId(null); setHistoryReminder(null) }} />
       <DeleteConfirmModal reminder={deleteId} deleting={deleting} onClose={() => { if (!deleting) setDeleteId(null) }} onConfirm={() => deleteId && doDelete(deleteId)} />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); refresh() }} />

@@ -47,6 +47,7 @@ function matchesView(r, viewKey) {
 }
 
 function itemStatus(it) {
+  if (it._dbStatus) return it._dbStatus
   const due = it.due || ''
   if (/paid by tenant/i.test(due) || /paid by tenant/i.test(it.notes || '')) return 'Upcoming'
   const eff = computeEffectiveDueDate(it)
@@ -75,80 +76,57 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       }
       return String(d)
     }
-    const matchedIds = new Set()
-    const matchDb = (it) => {
-      const cat = it.category
-      const title = it.title || ''
-      const ownerKey = it.owner || ''
-      let found = reminders.find(r =>
-        !matchedIds.has(r.id) &&
-        r.category === cat &&
-        String(r.title || '') === title &&
-        String(r.owner || '') === ownerKey
-      )
-      if (found) { matchedIds.add(found.id); return found }
-      if (it._sub) {
-        found = reminders.find(r =>
-          !matchedIds.has(r.id) &&
-          r.category === cat &&
-          String(r.title || '') === it._sub &&
-          String(r.owner || '') === title
-        )
-        if (found) { matchedIds.add(found.id); return found }
-        found = reminders.find(r =>
-          !matchedIds.has(r.id) &&
-          r.category === cat &&
-          String(r.title || '').startsWith(title) &&
-          String(r.title || '').includes(it._sub)
-        )
-        if (found) { matchedIds.add(found.id); return found }
-      }
-      if (it._sub === 'Rent TDS' && cat === 'RENT_TDS') {
-        found = reminders.find(r =>
-          !matchedIds.has(r.id) &&
-          r.category === cat &&
-          String(r.owner || '') === title &&
-          / TDS$/i.test(String(r.title || ''))
-        )
-        if (found) { matchedIds.add(found.id); return found }
-      }
-      return null
-    }
-    const merged = seed.map(it => {
-      const db = matchDb(it)
-      if (!db) return it
-      return {
-        ...it,
-        title: db.title || it.title,
-        owner: db.owner || it.owner,
-        due: fmtDate(db.due_date) || it.due,
-        renewal: fmtDate(db.renewal_date) || it.renewal,
-        notes: db.notes || it.notes,
-        amount: db.amount || it.amount,
-        paidAmount: db.amount ? `₹${db.amount}` : it.paidAmount,
-        display_frequency: db.frequency_type || it.display_frequency,
-      }
+    const seedMeta = new Map()
+    seed.forEach((it, idx) => {
+      const keys = [it.category]
+      if (it.title) keys.push(it.title)
+      if (it.owner) keys.push(it.owner)
+      if (it._sub) keys.push(it._sub)
+      seedMeta.set(idx, { group: it._group, sub: it._sub, category: it.category })
+      keys.forEach(k => {
+        if (!seedMeta.has(k)) seedMeta.set(k, { group: it._group, sub: it._sub, category: it.category, idx })
+      })
     })
-    let seq = merged.length
-    reminders.filter(r => !matchedIds.has(r.id) && !r.completed_at).forEach(r => {
-      merged.push({
+    const activeReminders = reminders.filter(r => !r.is_deleted)
+    const matchedSeedIdx = new Set()
+    const dbItems = activeReminders.map(r => {
+      let meta = null
+      const catItems = seed.filter(s => s.category === r.category)
+      for (let i = 0; i < catItems.length; i++) {
+        const si = catItems[i]
+        const seedIdx = seed.indexOf(si)
+        if (matchedSeedIdx.has(seedIdx)) continue
+        if (si.title && si.title === r.title) { meta = { group: si._group, sub: si._sub }; matchedSeedIdx.add(seedIdx); break }
+        if (si.owner && si.owner === r.owner && si._sub) { meta = { group: si._group, sub: si._sub }; matchedSeedIdx.add(seedIdx); break }
+      }
+      if (!meta) {
+        const si = seedMeta.get(r.category)
+        if (si) meta = { group: si.group || categoryLabel(r.category), sub: '' }
+      }
+      if (!meta) meta = { group: categoryLabel(r.category) || 'Other', sub: '' }
+      const computed = r.derivedStatus || r.status || 'Upcoming'
+      return {
         category: r.category || 'OTHER_BILL',
-        _group: categoryLabel(r.category) || 'Other',
-        _sub: '',
-        _seq: seq++,
+        _group: meta.group,
+        _sub: meta.sub,
+        _dbId: r.id,
+        _dbStatus: computed,
         title: r.title || '',
         owner: r.owner || '',
         due: fmtDate(r.due_date) || '',
+        due_date: r.due_date || null,
         renewal: fmtDate(r.renewal_date) || '',
-        lastPaid: '',
+        renewal_date: r.renewal_date || null,
+        lastPaid: r.paid_at ? fmtDate(r.paid_at) : '',
         paidAmount: r.amount ? `₹${r.amount}` : '',
         frequency: r.frequency_type || '',
         notes: r.notes || '',
         due_date_display: fmtDate(r.due_date) || '',
         display_frequency: r.frequency_type || '',
-      })
+        amount: r.amount,
+      }
     })
-    return merged
+    return dbItems
   }, [reminders])
 
   const [search, setSearch] = useState('')
@@ -243,38 +221,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }
 
   const resolveDbItem = (it) => {
-    const cat = it.category
-    const title = it.title || ''
-    const ownerKey = it.owner || ''
-    let found = reminders.find(r =>
-      r.category === cat &&
-      String(r.title || '') === title &&
-      String(r.owner || '') === ownerKey
-    )
-    if (found) return found
-    if (it._sub) {
-      found = reminders.find(r =>
-        r.category === cat &&
-        String(r.title || '') === it._sub &&
-        String(r.owner || '') === title
-      )
-      if (found) return found
-      found = reminders.find(r =>
-        r.category === cat &&
-        String(r.title || '').startsWith(title) &&
-        String(r.title || '').includes(it._sub)
-      )
+    if (it._dbId) {
+      const found = reminders.find(r => r.id === it._dbId)
       if (found) return found
     }
-    if (it._sub === 'Rent TDS' && cat === 'RENT_TDS') {
-      found = reminders.find(r =>
-        r.category === cat &&
-        String(r.owner || '') === title &&
-        / TDS$/i.test(String(r.title || ''))
-      )
-      if (found) return found
-    }
-    return null
+    return reminders.find(r =>
+      r.category === it.category &&
+      String(r.title || '') === (it.title || '') &&
+      String(r.owner || '') === (it.owner || '')
+    ) || null
   }
 
   const handleAction = (it, kind) => {
