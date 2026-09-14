@@ -162,9 +162,14 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   const filtered = useMemo(() => {
     let list = sourceItems.map(it => ({ ...it, _status: itemStatus(it) }))
 
-    if (activeFilter && !isCategoryKey(activeFilter)) {
-      const viewKey = VIEW_FILTERS[activeFilter]
-      if (viewKey) list = list.filter(it => matchesView(it, activeFilter))
+    if (activeFilter) {
+      if (VIEW_FILTERS[activeFilter]) {
+        list = list.filter(it => matchesView(it, activeFilter))
+      } else if (isCategoryKey(activeFilter)) {
+        list = list.filter(it => it.category === activeFilter)
+      } else {
+        list = list.filter(it => catMatch(it.category, activeFilter))
+      }
     }
 
     if (search.trim()) {
@@ -173,7 +178,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
         it.title.toLowerCase().includes(q) ||
         (it.owner || '').toLowerCase().includes(q) ||
         categoryLabel(it.category).toLowerCase().includes(q) ||
-        it._group.toLowerCase().includes(q) ||
+        (it._group || '').toLowerCase().includes(q) ||
         (it._sub || '').toLowerCase().includes(q) ||
         (it.frequency || '').toLowerCase().includes(q) ||
         (it.due || '').toLowerCase().includes(q) ||
@@ -184,16 +189,9 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       )
     }
 
-    const effectiveCat = activeFilter
-    if (effectiveCat) list = list.filter(it => catMatch(it.category, effectiveCat))
-
     if (ownerFilter) list = list.filter(it => it.owner === ownerFilter)
 
-    const effectiveStatus =
-      activeFilter === 'completed' ? 'Completed'
-        : activeFilter === 'overdue' ? 'Overdue'
-        : statusFilter
-    if (effectiveStatus) list = list.filter(it => it._status === effectiveStatus)
+    if (statusFilter) list = list.filter(it => it._status === statusFilter)
 
     return list
   }, [sourceItems, activeFilter, search, ownerFilter, statusFilter])
@@ -269,14 +267,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     justifyContent: 'center',
   }
 
-  const effectiveCat = isCategoryKey(activeFilter) ? activeFilter : ''
   const hasFilters = search || ownerFilter || statusFilter || activeFilter
+  const isViewFilter = activeFilter && VIEW_FILTERS[activeFilter]
+  const catDropdownVal = activeFilter && !isViewFilter ? activeFilter : ''
 
-  const activeLabel = activeFilter ? (isCategoryKey(activeFilter) ? categoryLabel(activeFilter) : (
+  const activeLabel = activeFilter ? (
     VIEW_FILTERS[activeFilter]
       ? ({ completed: 'Completed', overdue: 'Overdue', dueToday: 'Due Today', dueTomorrow: 'Due Tomorrow', dueThisWeek: 'Due This Week', upcoming: 'Upcoming', renewalsThisMonth: 'Renewals This Month', attention: 'Needs Attention' })[activeFilter]
-      : 'All Reminders'
-  )) : 'All Reminders'
+      : categoryLabel(activeFilter)
+  ) : 'All Reminders'
 
   return (
     <>
@@ -307,7 +306,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <select className="rem-select" value={effectiveCat} onChange={e => handleCategoryChange(e.target.value)}>
+          <select className="rem-select" value={catDropdownVal} onChange={e => handleCategoryChange(e.target.value)}>
             <option value="">All Categories</option>
             {categories.map(c => (
               <option key={c} value={c}>{categoryLabel(c)}</option>
@@ -319,7 +318,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
               <option key={o} value={o}>{o}</option>
             ))}
           </select>
-          <select className="rem-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); if (activeFilter === 'completed' || activeFilter === 'overdue') setActiveFilter('') }}>
+          <select className="rem-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
             <option value="">All Statuses</option>
             {STATUS_OPTIONS.map(s => (
               <option key={s} value={s}>{s}</option>
