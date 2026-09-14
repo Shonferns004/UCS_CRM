@@ -37,12 +37,12 @@ const FIELD_LABELS = {
 
 const fieldLabel = (key) => FIELD_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-const STATUS_OPTIONS = ['Upcoming', 'Completed', 'Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Snoozed'];
+const STATUS_OPTIONS = ['Upcoming', 'Completed', 'Snoozed'];
 
 /* ================================================================== */
 /*  1. ReminderFormModal                                               */
 /* ================================================================== */
-export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
+export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }) {
   const isEdit = reminder != null;
   const originalRef = useRef(null);
 
@@ -450,6 +450,12 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
         </div>
 
         <div className="modal-foot">
+          {isEdit && onDelete && (
+            <button className="rem-btn danger" onClick={() => { onDelete(reminder); onClose(); }} disabled={saving}>
+              Delete
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
           <button className="rem-btn" onClick={onClose} disabled={saving}>
             Cancel
           </button>
