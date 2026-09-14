@@ -90,8 +90,6 @@ const toIstDate = (d = new Date()) =>
 
 const PERIOD_LABELS = { today: 'Today', yesterday: 'Yesterday', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
 
-const TL_PER_PAGE = 10;
-
 const ScoreFormulaLegend = () => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '6px 10px', borderBottom: '1px solid var(--line)', fontSize: 9, color: 'var(--ink-soft)' }}>
     <span style={{ fontWeight: 700 }}>Daily performance&nbsp;=</span>
@@ -1027,7 +1025,6 @@ export default function Dashboard() {
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
   const [showAllTopPerformers, setShowAllTopPerformers] = useState(false);
   const [froSearch, setFroSearch] = useState('');
-  const [perfPage, setPerfPage] = useState(1);
   const [perfStatusFilter, setPerfStatusFilter] = useState('all');
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
   const [selectedFro, setSelectedFro] = useState(null);
@@ -1285,7 +1282,6 @@ export default function Dashboard() {
   const [followups, setFollowups] = useState([]);
   const [followupTab, setFollowupTab] = useState('overdue');
 
-  useEffect(() => { setPerfPage(1); }, [froSearch, dashPeriod, customFrom, customTo, selectedNgoId, selectedFroId, perfStatusFilter, perfSort]);
   const [followupLoading, setFollowupLoading] = useState(false);
   const [showFollowups, setShowFollowups] = useState(true);
   const [followupMode, setFollowupMode] = useState('bucket');
@@ -2627,9 +2623,6 @@ export default function Dashboard() {
           if (va > vb) return 1 * perfSort.dir;
           return ranked(a) - ranked(b);
         });
-        const totalPages = Math.max(1, Math.ceil(sortedRows.length / TL_PER_PAGE));
-        const pg = Math.min(perfPage, totalPages);
-        const pageRows = sortedRows.slice((pg - 1) * TL_PER_PAGE, pg * TL_PER_PAGE);
         const setSort = (key) => setPerfSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: 1 });
         const sortIcon = (key) => (
           <span style={{ color: perfSort.key === key ? '#2F80D9' : '#cbd5e1', fontSize: 9 }}>
@@ -2687,16 +2680,6 @@ export default function Dashboard() {
           { value: 'monthly', label: 'This Month' },
           { value: 'custom', label: 'Custom Date' },
         ];
-
-        const start = sortedRows.length === 0 ? 0 : (pg - 1) * TL_PER_PAGE + 1;
-        const end = Math.min(pg * TL_PER_PAGE, sortedRows.length);
-        const pageItems = [];
-        for (let i = 1; i <= totalPages; i++) {
-          if (totalPages <= 7 || i === 1 || i === totalPages || Math.abs(i - pg) <= 1) {
-            if (pageItems.length && pageItems[pageItems.length - 1] !== i - 1) pageItems.push('gap');
-            pageItems.push(i);
-          }
-        }
 
         return (
           <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16 }}>
@@ -2771,7 +2754,7 @@ export default function Dashboard() {
 
             {/* Performance table */}
             <div className="perf-scroll" style={{ margin: '16px 24px 0', overflow: 'auto', maxHeight: 540, borderRadius: 12, border: '1px solid #eef2f6' }}>
-              {pageRows.length === 0 ? (
+              {sortedRows.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
                 <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1120, width: '100%' }}>
@@ -2794,13 +2777,13 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map((p, i) => {
+                    {sortedRows.map((p, i) => {
                       const live = p.status === 'online' || p.status === 'on_call';
                       const idle = p.status === 'idle';
                       const highlighted = live || idle;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>{start + i}</td>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>{i + 1}</td>
                           <td className="pf-stick" style={{ position: 'sticky', left: 46, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                               {live && (
@@ -2831,33 +2814,6 @@ export default function Dashboard() {
                   </tbody>
                 </table>
               )}
-            </div>
-
-            {/* Pagination */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 24px', flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 500 }}>Showing {start}–{end} of {sortedRows.length} FROs</div>
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                <button
-                  onClick={() => setPerfPage(Math.max(1, pg - 1))}
-                  disabled={pg === 1}
-                  style={{ minWidth: 28, height: 28, borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: pg === 1 ? '#cbd5e1' : '#334155', fontSize: 13, fontWeight: 700, cursor: pg === 1 ? 'default' : 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
-                >‹</button>
-                {pageItems.map((it, idx) => it === 'gap' ? <span key={`g${idx}`} style={{ fontSize: 12, color: '#94a3b8', padding: '0 2px' }}>…</span> : (
-                  <button
-                    key={it}
-                    onClick={() => setPerfPage(it)}
-                    style={{
-                      minWidth: 28, height: 28, borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                      background: it === pg ? '#2F80D9' : '#fff', color: it === pg ? '#fff' : '#334155',
-                    }}
-                  >{it}</button>
-                ))}
-                <button
-                  onClick={() => setPerfPage(Math.min(totalPages, pg + 1))}
-                  disabled={pg === totalPages}
-                  style={{ minWidth: 28, height: 28, borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: pg === totalPages ? '#cbd5e1' : '#334155', fontSize: 13, fontWeight: 700, cursor: pg === totalPages ? 'default' : 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
-                >›</button>
-              </div>
             </div>
 
             <style>{`
