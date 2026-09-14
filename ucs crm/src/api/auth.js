@@ -72,6 +72,13 @@ export async function login(identifier, password) {
   })
 }
 
+// Best-effort server-side logout: records the user's logout count + closes the
+// CRM login session. Safe to call even if it fails (local session is cleared
+// regardless).
+export async function logout() {
+  return api('/auth/logout', { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
+}
+
 export async function impersonateFRO(workerId, code, imposterWorkerId, stations) {
   return api('/auth/impersonate', {
     method: 'POST',

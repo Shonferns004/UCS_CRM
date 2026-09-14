@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { adminLogin, unifiedLogin, salaryLogin, impersonateFRO, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, changePassword } from '../controllers/authController.js';
+import { adminLogin, unifiedLogin, salaryLogin, impersonateFRO, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, changePassword, logout } from '../controllers/authController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -13,5 +13,6 @@ router.get('/fro-workers', authenticate, getFroWorkersForImpersonation);
 router.get('/fro-workers/:workerId/stations', authenticate, getFroWorkAsStations);
 router.post('/work-as/release', authenticate, releaseWorkAs);
 router.post('/change-password', authenticate, changePassword);
+router.post('/logout', authenticate, logout);
 
 export default router;

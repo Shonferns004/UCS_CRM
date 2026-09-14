@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-import db from '../config/db.js';
+import db, { sql } from '../config/db.js';
 import { getWorkerByLoginId, getWorkerById, updateWorker } from '../models/workerModel.js';
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
@@ -10,7 +10,9 @@ import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } fr
 
 dotenv.config();
 
-const TOKEN_EXPIRY = '100y';
+// CRMs / admin and salary portals get a rolling 24h session; the mobile
+// (Flutter) worker login override below emits tokens with no expiry.
+const TOKEN_EXPIRY = '24h';
 
 export const adminLogin = async (req, res) => {
   try {
@@ -118,6 +120,62 @@ export const salaryLogin = async (req, res) => {
   }
 };
 
+// ─── CRM login presence / logout tracking ─────────────────────────────
+// Sessions are recorded for UCS CRM web logins only (NOT the Flutter
+// /auth/worker/login flow). user_id = token-subject id — workers.id (uuid),
+// users.id / hr.id (int), 0 / -1 for the env super-admin / user accounts.
+
+async function touchLogin(userId, name, role) {
+  try {
+    await db.from('auth_sessions').upsert(
+      {
+        user_id: String(userId),
+        client: 'crm',
+        name: name || null,
+        role: role || null,
+        logged_in_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString(),
+        logged_out_at: null,
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch (e) {
+    console.warn('[auth] login touch failed:', e?.message || String(e));
+  }
+}
+
+async function recordCrmLogin(uid, nm, rl, routePath) {
+  if (routePath === '/worker/login') return;
+  return touchLogin(uid, nm, rl);
+}
+
+// Explicit logout: mark the open session logged out and append a logout event
+// (drives the per-user logout counts in Telecaller Performance).
+export const logout = async (req, res) => {
+  try {
+    const u = req.user || {};
+    const uid = u.id;
+    if (uid === undefined || uid === null) return res.json({ message: 'Logged out' });
+    const key = String(uid);
+    const now = new Date().toISOString();
+    await sql(`UPDATE auth_sessions SET logged_out_at = $1 WHERE user_id = $2 AND logged_out_at IS NULL`, [now, key]);
+    try {
+      await db.from('auth_logout_events').insert({
+        user_id: key,
+        client: 'crm',
+        name: u.name || null,
+        role: u.role || null,
+        logged_out_at: now,
+      });
+    } catch (e) {
+      console.warn('[auth] logout event insert failed:', e?.message || String(e));
+    }
+    return res.json({ message: 'Logged out' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const unifiedLogin = async (req, res) => {
   try {
     const { identifier, password } = req.body;
@@ -128,7 +186,10 @@ export const unifiedLogin = async (req, res) => {
 
     const isUfsLogin = identifier.endsWith('@ufs');
     const isEmail = !isUfsLogin && identifier.includes('@');
-    const expiry = TOKEN_EXPIRY;
+    // /auth/worker/login is used by the Flutter apps -> token never expires;
+    // every CRM login (/auth/login) -> 24h.
+    const expiry = req.route?.path === '/worker/login' ? undefined : TOKEN_EXPIRY;
+    const signOptions = expiry ? { expiresIn: expiry } : {};
 
     if (isUfsLogin) {
       const worker = await getWorkerByLoginId(identifier);
@@ -155,8 +216,9 @@ export const unifiedLogin = async (req, res) => {
       const token = jwt.sign(
         { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department },
         process.env.JWT_SECRET,
-        { expiresIn: expiry }
+        signOptions
       );
+      await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
       return res.json({
         token,
         role,
@@ -173,8 +235,9 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: 0, email: identifier, role: 'super_admin', name: 'Super Admin' },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
+        await recordCrmLogin(0, 'Super Admin', 'super_admin', req.route?.path);
         return res.json({ token, role: 'super_admin', user: { name: 'Super Admin', email: identifier, role: 'super_admin' }, message: 'Login successful' });
       }
 
@@ -185,8 +248,9 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: -1, email: identifier, role: 'user', name: 'User' },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
+        await recordCrmLogin(-1, 'User', 'user', req.route?.path);
         return res.json({ token, role: 'user', user: { name: 'User', email: identifier, role: 'user' }, message: 'Login successful' });
       }
 
@@ -202,8 +266,9 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: user.id, ngo_id: user.ngo_id, email: user.email, role: user.role, name: user.name },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
+        await recordCrmLogin(user.id, user.name, user.role, req.route?.path);
         const { password_hash, ...safeUser } = user;
         return res.json({ token, role: user.role, user: safeUser, message: 'Login successful' });
       }
@@ -220,8 +285,9 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: hr.id, ngo_id: hr.ngo_id, email: hr.email, role: 'hr', name: hr.name },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
+        await recordCrmLogin(hr.id, hr.name, 'hr', req.route?.path);
         const { password_hash, ...safeHR } = hr;
         return res.json({ token, role: 'hr', user: safeHR, message: 'Login successful' });
       }
@@ -249,8 +315,9 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: workerByLogin.id, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, name: workerByLogin.name, role: wRole, department: workerByLogin.department },
           process.env.JWT_SECRET,
-          { expiresIn: expiry }
+          signOptions
         );
+        await recordCrmLogin(workerByLogin.id, workerByLogin.name, wRole, req.route?.path);
         return res.json({
           token,
           role: wRole,
@@ -274,8 +341,9 @@ export const unifiedLogin = async (req, res) => {
       const token = jwt.sign(
         { id: userFromName.id, ngo_id: userFromName.ngo_id, email: userFromName.email, role: userFromName.role, name: userFromName.name },
         process.env.JWT_SECRET,
-        { expiresIn: expiry }
+        signOptions
       );
+      await recordCrmLogin(userFromName.id, userFromName.name, userFromName.role, req.route?.path);
       const { password_hash, ...safeUser } = userFromName;
       return res.json({ token, role: userFromName.role, user: safeUser, message: 'Login successful' });
     }
@@ -304,8 +372,9 @@ export const unifiedLogin = async (req, res) => {
     const token = jwt.sign(
       { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
       process.env.JWT_SECRET,
-      { expiresIn: expiry }
+      signOptions
     );
+    await recordCrmLogin(worker.id, worker.name, role, req.route?.path);
     return res.json({
       token,
       role,
