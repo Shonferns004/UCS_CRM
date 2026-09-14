@@ -93,7 +93,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
       const grp = categoryLabel(r.category) || r.category || 'Other'
       return {
-        category: r.category || 'OTHER_BILL',
+        category: grp,
         _group: grp,
         _sub: '',
         _dbId: r.id,
