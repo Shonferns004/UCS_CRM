@@ -5243,6 +5243,7 @@ const tlPayload = {
         total_fros: froWorkers.length,
         calling,
         idle,
+        online,
         offline,
         logouts_today: Object.values(logoutCounts).reduce((s, c) => s + c.today, 0),
         logouts_total: Object.values(logoutCounts).reduce((s, c) => s + c.total, 0),
