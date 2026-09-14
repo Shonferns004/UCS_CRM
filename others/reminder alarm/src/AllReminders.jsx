@@ -126,9 +126,13 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }, [sourceItems])
 
   const categories = useMemo(() => {
-    const set = new Set()
-    sourceItems.forEach(it => { if (it.category) set.add(it.category) })
-    return Array.from(set).sort()
+    const byLabel = new Map()
+    sourceItems.forEach(it => {
+      if (!it.category) return
+      const label = categoryLabel(it.category)
+      if (!byLabel.has(label)) byLabel.set(label, it.category)
+    })
+    return Array.from(byLabel.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, key]) => key)
   }, [sourceItems])
 
   const catMatch = (itemCat, filterCat) => {
@@ -148,8 +152,6 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     if (activeFilter) {
       if (VIEW_FILTERS[activeFilter]) {
         list = list.filter(it => matchesView(it, activeFilter))
-      } else if (isCategoryKey(activeFilter)) {
-        list = list.filter(it => it.category === activeFilter)
       } else {
         list = list.filter(it => catMatch(it.category, activeFilter))
       }
