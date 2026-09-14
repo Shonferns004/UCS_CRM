@@ -1195,23 +1195,12 @@ export default function Dashboard() {
     // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
     const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
 
-    // today_idle_seconds per FRO from live status (tl-data).
-    // For today this is the true running idle accumulator; for past days
-    // we fall back to zero-call-hour slots (each slot = 60 min).
     const perfById = new Map();
     for (const p of (tlData?.performance || [])) perfById.set(p.fro_id, p);
 
-    const zeroCallSlotCount = {};
-    for (const r of hourlyFroRows) {
-      if (!r.fro_worker_id) continue;
-      if ((r.calls || 0) === 0) zeroCallSlotCount[r.fro_worker_id] = (zeroCallSlotCount[r.fro_worker_id] || 0) + 1;
-    }
-
     // ALL FROs — even those with 0 idle time — sorted highest idle first.
     const idle = Object.values(byFro).map(f => {
-      const totalIdleMins = isToday
-        ? Math.round(((perfById.get(f.id)?.today_idle_seconds) || 0) / 60)
-        : (zeroCallSlotCount[f.id] || 0) * 60;
+      const totalIdleMins = Math.round(((perfById.get(f.id)?.today_idle_seconds) || 0) / 60);
       return {
         id: f.id,
         name: f.name,
