@@ -265,6 +265,7 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
             </div>
 
             {/* Frequency */}
+            {!isEdit && (
             <div className="form-row">
               <label>Frequency Type</label>
               <select
@@ -280,6 +281,7 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
                 ))}
               </select>
             </div>
+            )}
 
             {showCustomFreq && (
               <>
