@@ -1321,10 +1321,16 @@ export default function Dashboard() {
       return params.length ? `?${params.join('&')}` : '';
     };
     const ngoParam = () => buildParams();
+    let inFlight = false;
     const fetchTl = () => {
+      if (inFlight) return; // never stack 30s polls
+      inFlight = true;
       apiGet(`/ngo-admin/tl-dashboard${ngoParam()}`)
         .then(d => { if (!cancelled) setTlData(d); })
-        .catch(() => { if (!cancelled) setTlData(null); });
+        // Keep the last good data on transient failures so the Telecaller
+        // Performance section never vanishes mid-session; the next poll retries.
+        .catch(() => { if (!cancelled) setTlData(prev => prev || null); })
+        .finally(() => { inFlight = false; });
     };
     fetchTl();
     const interval = setInterval(fetchTl, 30000);
