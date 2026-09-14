@@ -246,7 +246,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       if (found) return found
     }
     return reminders.find(r =>
-      r.category === it.category &&
+      normalizeCategory(r.category) === it.category &&
       String(r.title || '') === (it.title || '') &&
       String(r.owner || '') === (it.owner || '')
     ) || null
