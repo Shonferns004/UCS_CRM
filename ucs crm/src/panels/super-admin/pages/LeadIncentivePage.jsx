@@ -63,8 +63,9 @@ export default function LeadIncentivePage() {
   const removeAnnouncement = async (row) => {
     if (busyId) return
     if (!window.confirm(
-      `Permanently delete the champion announcement for ${row.announcement_date || row.fro_name} (${row.fro_name})?\n` +
-      'The FRO-facing champion banner for that date will be removed. This cannot be undone.'
+      `Stop this lead incentive competition NOW and delete it permanently?\n` +
+      `Champion: ${row.fro_name} (${row.announcement_date || 'today'}).\n` +
+      'This instantly removes the champion banner and FRO popup, and deletes the champion notification from every panel (FRO, Accounts, HR, Admin, Super Admin). This cannot be undone.'
     )) return
     setBusyId(row.id)
     try {
@@ -90,6 +91,19 @@ export default function LeadIncentivePage() {
 }
 
 function HistoryList({ history, loading, busyId, onDelete }) {
+  // Per-date leaderboard (fetched once per date from the live daily summary).
+  const [openDate, setOpenDate] = useState(null)
+  const [lbCache, setLbCache] = useState({})
+
+  useEffect(() => {
+    if (!openDate || lbCache[openDate] !== undefined) return
+    let alive = true
+    api(`/incentive/lead/lead-summary?date=${openDate}`, { _prefix: 'ucs' })
+      .then(r => { if (alive) setLbCache(p => ({ ...p, [openDate]: Array.isArray(r?.fros) ? r.fros : [] })) })
+      .catch(() => { if (alive) setLbCache(p => ({ ...p, [openDate]: [] })) })
+    return () => { alive = false }
+  }, [openDate, lbCache])
+
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>Loading history…</div>
   }
@@ -105,7 +119,9 @@ function HistoryList({ history, loading, busyId, onDelete }) {
     )
   }
 
-  const liveId = history[0].id
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const liveRows = history.filter(r => String(r.announcement_date).slice(0, 10) === todayStr)
+  const anyLive = liveRows.length > 0
 
   return (
     <>
@@ -117,24 +133,36 @@ function HistoryList({ history, loading, busyId, onDelete }) {
       }}>
         <span style={{ fontSize: 16 }}>🔴</span>
         <div style={{ fontSize: 12.5, fontWeight: 700, color: '#166534' }}>
-          <b>LIVE NOW:</b> <span style={{ fontSize: 13.5, fontWeight: 900 }}>🏆 {history[0].fro_name}</span> is the current champion banner shown on every panel for <b>{fmtDay(history[0].announcement_date)}</b>
+          <b>LIVE NOW:</b> {anyLive
+            ? `🏆 ${liveRows.length} range champion${liveRows.length > 1 ? 's' : ''} active on every panel today — ${liveRows.map(r => `${r.fro_name}${r.slab_label ? ` (${r.slab_label})` : ''}`).join(', ')}`
+            : 'Today has no live range-champion announcement yet'}
         </div>
       </div>
-      {history.map(row => (
+      {history.map(row => {
+        const isLive = String(row.announcement_date).slice(0, 10) === todayStr
+        const champIds = history
+          .filter(h => String(h.announcement_date).slice(0, 10) === String(row.announcement_date).slice(0, 10))
+          .map(h => h.fro_worker_id)
+        return (
         <div key={row.id} style={{
-          border: liveId === row.id ? '2px solid #22c55e' : '1.5px solid var(--line)',
-          borderRadius: 16, padding: 18, background: liveId === row.id ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : 'var(--card-bg)',
+          border: isLive ? '2px solid #22c55e' : '1.5px solid var(--line)',
+          borderRadius: 16, padding: 18, background: isLive ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : 'var(--card-bg)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 20 }}>🏆</span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{row.fro_name}</span>
-                {liveId === row.id && (
+                {isLive && (
                   <span style={{
                     padding: '4px 12px', borderRadius: 999, background: '#22c55e', color: '#fff',
                     fontSize: 11, fontWeight: 900, letterSpacing: .5, whiteSpace: 'nowrap', animation: 'li-pulse 1.4s ease-in-out infinite',
                   }}>● LIVE NOW</span>
+                )}
+                {row.slab_label && (
+                  <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: '#fff7ed', color: '#c2410c' }}>
+                    {row.slab_label}
+                  </span>
                 )}
                 <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, background: '#fef3c7', color: '#b45309' }}>
                   {fmtDay(row.announcement_date)}
@@ -153,6 +181,15 @@ function HistoryList({ history, loading, busyId, onDelete }) {
               }}
             >
               {busyId === row.id ? 'Deleting…' : '🗑 Hard Delete'}
+            </button>
+            <button
+              onClick={() => setOpenDate(openDate === row.announcement_date ? null : row.announcement_date)}
+              style={{
+                padding: '7px 14px', borderRadius: 8, border: '1.5px solid #fcd34d', background: '#fffbeb',
+                color: '#b45309', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+              }}
+            >
+              {openDate === row.announcement_date ? '📊 Close Leaderboard' : '📊 Leaderboard'}
             </button>
           </div>
 
@@ -175,10 +212,15 @@ function HistoryList({ history, loading, busyId, onDelete }) {
           ) : (
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', fontStyle: 'italic' }}>No message attached</div>
           )}
+
+          {openDate === row.announcement_date && (
+            <LeaderboardPanel date={row.announcement_date} rows={lbCache[row.announcement_date] || []} champIds={champIds} />
+          )}
         </div>
-      ))}
+        )
+      })}
       <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>
-        <span style={{ color: '#16a34a', fontWeight: 800 }}>● LIVE NOW</span> = the champion banner currently on every panel (latest announcement). Deleting it removes the banner too.
+        <span style={{ color: '#16a34a', fontWeight: 800 }}>● LIVE NOW</span> = every range-champion announcement for today, shown on every panel. Deleting it removes the banner + FRO popup + notifications too.
       </div>
     </div>
     </>
@@ -188,6 +230,49 @@ function HistoryList({ history, loading, busyId, onDelete }) {
 const pulseStyle = `
 @keyframes li-pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
 `
+
+const medals = ['🥇', '🥈', '🥉']
+
+function LeaderboardPanel({ date, rows, champIds }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: 16, marginTop: 12, fontSize: 12, color: 'var(--ink-soft)', textAlign: 'center', background: 'var(--bg)' }}>
+        No leaderboard data for {fmtDay(date)} (the day's standings are computed from verified leads)
+      </div>
+    )
+  }
+  return (
+    <div style={{ border: '1px dashed #fcd34d', borderRadius: 12, marginTop: 12, overflow: 'hidden', background: 'var(--bg)' }}>
+      <div style={{ padding: '8px 12px', background: 'linear-gradient(90deg,#fff3d6,#fef3c7)', borderBottom: '1px dashed #fcd34d', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e' }}>📊 Leaderboard · {fmtDay(date)}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#b45309' }}>ranked by total incentive</span>
+      </div>
+      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+        {rows.map((f, i) => {
+          const isChamp = champIds.includes(f.fro_id)
+          return (
+            <div key={f.fro_id} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
+              borderBottom: '1px solid var(--line)', background: isChamp ? '#dcfce7' : 'transparent',
+            }}>
+              <span style={{ width: 26, fontSize: 13, textAlign: 'center', flexShrink: 0 }}>
+                {isChamp ? '🏆' : (medals[i] || <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{i + 1}</span>)}
+              </span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: isChamp ? 800 : 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {f.fro_name}
+              </span>
+              <span style={{ width: 96, fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {f.slab ? `₹${fmt(f.slab.min_amount)}–₹${fmt(f.slab.max_amount)}` : '—'}
+              </span>
+              <span style={{ width: 44, fontSize: 11.5, fontWeight: 700, color: '#16a34a', textAlign: 'center', flexShrink: 0 }}>{f.qualified_leads || 0} ✓</span>
+              <span style={{ width: 82, fontSize: 12, fontWeight: 700, color: '#b45309', textAlign: 'right', flexShrink: 0 }}>₹{fmt(f.total_incentive)}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function stat(label, value, color) {
   return (
