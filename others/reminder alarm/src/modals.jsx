@@ -349,6 +349,18 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
               </select>
             </div>
 
+            {/* Amount */}
+            <div className="form-row">
+              <label>Amount (₹)</label>
+              <input
+                className="rem-input"
+                type="number"
+                value={form.amount}
+                onChange={handleChange('amount')}
+                placeholder="e.g. 4144"
+              />
+            </div>
+
             {/* Toggles */}
             <div className="form-row">
               <label>Alarm Enabled</label>
