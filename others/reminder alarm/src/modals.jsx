@@ -147,8 +147,8 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
     }
     if (payload.amount != null && payload.amount !== '') {
       payload.amount = Number(payload.amount);
-    } else if (payload.amount === '') {
-      delete payload.amount;
+    } else if (payload.amount === '' || payload.amount === null) {
+      payload.amount = null;
     }
 
     if (isEdit && Object.keys(payload).length === 0) {
