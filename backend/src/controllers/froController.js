@@ -3605,6 +3605,39 @@ export const updateLiveStatus = async (req, res) => {
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     if (error) throw error;
 
+    // Daily activity snapshot: the FRO panel's counters reset to 0 at IST
+    // midnight, so the previous day's idle/talk/break totals would otherwise be
+    // lost. Upsert today's row keeping the max value seen (the counters only
+    // grow within a day) — this powers monthly/yearly idle aggregation while
+    // the dashboard keeps showing today's fresh-from-0 count. Non-fatal: table
+    // may be missing until migration 126 is applied.
+    try {
+      const istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const daily = {
+        idle_seconds: today_idle_seconds,
+        talk_seconds: today_talk_seconds,
+        break_seconds: today_break_seconds,
+        calls: today_calls,
+        skipped: today_skipped,
+      };
+      if (Object.values(daily).some(v => v !== undefined)) {
+        await db._pool.query(
+          `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, talk_seconds, break_seconds, calls, skipped, updated_at)
+           VALUES ($1, $2::date, GREATEST(0, COALESCE($3,0)), GREATEST(0, COALESCE($4,0)), GREATEST(0, COALESCE($5,0)), GREATEST(0, COALESCE($6,0)), GREATEST(0, COALESCE($7,0)), now())
+           ON CONFLICT (worker_id, stat_date) DO UPDATE SET
+             idle_seconds  = GREATEST(fro_daily_stats.idle_seconds, COALESCE(EXCLUDED.idle_seconds, 0)),
+             talk_seconds  = GREATEST(fro_daily_stats.talk_seconds,  COALESCE(EXCLUDED.talk_seconds, 0)),
+             break_seconds = GREATEST(fro_daily_stats.break_seconds, COALESCE(EXCLUDED.break_seconds, 0)),
+             calls         = GREATEST(fro_daily_stats.calls,         COALESCE(EXCLUDED.calls, 0)),
+             skipped       = GREATEST(fro_daily_stats.skipped,       COALESCE(EXCLUDED.skipped, 0)),
+             updated_at    = now()`,
+          [workerId, istDay, daily.idle_seconds, daily.talk_seconds, daily.break_seconds, daily.calls, daily.skipped]
+        );
+      }
+    } catch (e) {
+      // Non-fatal: fro_daily_stats may be absent until migration 126 is applied.
+    }
+
     // CRM presence heartbeat: any live-status write means the user is active
     // on the CRM — keep their login session fresh for Telecaller Performance.
     try {

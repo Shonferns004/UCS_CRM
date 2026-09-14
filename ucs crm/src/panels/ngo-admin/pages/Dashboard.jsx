@@ -1216,7 +1216,11 @@ export default function Dashboard() {
         };
       }).sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
 
-    const noCalls = Object.values(byFro).filter(f => f.calls === 0);
+    const noCalls = Object.values(byFro).filter(f => {
+      // Zero calls AND present right now — absent (offline) FROs are not shown.
+      const st = perfById.get(f.id)?.status;
+      return f.calls === 0 && st && st !== 'offline';
+    });
     noCalls.sort((a, b) => a.name.localeCompare(b.name));
     return { idle, noCalls, elapsed, isToday };
   }, [hourlyFroRows, hourlyDate, tlData]);
