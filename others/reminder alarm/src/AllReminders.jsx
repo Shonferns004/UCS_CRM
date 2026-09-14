@@ -88,8 +88,14 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       })
     })
     const activeReminders = reminders.filter(r => !r.is_deleted)
+    const seenIds = new Set()
+    const uniqueReminders = activeReminders.filter(r => {
+      if (seenIds.has(r.id)) return false
+      seenIds.add(r.id)
+      return true
+    })
     const matchedSeedIdx = new Set()
-    const dbItems = activeReminders.map(r => {
+    const dbItems = uniqueReminders.map(r => {
       let meta = null
       const catItems = seed.filter(s => s.category === r.category)
       for (let i = 0; i < catItems.length; i++) {
