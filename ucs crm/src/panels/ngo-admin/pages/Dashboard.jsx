@@ -2567,7 +2567,18 @@ export default function Dashboard() {
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
       {/* Section 6: Telecaller Performance */}
-      {perfRows.length > 0 && (() => {
+      {(() => {
+        if (!tlData) {
+          return (
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span className="weak-spin" style={{ width: 16, height: 16, border: '2px solid #dbeafe', borderTopColor: '#2F80D9', borderRadius: '50%', display: 'inline-block', flexShrink: 0 }} />
+              <div>
+                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
+                <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Loading live performance data…</div>
+              </div>
+            </div>
+          );
+        }
         const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], offline: ['offline'] };
         const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.idle.includes(p.status) ? 'idle' : 'offline';
         const bucketRows = {
