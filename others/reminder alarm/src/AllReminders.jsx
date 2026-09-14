@@ -4,7 +4,7 @@ import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon } fr
 import { computeEffectiveDueDate } from './notifications'
 import { Icon } from './components'
 import { toast } from './Toast'
-import { buildReminderItems } from './reminderSeedData'
+
 
 const STATUS_OPTIONS = ['Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Upcoming', 'Completed', 'Snoozed']
 const PAGE_SIZE = 20
@@ -65,7 +65,6 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   const { reminders, activeFilter, setActiveFilter } = useRem()
 
   const sourceItems = useMemo(() => {
-    const seed = buildReminderItems()
     const fmtDate = (d) => {
       if (!d) return ''
       const s = String(d).slice(0, 10)
@@ -76,17 +75,6 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       }
       return String(d)
     }
-    const seedMeta = new Map()
-    seed.forEach((it, idx) => {
-      const keys = [it.category]
-      if (it.title) keys.push(it.title)
-      if (it.owner) keys.push(it.owner)
-      if (it._sub) keys.push(it._sub)
-      seedMeta.set(idx, { group: it._group, sub: it._sub, category: it.category })
-      keys.forEach(k => {
-        if (!seedMeta.has(k)) seedMeta.set(k, { group: it._group, sub: it._sub, category: it.category, idx })
-      })
-    })
     const activeReminders = reminders.filter(r => !r.is_deleted)
     const seenIds = new Set()
     const uniqueReminders = activeReminders.filter(r => {
@@ -94,27 +82,12 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       seenIds.add(r.id)
       return true
     })
-    const matchedSeedIdx = new Set()
     const dbItems = uniqueReminders.map(r => {
-      let meta = null
-      const catItems = seed.filter(s => s.category === r.category)
-      for (let i = 0; i < catItems.length; i++) {
-        const si = catItems[i]
-        const seedIdx = seed.indexOf(si)
-        if (matchedSeedIdx.has(seedIdx)) continue
-        if (si.title && si.title === r.title) { meta = { group: si._group, sub: si._sub }; matchedSeedIdx.add(seedIdx); break }
-        if (si.owner && si.owner === r.owner && si._sub) { meta = { group: si._group, sub: si._sub }; matchedSeedIdx.add(seedIdx); break }
-      }
-      if (!meta) {
-        const si = seedMeta.get(r.category)
-        if (si) meta = { group: si.group || categoryLabel(r.category), sub: '' }
-      }
-      if (!meta) meta = { group: categoryLabel(r.category) || 'Other', sub: '' }
       const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
       return {
         category: r.category || 'OTHER_BILL',
-        _group: meta.group,
-        _sub: meta.sub,
+        _group: categoryLabel(r.category) || r.category || 'Other',
+        _sub: '',
         _dbId: r.id,
         _dbStatus: computed,
         title: r.title || '',
