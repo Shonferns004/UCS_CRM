@@ -107,10 +107,6 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
     const payload = {};
     const norm = (v) => (v === undefined || v === null) ? '' : String(v);
     Object.keys(form).forEach((k) => {
-      if (k === 'title') {
-        payload[k] = form[k];
-        return;
-      }
       if (isEdit && originalRef.current) {
         const orig = norm(originalRef.current[k]);
         const curr = norm(form[k]);
@@ -118,11 +114,17 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
           payload[k] = form[k];
         }
       } else {
+        if (k === 'title') {
+          payload[k] = form[k];
+          return;
+        }
         if (form[k] !== '' && form[k] !== false) {
           payload[k] = form[k];
         }
       }
     });
+
+    if (!payload.title) payload.title = form.title;
 
     // Map friendly frequency options to structured backend values.
     const freqMap = {
@@ -149,9 +151,8 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
       delete payload.amount;
     }
 
-    if (isEdit && Object.keys(payload).length <= 1 && payload.title) {
+    if (isEdit && Object.keys(payload).length === 0) {
       toast('No changes to save', 'info');
-      onClose();
       return;
     }
 
@@ -348,18 +349,6 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
               </select>
             </div>
 
-            {/* Amount */}
-            <div className="form-row">
-              <label>Amount (₹)</label>
-              <input
-                className="rem-input"
-                type="number"
-                value={form.amount}
-                onChange={handleChange('amount')}
-                placeholder="e.g. 4144"
-              />
-            </div>
-
             {/* Toggles */}
             <div className="form-row">
               <label>Alarm Enabled</label>
@@ -450,12 +439,6 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
         </div>
 
         <div className="modal-foot">
-          {isEdit && onDelete && (
-            <button className="rem-btn danger" onClick={() => { onDelete(reminder); onClose(); }} disabled={saving}>
-              Delete
-            </button>
-          )}
-          <div style={{ flex: 1 }} />
           <button className="rem-btn" onClick={onClose} disabled={saving}>
             Cancel
           </button>
