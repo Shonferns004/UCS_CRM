@@ -104,7 +104,7 @@ const ScoreFormulaLegend = () => (
     <span style={{ fontWeight: 700 }}>Daily performance&nbsp;=</span>
     <span style={{ background: '#eff6ff', color: '#2563eb', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #2563eb22' }}>Today&apos;s collection / Per-day target × 100</span>
     <span style={{ background: '#fef2f2', color: '#dc2626', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #dc262622' }}>&lt;100% Low</span>
-    <span style={{ background: '#f0fdf4', color: '#16a34a', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #16a34a22' }}>&ge;100% Good</span>
+    <span style={{ background: '#f0fdf4', color: '#16a34a', fontWeight: 700, padding: '2px 6px', borderRadius: 999, whiteSpace: 'nowrap', border: '1px solid #16a34a22' }}>&ge;100% High</span>
   </div>
 );
 
@@ -2117,7 +2117,7 @@ export default function Dashboard() {
         <div className="card" style={{ marginBottom: 0 }}>
           <div className="card-head">
             <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: '#f59e0b' }}>🏆</span> Good Performance (≥100%)
+              <span style={{ color: '#f59e0b' }}>🏆</span> High Performance (≥100%)
             </h3>
             <div style={{ display:'flex', gap:6, alignItems:'center' }}>
 <span style={{ fontSize:10, color:'var(--ink-soft)', fontWeight:500 }}>Daily target pace</span>
@@ -2137,9 +2137,8 @@ export default function Dashboard() {
                     <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Today&apos;s Collection</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Monthly Target</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
+<th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
 <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Worked Days</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Avg Required</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Performance</th>
                   </tr>
                 </thead>
@@ -2152,7 +2151,6 @@ export default function Dashboard() {
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
 <td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.worked_days}/{p.working_days}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.avg_required || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center', fontWeight:700, color: p.performance_pct > 100 ? '#2563eb' : '#16a34a', fontSize:11, padding:'5px 8px'}}>
                         {Number(p.performance_pct || 0).toFixed(1)}%
                         <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)' }}>{performanceLabel(p.performance_pct)}</div>
@@ -2163,7 +2161,7 @@ export default function Dashboard() {
                 {topPerformers.length > 10 && (
                   <tfoot>
                     <tr>
-<td colSpan={8} style={{padding:0}}>
+<td colSpan={7} style={{padding:0}}>
                         <button onClick={() => setShowAllTopPerformers(!showAllTopPerformers)}
                           style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
                           {showAllTopPerformers ? '▲ Show Less' : `View All ${topPerformers.length} FROs →`}
@@ -2203,9 +2201,8 @@ export default function Dashboard() {
                     <th style={{fontSize:10, padding:'6px 8px', textAlign:'left'}}>FRO</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Today&apos;s Collection</th>
                     <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Monthly Target</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
+<th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Daily Target</th>
 <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Worked Days</th>
-                    <th style={{textAlign:'right', fontSize:10, padding:'6px 8px'}}>Avg Required</th>
                     <th style={{textAlign:'center', fontSize:10, padding:'6px 8px'}}>Performance</th>
                   </tr>
                 </thead>
@@ -2218,7 +2215,6 @@ export default function Dashboard() {
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
 <td style={{textAlign:'center', fontWeight:600, fontSize:11, padding:'5px 8px'}}>{p.worked_days}/{p.working_days}</td>
-                      <td style={{textAlign:'right', fontWeight:600, fontSize:11, padding:'5px 8px'}}>₹{Math.round(p.avg_required || 0).toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center', fontWeight:700, color:'#dc2626', fontSize:11, padding:'5px 8px'}}>
                         {Number(p.performance_pct || 0).toFixed(1)}%
                         <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)' }}>Low</div>
@@ -2229,7 +2225,7 @@ export default function Dashboard() {
                  {lowPerformers.length > 10 && (
                   <tfoot>
                     <tr>
-<td colSpan={8} style={{padding:0}}>
+<td colSpan={7} style={{padding:0}}>
                         <button onClick={() => setShowAllLowPerformers(!showAllLowPerformers)}
                           style={{width:'100%', padding:'6px 10px', border:'none', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
                            {showAllLowPerformers ? '▲ Show Less' : `View All ${lowPerformers.length} FROs →`}
