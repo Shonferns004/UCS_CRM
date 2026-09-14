@@ -2616,12 +2616,12 @@ export default function Dashboard() {
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ position: 'sticky', top: 38, zIndex: 3, background: '#fff', padding: '10px 8px', textAlign: 'center', cursor: 'pointer', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            style={{ background: '#fff', padding: '10px 8px', textAlign: 'center', cursor: 'pointer', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
         const stickyTh = (children, left) => (
-          <th rowSpan={2} style={{ position: 'sticky', left, top: 0, zIndex: 5, background: '#fff', padding: '12px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6' }}>{children}</th>
+          <th rowSpan={2} style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '12px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6' }}>{children}</th>
         );
         const groupTh = (label, color, bg, span) => (
           <th colSpan={span} style={{ background: bg, color, padding: '9px 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>{label}</th>
@@ -2735,7 +2735,7 @@ export default function Dashboard() {
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
                 <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1120, width: '100%' }}>
-                  <thead>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
                       {stickyTh('#', 0)}
                       {stickyTh('FRO Name', 46)}
@@ -2755,15 +2755,24 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {pageRows.map((p, i) => {
-                      const m = FRO_STATUS_META[p.status] || FRO_STATUS_META.offline;
+                      const st = FRO_STATUS_META[p.status] || FRO_STATUS_META.offline;
+                      const live = p.status === 'online' || p.status === 'on_call';
                       return (
-                        <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9', animationDelay: `${Math.min(i, 10) * 25}ms` }}>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 0, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>{start + i}</td>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 46, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', boxShadow: '6px 0 10px -8px rgba(15,23,42,.08)' }}>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>{p.fro_name}</div>
-                            <div style={{ fontSize: 11, fontWeight: 500, color: m.name || '#94a3b8', marginTop: 2 }}>
-                              {m.label}{p.work_as_operator_name ? ` · ⚡ ${p.work_as_operator_name} work as ${p.fro_name}` : ''}
+                        <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 8px', textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>{start + i}</td>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 46, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                              {live && (
+                                <span className="pf-live-dot" title="Online" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
+                              )}
+                              <span style={{ fontWeight: live ? 700 : 600, color: live ? '#15803d' : '#17233C' }}>{p.fro_name}</span>
                             </div>
+                            {!live && (
+                              <div style={{ fontSize: 11, fontWeight: 500, color: st.name || '#94a3b8', marginTop: 2 }}>{st.label}</div>
+                            )}
+                            {p.work_as_operator_name && (
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>⚡ {p.work_as_operator_name} work as {p.fro_name}</div>
+                            )}
                             {p.status === 'idle' && p.idleMinutes > 0 && (
                               <span
                                 title={`No call activity for ${p.idleMinutes} min — click Notify to alert`}
@@ -2811,6 +2820,12 @@ export default function Dashboard() {
             </div>
 
             <style>{`
+              @keyframes pfPulse {
+                0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
+                70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
+                100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+              }
+              .pf-live-dot { animation: pfPulse 1.8s ease-out infinite; }
               .perf-table tbody tr:hover td { background: #f8fafc; }
               .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
             `}</style>
