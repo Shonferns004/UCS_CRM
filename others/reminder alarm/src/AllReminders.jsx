@@ -75,41 +75,46 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       }
       return String(d)
     }
+    const matchedIds = new Set()
     const matchDb = (it) => {
       const cat = it.category
       const title = it.title || ''
       const ownerKey = it.owner || ''
       let found = reminders.find(r =>
+        !matchedIds.has(r.id) &&
         r.category === cat &&
         String(r.title || '') === title &&
         String(r.owner || '') === ownerKey
       )
-      if (found) return found
+      if (found) { matchedIds.add(found.id); return found }
       if (it._sub) {
         found = reminders.find(r =>
+          !matchedIds.has(r.id) &&
           r.category === cat &&
           String(r.title || '') === it._sub &&
           String(r.owner || '') === title
         )
-        if (found) return found
+        if (found) { matchedIds.add(found.id); return found }
         found = reminders.find(r =>
+          !matchedIds.has(r.id) &&
           r.category === cat &&
           String(r.title || '').startsWith(title) &&
           String(r.title || '').includes(it._sub)
         )
-        if (found) return found
+        if (found) { matchedIds.add(found.id); return found }
       }
       if (it._sub === 'Rent TDS' && cat === 'RENT_TDS') {
         found = reminders.find(r =>
+          !matchedIds.has(r.id) &&
           r.category === cat &&
           String(r.owner || '') === title &&
           / TDS$/i.test(String(r.title || ''))
         )
-        if (found) return found
+        if (found) { matchedIds.add(found.id); return found }
       }
       return null
     }
-    return seed.map(it => {
+    const merged = seed.map(it => {
       const db = matchDb(it)
       if (!db) return it
       return {
@@ -124,6 +129,26 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
         display_frequency: db.frequency_type || it.display_frequency,
       }
     })
+    let seq = merged.length
+    reminders.filter(r => !matchedIds.has(r.id) && !r.completed_at).forEach(r => {
+      merged.push({
+        category: r.category || 'OTHER_BILL',
+        _group: categoryLabel(r.category) || 'Other',
+        _sub: '',
+        _seq: seq++,
+        title: r.title || '',
+        owner: r.owner || '',
+        due: fmtDate(r.due_date) || '',
+        renewal: fmtDate(r.renewal_date) || '',
+        lastPaid: '',
+        paidAmount: r.amount ? `₹${r.amount}` : '',
+        frequency: r.frequency_type || '',
+        notes: r.notes || '',
+        due_date_display: fmtDate(r.due_date) || '',
+        display_frequency: r.frequency_type || '',
+      })
+    })
+    return merged
   }, [reminders])
 
   const [search, setSearch] = useState('')
