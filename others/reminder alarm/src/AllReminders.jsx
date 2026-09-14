@@ -142,6 +142,23 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     return Array.from(set).sort()
   }, [sourceItems])
 
+  const categories = useMemo(() => {
+    const set = new Set()
+    sourceItems.forEach(it => { if (it.category) set.add(it.category) })
+    return Array.from(set).sort()
+  }, [sourceItems])
+
+  const catMatch = (itemCat, filterCat) => {
+    if (!filterCat) return true
+    if (itemCat === filterCat) return true
+    const itemLabel = categoryLabel(itemCat)
+    if (itemLabel === filterCat) return true
+    const filterLabel = categoryLabel(filterCat)
+    if (itemCat === filterLabel) return true
+    if (itemLabel === filterLabel) return true
+    return false
+  }
+
   const filtered = useMemo(() => {
     let list = sourceItems.map(it => ({ ...it, _status: itemStatus(it) }))
 
@@ -157,18 +174,18 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
         (it.owner || '').toLowerCase().includes(q) ||
         categoryLabel(it.category).toLowerCase().includes(q) ||
         it._group.toLowerCase().includes(q) ||
-        it._sub.toLowerCase().includes(q) ||
-        it.frequency.toLowerCase().includes(q) ||
-        it.due.toLowerCase().includes(q) ||
-        it.renewal.toLowerCase().includes(q) ||
-        it.lastPaid.toLowerCase().includes(q) ||
-        it.paidAmount.toLowerCase().includes(q) ||
-        it.notes.toLowerCase().includes(q)
+        (it._sub || '').toLowerCase().includes(q) ||
+        (it.frequency || '').toLowerCase().includes(q) ||
+        (it.due || '').toLowerCase().includes(q) ||
+        (it.renewal || '').toLowerCase().includes(q) ||
+        (it.lastPaid || '').toLowerCase().includes(q) ||
+        (it.paidAmount || '').toLowerCase().includes(q) ||
+        (it.notes || '').toLowerCase().includes(q)
       )
     }
 
-    const effectiveCat = isCategoryKey(activeFilter) ? activeFilter : ''
-    if (effectiveCat) list = list.filter(it => it.category === effectiveCat)
+    const effectiveCat = activeFilter
+    if (effectiveCat) list = list.filter(it => catMatch(it.category, effectiveCat))
 
     if (ownerFilter) list = list.filter(it => it.owner === ownerFilter)
 
@@ -292,8 +309,8 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
           />
           <select className="rem-select" value={effectiveCat} onChange={e => handleCategoryChange(e.target.value)}>
             <option value="">All Categories</option>
-            {CATEGORIES.map(c => (
-              <option key={c.key} value={c.key}>{c.label}</option>
+            {categories.map(c => (
+              <option key={c} value={c}>{categoryLabel(c)}</option>
             ))}
           </select>
           <select className="rem-select" value={ownerFilter} onChange={e => { setOwnerFilter(e.target.value); setPage(1) }}>
