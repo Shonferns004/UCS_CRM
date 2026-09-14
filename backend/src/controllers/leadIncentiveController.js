@@ -12,6 +12,8 @@ import {
   updateAllSlabs,
   getSlabFros,
   setSlabFros,
+  clearSlabStop,
+  clearAllSlabStops,
 } from '../models/incentiveSlabModel.js';
 import {
   getDailySummary,
@@ -20,6 +22,8 @@ import {
   getFroRanks,
   announceChampion,
   notifyRangeRuleChange,
+  stopSlabCompetition,
+  stopAllSlabsCompetition,
 } from '../services/leadIncentiveService.js';
 import {
   getAnnouncements,
@@ -149,6 +153,9 @@ export async function updateSlabHandler(req, res) {
     });
     if (!slab) return res.status(404).json({ message: 'Slab not found' });
 
+    // Configuring a range restarts its competition (clears any stopped marker).
+    try { await clearSlabStop(req.params.id); } catch (e) { console.error('[lead rules clear stop]', e?.message); }
+
     // Only ping the range's FROs when the qualify amount or per-lead reward changed.
     if (oldSlab) {
       const minLeadChanged = Number(oldSlab.min_lead_amount) !== Number(slab.min_lead_amount);
@@ -189,10 +196,36 @@ export async function applyAllSlabsHandler(req, res) {
       min_lead_amount: minLead,
       lead_rate: rate,
     });
+    // Applying a common value restarts every range's live competition.
+    try { await clearAllSlabStops(); } catch (e) { console.error('[lead rules clear stops]', e?.message); }
     // Every FRO gets one combined popup listing all ranges with the new common value.
     try { await notifyRangeRuleChange({ slabs }); }
     catch (e) { console.error('[lead rules notify]', e?.message); }
     return res.json({ ok: true, count: slabs.length, slabs });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Admin stops a range's live competition. Removes the range from the FRO live
+// leaderboard for the date, deletes today's champion announcements for it and
+// clears the rule/winner popups from every panel's notification feed.
+export async function stopSlabCompetitionHandler(req, res) {
+  try {
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const result = await stopSlabCompetition({ slabId: req.params.id, date, userId: req.user?.id });
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Admin stops EVERY live range competition for a date at once.
+export async function stopAllSlabsCompetitionHandler(req, res) {
+  try {
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const result = await stopAllSlabsCompetition({ date, userId: req.user?.id });
+    return res.json(result);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

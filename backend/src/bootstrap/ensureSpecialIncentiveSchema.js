@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS incentive_slabs (
 -- global values across once).
 ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS min_lead_amount NUMERIC(12,2) NOT NULL DEFAULT 300;
 ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS lead_rate NUMERIC(12,2) NOT NULL DEFAULT 20;
+-- Admin "⏹ Stop competition" for today: when set (= a date), the range is
+-- hidden from the FRO-facing live leaderboard for that date, without deleting
+-- the slab. Restarting the competition (configure / apply-all / announce)
+-- clears it.
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS stopped_date DATE;
 
 CREATE TABLE IF NOT EXISTS incentive_settings (
   id SERIAL PRIMARY KEY,
