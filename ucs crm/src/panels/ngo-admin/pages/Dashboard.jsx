@@ -1224,16 +1224,8 @@ export default function Dashboard() {
     };
     const isFuture = (r) => isToday && elapsedIdx >= 0 && hourIdxOf(r) > elapsedIdx;
 
-    // Live-status filter: only show FROs currently online / on a call / idle.
-    const activeIds = tlData ? new Set(
-      (tlData.performance || [])
-        .filter(p => ['online', 'on_call', 'idle'].includes(p.status))
-        .map(p => p.fro_id)
-    ) : null;
-
     const map = {};
     for (const r of hourlyFroRows) {
-      if (activeIds && !activeIds.has(r.fro_worker_id)) continue;
       const id = r.fro_worker_id ?? r.fro_name ?? 'Unknown';
       if (!map[id]) map[id] = { id, name: r.fro_name || 'Unknown', rows: [], connected: 0, nonConnected: 0, cells: 0, avgCalls: 0 };
       map[id].rows.push(r);
