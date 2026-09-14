@@ -10,11 +10,14 @@ import {
   updateSlab,
   deleteSlab,
   updateAllSlabs,
+  getSlabFros,
+  setSlabFros,
 } from '../models/incentiveSlabModel.js';
 import {
   getDailySummary,
   getFroDetail,
-  getCurrentChampion,
+  getCurrentChampions,
+  getFroRanks,
   announceChampion,
   notifyRangeRuleChange,
 } from '../services/leadIncentiveService.js';
@@ -22,6 +25,7 @@ import {
   getAnnouncements,
   deleteAnnouncement,
 } from '../models/leadChampionModel.js';
+import { ensureLowLeadRangeActive } from '../bootstrap/ensureSpecialIncentiveSchema.js';
 
 // ─── Settings ──────────────────────────────────────────────
 
@@ -48,6 +52,10 @@ export async function updateSettingsHandler(req, res) {
 
 export async function listSlabsHandler(req, res) {
   try {
+    // Self-heal: guarantee the ₹1–₹20,000 range exists & is active before it is
+    // listed, so a soft-deleted/missing low band reappears the moment the Lead
+    // Incentive page loads (no backend restart required).
+    try { await ensureLowLeadRangeActive(); } catch (e) { console.error('[lead rules heal]', e?.message); }
     const slabs = await getAllSlabs();
     return res.json(slabs);
   } catch (e) {
@@ -194,6 +202,9 @@ export async function applyAllSlabsHandler(req, res) {
 
 export async function dailySummaryHandler(req, res) {
   try {
+    // Same self-heal as listSlabsHandler — the page fetches slabs + summary in
+    // parallel, so heal here too to avoid a stale first summary.
+    try { await ensureLowLeadRangeActive(); } catch (e) { console.error('[lead rules heal]', e?.message); }
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     const summary = await getDailySummary(date);
     return res.json(summary);
@@ -213,31 +224,46 @@ export async function froDetailHandler(req, res) {
   }
 }
 
-// Get the current/announced champion (FRO-facing, any role).
-export async function currentChampionHandler(req, res) {
+// FRO-facing daily leaderboard (corner card + big popup, any active role).
+export async function leaderboardHandler(req, res) {
   try {
-    const date = req.query.date || null;
-    const champion = await getCurrentChampion(date);
-    let winner_photo_url = null;
-    if (champion && champion.fro_worker_id) {
-      try {
-        const { data: winners } = await db
-          .from('workers')
-          .select('id, photo_url')
-          .eq('id', champion.fro_worker_id);
-        winner_photo_url = (winners && winners[0]?.photo_url) || null;
-      } catch (e) {
-        console.error('[lead champion] fetch photo:', e?.message);
-      }
-    }
-    if (champion) champion.winner_photo_url = winner_photo_url;
-    return res.json({ announcement: champion });
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const ranks = await getFroRanks(date);
+    return res.json(ranks);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
 }
 
-// Admin declares today's champion. Locks snapshot + notifies all panels.
+// Get the current/announced range champions (FRO-facing, any role).
+export async function currentChampionHandler(req, res) {
+  try {
+    const date = req.query.date || null;
+    const champions = await getCurrentChampions(date);
+    const withPhotos = [];
+    for (const champion of champions) {
+      let winner_photo_url = null;
+      if (champion && champion.fro_worker_id) {
+        try {
+          const { data: winners } = await db
+            .from('workers')
+            .select('id, photo_url')
+            .eq('id', champion.fro_worker_id);
+          winner_photo_url = (winners && winners[0]?.photo_url) || null;
+        } catch (e) {
+          console.error('[lead champion] fetch photo:', e?.message);
+        }
+      }
+      withPhotos.push({ ...champion, winner_photo_url });
+    }
+    return res.json({ champions: withPhotos });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Admin announces today's range winners. Locks each range's first-hitter into a
+// snapshot + notifies all panels.
 export async function announceChampionHandler(req, res) {
   try {
     const { date, message } = req.body || {};
@@ -246,6 +272,29 @@ export async function announceChampionHandler(req, res) {
       return res.status(400).json({ message: result.error });
     }
     return res.status(201).json(result);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// FROs assigned to compete in a specific range (⚙️ Configure).
+export async function getSlabFrosHandler(req, res) {
+  try {
+    const fros = await getSlabFros(req.params.id);
+    return res.json({ fro_ids: fros });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function setSlabFrosHandler(req, res) {
+  try {
+    const { fro_ids } = req.body || {};
+    if (!Array.isArray(fro_ids)) {
+      return res.status(400).json({ message: 'fro_ids must be an array' });
+    }
+    const saved = await setSlabFros(req.params.id, fro_ids);
+    return res.json({ ok: true, fro_ids: saved });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -261,12 +310,24 @@ export async function championHistoryHandler(req, res) {
   }
 }
 
-// Hard-delete an announcement. Also removes the FRO-facing champion banner
-// for that date (frontend re-fetches after this call).
+// Hard-delete an announcement. Also removes the FRO-facing champion banner for
+// that date AND the champion notification rows every panel got at announce time
+// (bell entries type='lead_champion'), so deleting the champion removes it from
+// all sides immediately. notification_log is realtime-enabled, so open panels
+// drop the bell entry live.
 export async function deleteChampionHandler(req, res) {
   try {
     const row = await deleteAnnouncement(req.params.id);
     if (!row) return res.status(404).json({ message: 'Announcement not found' });
+
+    try {
+      await db.from('notification_log').delete()
+        .eq('type', 'lead_champion')
+        .eq('reference_id', String(row.id));
+    } catch (e) {
+      console.error('[lead champion] cleanup notifications:', e?.message);
+    }
+
     return res.json({ ok: true, id: row.id });
   } catch (e) {
     return res.status(500).json({ message: e.message });
