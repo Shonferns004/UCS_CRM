@@ -63,7 +63,68 @@ function itemStatus(it) {
 export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   const { reminders, activeFilter, setActiveFilter } = useRem()
 
-  const sourceItems = useMemo(() => buildReminderItems(), [])
+  const sourceItems = useMemo(() => {
+    const seed = buildReminderItems()
+    const fmtDate = (d) => {
+      if (!d) return ''
+      const s = String(d).slice(0, 10)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, day] = s.split('-')
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        return `${parseInt(day)} ${months[parseInt(m) - 1]}`
+      }
+      return String(d)
+    }
+    const matchDb = (it) => {
+      const cat = it.category
+      const title = it.title || ''
+      const ownerKey = it.owner || ''
+      let found = reminders.find(r =>
+        r.category === cat &&
+        String(r.title || '') === title &&
+        String(r.owner || '') === ownerKey
+      )
+      if (found) return found
+      if (it._sub) {
+        found = reminders.find(r =>
+          r.category === cat &&
+          String(r.title || '') === it._sub &&
+          String(r.owner || '') === title
+        )
+        if (found) return found
+        found = reminders.find(r =>
+          r.category === cat &&
+          String(r.title || '').startsWith(title) &&
+          String(r.title || '').includes(it._sub)
+        )
+        if (found) return found
+      }
+      if (it._sub === 'Rent TDS' && cat === 'RENT_TDS') {
+        found = reminders.find(r =>
+          r.category === cat &&
+          String(r.owner || '') === title &&
+          / TDS$/i.test(String(r.title || ''))
+        )
+        if (found) return found
+      }
+      return null
+    }
+    return seed.map(it => {
+      const db = matchDb(it)
+      if (!db) return it
+      return {
+        ...it,
+        title: db.title || it.title,
+        owner: db.owner || it.owner,
+        due: fmtDate(db.due_date) || it.due,
+        renewal: fmtDate(db.renewal_date) || it.renewal,
+        notes: db.notes || it.notes,
+        amount: db.amount || it.amount,
+        paidAmount: db.amount ? `₹${db.amount}` : it.paidAmount,
+        display_frequency: db.frequency_type || it.display_frequency,
+      }
+    })
+  }, [reminders])
 
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useState('')
