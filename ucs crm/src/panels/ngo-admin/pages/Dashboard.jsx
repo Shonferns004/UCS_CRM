@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download } from 'lucide-react';
 import { apiGet, getFroHourlyPerformance, notifyFro } from '../api/auth';
@@ -1028,11 +1028,6 @@ export default function Dashboard() {
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [idleSearch, setIdleSearch] = useState('');
   const [hourlyFroSearch, setHourlyFroSearch] = useState('');
-  // FRO hourly table: which FRO blocks are expanded + whether all are revealed
-  const [hourlyExpanded, setHourlyExpanded] = useState(() => new Set());
-  const [hourlyShowAll, setHourlyShowAll] = useState(false);
-  const hourlySeedKeyRef = useRef('');
-  const hourlySeedLenRef = useRef(-1);
 
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
@@ -1288,25 +1283,6 @@ export default function Dashboard() {
       overallConnPct: totalConn + totalNon > 0 ? Math.round((totalConn / (totalConn + totalNon)) * 100) : 0,
     };
   }, [hourlyGroups]);
-
-  // Seed the default "top 3 expanded" when the date/NGO changes, or the first time
-  // data arrives after mount. Subsequent live polls must NOT re-collapse user state.
-  useEffect(() => {
-    const key = `${hourlyDate}|${selectedNgoId}`;
-    const changedKey = hourlySeedKeyRef.current !== key;
-    const firstData = hourlySeedLenRef.current === 0 && hourlyGroups.length > 0;
-    if (changedKey) {
-      hourlySeedKeyRef.current = key;
-      hourlySeedLenRef.current = hourlyGroups.length;
-      setHourlyShowAll(false);
-      if (hourlyGroups.length > 0) setHourlyExpanded(new Set(hourlyGroups.slice(0, 3).map(g => g.id)));
-    } else if (firstData) {
-      hourlySeedLenRef.current = hourlyGroups.length;
-      setHourlyShowAll(false);
-      if (hourlyGroups.length > 0) setHourlyExpanded(new Set(hourlyGroups.slice(0, 3).map(g => g.id)));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hourlyDate, selectedNgoId, hourlyGroups.length]);
 
   // Telecaller performance rows (search-filtered) + tab totals for the redesign
   const perfRows = useMemo(() => (tlData?.performance || []).filter(p =>
@@ -2398,113 +2374,42 @@ export default function Dashboard() {
         const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
         // how many working hours are in the past/bucketable from 09:00 IST
         const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
-        const hourIdxOf = (r) => {
-          const m = /^(\d{2}):/.exec(r.hour || '');
-          return m ? parseInt(m[1], 10) - 9 : -1;
-        };
-        const isFuture = (r) => isToday && elapsedIdx >= 0 && hourIdxOf(r) > elapsedIdx;
-        const connColor = (c) => (c >= HOURLY_CONNECTED_TARGET ? '#16a34a' : c >= 9 ? '#d97706' : '#dc2626');
-        const connPctColor = (p) => (p >= 60 ? '#16a34a' : p >= 40 ? '#d97706' : '#dc2626');
 
         const froGroups = hourlyGroups;
         const totalConn = hourlyTotalsCalc.totalConn;
         const totalNon = hourlyTotalsCalc.totalNon;
         const overallConnPct = hourlyTotalsCalc.overallConnPct;
         const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
-        const toggleFro = (id) => setHourlyExpanded(prev => {
-          const next = new Set(prev);
-          if (next.has(id)) next.delete(id); else next.add(id);
-          return next;
-        });
         const targetPace = Math.round((DAILY_CONNECTED_TARGET * elapsedHrs) / HOURS_IN_WORKDAY);
         const froPerf = (g) => (targetPace > 0 ? Math.round((g.connected / targetPace) * 1000) / 10 : null);
-        const hourCell = (r) => {
-          const fut = isFuture(r);
-          const conn = r.connected || 0;
-          const non = r.non_connected || 0;
-          return { fut, conn, non, connPct: fut || conn + non === 0 ? null : Math.round((conn / (conn + non)) * 100) };
-        };
         const q = hourlyFroSearch.trim().toLowerCase();
-        const filteredGroups = q ? froGroups.filter(g => (g.name || '').toLowerCase().includes(q)) : froGroups;
-        const highGroups = filteredGroups.filter(g => (froPerf(g) ?? 0) >= 100).sort((a, b) => (froPerf(b) - froPerf(a)) || a.name.localeCompare(b.name));
-        const lowGroups = filteredGroups.filter(g => (froPerf(g) ?? 0) < 100).sort((a, b) => (froPerf(a) - froPerf(b)) || a.name.localeCompare(b.name));
+        const lowGroups = (q ? froGroups.filter(g => (g.name || '').toLowerCase().includes(q)) : froGroups)
+          .filter(g => (froPerf(g) ?? 0) < 100)
+          .sort((a, b) => (froPerf(a) - froPerf(b)) || a.name.localeCompare(b.name));
         const teamPerf = froGroups.length > 0 && targetPace > 0 ? Math.round((totalConn / (targetPace * froGroups.length)) * 1000) / 10 : 0;
-        const bucketHeader = (label, icon, count, tone) => (
-          <tr>
-            <td colSpan={7} style={{ padding: '7px 12px', fontSize: 11, fontWeight: 700, letterSpacing: .3, color: tone.color, background: tone.bg, borderTop: `1px solid ${tone.border}`, borderBottom: `1px solid ${tone.border}` }}>
-              {icon} {label} — {count} FRO{count === 1 ? '' : 's'}
-            </td>
-          </tr>
-        );
-        const froBlock = (g, i, bucket) => {
-          const high = bucket === 'high';
-          const expanded = hourlyExpanded.has(g.id);
+        const froRow = (g, i) => {
           const perf = froPerf(g);
           const pct = g.connPct;
-          const accent = high ? { color: '#16a34a', bar: '#22c55e' } : { color: '#ef4444', bar: '#ef4444' };
-          const rank = high ? (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1) : i + 1;
           return (
-            <Fragment key={g.id}>
-              <tr
-                onClick={() => toggleFro(g.id)}
-                className="performance-row"
-                style={{ cursor: 'pointer', borderBottom: '1px solid #edf1f5', background: expanded ? (high ? '#f4fdf7' : '#fff8f8') : undefined }}
-              >
-                <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>
-                  <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease', marginRight: 4, fontSize: 9, color: 'var(--ink-soft)' }}>▶</span>
-                  {rank}
-                </td>
-                <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{g.name}</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a', fontSize: 11, whiteSpace: 'nowrap' }}>{g.connected}</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#64748B', fontSize: 11, whiteSpace: 'nowrap' }}>{targetPace}</td>
-                <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#dc2626', fontSize: 11, whiteSpace: 'nowrap' }}>{g.nonConnected}</td>
-                <td style={{ padding: '7px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: pct == null ? '#f1f5f9' : pct >= 60 ? '#f0fdf4' : pct >= 40 ? '#fffbeb' : '#fef2f2', color: pct == null ? '#64748b' : pct >= 60 ? '#16a34a' : pct >= 40 ? '#d97706' : '#dc2626' }}>
-                    {pct == null ? '—' : pct + '%'}
-                  </span>
-                </td>
-                <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                  <div style={{ fontWeight: 700, color: perf == null ? '#64748b' : accent.color, fontSize: 11, marginBottom: 4 }}>{perf == null ? '—' : perf + '%'}</div>
-                  <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
-                    <div style={{ width: `${perf == null ? 0 : Math.min(perf, 100)}%`, height: '100%', borderRadius: 'inherit', background: accent.bar }} />
-                  </div>
-                </td>
-              </tr>
-              {expanded && (
-                <tr>
-                  <td colSpan={7} style={{ padding: '0 12px 10px 38px', background: '#fafcff' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, borderLeft: `3px solid ${accent.bar}` }}>
-                      <thead>
-                        <tr>
-                          {['Time slot', 'Conn Tgt', 'Conn', 'Non-Conn', 'Conn%'].map((h, ci) => (
-                            <th key={h} style={{ padding: '5px 8px', fontSize: 9, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', textAlign: ci === 0 ? 'left' : 'right', background: '#f8fafc', whiteSpace: 'nowrap' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.rows.map(r => {
-                          const { fut, conn, non, connPct } = hourCell(r);
-                          return (
-                            <tr key={g.id + r.hour} style={{ borderBottom: '1px solid #f1f5f9', background: fut ? '#fafafa' : 'transparent' }}>
-                              <td style={{ padding: '5px 8px', color: fut ? '#94a3b8' : '#17233C', whiteSpace: 'nowrap' }}>{r.hour}{fut && <span style={{ marginLeft: 4, fontSize: 9, color: '#94a3b8' }}>future</span>}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: '#64748B', whiteSpace: 'nowrap' }}>{fut ? '—' : HOURLY_CONNECTED_TARGET}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, color: fut || conn === 0 ? '#94a3b8' : connColor(conn), whiteSpace: 'nowrap' }}>{fut || conn === 0 ? '—' : conn}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', color: fut || non === 0 ? '#94a3b8' : '#dc2626', whiteSpace: 'nowrap' }}>{fut || non === 0 ? '—' : non}</td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, color: connPct == null ? '#94a3b8' : connPctColor(connPct), whiteSpace: 'nowrap' }}>{connPct == null ? '—' : connPct + '%'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              )}
-            </Fragment>
+            <tr key={g.id} className="performance-row" style={{ borderBottom: '1px solid #edf1f5' }}>
+              <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>{i + 1}</td>
+              <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{g.name}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a', fontSize: 11, whiteSpace: 'nowrap' }}>{g.connected}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#64748B', fontSize: 11, whiteSpace: 'nowrap' }}>{targetPace}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#dc2626', fontSize: 11, whiteSpace: 'nowrap' }}>{g.nonConnected}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: pct == null ? '#f1f5f9' : pct >= 60 ? '#f0fdf4' : pct >= 40 ? '#fffbeb' : '#fef2f2', color: pct == null ? '#64748b' : pct >= 60 ? '#16a34a' : pct >= 40 ? '#d97706' : '#dc2626' }}>
+                  {pct == null ? '—' : pct + '%'}
+                </span>
+              </td>
+              <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                <div style={{ fontWeight: 700, color: perf == null ? '#64748b' : '#ef4444', fontSize: 11, marginBottom: 4 }}>{perf == null ? '—' : perf + '%'}</div>
+                <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                  <div style={{ width: `${perf == null ? 0 : Math.min(perf, 100)}%`, height: '100%', borderRadius: 'inherit', background: '#ef4444' }} />
+                </div>
+              </td>
+            </tr>
           );
-        };
-        const toggleAllHours = () => {
-          setHourlyExpanded(hourlyShowAll ? new Set() : new Set(froGroups.map(g => g.id)));
-          setHourlyShowAll(v => !v);
         };
 
         return (
@@ -2557,7 +2462,7 @@ export default function Dashboard() {
                   <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
                   <div style={{ minWidth: 0 }}>
                     <h3 className="performance-title" style={{ color: '#17233C' }}>FRO Hourly Performance — Connected vs Target</h3>
-                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs grouped High/Low by progress toward the connected target pace (200/day ≈ 17/hr)</p>
+                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr)</p>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -2566,10 +2471,7 @@ export default function Dashboard() {
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg> Loading…
                     </span>
                   ) : (
-                    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>🏆 High {highGroups.length}</span>
-                      <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>⚠️ Low {lowGroups.length}</span>
-                    </span>
+                    <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>⚠️ Low {lowGroups.length}</span>
                   )}
                 </div>
               </div>
@@ -2579,8 +2481,7 @@ export default function Dashboard() {
                   Target pace&nbsp;=&nbsp;<b>{targetPace} connected needed by now ({elapsedHrs} elapsed hr{elapsedHrs === 1 ? '' : 's'} of {HOURS_IN_WORKDAY})</b>
                 </span>
                 <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-                  <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
-                  <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% Low</span>
+                  <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% of pace = Low</span>
                   <span style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{hourlyDate}</span>
                 </span>
               </div>
@@ -2593,12 +2494,6 @@ export default function Dashboard() {
                   onChange={e => setHourlyFroSearch(e.target.value)}
                   style={{ flex: 1, minWidth: 200, maxWidth: 360, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
                 />
-                <button
-                  onClick={toggleAllHours}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 34, padding: '0 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid #e2e8f0', background: '#fff', color: '#17233C', cursor: 'pointer' }}
-                >
-                  {hourlyShowAll ? '🗂 Collapse all' : '🕒 Expand hourly rows'}
-                </button>
               </div>
 
               <div className="performance-table-wrapper">
@@ -2624,9 +2519,12 @@ export default function Dashboard() {
                   <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                     <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>No calls recorded on this date</div>
                   </div>
-                ) : filteredGroups.length === 0 ? (
+                ) : lowGroups.length === 0 ? (
                   <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-                    <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>No FROs match your search.</div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>✓</div>
+                      <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>All FROs are at or above the target pace.</div>
+                    </div>
                   </div>
                 ) : (
                   <div style={{ maxHeight: 460, overflowY: 'auto' }}>
@@ -2648,10 +2546,7 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {bucketHeader('High Performance', '🏆', highGroups.length, { color: '#14532D', bg: '#f0fdf4', border: '#bbf7d0' })}
-                        {highGroups.map((g, i) => froBlock(g, i, 'high'))}
-                        {bucketHeader('Low Performance', '⚠️', lowGroups.length, { color: '#991B1B', bg: '#fff1f2', border: '#fecdd3' })}
-                        {lowGroups.map((g, i) => froBlock(g, i, 'low'))}
+                        {lowGroups.map((g, i) => froRow(g, i))}
                       </tbody>
                       <tfoot>
                         <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
@@ -2672,15 +2567,8 @@ export default function Dashboard() {
               </div>
 
               <div style={{ padding: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #bbf7d0', borderRadius: 10, background: '#f0fdf4' }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>🏆 Total High Performers: {highGroups.length} FROs</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs have reached {targetPace} connected by now — right on pace.</div>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#14532D', whiteSpace: 'nowrap' }}>Keep it up! 🎉</span>
-                </div>
                 {lowGroups.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5', marginTop: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>⚠️ Total Low Performers: {lowGroups.length} FROs</div>
                       <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs are below the target pace — support them!</div>
