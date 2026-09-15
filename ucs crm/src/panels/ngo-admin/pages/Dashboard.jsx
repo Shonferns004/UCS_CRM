@@ -1259,7 +1259,7 @@ export default function Dashboard() {
     const map = {};
     for (const r of hourlyFroRows) {
       const id = r.fro_worker_id ?? r.fro_name ?? 'Unknown';
-      if (!map[id]) map[id] = { id, name: r.fro_name || 'Unknown', rows: [], connected: 0, nonConnected: 0, cells: 0, avgCalls: 0 };
+      if (!map[id]) map[id] = { id, name: r.fro_name || 'Unknown', rows: [], connected: 0, nonConnected: 0, cells: 0, connPct: null };
       map[id].rows.push(r);
     }
     const groups = Object.values(map).map(g => {
@@ -1271,7 +1271,7 @@ export default function Dashboard() {
         g.nonConnected += r.non_connected || 0;
         g.cells++;
       }
-      g.avgCalls = g.cells > 0 ? Math.round(((g.connected + g.nonConnected) / g.cells) * 10) / 10 : 0;
+      g.connPct = g.connected + g.nonConnected > 0 ? Math.round((g.connected / (g.connected + g.nonConnected)) * 100) : null;
       return g;
     });
     groups.sort((a, b) => (a.connected - b.connected) || a.name.localeCompare(b.name));
@@ -1281,12 +1281,10 @@ export default function Dashboard() {
   const hourlyTotalsCalc = useMemo(() => {
     const totalConn = hourlyGroups.reduce((s, g) => s + g.connected, 0);
     const totalNon = hourlyGroups.reduce((s, g) => s + g.nonConnected, 0);
-    const totalCells = hourlyGroups.reduce((s, g) => s + g.cells, 0);
     return {
       totalConn,
       totalNon,
-      totalCells,
-      overallAvg: totalCells > 0 ? (totalConn + totalNon) / totalCells : 0,
+      overallConnPct: totalConn + totalNon > 0 ? Math.round((totalConn / (totalConn + totalNon)) * 100) : 0,
     };
   }, [hourlyGroups]);
 
@@ -2409,11 +2407,12 @@ export default function Dashboard() {
         };
         const isFuture = (r) => isToday && elapsedIdx >= 0 && hourIdxOf(r) > elapsedIdx;
         const connColor = (c) => (c >= HOURLY_CONNECTED_TARGET ? '#16a34a' : c >= 9 ? '#d97706' : '#dc2626');
+        const connPctColor = (p) => (p >= 60 ? '#16a34a' : p >= 40 ? '#d97706' : '#dc2626');
 
         const froGroups = hourlyGroups;
         const totalConn = hourlyTotalsCalc.totalConn;
         const totalNon = hourlyTotalsCalc.totalNon;
-        const overallAvg = hourlyTotalsCalc.overallAvg;
+        const overallConnPct = hourlyTotalsCalc.overallConnPct;
         const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
         const toggleFro = (id) => setHourlyExpanded(prev => {
           const next = new Set(prev);
@@ -2494,20 +2493,18 @@ export default function Dashboard() {
                         </th>
                         <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#16a34a', background: 'var(--bg)', fontWeight: 700 }}>Conn</th>
                         <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#dc2626', background: 'var(--bg)', fontWeight: 700 }}>Non-Conn</th>
-                        <th style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#7c3aed', background: 'var(--bg)', fontWeight: 700 }}>Avg Calls</th>
+                        <th style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#16a34a', background: 'var(--bg)', fontWeight: 700 }}>Conn%</th>
                       </tr>
                     </thead>
                     <tbody>
                       {froGroups.map((g, gi) => {
                         if (!hourlyShowAll && gi >= 3) return null;
                         const expanded = hourlyExpanded.has(g.id);
-                        let cumCalls = 0;
-                        const hourRows = g.rows.map((r, i) => {
+                        const hourRows = g.rows.map((r) => {
                           const fut = isFuture(r);
                           const conn = r.connected || 0;
                           const non = r.non_connected || 0;
-                          if (!fut) cumCalls += conn + non;
-                          const avg = fut ? null : Math.round((cumCalls / (i + 1)) * 10) / 10;
+                          const connPct = fut || conn + non === 0 ? null : Math.round((conn / (conn + non)) * 100);
                           return (
                             <tr key={g.id + r.hour} style={{ borderBottom: '1px solid var(--line)', background: fut ? '#fafafa' : 'transparent' }}>
                               <td style={{ padding: '6px 10px', fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--ink)' }}>{g.name}</td>
@@ -2515,7 +2512,7 @@ export default function Dashboard() {
                               <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)' }}>{fut ? '—' : HOURLY_CONNECTED_TARGET}</td>
                               <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: (fut || conn === 0) ? 'var(--ink-soft)' : connColor(conn) }}>{fut || conn === 0 ? '—' : conn}</td>
                               <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: (fut || non === 0) ? 'var(--ink-soft)' : '#dc2626' }}>{fut || non === 0 ? '—' : non}</td>
-                              <td style={{ padding: '6px 12px 6px 8px', textAlign: 'right', fontWeight: 700, color: fut ? 'var(--ink-soft)' : 'var(--ink)' }}>{fut || avg == null ? '—' : avg}</td>
+                              <td style={{ padding: '6px 12px 6px 8px', textAlign: 'right', fontWeight: 700, color: connPct == null ? 'var(--ink-soft)' : connPctColor(connPct) }}>{connPct == null ? '—' : connPct + '%'}</td>
                             </tr>
                           );
                         });
@@ -2531,7 +2528,7 @@ export default function Dashboard() {
                                   <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{g.name}</span>
                                   <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '1px 8px', borderRadius: 999 }}>Conn {g.connected}</span>
                                   <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '1px 8px', borderRadius: 999 }}>Non-Conn {g.nonConnected}</span>
-                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '1px 8px', borderRadius: 999 }}>Avg {g.avgCalls}</span>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '1px 8px', borderRadius: 999 }}>Conn% {g.connPct == null ? '—' : g.connPct + '%'}</span>
                                   <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>of {DAILY_CONNECTED_TARGET}/day</span>
                                 </span>
                               </td>
@@ -2548,7 +2545,7 @@ export default function Dashboard() {
                         <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--ink-soft)' }}>{DAILY_CONNECTED_TARGET}/FRO</td>
                         <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
                         <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626' }}>{totalNon}</td>
-                        <td style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontWeight: 800, color: '#7c3aed' }}>{Math.round(overallAvg * 10) / 10}</td>
+                        <td style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{overallConnPct}%</td>
                       </tr>
                     </tfoot>
                   </table>
