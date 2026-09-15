@@ -1203,7 +1203,7 @@ export const getFroPerformance = async (req, res) => {
       const attPct = attendanceMap[w.id] != null ? attendanceMap[w.id] : null;
       const target = targetMap[w.id] || { target_amount: 0, achieved_target: null };
       const monthlyTarget = target.target_amount;
-      const achievedTarget = target.achieved_target != null ? target.achieved_target : coll;
+      const achievedTarget = (target.achieved_target != null && Number(target.achieved_target) > 0) ? Number(target.achieved_target) : coll;
 const workedDays = workedDaysMap[w.id]?.size || 0;
       const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
       const remainingDays = Math.max(workingDays - workedDays, 0);
