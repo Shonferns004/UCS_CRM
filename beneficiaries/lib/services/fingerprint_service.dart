@@ -292,36 +292,48 @@ class FingerprintService {
   }
 
   static Future<Map<String, dynamic>?> _findRdService() async {
-    for (final scheme in ['https', 'http']) {
-      final client = createRdClient(allowSelfSigned: scheme == 'https');
-      try {
-        for (var port = 11100; port <= 11120; port++) {
-          final uri = Uri.parse('$scheme://127.0.0.1:$port');
-          try {
-            final response = await _rdRequest(
-              client,
-              'RDSERVICE',
-              uri,
-            ).timeout(const Duration(seconds: 2));
-            if (response.statusCode >= 200 &&
-                response.statusCode < 300 &&
-                response.body.contains('<RDService')) {
-              final capturePath = RegExp(
-                r'<Interface\b[^>]*\bpath="([^"]*?/rd/capture)"',
-                caseSensitive: false,
-              ).firstMatch(response.body)?.group(1);
-              if (response.body.contains('Mantra') ||
-                  capturePath == '/rd/capture') {
-                return {
-                  'uri': uri,
-                  'capturePath': capturePath ?? '/rd/capture',
-                };
+    final ports = <int>[
+      11101,
+      ...List.generate(
+        21,
+        (index) => 11100 + index,
+      ).where((port) => port != 11101),
+    ];
+    for (final host in ['127.0.0.1', 'localhost']) {
+      for (final scheme in ['https', 'http']) {
+        final client = createRdClient(allowSelfSigned: scheme == 'https');
+        try {
+          for (final port in ports) {
+            final uri = Uri.parse('$scheme://$host:$port');
+            try {
+              final response = await _rdRequest(
+                client,
+                'RDSERVICE',
+                uri,
+              ).timeout(const Duration(seconds: 2));
+              if (response.statusCode >= 200 &&
+                  response.statusCode < 300 &&
+                  RegExp(
+                    r'<RDService\b',
+                    caseSensitive: false,
+                  ).hasMatch(response.body)) {
+                final capturePath = RegExp(
+                  r'<Interface\b[^>]*\bpath="([^"]*?/rd/capture)"',
+                  caseSensitive: false,
+                ).firstMatch(response.body)?.group(1);
+                if (response.body.contains('Mantra') ||
+                    capturePath == '/rd/capture') {
+                  return {
+                    'uri': uri,
+                    'capturePath': capturePath ?? '/rd/capture',
+                  };
+                }
               }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
+        } finally {
+          client.close();
         }
-      } finally {
-        client.close();
       }
     }
     return null;
