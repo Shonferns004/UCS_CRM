@@ -9,6 +9,7 @@ import '../profile/profile_page.dart';
 import '../beneficiaries/qr_scanner_page.dart';
 import '../beneficiaries/beneficiary_search_page.dart';
 import '../beneficiaries/add_beneficiary_page.dart';
+import '../beneficiaries/fingerprint_lookup_page.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback onLogout;
@@ -54,10 +55,26 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: Colors.white,
         indicatorColor: AppTheme.secondary.withAlpha(30),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home, color: AppTheme.secondary), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.calendar_today_outlined), selectedIcon: Icon(Icons.calendar_today, color: AppTheme.secondary), label: 'Programs'),
-          NavigationDestination(icon: Icon(Icons.task_outlined), selectedIcon: Icon(Icons.task, color: AppTheme.secondary), label: 'Tasks'),
-          NavigationDestination(icon: Icon(Icons.person_outlined), selectedIcon: Icon(Icons.person, color: AppTheme.secondary), label: 'Profile'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home, color: AppTheme.secondary),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today, color: AppTheme.secondary),
+            label: 'Programs',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.task_outlined),
+            selectedIcon: Icon(Icons.task, color: AppTheme.secondary),
+            label: 'Tasks',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outlined),
+            selectedIcon: Icon(Icons.person, color: AppTheme.secondary),
+            label: 'Profile',
+          ),
         ],
       ),
     );
@@ -66,7 +83,11 @@ class _HomePageState extends State<HomePage> {
   Widget _buildHomeContent() {
     final name = _volunteerData?['name'] ?? 'Volunteer';
     final hour = DateTime.now().hour;
-    final greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    final greeting = hour < 12
+        ? 'Good Morning'
+        : hour < 17
+        ? 'Good Afternoon'
+        : 'Good Evening';
 
     return SafeArea(
       child: RefreshIndicator(
@@ -80,9 +101,23 @@ class _HomePageState extends State<HomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('BEING SEVAK', style: TextStyle(fontSize: 10, letterSpacing: 2, color: AppTheme.textSecondary)),
+                      const Text(
+                        'BEING SEVAK',
+                        style: TextStyle(
+                          fontSize: 10,
+                          letterSpacing: 2,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
                       const SizedBox(height: 4),
-                      Text('$greeting, $name', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                      Text(
+                        '$greeting, $name',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.primary,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -92,7 +127,10 @@ class _HomePageState extends State<HomePage> {
 
             // Quick Scan Button
             GestureDetector(
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScannerPage())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const QrScannerPage()),
+              ),
               child: Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
@@ -104,7 +142,15 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     Icon(Icons.qr_code_scanner, color: Colors.white, size: 28),
                     SizedBox(width: 12),
-                    Text('SCAN BENEFICIARY', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 1)),
+                    Text(
+                      'SCAN BENEFICIARY',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -119,11 +165,23 @@ class _HomePageState extends State<HomePage> {
             if (_overview != null) ...[
               Row(
                 children: [
-                  _statCard('Total', '${_overview!['total_beneficiaries'] ?? 0}', AppTheme.secondary),
+                  _statCard(
+                    'Total',
+                    '${_overview!['total_beneficiaries'] ?? 0}',
+                    AppTheme.secondary,
+                  ),
                   const SizedBox(width: 12),
-                  _statCard('Active', '${_overview!['active'] ?? 0}', AppTheme.success),
+                  _statCard(
+                    'Active',
+                    '${_overview!['active'] ?? 0}',
+                    AppTheme.success,
+                  ),
                   const SizedBox(width: 12),
-                  _statCard('Programs', '${_overview!['programs'] ?? 0}', AppTheme.primary),
+                  _statCard(
+                    'Programs',
+                    '${_overview!['programs'] ?? 0}',
+                    AppTheme.primary,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -139,13 +197,25 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildBeneficiarySection() {
-    final canAdd = ['super_admin', 'admin', 'ngo', 'accounts'].contains(_volunteerData?['role']);
+    final canAdd = [
+      'super_admin',
+      'admin',
+      'ngo',
+      'accounts',
+    ].contains(_volunteerData?['role']);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 8),
-          child: Text('BENEFICIARIES', style: TextStyle(fontSize: 11, letterSpacing: 1.5, color: AppTheme.textSecondary)),
+          child: Text(
+            'BENEFICIARIES',
+            style: TextStyle(
+              fontSize: 11,
+              letterSpacing: 1.5,
+              color: AppTheme.textSecondary,
+            ),
+          ),
         ),
         Row(
           children: [
@@ -155,7 +225,12 @@ class _HomePageState extends State<HomePage> {
                 label: 'Find Beneficiary',
                 sublabel: 'Search & enroll fingerprint',
                 color: AppTheme.secondary,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeneficiarySearchPage())),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const BeneficiarySearchPage(),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -163,12 +238,32 @@ class _HomePageState extends State<HomePage> {
               child: _actionCard(
                 icon: Icons.person_add_alt_1,
                 label: 'Add Beneficiary',
-                sublabel: canAdd ? 'Register new user' : 'Requires admin access',
+                sublabel: canAdd
+                    ? 'Register new user'
+                    : 'Requires admin access',
                 color: canAdd ? AppTheme.success : AppTheme.textSecondary,
-                onTap: canAdd ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddBeneficiaryPage())) : null,
+                onTap: canAdd
+                    ? () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AddBeneficiaryPage(),
+                        ),
+                      )
+                    : null,
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        _actionCard(
+          icon: Icons.fingerprint,
+          label: 'Find by Fingerprint',
+          sublabel: 'Identify enrolled user',
+          color: AppTheme.primary,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const FingerprintLookupPage()),
+          ),
         ),
       ],
     );
@@ -195,9 +290,18 @@ class _HomePageState extends State<HomePage> {
           children: [
             Icon(icon, color: color, size: 28),
             const SizedBox(height: 10),
-            Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 2),
-            Text(sublabel, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+            Text(
+              sublabel,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppTheme.textSecondary,
+              ),
+            ),
           ],
         ),
       ),
@@ -215,9 +319,22 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Column(
           children: [
-            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: color)),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppTheme.textSecondary,
+              ),
+            ),
           ],
         ),
       ),
