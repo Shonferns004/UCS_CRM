@@ -164,17 +164,16 @@ function WhatsAppComingSoon() {
 function BirthdayPopup() {
   const { user } = useUcs()
   const [celebrants, setCelebrants] = useState([])
-  const [dismissed, setDismissed] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('fro_bday_dismissed') || '[]') } catch { return [] }
-  })
 
   useEffect(() => {
     if (!user?.id) return
     let cancelled = false
+    let retryTimer = null
     const load = () => {
       api('/workers/birthdays', { _prefix: 'ucs' })
         .then(data => {
           if (cancelled) return
+          if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
           const todayMD = istDateString().slice(5)
           const todays = (data || []).filter(w => {
             if (!w.dob) return false
@@ -185,22 +184,18 @@ function BirthdayPopup() {
           })
           setCelebrants(todays)
         })
-        .catch(err => { if (!cancelled) console.error('Birthday popup error:', err.message) })
+        .catch(err => {
+          if (cancelled) return
+          console.error('Birthday popup error:', err.message)
+          if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; load() }, 30 * 1000)
+        })
     }
     load()
     const t = setInterval(load, 10 * 60 * 1000)
-    return () => { cancelled = true; clearInterval(t) }
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); clearInterval(t) }
   }, [user?.id])
 
-  const todayKey = istDateString()
-  const visible = celebrants.filter(c => !dismissed.includes(`${todayKey}:${c.id}`))
-  if (visible.length === 0) return null
-
-  const dismissOne = (id) => {
-    const next = [...dismissed, `${todayKey}:${id}`]
-    setDismissed(next)
-    try { localStorage.setItem('fro_bday_dismissed', JSON.stringify(next)) } catch {}
-  }
+  if (celebrants.length === 0) return null
 
   return (
     <div className="fro-bday-hdr">
@@ -209,12 +204,11 @@ function BirthdayPopup() {
 .fro-bday-card{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 5px;border-radius:12px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1.5px solid #fcd34d;animation:froBdaySparkle 2.2s ease-in-out infinite}
 .fro-bday-card .ph{width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0;background:#fffbeb;border:2px solid #fbbf24}
 .fro-bday-card .av{width:38px;height:38px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;border:2px solid #fbbf24}
-.fro-bday-txt{line-height:1.15;min-width:0}
-.fro-bday-txt .nm{font-size:12.5px;font-weight:700;color:#92400e;white-space:nowrap}
-.fro-bday-txt .sub{font-size:10px;font-weight:700;color:#f59e0b;white-space:nowrap}
-.fro-bday-x{width:16px;height:16px;border-radius:50%;border:none;background:#fde68a;color:#b45309;font-size:9px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;flex-shrink:0}
-@media (max-width:640px){.fro-bday-hdr{margin-right:6px}.fro-bday-card{padding:3px 6px 3px 4px}.fro-bday-card .ph,.fro-bday-card .av{width:32px;height:32px;font-size:13px}.fro-bday-txt .nm{font-size:11.5px}.fro-bday-txt .sub{font-size:9px}}`}</style>
-      {visible.map(c => (
+.fro-bday-txt{line-height:1.15;min-width:0;max-width:150px}
+.fro-bday-txt .nm{font-size:12.5px;font-weight:700;color:#92400e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fro-bday-txt .sub{font-size:10px;font-weight:700;color:#f59e0b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){.fro-bday-hdr{margin-right:6px}.fro-bday-card{padding:3px 6px 3px 4px}.fro-bday-card .ph,.fro-bday-card .av{width:32px;height:32px;font-size:13px}.fro-bday-txt{max-width:110px}.fro-bday-txt .nm{font-size:11.5px}.fro-bday-txt .sub{font-size:9px}}`}</style>
+      {celebrants.map(c => (
         <div key={c.id} className="fro-bday-card" title={`Happy Birthday ${c.name}!`}>
           {c.photo_url ? (
             <img className="ph" src={c.photo_url} alt={c.name} />
@@ -222,10 +216,9 @@ function BirthdayPopup() {
             <div className="av">{String(c.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 1).join('').toUpperCase()}</div>
           )}
           <div className="fro-bday-txt">
-            <div className="nm">{c.name}</div>
+            <div className="nm">{c.name || 'Team Member'}</div>
             <div className="sub">🎂 Birthday Today!</div>
           </div>
-          <button className="fro-bday-x" onClick={() => dismissOne(c.id)} aria-label="Dismiss">✕</button>
         </div>
       ))}
     </div>
