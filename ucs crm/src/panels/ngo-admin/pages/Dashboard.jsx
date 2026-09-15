@@ -2738,6 +2738,7 @@ export default function Dashboard() {
                 .productivity-alerts tbody tr:hover { background: #f8fbff; }
                 @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
               `}</style>
+              </div>
             </div>
           </>
         );
