@@ -2477,7 +2477,7 @@ export default function Dashboard() {
                 />
               </div>
 
-              <div className="performance-table-wrapper">
+              <div className="performance-table-wrapper" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                 {hourlyLoading ? (
                   <div style={{ minHeight: 320, padding: '4px 16px' }}>
                     {[0,1,2,3,4,5].map(i => (
@@ -2508,7 +2508,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+                  <div className="performance-table-scroll">
                     <table className="performance-table">
                       <colgroup>
                         <col style={{ width: '30%' }} />
@@ -2547,7 +2547,7 @@ export default function Dashboard() {
             </div>
 
             {/* Productivity Alerts — Idle Hours (single unified container) */}
-            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', height: 'auto' }}>
+            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {/* Header */}
               <div style={{ padding: '20px 24px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -2665,7 +2665,7 @@ export default function Dashboard() {
                   );
                 }
                 return (
-                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, overflowX: 'auto', maxHeight: 600, overflowY: 'auto' }}>
+                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'auto' }}>
                     <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr>
