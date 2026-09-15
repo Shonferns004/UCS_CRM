@@ -1,4 +1,4 @@
-import { enrollBiometric, getBiometrics, getBiometricStatus, revokeBiometric, verifyBiometric } from '../models/biometricModel.js';
+import { enrollBiometric, getBiometrics, getBiometricStatus, identifyBeneficiaryByTemplate, revokeBiometric, verifyBiometric } from '../models/biometricModel.js';
 import { logAuditEvent } from '../models/auditLogModel.js';
 
 export const enrollFingerprint = async (req, res) => {
@@ -96,6 +96,20 @@ export const revokeFingerprint = async (req, res) => {
     });
 
     return res.json({ message: 'Credential revoked', credential: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const identifyFingerprint = async (req, res) => {
+  try {
+    const template = req.body.template || req.body.fid_data || null;
+    if (!template) return res.status(400).json({ message: 'Fingerprint template is required' });
+
+    const beneficiary = await identifyBeneficiaryByTemplate(template);
+    if (!beneficiary) return res.status(404).json({ message: 'No beneficiary matched this fingerprint' });
+
+    return res.json({ beneficiary });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
