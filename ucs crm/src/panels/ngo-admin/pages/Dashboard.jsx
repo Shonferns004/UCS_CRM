@@ -2165,7 +2165,7 @@ export default function Dashboard() {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Per-day target × 100</b>
+              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Remaining daily target × 100</b>
             </span>
             <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
@@ -2234,7 +2234,7 @@ export default function Dashboard() {
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                           <div style={{ fontWeight: 700, color: '#16a34a', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
@@ -2278,7 +2278,7 @@ export default function Dashboard() {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Per-day target × 100</b>
+              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Remaining daily target × 100</b>
             </span>
             <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
@@ -2343,7 +2343,7 @@ export default function Dashboard() {
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.per_day_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                           <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
