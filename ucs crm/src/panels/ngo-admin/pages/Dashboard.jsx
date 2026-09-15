@@ -2544,18 +2544,6 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-
-              <div style={{ padding: 8 }}>
-                {lowGroups.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>⚠️ Total Low Performers: {lowGroups.length} FROs</div>
-                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs are below the target pace — support them!</div>
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them! 💪</span>
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* Productivity Alerts — Idle Hours (single unified container) */}
