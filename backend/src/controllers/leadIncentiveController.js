@@ -144,12 +144,23 @@ export async function updateSlabHandler(req, res) {
     let defaults = { min_lead_amount: 300, lead_rate: 20 };
     try { defaults = { ...defaults, ...(await getSettings()) }; } catch { /* keep defaults */ }
 
+    // Optional competition window (⏱ Start/End Time control): a value sets the
+    // start/end instant, null or '' clears it back to "not scheduled/ended".
+    const startedAt = req.body.started_at !== undefined
+      ? (req.body.started_at === null || req.body.started_at === '' ? null : new Date(req.body.started_at).toISOString())
+      : undefined;
+    const endedAt = req.body.ended_at !== undefined
+      ? (req.body.ended_at === null || req.body.ended_at === '' ? null : new Date(req.body.ended_at).toISOString())
+      : undefined;
+
     const slab = await updateSlab(req.params.id, {
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
       min_lead_amount: numOr(req.body.min_lead_amount, 300),
       lead_rate: numOr(req.body.lead_rate, 20),
+      started_at: startedAt,
+      ended_at: endedAt,
     });
     if (!slab) return res.status(404).json({ message: 'Slab not found' });
 
@@ -182,25 +193,42 @@ export async function deleteSlabHandler(req, res) {
 
 export async function applyAllSlabsHandler(req, res) {
   try {
-    const { min_lead_amount, lead_rate } = req.body || {};
-    if (min_lead_amount === undefined || min_lead_amount === '' || lead_rate === undefined || lead_rate === '') {
-      return res.status(400).json({ message: 'min_lead_amount and lead_rate are required' });
+    const { min_lead_amount, lead_rate, started_at, ended_at } = req.body || {};
+    const hasRates = min_lead_amount !== undefined && min_lead_amount !== '' && lead_rate !== undefined && lead_rate !== '';
+    const hasTimes = started_at !== undefined;
+    if (!hasRates && !hasTimes) {
+      return res.status(400).json({ message: 'Provide min_lead_amount + lead_rate, or started_at/ended_at' });
     }
-    const minLead = Number(min_lead_amount);
-    const rate = Number(lead_rate);
-    if (!(minLead >= 0) || !(rate >= 0)) {
-      return res.status(400).json({ message: 'Minimum Lead Amount and ₹ per Qualified Lead must be 0 or more' });
+    if (hasRates) {
+      const minLead = Number(min_lead_amount);
+      const rate = Number(lead_rate);
+      if (!(minLead >= 0) || !(rate >= 0)) {
+        return res.status(400).json({ message: 'Minimum Lead Amount and ₹ per Qualified Lead must be 0 or more' });
+      }
     }
+    const startedAtVal = started_at !== undefined
+      ? (started_at === null || started_at === '' ? null : new Date(started_at).toISOString())
+      : undefined;
+    const endedAtVal = ended_at !== undefined
+      ? (ended_at === null || ended_at === '' ? null : new Date(ended_at).toISOString())
+      : undefined;
 
     const slabs = await updateAllSlabs({
-      min_lead_amount: minLead,
-      lead_rate: rate,
+      min_lead_amount: hasRates ? Number(min_lead_amount) : undefined,
+      lead_rate: hasRates ? Number(lead_rate) : undefined,
+      started_at: startedAtVal,
+      ended_at: endedAtVal,
     });
-    // Applying a common value restarts every range's live competition.
-    try { await clearAllSlabStops(); } catch (e) { console.error('[lead rules clear stops]', e?.message); }
+    // Setting a new competition window re-opens any range that was stopped for
+    // today (the scheduled race takes over). Value-only applies keep the previous behaviour.
+    if (hasTimes) {
+      try { await clearAllSlabStops(); } catch (e) { console.error('[lead rules clear stops]', e?.message); }
+    }
     // Every FRO gets one combined popup listing all ranges with the new common value.
-    try { await notifyRangeRuleChange({ slabs }); }
-    catch (e) { console.error('[lead rules notify]', e?.message); }
+    if (hasRates) {
+      try { await notifyRangeRuleChange({ slabs }); }
+      catch (e) { console.error('[lead rules notify]', e?.message); }
+    }
     return res.json({ ok: true, count: slabs.length, slabs });
   } catch (e) {
     return res.status(500).json({ message: e.message });

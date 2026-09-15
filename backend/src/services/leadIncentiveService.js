@@ -124,7 +124,34 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
   const endDate = new Date(date);
   endDate.setHours(23, 59, 59, 999);
 
-  // Fetch verified leads for this date
+  // Competition window (like "Sir ka Incentive"): only leads verified between
+  // the range's started_at and ended_at count toward rewards. NULL started_at =
+  // not started yet (nothing counts); NULL ended_at = runs to end of day.
+  let winStart = startDate;
+  let winEnd = endDate;
+  if (slab && slab.started_at) {
+    const s = new Date(slab.started_at);
+    if (s.getTime() > winStart.getTime()) winStart = s;
+  }
+  if (slab && slab.ended_at) {
+    const e = new Date(slab.ended_at);
+    if (e.getTime() < winEnd.getTime()) winEnd = e;
+  }
+  // Window fully outside the day (e.g. not yet started, or ended before day) → nothing counts.
+  if (winStart.getTime() >= winEnd.getTime()) {
+    return {
+      target: target != null ? target : 0,
+      slab,
+      total_leads: 0,
+      qualified_leads: 0,
+      total_amount: 0,
+      lead_incentive: 0,
+      slab_bonus: 0,
+      leads: [],
+    };
+  }
+
+  // Fetch verified leads within the day & competition window
   const { data: leads } = await db
     .from('fro_donor_logs')
     .select('id, donor_id, amount_collected, verified_at')
@@ -132,8 +159,8 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
     .eq('action', 'disposition')
     .eq('disposition_detail', 'lead_done')
     .eq('accounts_status', 'verified')
-    .gte('verified_at', startDate.toISOString())
-    .lte('verified_at', endDate.toISOString())
+    .gte('verified_at', winStart.toISOString())
+    .lte('verified_at', winEnd.toISOString())
     .order('verified_at', { ascending: false });
 
   const allLeads = leads || [];
@@ -358,6 +385,17 @@ export const getFroRanks = async (date) => {
   if (stoppedForDate.size > 0) {
     slabs = slabs.filter(s => !stoppedForDate.has(s.id));
   }
+
+  // Only RANGES WHOSE COMPETITION IS LIVE appear on the FRO leaderboard: a range
+  // needs a started_at in the past and (if it has an ended_at) an ended_at still
+  // in the future. Not-started and already-ended ranges are invisible to FROs.
+  const nowMs = Date.now();
+  slabs = slabs.filter(s => {
+    if (!s.started_at) return false;
+    if (new Date(s.started_at).getTime() > nowMs) return false;
+    if (s.ended_at && new Date(s.ended_at).getTime() <= nowMs) return false;
+    return true;
+  });
 
   const ids = [...new Set(fros.map(f => f.fro_id))];
   const photoMap = {};
