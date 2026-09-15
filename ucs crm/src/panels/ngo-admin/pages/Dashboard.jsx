@@ -2387,12 +2387,11 @@ export default function Dashboard() {
           .filter(g => (froPerf(g) ?? 0) < 100)
           .sort((a, b) => (froPerf(a) - froPerf(b)) || a.name.localeCompare(b.name));
         const teamPerf = froGroups.length > 0 && targetPace > 0 ? Math.round((totalConn / (targetPace * froGroups.length)) * 1000) / 10 : 0;
-        const froRow = (g, i) => {
+        const froRow = (g) => {
           const perf = froPerf(g);
           const pct = g.connPct;
           return (
             <tr key={g.id} className="performance-row" style={{ borderBottom: '1px solid #edf1f5' }}>
-              <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>{i + 1}</td>
               <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{g.name}</td>
               <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a', fontSize: 11, whiteSpace: 'nowrap' }}>{g.connected}</td>
               <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#64748B', fontSize: 11, whiteSpace: 'nowrap' }}>{targetPace}</td>
@@ -2455,8 +2454,9 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* FRO Hourly Performance — High/Low split in a single target-pace table */}
-            <div className="performance-card" style={{ marginBottom: 16 }}>
+            {/* FRO Hourly Performance + Productivity Alerts — side by side */}
+            <div className="performance-sections">
+              <div className="performance-card">
               <div className="performance-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
                   <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
@@ -2465,25 +2465,6 @@ export default function Dashboard() {
                     <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr)</p>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {hourlyLoading ? (
-                    <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg> Loading…
-                    </span>
-                  ) : (
-                    <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>⚠️ Low {lowGroups.length}</span>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  Target pace&nbsp;=&nbsp;<b>{targetPace} connected needed by now ({elapsedHrs} elapsed hr{elapsedHrs === 1 ? '' : 's'} of {HOURS_IN_WORKDAY})</b>
-                </span>
-                <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-                  <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% of pace = Low</span>
-                  <span style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#475569', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{hourlyDate}</span>
-                </span>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '12px 16px' }}>
@@ -2530,28 +2511,26 @@ export default function Dashboard() {
                   <div style={{ maxHeight: 460, overflowY: 'auto' }}>
                     <table className="performance-table">
                       <colgroup>
-                        <col style={{ width: 34 }} />
-                        <col style={{ width: '22%' }} />
-                        <col style={{ width: '11%' }} />
-                        <col style={{ width: '13%' }} />
+                        <col style={{ width: '30%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '14%' }} />
                         <col style={{ width: '12%' }} />
                         <col style={{ width: '12%' }} />
-                        <col style={{ width: '18%' }} />
+                        <col style={{ width: '20%' }} />
                       </colgroup>
                       <thead>
                         <tr>
-                          {['#','FRO','Conn','Tgt Pace','Non-Conn','Conn%','Perf'].map((h, ci) => (
-                            <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 5 ? 'center' : ci === 6 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+                          {['FRO','Conn','Tgt Pace','Non-Conn','Conn%','Perf'].map((h, ci) => (
+                            <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 4 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {lowGroups.map((g, i) => froRow(g, i))}
+                        {lowGroups.map(froRow)}
                       </tbody>
                       <tfoot>
                         <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                          <td style={{ padding: '8px 8px', fontSize: 10, fontWeight: 800, color: '#17233C', textTransform: 'uppercase' }}>Total</td>
-                          <td style={{ padding: '8px 8px', fontSize: 10, fontWeight: 600, color: '#64748B' }}>{froGroups.length} FROs</td>
+                          <td colSpan={2} style={{ padding: '8px 8px', fontSize: 10, fontWeight: 800, color: '#17233C', textTransform: 'uppercase' }}>Total · {froGroups.length} FROs</td>
                           <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
                           <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#64748B' }}>{targetPace}×{froGroups.length}</td>
                           <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626' }}>{totalNon}</td>
@@ -2580,7 +2559,7 @@ export default function Dashboard() {
             </div>
 
             {/* Productivity Alerts — Idle Hours (single unified container) */}
-            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', height: 'auto' }}>
               {/* Header */}
               <div style={{ padding: '20px 24px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
