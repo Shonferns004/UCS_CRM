@@ -1098,7 +1098,12 @@ export const getFroPerformance = async (req, res) => {
     const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     const workerIds = froWorkers.map(w => w.id);
-    const batchStats = await getBatchCollectionStats(workerIds, startDate.toISOString(), endDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
+    // Collection stats are always paced against the current calendar month
+    // (matching the monthly target / working-day calculation below), regardless
+    // of the selected from/to period.
+    const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const batchStats = await getBatchCollectionStats(workerIds, monthStartDate.toISOString(), monthEndDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
     const todayStr = localDateStr(now);
     const attendanceMap = {};
