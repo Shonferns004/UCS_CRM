@@ -1,4 +1,4 @@
-import { enrollBiometric, getBiometrics, getBiometricStatus, revokeBiometric, verifyBiometric } from '../models/biometricModel.js';
+import { enrollBiometric, getBiometrics, getBiometricStatus, identifyBeneficiaryByTemplate, revokeBiometric, verifyBiometric } from '../models/biometricModel.js';
 import { logAuditEvent } from '../models/auditLogModel.js';
 
 export const enrollFingerprint = async (req, res) => {
@@ -6,6 +6,7 @@ export const enrollFingerprint = async (req, res) => {
     const {
       beneficiary_id, beneficiary_code, finger_position, quality, device_id,
       credential_reference, provider, device_type, device_name, pid_data, fid_data, template,
+      quality_score,
     } = req.body;
 
     // Resolve beneficiary: accept either beneficiary_id or beneficiary_code
@@ -33,8 +34,9 @@ export const enrollFingerprint = async (req, res) => {
       device_name: device_name || null,
       device_id: device_id || null,
       credential_reference: credential_reference || fid_data || template || null,
+      template_data: template || fid_data || null,
       finger_position: resolvedFingerPosition,
-      quality_score: quality || 'GOOD',
+      quality_score: quality_score || quality || 'GOOD',
       status: 'ENROLLED',
       enrolled_by: req.user?.name || 'system',
     });
@@ -94,6 +96,20 @@ export const revokeFingerprint = async (req, res) => {
     });
 
     return res.json({ message: 'Credential revoked', credential: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const identifyFingerprint = async (req, res) => {
+  try {
+    const template = req.body.template || req.body.fid_data || null;
+    if (!template) return res.status(400).json({ message: 'Fingerprint template is required' });
+
+    const beneficiary = await identifyBeneficiaryByTemplate(template);
+    if (!beneficiary) return res.status(404).json({ message: 'No beneficiary matched this fingerprint' });
+
+    return res.json({ beneficiary });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

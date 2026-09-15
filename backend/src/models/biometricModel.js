@@ -99,3 +99,37 @@ export const verifyBiometric = async (beneficiaryId, fingerPosition, templateDat
 
   return { matched: true, confidence: 0.95 };
 };
+
+export const identifyBeneficiaryByTemplate = async (templateData) => {
+  if (!templateData) return null;
+
+  let { data: credential } = await db
+    .from('biometric_credentials')
+    .select('beneficiary_id')
+    .eq('template_data', templateData)
+    .eq('status', 'ENROLLED')
+    .limit(1)
+    .maybeSingle();
+
+  if (!credential) {
+    const result = await db
+      .from('biometric_credentials')
+      .select('beneficiary_id')
+      .eq('credential_reference', templateData)
+      .eq('status', 'ENROLLED')
+      .limit(1)
+      .maybeSingle();
+    credential = result.data;
+  }
+
+  if (!credential) return null;
+
+  const { data: beneficiary, error } = await db
+    .from('beneficiaries')
+    .select('*')
+    .eq('id', credential.beneficiary_id)
+    .single();
+  if (error) throw error;
+
+  return beneficiary;
+};
