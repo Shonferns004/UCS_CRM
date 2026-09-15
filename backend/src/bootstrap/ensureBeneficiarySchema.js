@@ -18,8 +18,16 @@ export async function ensureBeneficiarySchema() {
     await db._pool.query(`CREATE TABLE IF NOT EXISTS ${t} (id SERIAL PRIMARY KEY)`).catch(() => {});
   }
 
-  await db._pool.query(
+await db._pool.query(
     'ALTER TABLE biometric_credentials ADD COLUMN IF NOT EXISTS template_data TEXT'
+  ).catch(() => {});
+
+  await db._pool.query(
+    "ALTER TABLE biometric_credentials ADD COLUMN IF NOT EXISTS template_format TEXT NOT NULL DEFAULT 'legacy'"
+  ).catch(() => {});
+
+  await db._pool.query(
+    'ALTER TABLE biometric_credentials ADD COLUMN IF NOT EXISTS template_metadata JSONB'
   ).catch(() => {});
 
   // Beneficiary Categories seed
