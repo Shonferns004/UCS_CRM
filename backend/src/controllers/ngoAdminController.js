@@ -1199,13 +1199,16 @@ export const getFroPerformance = async (req, res) => {
       const target = targetMap[w.id] || { target_amount: 0, achieved_target: null };
       const monthlyTarget = target.target_amount;
       const achievedTarget = target.achieved_target != null ? target.achieved_target : coll;
-      const workedDays = workedDaysMap[w.id]?.size || 0;
+const workedDays = workedDaysMap[w.id]?.size || 0;
       const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
       const remainingDays = Math.max(workingDays - workedDays, 0);
       const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
       const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
-const todayCollection = Number(bs.todayCollection[w.id] || 0);
-      const performancePct = perDayCollection > 0 ? (todayCollection / perDayCollection) * 100 : 0;
+      const todayCollection = Number(bs.todayCollection[w.id] || 0);
+      // Daily target updates to the remaining month: remaining monthly target
+      // divided by remaining working days. Performance is paced against this.
+      const paceTarget = remainingDays > 0 && averageCollection > 0 ? averageCollection : perDayCollection;
+      const performancePct = paceTarget > 0 ? (todayCollection / paceTarget) * 100 : 0;
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
