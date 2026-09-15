@@ -75,6 +75,12 @@ ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS lead_rate NUMERIC(12,2) NOT
 -- the slab. Restarting the competition (configure / apply-all / announce)
 -- clears it.
 ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS stopped_date DATE;
+-- Competition window (like "Sir ka Incentive"): started_at = when the range's
+-- competition begins, ended_at = when it ends. NULL started_at = not started yet;
+-- NULL ended_at = runs until stopped/end of day. Leads verified outside the
+-- window never count. Set via the ⏱ Start/End Time controls (all or single range).
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS incentive_settings (
   id SERIAL PRIMARY KEY,
