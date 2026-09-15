@@ -133,3 +133,50 @@ export const identifyBeneficiaryByTemplate = async (templateData) => {
 
   return beneficiary;
 };
+
+/**
+ * Parse a stored template_data value.
+ * Raw-format rows are JSON blobs ({format:'raw', image, template, width, height, dpi, finger});
+ * anything else (legacy encrypted PID blobs) cannot be matched on-device.
+ */
+const parseTemplateData = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Return every ENROLLED raw-format credential in the API-friendly shape the
+ * app needs to run on-device 1:N matching (SourceAFIS). Legacy (encrypted)
+ * rows are skipped because they cannot be matched locally.
+ */
+export const listEnrolledTemplates = async () => {
+  const { data, error } = await db
+    .from('biometric_credentials')
+    .select('beneficiary_id, finger_position, template_data, template_format')
+    .eq('status', 'ENROLLED')
+    .in('template_format', ['raw', 'json'])
+    .not('template_data', 'is', null);
+
+  if (error) throw error;
+
+  const templates = [];
+  for (const row of data || []) {
+    const parsed = parseTemplateData(row.template_data);
+    if (!parsed || typeof parsed.template !== 'string' || !parsed.template) continue;
+    templates.push({
+      beneficiary_id: row.beneficiary_id,
+      finger_position: row.finger_position || 'UNKNOWN',
+      template: parsed.template,
+      width: parsed.width ?? null,
+      height: parsed.height ?? null,
+      dpi: parsed.dpi ?? null,
+    });
+  }
+  return templates;
+};

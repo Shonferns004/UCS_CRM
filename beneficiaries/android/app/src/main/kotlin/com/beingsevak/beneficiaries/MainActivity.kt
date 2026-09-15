@@ -19,9 +19,12 @@ import io.flutter.plugin.common.MethodChannel
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Collections
 
 class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
@@ -36,7 +39,9 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
         private val RD_SERVICE_PACKAGES = mapOf(
             "mantra_mfs100" to "com.mantra.mfs100.rdservice",
             "mantra_mfs110" to "com.mantra.mfs110.rdservice",
+            "mantra_l1" to "com.mantra.MFS110AVDM",
             "morpho_mso1300" to "com.scl.rdservice",
+            "morpho_mso1300e3" to "com.idemia.morpho.rdservice",
             "startek_fm2200" to "com.acpl.rdservice",
             "secugen" to "com.secugen.rdservice",
             "precision" to "com.precision.rdservice",
@@ -52,6 +57,7 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
     private var pendingResult: MethodChannel.Result? = null
     private var pendingVerifyTemplate: String? = null
     private var pendingResultReplied = false
+    private val rawUsb by lazy { Mfs110RawUsb(this) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -74,7 +80,15 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
             "verify" -> verifyFingerprint(call, result)
             "stopCapture" -> stopCapture(result)
             "getDeviceStatus" -> getDeviceStatus(result)
+            "getLocalIpAddresses" -> getLocalIpAddresses(result)
             "diagnose" -> diagnose(result)
+            "rawConnect" -> rawUsb.connect(result)
+            "rawDisconnect" -> rawUsb.disconnect(result)
+            "rawCapture" -> rawUsb.capture(result)
+            "rawGetInfo" -> rawUsb.getInfo(result)
+            "sourceafisExtract" -> SourceAfisEngine.extractAsync(call, result)
+            "sourceafisVerify" -> SourceAfisEngine.verifyAsync(call, result)
+            "sourceafisIdentify" -> SourceAfisEngine.identifyAsync(call, result)
             else -> result.notImplemented()
         }
     }
@@ -141,6 +155,18 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
     private fun detectDevices(result: MethodChannel.Result) {
         try {
             val devices = mutableListOf<Map<String, Any>>()
+
+            // Direct (raw) USB capture, no vendor/UIDAI stack required.
+            if (rawUsb.getDevice() != null) {
+                devices.add(mapOf(
+                    "type" to "mfs110Raw",
+                    "display_name" to "Mantra MFS110 (Raw USB)",
+                    "package_name" to "",
+                    "rd_service_package" to "",
+                    "is_available" to true,
+                ))
+            }
+
             val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
 
             for ((key, packageName) in RD_SERVICE_PACKAGES) {
@@ -564,6 +590,25 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
         ))
     }
 
+    private fun getLocalIpAddresses(result: MethodChannel.Result) {
+        try {
+            val ips = mutableListOf<String>()
+            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+            for (nif in interfaces) {
+                if (!nif.isUp || nif.isLoopback) continue
+                for (addr in Collections.list(nif.inetAddresses)) {
+                    if (addr is Inet4Address) {
+                        ips.add(addr.hostAddress)
+                    }
+                }
+            }
+            result.success(ips.distinct())
+        } catch (e: Exception) {
+            Log.w(TAG, "getLocalIpAddresses failed", e)
+            result.success(emptyList<String>())
+        }
+    }
+
     private fun diagnose(result: MethodChannel.Result) {
         try {
             val installed = mutableListOf<Map<String, Any>>()
@@ -628,6 +673,7 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
 
     override fun onDestroy() {
         super.onDestroy()
+        rawUsb.dispose()
         try {
             usbReceiver?.let { unregisterReceiver(it) }
         } catch (_: Exception) {}
