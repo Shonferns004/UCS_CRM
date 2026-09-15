@@ -458,17 +458,18 @@ export const bulkEditWorkers = async (req, res) => {
 
 export const getBirthdays = async (req, res) => {
   try {
-    const ngoId = req.user.role === 'hr' ? null : (req.user.ngo_id || req.query.ngo_id);
-    const workers = await getAllWorkers(ngoId);
+    const workers = await getAllWorkers(null);
     const today = new Date();
     const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const upcoming = workers
       .filter((w) => w.dob)
+      .filter((w) => !(w.is_active === false || ['terminated', 'absconded'].includes(String(w.employment_status || '').toLowerCase().trim())))
       .map((w) => {
         const dob = new Date(w.dob);
         const md = `${String(dob.getMonth() + 1).padStart(2, '0')}-${String(dob.getDate()).padStart(2, '0')}`;
         const diffDays = (new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) - today) / 86400000;
-        return { ...w, _md: md, _diff: diffDays >= 0 ? diffDays : diffDays + 365 };
+        const isToday = md === todayMD;
+        return { ...w, _md: md, _diff: isToday ? 0 : (diffDays >= 0 ? diffDays : diffDays + 365) };
       })
       .filter((w) => w._diff <= 30)
       .sort((a, b) => a._diff - b._diff)
