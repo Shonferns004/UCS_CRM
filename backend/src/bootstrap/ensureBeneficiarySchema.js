@@ -18,6 +18,10 @@ export async function ensureBeneficiarySchema() {
     await db._pool.query(`CREATE TABLE IF NOT EXISTS ${t} (id SERIAL PRIMARY KEY)`).catch(() => {});
   }
 
+  await db._pool.query(
+    'ALTER TABLE biometric_credentials ADD COLUMN IF NOT EXISTS template_data TEXT'
+  ).catch(() => {});
+
   // Beneficiary Categories seed
   const categories = [
     ['Visually Impaired', 'Beneficiaries with visual impairment'],
