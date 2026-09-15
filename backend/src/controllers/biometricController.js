@@ -6,6 +6,7 @@ export const enrollFingerprint = async (req, res) => {
     const {
       beneficiary_id, beneficiary_code, finger_position, quality, device_id,
       credential_reference, provider, device_type, device_name, pid_data, fid_data, template,
+      quality_score,
     } = req.body;
 
     // Resolve beneficiary: accept either beneficiary_id or beneficiary_code
@@ -33,8 +34,9 @@ export const enrollFingerprint = async (req, res) => {
       device_name: device_name || null,
       device_id: device_id || null,
       credential_reference: credential_reference || fid_data || template || null,
+      template_data: template || fid_data || null,
       finger_position: resolvedFingerPosition,
-      quality_score: quality || 'GOOD',
+      quality_score: quality_score || quality || 'GOOD',
       status: 'ENROLLED',
       enrolled_by: req.user?.name || 'system',
     });
