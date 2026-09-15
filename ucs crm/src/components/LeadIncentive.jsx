@@ -13,6 +13,27 @@ const fmtDate = (d) => {
   return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+// Value for <input type="datetime-local"> (no seconds, local time).
+const toLocalInput = (d) => {
+  if (!d) return ''
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+}
+
+const pad2 = (n) => String(n).padStart(2, '0')
+const todayLocal = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+const fmtDT = (d) => {
+  if (!d) return '—'
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 // A stale DB could hold duplicate rows for the same (min, max) range, which would
 // make the UI list every range twice. Keep a single row per range — preferring an
 // active one — so the screen never shows "double" ranges.
@@ -43,8 +64,27 @@ const slabInputStyle = {
   fontSize: 13, outline: 'none', textAlign: 'right',
 }
 
+// Live status for a range based on its Start/End window (mirrors "Sir ka Incentive").
+const statusChip = (slab) => {
+  const now = Date.now()
+  if (slab?.stopped_date && String(slab.stopped_date).slice(0, 10) === todayLocal()) {
+    return { text: '⏹ Stopped', bg: '#fee2e2', fg: '#b91c1c' }
+  }
+  if (!slab?.started_at) {
+    return { text: '⏸ Not Started', bg: '#edf2f7', fg: '#64748b' }
+  }
+  const s = new Date(slab.started_at).getTime()
+  if (Number.isNaN(s)) return { text: '⏸ Not Started', bg: '#edf2f7', fg: '#64748b' }
+  if (s > now) return { text: `⏱ Starts ${fmtDT(slab.started_at)}`, bg: '#fef3c7', fg: '#b45309' }
+  if (slab.ended_at) {
+    const e = new Date(slab.ended_at).getTime()
+    if (!Number.isNaN(e) && e <= now) return { text: '⏹ Ended', bg: '#e2e8f0', fg: '#64748b' }
+  }
+  return { text: '● LIVE', bg: '#dcfce7', fg: '#15803d' }
+}
+
 // ─── Lead Rules Settings ──────────────────────────────────
-function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, saving, savingSlab }) {
+function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, onApplyAllTime, saving, savingSlab }) {
   const [local, setLocal] = useState({ ...settings })
   const [dirty, setDirty] = useState(false)
 
@@ -57,7 +97,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 
   // Per-range configure popup
   const [popupSlab, setPopupSlab] = useState(null)
-  const [popupForm, setPopupForm] = useState({ min_lead_amount: '', lead_rate: '' })
+  const [popupForm, setPopupForm] = useState({ min_lead_amount: '', lead_rate: '', started_at: '', ended_at: '' })
   const [popupError, setPopupError] = useState('')
 
   const openPopup = (slab) => {
@@ -65,6 +105,8 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
     setPopupForm({
       min_lead_amount: slab.min_lead_amount ?? '',
       lead_rate: slab.lead_rate ?? '',
+      started_at: toLocalInput(slab.started_at),
+      ended_at: toLocalInput(slab.ended_at),
     })
     setPopupError('')
   }
@@ -79,8 +121,19 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
       setPopupError('Enter valid Minimum Lead Amount and ₹ per Qualified Lead')
       return
     }
+    const started_at = popupForm.started_at
+    const ended_at = popupForm.ended_at
+    if (started_at && ended_at && !(new Date(ended_at).getTime() > new Date(started_at).getTime())) {
+      setPopupError('End Time must be after Start Time')
+      return
+    }
     try {
-      await onUpdateSlab(popupSlab, { min_lead_amount, lead_rate })
+      await onUpdateSlab(popupSlab, {
+        min_lead_amount,
+        lead_rate,
+        started_at: started_at || null,
+        ended_at: ended_at || null,
+      })
       closePopup()
     } catch (e) {
       setPopupError(e.message || 'Failed to save')
@@ -91,6 +144,14 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
   const [commonForm, setCommonForm] = useState({ min_lead_amount: '', lead_rate: '' })
   const [commonError, setCommonError] = useState('')
   const [commonDone, setCommonDone] = useState('')
+
+  // Start/End competition window for ALL ranges
+  const [allTimeForm, setAllTimeForm] = useState({
+    started_at: toLocalInput(new Date(Date.now() + 5 * 60 * 1000)),
+    ended_at: toLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+  })
+  const [allTimeError, setAllTimeError] = useState('')
+  const [allTimeDone, setAllTimeDone] = useState('')
 
   const applyCommon = async () => {
     setCommonError('')
@@ -106,6 +167,28 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
       setCommonDone(`Applied to ${count} range(s) ✓`)
     } catch (e) {
       setCommonError(e.message || 'Failed to apply')
+    }
+  }
+
+  // Apply Start/End window to ALL ranges at once
+  const applyAllTime = async () => {
+    setAllTimeError('')
+    setAllTimeDone('')
+    const started_at = allTimeForm.started_at
+    const ended_at = allTimeForm.ended_at
+    if (!started_at) {
+      setAllTimeError('Choose a Start Time first')
+      return
+    }
+    if (ended_at && !(new Date(ended_at).getTime() > new Date(started_at).getTime())) {
+      setAllTimeError('End Time must be after Start Time')
+      return
+    }
+    try {
+      const count = await onApplyAllTime({ started_at: started_at || null, ended_at: ended_at || null })
+      setAllTimeDone(`⏱ Started ${count} range(s) with this window ✓`)
+    } catch (e) {
+      setAllTimeError(e.message || 'Failed to apply')
     }
   }
 
@@ -158,7 +241,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
           Per Range Settings
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 10 }}>
-          Each range sets its own Minimum Lead Amount (₹) and ₹ per Qualified Lead — leads only qualify if the amount is ≥ the range's minimum.
+          Each range sets its own Minimum Lead Amount (₹), ₹ per Qualified Lead, and its own Start/End competition time — leads only qualify if the amount is ≥ the range's minimum and verified inside its time window.
         </div>
 
         {/* Apply common value to ALL ranges */}
@@ -202,23 +285,70 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {activeSlabs.map(slab => (
-            <div key={slab.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-              borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--bg)',
-            }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', flex: '0 0 auto', minWidth: 110 }}>
-                {fmtSlabRange(slab)}
-              </span>
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-soft)' }}>
-                Min lead ₹{fmt(slab.min_lead_amount ?? settings.min_lead_amount)} · ₹{fmt(slab.lead_rate ?? settings.lead_rate)}/lead
-              </span>
-              <button onClick={() => openPopup(slab)} style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), padding: '6px 12px', fontSize: 12, whiteSpace: 'nowrap' }}>
-                ⚙️ Configure
-              </button>
+        {/* Apply Start/End window to ALL ranges */}
+        <div style={{
+          marginBottom: 10, padding: '12px 14px', borderRadius: 12,
+          background: 'linear-gradient(135deg,#fffdf5,#fef3c7)',
+          border: '1.5px solid #fde68a',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 15 }}>⏱</span>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>ALL RANGES — Start / End Time</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 170px' }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
+                Start Time
+              </label>
+              <input type="datetime-local" style={slabInputStyle} value={allTimeForm.started_at}
+                onChange={e => setAllTimeForm(p => ({ ...p, started_at: e.target.value }))} />
             </div>
-          ))}
+            <div style={{ flex: '1 1 170px' }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
+                End Time <span style={{ fontWeight: 500 }}>(optional)</span>
+              </label>
+              <input type="datetime-local" style={slabInputStyle} value={allTimeForm.ended_at}
+                onChange={e => setAllTimeForm(p => ({ ...p, ended_at: e.target.value }))} />
+            </div>
+            <button onClick={applyAllTime} disabled={savingSlab}
+              style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), padding: '8px 16px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+              {savingSlab ? 'Applying…' : '⏱ Start / End All Ranges'}
+            </button>
+          </div>
+          {allTimeError && (
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: '#b91c1c', marginTop: 8 }}>{allTimeError}</div>
+          )}
+          {allTimeDone && (
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e', marginTop: 8 }}>{allTimeDone}</div>
+          )}
+          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>
+            Applies the same window to every range and re-opens any range stopped today · verified leads are counted only between these times.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {activeSlabs.map(slab => {
+            const chip = statusChip(slab)
+            return (
+              <div key={slab.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--bg)', flexWrap: 'wrap',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', flex: '0 0 auto', minWidth: 110 }}>
+                  {fmtSlabRange(slab)}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 999, background: chip.bg, color: chip.fg, whiteSpace: 'nowrap' }}>
+                  {chip.text}
+                </span>
+                <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-soft)' }}>
+                  Min lead ₹{fmt(slab.min_lead_amount ?? settings.min_lead_amount)} · ₹{fmt(slab.lead_rate ?? settings.lead_rate)}/lead
+                </span>
+                <button onClick={() => openPopup(slab)} style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), padding: '6px 12px', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  ⚙️ Configure
+                </button>
+              </div>
+            )
+          })}
           {activeSlabs.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No slabs configured yet — add one in Target Slabs below.</div>
           )}
@@ -324,6 +454,45 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>
                     Reward paid for every verified qualified lead in this range
+                  </div>
+                </div>
+
+                {/* Competition window (Start/End Time) */}
+                <div style={{
+                  marginTop: 4, padding: '12px 14px', borderRadius: 12,
+                  background: 'linear-gradient(135deg,#fffdf5,#fef3c7)',
+                  border: '1.5px solid #fde68a',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 14 }}>⏱</span>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e' }}>Competition Start / End Time</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
+                        Start Time
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={popupForm.started_at}
+                        onChange={e => setPopupForm(p => ({ ...p, started_at: e.target.value }))}
+                        style={{ ...inputStyle, fontSize: 14, fontWeight: 700 }}
+                      />
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 4 }}>
+                        Verified leads count for this range only after this moment · empty = not started
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
+                        End Time <span style={{ fontWeight: 500 }}>(optional — runs to end of day)</span>
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={popupForm.ended_at}
+                        onChange={e => setPopupForm(p => ({ ...p, ended_at: e.target.value }))}
+                        style={{ ...inputStyle, fontSize: 14, fontWeight: 700 }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -899,8 +1068,8 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
-  // Per-range popup save: only touches this slab's min lead + per-lead reward
-  const updateSlabRates = async (slab, { min_lead_amount, lead_rate }) => {
+  // Per-range popup save: touches this slab's min lead + per-lead reward + Start/End window
+  const updateSlabRates = async (slab, { min_lead_amount, lead_rate, started_at, ended_at }) => {
     setSavingSlab(true)
     try {
       await api(`/incentive/lead/slabs/${slab.id}`, {
@@ -911,6 +1080,8 @@ export default function LeadIncentive() {
           incentive_amount: Number(slab.incentive_amount) || 0,
           min_lead_amount,
           lead_rate,
+          started_at: started_at === undefined || started_at === null || started_at === '' ? null : started_at,
+          ended_at: ended_at === undefined || ended_at === null || ended_at === '' ? null : ended_at,
         }),
       })
       await loadSlabs()
@@ -925,6 +1096,20 @@ export default function LeadIncentive() {
       const r = await api('/incentive/lead/slabs/apply-all', {
         method: 'PUT', _prefix: 'ucs',
         body: JSON.stringify({ min_lead_amount, lead_rate }),
+      })
+      await loadSlabs()
+      loadSummary()
+      return Array.isArray(r?.slabs) ? r.slabs.length : 0
+    } finally { setSavingSlab(false) }
+  }
+
+  // Apply a Start/End window to all active ranges at once (time-only apply → re-opens stopped ranges)
+  const applyAllTime = async ({ started_at, ended_at }) => {
+    setSavingSlab(true)
+    try {
+      const r = await api('/incentive/lead/slabs/apply-all', {
+        method: 'PUT', _prefix: 'ucs',
+        body: JSON.stringify({ started_at: started_at || null, ended_at: ended_at || null }),
       })
       await loadSlabs()
       loadSummary()
@@ -988,6 +1173,7 @@ export default function LeadIncentive() {
         onSave={saveSettings}
         onUpdateSlab={updateSlabRates}
         onApplyAll={applyAllRates}
+        onApplyAllTime={applyAllTime}
         saving={savingSettings}
         savingSlab={savingSlab}
       />
