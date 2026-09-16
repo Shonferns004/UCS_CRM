@@ -118,6 +118,17 @@ const formatDT = (ts) => {
   return d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 };
 
+const getLeadDate = (l) => {
+  if (!l) return '';
+  let parsed = [];
+  try { parsed = JSON.parse(l.notes || '[]'); } catch (e) {}
+  const meta = (parsed.find(n => n && n.__meta && n.type === 'option_dates') || {}).value || {};
+  const st = cleanField(l.status);
+  const key = { followed_up:'follow_up', call_back:'call_back', scheduled:'schedule', not_interested:'not_interested', re_scheduled:'re_scheduled' }[st] || st;
+  const dedicated = { followed_up:l.follow_up_date, call_back:l.call_back_time, scheduled:l.scheduled_date, re_scheduled:l.re_scheduled_date }[st];
+  return meta[key] || dedicated || '';
+};
+
 const SkeletonRow = ({ cols }) => (
   <tr>
     {Array.from({length:cols}).map((_,i) => (
@@ -141,9 +152,8 @@ export default function Leads() {
   const [notConnectedOption, setNotConnectedOption] = useState('');
   const [connectedOption, setConnectedOption] = useState('');
   const [connectionType, setConnectionType] = useState('');
-  const [followUpDateTime, setFollowUpDateTime] = useState('');
-  const [callBackTime, setCallBackTime] = useState('');
-  const [scheduledDate, setScheduledDate] = useState('');
+  const [optionDates, setOptionDates] = useState({});
+  const setOptionDate = (key, val) => setOptionDates(p => ({ ...p, [key]: val }));
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
   const [selectedJobRole, setSelectedJobRole] = useState('');
@@ -193,7 +203,7 @@ export default function Leads() {
   };
 
   const resetForm = () => {
-    setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
+    setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setOptionDates({}); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
     setEditingLead(null);
   };
 
@@ -226,9 +236,14 @@ export default function Leads() {
     } else {
       setConnectionType(''); setConnectedOption(''); setNotConnectedOption('');
     }
-    setFollowUpDateTime(toLocalDT(l.follow_up_date));
-    setCallBackTime(toLocalDT(l.call_back_time));
-    setScheduledDate(toLocalDT(l.scheduled_date));
+    const preDates = (notesArr.find(n => n && n.__meta && n.type === 'option_dates') || {}).value || {};
+    setOptionDates({
+      ...preDates,
+      follow_up: toLocalDT(l.follow_up_date) || preDates.follow_up || '',
+      call_back: toLocalDT(l.call_back_time) || preDates.call_back || '',
+      schedule: toLocalDT(l.scheduled_date) || preDates.schedule || '',
+      re_scheduled: toLocalDT(l.re_scheduled_date) || preDates.re_scheduled || '',
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -253,11 +268,14 @@ export default function Leads() {
       const notesArr = [...formNotes];
       if (stage) notesArr.unshift({ __meta: true, type: 'stage', value: stage });
       if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
+      const optionDatesMeta = Object.keys(optionDates).filter(k => optionDates[k]).reduce((acc, k) => { acc[k] = optionDates[k]; return acc; }, {});
+      if (Object.keys(optionDatesMeta).length) notesArr.push({ __meta: true, type: 'option_dates', value: optionDatesMeta });
       const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, job_role: finalJobRole || null };
       if (!editingLead) payload.created_by_name = user.name;
-      if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
-      if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
-      if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
+      if (finalStatus === 'followed_up' && optionDates.follow_up) payload.follow_up_date = optionDates.follow_up;
+      if (finalStatus === 'call_back' && optionDates.call_back) payload.call_back_time = optionDates.call_back;
+      if (finalStatus === 'scheduled' && optionDates.schedule) payload.scheduled_date = optionDates.schedule;
+      if (finalStatus === 're_scheduled' && optionDates.re_scheduled) payload.re_scheduled_date = optionDates.re_scheduled;
       if (editingLead) {
         await updateLead(editingLead.id, payload);
         setSuccessMsg('Lead updated successfully.');
@@ -371,38 +389,32 @@ export default function Leads() {
                 <div style={{display:'flex',gap:16}}>
                   <div style={{flex:1,minWidth:0}}>
                     <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                      <input type="radio" name="connectionStatus" checked={connectionType==='connected'} onChange={()=>{setConnectionType('connected');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                      <input type="radio" name="connectionStatus" checked={connectionType==='connected'} onChange={()=>{setConnectionType('connected');setNotConnectedOption('');setOptionDates({});}} />
                       CONNECTED
                     </label>
                     <div style={connectionType==='not_connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                      <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={connectedOptions} style={{width:'100%'}} />
-                      {connectedOption === 'follow_up' && (
-                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                          <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
-                        </div>
-                      )}
-                      {connectedOption === 'call_back' && (
-                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                          <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
-                        </div>
-                      )}
-                      {connectedOption === 'schedule' && (
-                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
-                          <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                      <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setOptionDates({});}} options={connectedOptions} style={{width:'100%'}} />
+                      {connectedOption && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6,flexWrap:'wrap'}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>{(connectedOpts.find(o=>o.value===connectedOption)||{}).label || connectedOption}</span>
+                          <input type="datetime-local" value={optionDates[connectedOption] || ''} onChange={e=>setOptionDate(connectedOption, e.target.value)} style={{width:'auto'}} />
                         </div>
                       )}
                     </div>
                   </div>
                   <div style={{flex:1,minWidth:0}}>
                     <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                      <input type="radio" name="connectionStatus" checked={connectionType==='not_connected'} onChange={()=>{setConnectionType('not_connected');setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                      <input type="radio" name="connectionStatus" checked={connectionType==='not_connected'} onChange={()=>{setConnectionType('not_connected');setConnectedOption('');setOptionDates({});}} />
                       NOT CONNECTED
                     </label>
                     <div style={connectionType==='connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                      <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={notConnectedOptions} style={{width:'100%'}} />
+                      <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setOptionDates({});}} options={notConnectedOptions} style={{width:'100%'}} />
+                      {notConnectedOption && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6,flexWrap:'wrap'}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>{(notConnectedOpts.find(o=>o.value===notConnectedOption)||{}).label || notConnectedOption}</span>
+                          <input type="datetime-local" value={optionDates[notConnectedOption] || ''} onChange={e=>setOptionDate(notConnectedOption, e.target.value)} style={{width:'auto'}} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -462,38 +474,32 @@ export default function Leads() {
               <div style={{display:'flex',gap:16}}>
                 <div style={{flex:1,minWidth:0}}>
                   <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                    <input type="radio" name="connectionStatus" checked={connectionType==='connected'} onChange={()=>{setConnectionType('connected');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                    <input type="radio" name="connectionStatus" checked={connectionType==='connected'} onChange={()=>{setConnectionType('connected');setNotConnectedOption('');setOptionDates({});}} />
                     CONNECTED
                   </label>
                   <div style={connectionType==='not_connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={connectedOptions} style={{width:'100%'}} />
-                    {connectedOption === 'follow_up' && (
-                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                        <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
-                      </div>
-                    )}
-                    {connectedOption === 'call_back' && (
-                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                        <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
-                      </div>
-                    )}
-                    {connectedOption === 'schedule' && (
-                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
-                        <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setOptionDates({});}} options={connectedOptions} style={{width:'100%'}} />
+                    {connectedOption && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6,flexWrap:'wrap'}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>{(connectedOpts.find(o=>o.value===connectedOption)||{}).label || connectedOption}</span>
+                        <input type="datetime-local" value={optionDates[connectedOption] || ''} onChange={e=>setOptionDate(connectedOption, e.target.value)} style={{width:'auto'}} />
                       </div>
                     )}
                   </div>
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                   <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                    <input type="radio" name="connectionStatus" checked={connectionType==='not_connected'} onChange={()=>{setConnectionType('not_connected');setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                    <input type="radio" name="connectionStatus" checked={connectionType==='not_connected'} onChange={()=>{setConnectionType('not_connected');setConnectedOption('');setOptionDates({});}} />
                     NOT CONNECTED
                   </label>
                   <div style={connectionType==='connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                    <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={notConnectedOptions} style={{width:'100%'}} />
+                    <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setOptionDates({});}} options={notConnectedOptions} style={{width:'100%'}} />
+                    {notConnectedOption && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6,flexWrap:'wrap'}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>{(notConnectedOpts.find(o=>o.value===notConnectedOption)||{}).label || notConnectedOption}</span>
+                        <input type="datetime-local" value={optionDates[notConnectedOption] || ''} onChange={e=>setOptionDate(notConnectedOption, e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -556,7 +562,7 @@ export default function Leads() {
             </div>
           </div>
           {leadsLoading ? (
-            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table></div>
+            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={7}/>)}</tbody></table></div>
           ) : filteredLeads.length === 0 ? (
             <div className="empty">No leads found.</div>
           ) : (
@@ -564,7 +570,7 @@ export default function Leads() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Source</th><th>Status</th><th>Job Description</th><th>Action</th>
+                  <th>Name</th><th>Phone</th><th>Source</th><th>Status</th><th>Date</th><th>Job Description</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -578,6 +584,7 @@ export default function Leads() {
                       <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
                       <td>{cleanField(l.source)}</td>
                       <td>{statusPill(cleanField(l.status), statusLabelMap)}</td>
+                      <td style={{color:'var(--ink-soft)',whiteSpace:'nowrap',fontSize:13}}>{formatDT(getLeadDate(l))}</td>
                       <td style={{color:'var(--ink-soft)'}}>{cleanField(getJobRole(l)) || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
                       <div style={{display:'flex',gap:4}}>

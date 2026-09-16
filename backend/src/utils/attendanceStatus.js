@@ -44,13 +44,22 @@ async function getOfficeEnd(workerId) {
 export async function calculateAttendanceStatus({ workerId, punchInTime, punchOutTime }) {
   const date = istDateStr(new Date(punchInTime));
   const approvedHalfDay = await getApprovedHalfDayLeave(workerId, date);
-  if (approvedHalfDay) return 'half-day';
 
   const start = await getOfficeStart(workerId);
   const startMinutes = start.hour * 60 + start.minute;
   const punchIn = getIstTime(new Date(punchInTime));
   const punchInMinutes = punchIn.getUTCHours() * 60 + punchIn.getUTCMinutes();
   const lateMinutes = Math.max(0, punchInMinutes - startMinutes);
+
+  const workedMinutes = punchOutTime
+    ? (new Date(punchOutTime).getTime() - new Date(punchInTime).getTime()) / 60000
+    : null;
+
+  // A worker who completed at least six hours should not remain half-day
+  // because an old approved half-day leave or an incorrect shift setting is
+  // attached to the date.
+  const completedFullDay = workedMinutes != null && workedMinutes >= 360;
+  if (approvedHalfDay && !completedFullDay) return 'half-day';
   if (lateMinutes >= 240) return 'half-day';
 
   if (punchOutTime) {
@@ -58,7 +67,9 @@ export async function calculateAttendanceStatus({ workerId, punchInTime, punchOu
     const endMinutes = end.hour * 60 + end.minute;
     const punchOut = getIstTime(new Date(punchOutTime));
     const punchOutMinutes = punchOut.getUTCHours() * 60 + punchOut.getUTCMinutes();
-    if (endMinutes - punchOutMinutes >= 180) return 'half-day';
+    // A complete shift must not become half-day because of a bad/stale shift
+    // end value or a small timezone discrepancy in the configured times.
+    if (workedMinutes < 360 && endMinutes - punchOutMinutes >= 180) return 'half-day';
   }
 
   return lateMinutes > 0 ? 'late' : 'present';

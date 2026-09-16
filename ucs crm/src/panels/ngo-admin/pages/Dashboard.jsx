@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download } from 'lucide-react';
 import { apiGet, getFroHourlyPerformance, notifyFro } from '../api/auth';
@@ -1027,11 +1027,7 @@ export default function Dashboard() {
   const [hourlyFroRows, setHourlyFroRows] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [idleSearch, setIdleSearch] = useState('');
-  // FRO hourly table: which FRO blocks are expanded + whether all are revealed
-  const [hourlyExpanded, setHourlyExpanded] = useState(() => new Set());
-  const [hourlyShowAll, setHourlyShowAll] = useState(false);
-  const hourlySeedKeyRef = useRef('');
-  const hourlySeedLenRef = useRef(-1);
+  const [hourlyFroSearch, setHourlyFroSearch] = useState('');
 
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
@@ -1259,7 +1255,7 @@ export default function Dashboard() {
     const map = {};
     for (const r of hourlyFroRows) {
       const id = r.fro_worker_id ?? r.fro_name ?? 'Unknown';
-      if (!map[id]) map[id] = { id, name: r.fro_name || 'Unknown', rows: [], connected: 0, nonConnected: 0, cells: 0, avgCalls: 0 };
+      if (!map[id]) map[id] = { id, name: r.fro_name || 'Unknown', rows: [], connected: 0, nonConnected: 0, cells: 0, connPct: null };
       map[id].rows.push(r);
     }
     const groups = Object.values(map).map(g => {
@@ -1271,7 +1267,7 @@ export default function Dashboard() {
         g.nonConnected += r.non_connected || 0;
         g.cells++;
       }
-      g.avgCalls = g.cells > 0 ? Math.round(((g.connected + g.nonConnected) / g.cells) * 10) / 10 : 0;
+      g.connPct = g.connected + g.nonConnected > 0 ? Math.round((g.connected / (g.connected + g.nonConnected)) * 100) : null;
       return g;
     });
     groups.sort((a, b) => (a.connected - b.connected) || a.name.localeCompare(b.name));
@@ -1281,33 +1277,12 @@ export default function Dashboard() {
   const hourlyTotalsCalc = useMemo(() => {
     const totalConn = hourlyGroups.reduce((s, g) => s + g.connected, 0);
     const totalNon = hourlyGroups.reduce((s, g) => s + g.nonConnected, 0);
-    const totalCells = hourlyGroups.reduce((s, g) => s + g.cells, 0);
     return {
       totalConn,
       totalNon,
-      totalCells,
-      overallAvg: totalCells > 0 ? (totalConn + totalNon) / totalCells : 0,
+      overallConnPct: totalConn + totalNon > 0 ? Math.round((totalConn / (totalConn + totalNon)) * 100) : 0,
     };
   }, [hourlyGroups]);
-
-  // Seed the default "top 3 expanded" when the date/NGO changes, or the first time
-  // data arrives after mount. Subsequent live polls must NOT re-collapse user state.
-  useEffect(() => {
-    const key = `${hourlyDate}|${selectedNgoId}`;
-    const changedKey = hourlySeedKeyRef.current !== key;
-    const firstData = hourlySeedLenRef.current === 0 && hourlyGroups.length > 0;
-    if (changedKey) {
-      hourlySeedKeyRef.current = key;
-      hourlySeedLenRef.current = hourlyGroups.length;
-      setHourlyShowAll(false);
-      if (hourlyGroups.length > 0) setHourlyExpanded(new Set(hourlyGroups.slice(0, 3).map(g => g.id)));
-    } else if (firstData) {
-      hourlySeedLenRef.current = hourlyGroups.length;
-      setHourlyShowAll(false);
-      if (hourlyGroups.length > 0) setHourlyExpanded(new Set(hourlyGroups.slice(0, 3).map(g => g.id)));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hourlyDate, selectedNgoId, hourlyGroups.length]);
 
   // Telecaller performance rows (search-filtered) + tab totals for the redesign
   const perfRows = useMemo(() => (tlData?.performance || []).filter(p =>
@@ -2208,31 +2183,27 @@ export default function Dashboard() {
               <div style={{ minHeight: 320, maxHeight: 420, overflowY: 'auto' }}>
                 <table className="performance-table">
                   <colgroup>
-                    <col style={{ width: 30 }} />
-                    <col style={{ width: '23%' }} />
-                    <col style={{ width: '15%' }} />
-                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '22%' }} />
+                    <col style={{ width: '12%' }} />
                     <col style={{ width: '13%' }} />
-                    <col style={{ width: '11%' }} />
-                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '17%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      {['#','FRO','Today\'s','Monthly Tgt','Daily Tgt','Worked','Perf'].map((h, ci) => (
-                        <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+                      {['FRO','Today\'s','Collected','Monthly Tgt','Daily Tgt','Worked','Perf'].map((h, ci) => (
+                        <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 5 ? 'center' : ci === 6 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {highRows.map((p, i) => (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
-                        <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22 }}>
-                            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
-                          </span>
-                        </td>
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.collection_amount || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
@@ -2321,27 +2292,27 @@ export default function Dashboard() {
               <div style={{ minHeight: 320, maxHeight: 420, overflowY: 'auto' }}>
                 <table className="performance-table">
                   <colgroup>
-                    <col style={{ width: 30 }} />
-                    <col style={{ width: '23%' }} />
-                    <col style={{ width: '15%' }} />
-                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '22%' }} />
+                    <col style={{ width: '12%' }} />
                     <col style={{ width: '13%' }} />
-                    <col style={{ width: '11%' }} />
-                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '17%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      {['#','FRO','Today\'s','Monthly Tgt','Daily Tgt','Worked','Perf'].map((h, ci) => (
-                        <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+                      {['FRO','Today\'s','Collected','Monthly Tgt','Daily Tgt','Worked','Perf'].map((h, ci) => (
+                        <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 5 ? 'center' : ci === 6 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {lowRows.map((p, i) => (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
-                        <td style={{ padding: '7px 8px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748b' }}>{i + 1}</td>
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.collection_amount || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
@@ -2403,23 +2374,42 @@ export default function Dashboard() {
         const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
         // how many working hours are in the past/bucketable from 09:00 IST
         const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
-        const hourIdxOf = (r) => {
-          const m = /^(\d{2}):/.exec(r.hour || '');
-          return m ? parseInt(m[1], 10) - 9 : -1;
-        };
-        const isFuture = (r) => isToday && elapsedIdx >= 0 && hourIdxOf(r) > elapsedIdx;
-        const connColor = (c) => (c >= HOURLY_CONNECTED_TARGET ? '#16a34a' : c >= 9 ? '#d97706' : '#dc2626');
 
         const froGroups = hourlyGroups;
         const totalConn = hourlyTotalsCalc.totalConn;
         const totalNon = hourlyTotalsCalc.totalNon;
-        const overallAvg = hourlyTotalsCalc.overallAvg;
+        const overallConnPct = hourlyTotalsCalc.overallConnPct;
         const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
-        const toggleFro = (id) => setHourlyExpanded(prev => {
-          const next = new Set(prev);
-          if (next.has(id)) next.delete(id); else next.add(id);
-          return next;
-        });
+        const targetPace = Math.round((DAILY_CONNECTED_TARGET * elapsedHrs) / HOURS_IN_WORKDAY);
+        const froPerf = (g) => (targetPace > 0 ? Math.round((g.connected / targetPace) * 1000) / 10 : null);
+        const q = hourlyFroSearch.trim().toLowerCase();
+        const lowGroups = (q ? froGroups.filter(g => (g.name || '').toLowerCase().includes(q)) : froGroups)
+          .filter(g => (froPerf(g) ?? 0) < 100)
+          .sort((a, b) => (froPerf(a) - froPerf(b)) || a.name.localeCompare(b.name));
+        const teamPerf = froGroups.length > 0 && targetPace > 0 ? Math.round((totalConn / (targetPace * froGroups.length)) * 1000) / 10 : 0;
+        const froRow = (g) => {
+          const perf = froPerf(g);
+          const pct = g.connPct;
+          return (
+            <tr key={g.id} className="performance-row" style={{ borderBottom: '1px solid #edf1f5' }}>
+              <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{g.name}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a', fontSize: 11, whiteSpace: 'nowrap' }}>{g.connected}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#64748B', fontSize: 11, whiteSpace: 'nowrap' }}>{targetPace}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#dc2626', fontSize: 11, whiteSpace: 'nowrap' }}>{g.nonConnected}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: pct == null ? '#f1f5f9' : pct >= 60 ? '#f0fdf4' : pct >= 40 ? '#fffbeb' : '#fef2f2', color: pct == null ? '#64748b' : pct >= 60 ? '#16a34a' : pct >= 40 ? '#d97706' : '#dc2626' }}>
+                  {pct == null ? '—' : pct + '%'}
+                </span>
+              </td>
+              <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                <div style={{ fontWeight: 700, color: perf == null ? '#64748b' : '#ef4444', fontSize: 11, marginBottom: 4 }}>{perf == null ? '—' : perf + '%'}</div>
+                <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                  <div style={{ width: `${perf == null ? 0 : Math.min(perf, 100)}%`, height: '100%', borderRadius: 'inherit', background: '#ef4444' }} />
+                </div>
+              </td>
+            </tr>
+          );
+        };
 
         return (
           <>
@@ -2464,110 +2454,100 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Single FRO × hour performance table (low performer first) */}
-            <div className="card" style={{ marginBottom: 16 }}>
-              <div className="card-head">
-                <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ color: '#16a34a' }}>📞</span> FRO Hourly Performance — Connected vs Target
-                </h3>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500 }}>{hourlyDate}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#f0fdf4', color: '#15803d' }}>target {DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr</span>
+            {/* FRO Hourly Performance + Productivity Alerts — side by side */}
+            <div className="performance-sections">
+              <div className="performance-card">
+              <div className="performance-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+                  <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 className="performance-title" style={{ color: '#17233C' }}>FRO Hourly Performance — Connected vs Target</h3>
+                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr)</p>
+                  </div>
                 </div>
               </div>
-              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '12px 16px' }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Search FRO name..."
+                  value={hourlyFroSearch}
+                  onChange={e => setHourlyFroSearch(e.target.value)}
+                  style={{ flex: 1, minWidth: 200, maxWidth: 360, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div className="performance-table-wrapper" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                 {hourlyLoading ? (
-                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading hourly data...</div>
+                  <div style={{ minHeight: 320, padding: '4px 16px' }}>
+                    {[0,1,2,3,4,5].map(i => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                        <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 70, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 55, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 90, height: 18, background: '#eef2f6', borderRadius: 999 }} />
+                      </div>
+                    ))}
+                  </div>
                 ) : hourlyTotals.calls === 0 && elapsedIdx < 0 ? (
-                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                  <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                  </div>
                 ) : hourlyTotals.calls === 0 ? (
-                  <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No calls recorded on this date</div>
+                  <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>No calls recorded on this date</div>
+                  </div>
+                ) : lowGroups.length === 0 ? (
+                  <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>✓</div>
+                      <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>All FROs are at or above the target pace.</div>
+                    </div>
+                  </div>
                 ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-                      <tr>
-                        <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Name</th>
-                        <th style={{ padding: '8px 8px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Time</th>
-                        <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#3f4a38', background: 'var(--bg)', fontWeight: 700 }}>
-                          Conn Tgt
-                          <span style={{ display: 'block', fontSize: 8, color: 'var(--ink-soft)', fontWeight: 500 }}>of {DAILY_CONNECTED_TARGET}/day</span>
-                        </th>
-                        <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#16a34a', background: 'var(--bg)', fontWeight: 700 }}>Conn</th>
-                        <th style={{ padding: '8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#dc2626', background: 'var(--bg)', fontWeight: 700 }}>Non-Conn</th>
-                        <th style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: '#7c3aed', background: 'var(--bg)', fontWeight: 700 }}>Avg Calls</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {froGroups.map((g, gi) => {
-                        if (!hourlyShowAll && gi >= 3) return null;
-                        const expanded = hourlyExpanded.has(g.id);
-                        let cumCalls = 0;
-                        const hourRows = g.rows.map((r, i) => {
-                          const fut = isFuture(r);
-                          const conn = r.connected || 0;
-                          const non = r.non_connected || 0;
-                          if (!fut) cumCalls += conn + non;
-                          const avg = fut ? null : Math.round((cumCalls / (i + 1)) * 10) / 10;
-                          return (
-                            <tr key={g.id + r.hour} style={{ borderBottom: '1px solid var(--line)', background: fut ? '#fafafa' : 'transparent' }}>
-                              <td style={{ padding: '6px 10px', fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--ink)' }}>{g.name}</td>
-                              <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', color: fut ? 'var(--ink-soft)' : 'var(--ink)' }}>{r.hour}</td>
-                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)' }}>{fut ? '—' : HOURLY_CONNECTED_TARGET}</td>
-                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: (fut || conn === 0) ? 'var(--ink-soft)' : connColor(conn) }}>{fut || conn === 0 ? '—' : conn}</td>
-                              <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: (fut || non === 0) ? 'var(--ink-soft)' : '#dc2626' }}>{fut || non === 0 ? '—' : non}</td>
-                              <td style={{ padding: '6px 12px 6px 8px', textAlign: 'right', fontWeight: 700, color: fut ? 'var(--ink-soft)' : 'var(--ink)' }}>{fut || avg == null ? '—' : avg}</td>
-                            </tr>
-                          );
-                        });
-                        return (
-                          <Fragment key={g.id}>
-                            <tr
-                              onClick={() => toggleFro(g.id)}
-                              style={{ cursor: 'pointer', borderBottom: '1px solid var(--line)', background: '#f6f8f3' }}
-                            >
-                              <td colSpan={6} style={{ padding: '7px 10px' }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 10, color: 'var(--ink-soft)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}>▶</span>
-                                  <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{g.name}</span>
-                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '1px 8px', borderRadius: 999 }}>Conn {g.connected}</span>
-                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '1px 8px', borderRadius: 999 }}>Non-Conn {g.nonConnected}</span>
-                                  <span style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '1px 8px', borderRadius: 999 }}>Avg {g.avgCalls}</span>
-                                  <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>of {DAILY_CONNECTED_TARGET}/day</span>
-                                </span>
-                              </td>
-                            </tr>
-                            {expanded && hourRows}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ borderTop: '2px solid var(--line)', background: 'var(--bg)' }}>
-                        <td style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Total</td>
-                        <td style={{ padding: '8px 8px', fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)' }}>{elapsedHrs} hrs</td>
-                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--ink-soft)' }}>{DAILY_CONNECTED_TARGET}/FRO</td>
-                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
-                        <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626' }}>{totalNon}</td>
-                        <td style={{ padding: '8px 12px 8px 8px', textAlign: 'right', fontWeight: 800, color: '#7c3aed' }}>{Math.round(overallAvg * 10) / 10}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                  <div className="performance-table-scroll">
+                    <table className="performance-table">
+                      <colgroup>
+                        <col style={{ width: '30%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '14%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '20%' }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          {['FRO','Conn','Tgt Pace','Non-Conn','Conn%','Perf'].map((h, ci) => (
+                            <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 4 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lowGroups.map(froRow)}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                          <td colSpan={2} style={{ padding: '8px 8px', fontSize: 10, fontWeight: 800, color: '#17233C', textTransform: 'uppercase' }}>Total · {froGroups.length} FROs</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#64748B' }}>{targetPace}×{froGroups.length}</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626' }}>{totalNon}</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'center', fontWeight: 800, color: '#16a34a' }}>{overallConnPct}%</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                            <span style={{ fontWeight: 800, color: teamPerf >= 100 ? '#16a34a' : '#ef4444' }}>{teamPerf}% of pace</span>
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 )}
               </div>
-              {froGroups.length > 3 && (
-                <div style={{ padding: '8px 10px', borderTop: '1px solid var(--line)', textAlign: 'center', background: 'var(--bg)' }}>
-                  <button
-                    onClick={() => setHourlyShowAll(v => !v)}
-                    style={{ padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', border: '1px solid var(--sage)', background: '#fff', color: 'var(--sage)', cursor: 'pointer' }}
-                  >
-                    {hourlyShowAll ? 'Show top 3 only' : `Show all (${froGroups.length - 3}) FROs`}
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* Productivity Alerts — Idle Hours (single unified container) */}
-            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}>
+            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {/* Header */}
               <div style={{ padding: '20px 24px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -2685,7 +2665,7 @@ export default function Dashboard() {
                   );
                 }
                 return (
-                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, overflowX: 'auto', maxHeight: 600, overflowY: 'auto' }}>
+                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'auto' }}>
                     <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr>
@@ -2746,6 +2726,7 @@ export default function Dashboard() {
                 .productivity-alerts tbody tr:hover { background: #f8fbff; }
                 @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
               `}</style>
+              </div>
             </div>
           </>
         );

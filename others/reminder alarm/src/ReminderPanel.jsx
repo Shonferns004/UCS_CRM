@@ -5,7 +5,7 @@ import { Icon } from './components'
 import ToastContainer, { toast } from './Toast'
 import {
   addReminder, updateReminder, deleteReminder, completeReminder, snoozeReminder,
-  fetchReminderHistory, markAllNotificationsRead, markNotificationRead,
+  fetchReminderHistory,
   importReminders,
 } from './api'
 import { exportToCSV, exportToExcel, daysLeft } from './helpers'
@@ -16,7 +16,7 @@ import {
 import AllReminders from './AllReminders'
 import RemSettings from './Settings'
 import DashboardPage from './Dashboard'
-import { ReminderFormModal, HistoryModal, DeleteConfirmModal, ImportModal, NotificationPanel, AlarmToast } from './modals'
+import { ReminderFormModal, HistoryModal, DeleteConfirmModal, AlarmToast } from './modals'
 
 const PAGE_META = {
   '/rem': ['Priyank Shah Reminder', 'All Reminders', 'One table for every reminder, category filter, due date and renewal.'],
@@ -65,8 +65,6 @@ function PanelInner() {
   const [historyReminder, setHistoryReminder] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [notifOpen, setNotifOpen] = useState(false)
 
   function openHistory(id, reminder) {
     setHistoryId(id)
@@ -118,15 +116,6 @@ function PanelInner() {
   const onDashboard = location.pathname === '/rem/dashboard'
   const meta = onSettings ? PAGE_META['/rem/settings'] : PAGE_META['/rem']
 
-  function testNotification(type) {
-    playAlarmSound(type)
-    requestNotificationPermission()
-    sendBrowserNotification(
-      `Test: ${type}`,
-      `This is a test ${type} notification for Priyank Shah Reminder.`,
-      `test-${type}-${Date.now()}`
-    )
-  }
   const initials = (user?.name || user?.login_id || 'U').toString().split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
   function openAdd() { setEditing(null); setFormKey(k => k + 1); setFormOpen(true) }
@@ -179,8 +168,6 @@ function PanelInner() {
       dismissAlarm(`${id}-DUE_SOON`)
     } catch (e) { toast(e.message || 'Failed', 'error') }
   }
-
-  const unreadCount = notifications.filter(n => !n.read).length
 
   return (
     <div className="rem-app">
@@ -239,26 +226,9 @@ function PanelInner() {
                 <>
                   <button className="rem-btn" onClick={() => { exportToCSV(reminders.filter(r => !r.is_deleted)); toast('CSV exported', 'success') }}>Export CSV</button>
                   <button className="rem-btn" onClick={() => { exportToExcel(reminders.filter(r => !r.is_deleted)); toast('Excel exported', 'success') }}>Export</button>
-                  <button className="rem-btn" onClick={() => setImportOpen(true)}>Import</button>
                 </>
               )}
-              <div style={{ position: 'relative' }}>
-                <button className="notif-badge" onClick={() => setNotifOpen(!notifOpen)}>
-                  <Icon name="bell" size={18} />
-                  {unreadCount > 0 && <span className="notif-count">{unreadCount}</span>}
-                </button>
-                {notifOpen && (
-                  <NotificationPanel
-                    notifications={notifications}
-                    onClose={() => setNotifOpen(false)}
-                    onMarkRead={async (id) => { await markNotificationRead(id); await refreshNotifications() }}
-                    onMarkAllRead={async () => { await markAllNotificationsRead(); await refreshNotifications() }}
-                    onClickReminder={(id) => { setActiveFilter(''); navigate('/rem'); setNotifOpen(false) }}
-                    onTest={testNotification}
-                  />
-                )}
               </div>
-            </div>
           </header>
 
           <div className="rem-content">
@@ -272,10 +242,9 @@ function PanelInner() {
         </div>
       </div>
 
-      <ReminderFormModal key={formKey} open={formOpen} reminder={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} />
+      <ReminderFormModal key={formKey} open={formOpen} reminder={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} onDelete={(c) => { setFormOpen(false); setEditing(null); setDeleteId(c) }} />
       <HistoryModal reminderId={historyId} reminder={historyReminder} open={!!historyId} onClose={() => { setHistoryId(null); setHistoryReminder(null) }} />
       <DeleteConfirmModal reminder={deleteId} deleting={deleting} onClose={() => { if (!deleting) setDeleteId(null) }} onConfirm={() => deleteId && doDelete(deleteId)} />
-      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); refresh() }} />
 
       {showComplete && (
         <div className="modal-overlay" onClick={() => { setShowComplete(false); setCompleteId(null) }}>

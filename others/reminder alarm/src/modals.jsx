@@ -37,12 +37,12 @@ const FIELD_LABELS = {
 
 const fieldLabel = (key) => FIELD_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-const STATUS_OPTIONS = ['Upcoming', 'Completed', 'Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Snoozed'];
+const STATUS_OPTIONS = ['Upcoming', 'Completed', 'Snoozed'];
 
 /* ================================================================== */
 /*  1. ReminderFormModal                                               */
 /* ================================================================== */
-export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
+export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }) {
   const isEdit = reminder != null;
   const originalRef = useRef(null);
 
@@ -107,10 +107,6 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
     const payload = {};
     const norm = (v) => (v === undefined || v === null) ? '' : String(v);
     Object.keys(form).forEach((k) => {
-      if (k === 'title') {
-        payload[k] = form[k];
-        return;
-      }
       if (isEdit && originalRef.current) {
         const orig = norm(originalRef.current[k]);
         const curr = norm(form[k]);
@@ -118,11 +114,17 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
           payload[k] = form[k];
         }
       } else {
+        if (k === 'title') {
+          payload[k] = form[k];
+          return;
+        }
         if (form[k] !== '' && form[k] !== false) {
           payload[k] = form[k];
         }
       }
     });
+
+    if (!payload.title) payload.title = form.title;
 
     // Map friendly frequency options to structured backend values.
     const freqMap = {
@@ -145,13 +147,12 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
     }
     if (payload.amount != null && payload.amount !== '') {
       payload.amount = Number(payload.amount);
-    } else if (payload.amount === '') {
-      delete payload.amount;
+    } else if (payload.amount === '' || payload.amount === null) {
+      payload.amount = null;
     }
 
-    if (isEdit && Object.keys(payload).length <= 1 && payload.title) {
+    if (isEdit && Object.keys(payload).length === 0) {
       toast('No changes to save', 'info');
-      onClose();
       return;
     }
 
@@ -202,18 +203,20 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
             {/* Category */}
             <div className="form-row">
               <label>Category</label>
-              <select
-                className="rem-select"
+              <input
+                className="rem-input"
                 value={form.category}
                 onChange={handleChange('category')}
-              >
-                <option value="">-- Select --</option>
+                placeholder="Type or select category"
+                list="category-list"
+              />
+              <datalist id="category-list">
                 {CATEGORIES.map((c) => (
-                  <option key={c.key} value={c.key}>
+                  <option key={c.key} value={c.label}>
                     {c.label}
                   </option>
                 ))}
-              </select>
+              </datalist>
             </div>
 
             {/* Owner */}
@@ -232,7 +235,7 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
               <label>Description</label>
               <textarea
                 className="rem-textarea"
-                rows={3}
+                rows={2}
                 value={form.description}
                 onChange={handleChange('description')}
                 placeholder="Description"
@@ -261,79 +264,6 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
               />
             </div>
 
-            {/* Frequency */}
-            <div className="form-row">
-              <label>Frequency Type</label>
-              <select
-                className="rem-select"
-                value={form.frequency_type}
-                onChange={handleChange('frequency_type')}
-              >
-                <option value="">-- Select --</option>
-                {FREQUENCY_OPTIONS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {showCustomFreq && (
-              <>
-                <div className="form-row">
-                  <label>Frequency Interval</label>
-                  <input
-                    className="rem-input"
-                    type="number"
-                    min={1}
-                    value={form.frequency_interval}
-                    onChange={handleChange('frequency_interval')}
-                    placeholder="e.g. 3"
-                  />
-                </div>
-                <div className="form-row">
-                  <label>Day of Month</label>
-                  <input
-                    className="rem-input"
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={form.day_of_month}
-                    onChange={handleChange('day_of_month')}
-                    placeholder="1-31"
-                  />
-                </div>
-                <div className="form-row">
-                  <label>Month of Year</label>
-                  <input
-                    className="rem-input"
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={form.month_of_year}
-                    onChange={handleChange('month_of_year')}
-                    placeholder="1-12"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* Priority */}
-            <div className="form-row">
-              <label>Priority</label>
-              <select
-                className="rem-select"
-                value={form.priority}
-                onChange={handleChange('priority')}
-              >
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             {/* Status */}
             <div className="form-row">
               <label>Status</label>
@@ -357,93 +287,6 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved }) {
                 value={form.amount}
                 onChange={handleChange('amount')}
                 placeholder="e.g. 4144"
-              />
-            </div>
-
-            {/* Toggles */}
-            <div className="form-row">
-              <label>Alarm Enabled</label>
-              <div className="row-toggle">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.alarm_enabled}
-                    onChange={handleChange('alarm_enabled')}
-                  />
-                  <span className="switch" />
-                  <span>Alarm</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="form-row">
-              <label>Reminder Enabled</label>
-              <div className="row-toggle">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.reminder_enabled}
-                    onChange={handleChange('reminder_enabled')}
-                  />
-                  <span className="switch" />
-                  <span>Reminder</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Reminder Time */}
-            <div className="form-row">
-              <label>Reminder Time</label>
-              <input
-                className="rem-input"
-                type="time"
-                value={form.reminder_time}
-                onChange={handleChange('reminder_time')}
-              />
-            </div>
-
-            {/* Reminder Minutes Before */}
-            <div className="form-row">
-              <label>Remind Before</label>
-              <select
-                className="rem-select"
-                value={form.reminder_minutes_before}
-                onChange={handleChange('reminder_minutes_before')}
-              >
-                <option value="">-- Select --</option>
-                {REMIND_BEFORE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Notification Enabled */}
-            <div className="form-row">
-              <label>Notification Enabled</label>
-              <div className="row-toggle">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.notification_enabled}
-                    onChange={handleChange('notification_enabled')}
-                  />
-                  <span className="switch" />
-                  <span>Notification</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-              <label>Notes</label>
-              <textarea
-                className="rem-textarea"
-                rows={3}
-                value={form.notes}
-                onChange={handleChange('notes')}
-                placeholder="Additional notes"
               />
             </div>
           </div>

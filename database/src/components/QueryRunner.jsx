@@ -1,14 +1,31 @@
+import { useRef } from 'react';
 import DataGrid from './DataGrid.jsx';
 
 export default function QueryRunner({ open, sqlText, setSqlText, runStatus, onRun, histOpen, onToggleHist, history, onPickHistory, onClear, result }) {
+  const fileRef = useRef(null);
   if (!open) return null;
   const runCls = runStatus.cls === 'ok' ? 'text-primary' : runStatus.cls === 'err' ? 'text-error' : 'text-on-surface-variant';
+
+  const loadFile = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    f.text().then((t) => {
+      setSqlText(t);
+      try { localStorage.setItem('db-viewer-sql', t); } catch (_) {}
+      setRunStatus({ msg: `Loaded ${f.name}`, cls: 'ok' });
+    });
+    e.target.value = '';
+  };
 
   return (
     <div className="mx-md my-md border border-border-subtle rounded bg-surface-card overflow-hidden">
       <div className="flex items-center gap-2.5 px-3 py-2 bg-surface-container-high border-b border-border-subtle">
         <span className="font-headline-md text-headline-md font-bold text-on-surface">Query Runner</span>
         <span className="flex-1"></span>
+        <button onClick={() => fileRef.current && fileRef.current.click()} className="px-2.5 py-1 rounded border border-border-subtle bg-surface text-on-surface font-body-sm text-body-sm hover:border-primary hover:text-primary transition-colors cursor-pointer">
+          Load .sql file
+        </button>
+        <input ref={fileRef} type="file" accept=".sql,.txt,text/plain" className="hidden" onChange={loadFile} />
         <button onClick={onToggleHist} className="px-2.5 py-1 rounded border border-border-subtle bg-surface text-on-surface font-body-sm text-body-sm hover:border-primary hover:text-primary transition-colors cursor-pointer">
           History
         </button>
@@ -65,8 +82,9 @@ export default function QueryRunner({ open, sqlText, setSqlText, runStatus, onRu
               emptyText="Query returned no rows"
             />
           ) : (
-            <div style={{ padding: '10px 12px', fontSize: 13, color: '#4edea3' }}>
+            <div className="px-3 py-2.5" style={{ fontSize: 13, color: '#4edea3' }}>
               OK — {result.rowCount ?? ''} {result.command || ''}{result.rowCount == null ? '' : ' row(s) affected'}
+              {result.statementCount && result.statementCount > 1 ? ` · ${result.statementCount} statements ran` : ''}
             </div>
           )}
         </div>
