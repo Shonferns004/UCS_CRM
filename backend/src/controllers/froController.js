@@ -778,10 +778,8 @@ export const getMyPerformance = async (req, res) => {
     }
     const teamIds = [...roster.keys()];
 
-    // Rank strictly by today's % of this FRO's daily collection target:
-    // pct = today_collected / daily_collection_target. Equal % (including a
-    // day where nobody has collected) falls back to the current month's
-    // collection, then name. Lifetime totals are never part of the ranking.
+    // Rank org-wide by today's raw collection amount (₹), most collected first.
+    // Equal amounts fall back to the current month's collection, then name.
     const todayCollection = {};
     const monthCollection = {};
     const dailyTarget = {};
@@ -803,7 +801,7 @@ export const getMyPerformance = async (req, res) => {
     const pctOf = (id) => dailyTarget[id] > 0 ? (todayCollection[id] / dailyTarget[id]) * 100 : 0;
     const nameOf = (id) => roster.get(id)?.name || String(id);
     const ranking = teamIds.sort((a, b) =>
-      (pctOf(b) - pctOf(a))
+      (todayCollection[b] - todayCollection[a])
       || (monthCollection[b] - monthCollection[a])
       || nameOf(a).localeCompare(nameOf(b))
     );
