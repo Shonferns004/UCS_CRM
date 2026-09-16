@@ -1,6 +1,22 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
 
+const IST_OFFSET = 5.5 * 60 * 60 * 1000
+const STATUS_OPTIONS = ['present', 'late', 'half-day', 'absent', 'leave']
+
+const toTimeInput = (iso) => {
+  if (!iso) return ''
+  const d = new Date(new Date(iso).getTime() + IST_OFFSET)
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+
+const toIsoTimestamp = (date, time) => {
+  if (!time) return null
+  const [h, min] = time.split(':').map(Number)
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d) - IST_OFFSET + (h * 60 + min) * 60000).toISOString()
+}
+
 export default function Attendance() {
   const [records, setRecords] = useState([])
   const [workers, setWorkers] = useState([])
@@ -11,6 +27,8 @@ export default function Attendance() {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
   const [err, setErr] = useState('')
+  const [editor, setEditor] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     api('/attendance/all').then(setRecords).catch(e => setErr(e.message))
@@ -58,6 +76,40 @@ export default function Attendance() {
     return acc
   }, {})
 
+  const reload = () => api('/attendance/all').then(setRecords).catch(e => setErr(e.message))
+
+  const openEditor = (worker, date, rec) => setEditor({
+    worker,
+    date,
+    id: rec?.id || null,
+    status: rec?.status || 'absent',
+    punchIn: toTimeInput(rec?.punch_in_time),
+    punchOut: toTimeInput(rec?.punch_out_time),
+    lateMinutes: String(rec?.late_minutes ?? 0),
+  })
+
+  const saveEditor = async () => {
+    if (!editor) return
+    setSaving(true)
+    try {
+      const body = {
+        date: editor.date,
+        status: editor.status,
+        punch_in_time: toIsoTimestamp(editor.date, editor.punchIn),
+        punch_out_time: toIsoTimestamp(editor.date, editor.punchOut),
+        late_minutes: Math.max(0, parseInt(editor.lateMinutes || '0', 10) || 0),
+      }
+      if (editor.id) await api(`/attendance/${editor.id}`, { method: 'PUT', body: JSON.stringify(body) })
+      else await api('/attendance', { method: 'POST', body: JSON.stringify({ worker_id: editor.worker.id, ...body }) })
+      setEditor(null)
+      await reload()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="sa-page">
       <h3>Attendance</h3>
@@ -96,7 +148,7 @@ export default function Attendance() {
                     const dateStr = `${year}-${m}-${d}`
                     const rec = g.days[dateStr]
                     return (
-                      <td key={d} className="sa-att-cell" style={{color: rec ? statusColor(rec.status) : '#e5e7eb'}}>
+                       <td key={d} className="sa-att-cell" onClick={() => openEditor(g.worker, dateStr, rec)} style={{color: rec ? statusColor(rec.status) : '#e5e7eb', cursor: 'pointer'}} title="Click to edit attendance">
                         {rec ? (rec.status === 'present' ? 'P' : rec.status === 'late' ? 'L' : rec.status === 'absent' ? 'A' : rec.status === 'half-day' ? 'HD' : rec.status === 'leave' ? 'LV' : '?') : '·'}
                       </td>
                     )
@@ -111,6 +163,28 @@ export default function Attendance() {
           </table>
         </div>
       </div>
+
+      {editor && (
+        <div className="sa-card" style={{ marginTop: 16, maxWidth: 620 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <strong>Edit Attendance: {editor.worker?.name || editor.worker?.id} · {editor.date}</strong>
+            <button className="btn btn-sm" onClick={() => setEditor(null)}>Close</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 12 }}>
+            <label>Status<select value={editor.status} onChange={e => setEditor({ ...editor, status: e.target.value })}>
+              {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s === 'half-day' ? 'Half-day' : s[0].toUpperCase() + s.slice(1)}</option>)}
+            </select></label>
+            <label>Punch In<input type="time" value={editor.punchIn} onChange={e => setEditor({ ...editor, punchIn: e.target.value })} /></label>
+            <label>Punch Out<input type="time" value={editor.punchOut} onChange={e => setEditor({ ...editor, punchOut: e.target.value })} /></label>
+            <label>Late Minutes<input type="number" min="0" value={editor.lateMinutes} onChange={e => setEditor({ ...editor, lateMinutes: e.target.value })} /></label>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <button className="btn btn-sm" onClick={() => setEditor({ ...editor, status: 'half-day' })}>Set Half-day</button>
+            <button className="btn btn-sm" onClick={() => setEditor({ ...editor, status: 'present' })}>Remove Half-day</button>
+            <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} onClick={saveEditor} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

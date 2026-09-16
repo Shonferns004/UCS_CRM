@@ -15,21 +15,23 @@ class ApiService {
     };
   }
 
-  static Future<Map<String, dynamic>> get(String path, {Map<String, String>? queryParams}) async {
+  static Future<Map<String, dynamic>> get(String path,
+      {Map<String, String>? queryParams, Duration timeout = const Duration(seconds: 15)}) async {
     var uri = Uri.parse('$baseUrl$path');
     if (queryParams != null) {
       uri = uri.replace(queryParameters: queryParams);
     }
-    final res = await http.get(uri, headers: await _headers()).timeout(const Duration(seconds: 15));
+    final res = await http.get(uri, headers: await _headers()).timeout(timeout);
     return _handleResponse(res);
   }
 
-  static Future<Map<String, dynamic>> post(String path, {Map<String, dynamic>? body}) async {
+  static Future<Map<String, dynamic>> post(String path,
+      {Map<String, dynamic>? body, Duration timeout = const Duration(seconds: 15)}) async {
     final res = await http.post(
       Uri.parse('$baseUrl$path'),
       headers: await _headers(),
       body: body != null ? jsonEncode(body) : null,
-    ).timeout(const Duration(seconds: 15));
+    ).timeout(timeout);
     return _handleResponse(res);
   }
 

@@ -78,14 +78,15 @@ export default function DataGrid({ current, order, desc, onSort, selected, onTog
                 const name = c.column_name || c.name;
                 const v = row[name];
                 const cls = cellClass(v);
-                let extra = 'whitespace-nowrap overflow-hidden text-ellipsis';
-                if (cls === 'json') extra = 'whitespace-pre-wrap break-words font-code-snippet text-primary';
+                const long = typeof v === 'string' && v.length > 120;
+                let extra = 'whitespace-nowrap overflow-hidden text-ellipsis max-w-[420px]';
+                if (cls === 'json' || long) extra = 'whitespace-pre-wrap break-words font-code-snippet text-primary';
                 else if (cls === 'null') extra = 'text-on-surface-variant italic';
                 return (
                   <td
                     key={name}
                     title={typeof v === 'string' ? v : undefined}
-                    className={`px-3 py-2 text-on-surface font-body-sm text-body-sm max-w-[420px] align-top border-b border-border-subtle ${extra}`}
+                    className={`px-3 py-2 text-on-surface font-body-sm text-body-sm align-top border-b border-border-subtle ${extra}`}
                   >
                     {v === null || v === undefined ? 'NULL' : (typeof v === 'object' ? JSON.stringify(v) : String(v))}
                   </td>
