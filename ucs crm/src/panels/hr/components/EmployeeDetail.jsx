@@ -654,14 +654,38 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               <input value={form.name} onChange={setField('name')}
                 style={{ marginTop:12, fontSize:16, fontWeight:600, textAlign:'center', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 10px', width:'100%' }} />
             ) : (
-              <h3 style={{ marginTop:12, fontSize:17 }}>{data.name}</h3>
+              <h3 style={{ marginTop:12, fontSize:17, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                {data.name}
+                {data.documents_submitted && (
+                  <span title="Documents submitted & verified" style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ display:'block' }}>
+                      <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                )}
+              </h3>
             )}
-            <div style={{ color:'var(--ink-soft)', fontSize:12, marginTop:6, display:'flex', gap:6, justifyContent:'center', flexWrap:'wrap' }}>
+            <div style={{ color:'var(--ink-soft)', fontSize:12, marginTop:6, display:'flex', gap:6, justifyContent:'center', flexWrap:'wrap', alignItems:'center' }}>
               {data.department && <span className="side-tag">{deptLabel(data.department)}</span>}
               <span className={'side-tag ' + (data.employment_status === 'absconded' ? 'side-tag-absconded' : data.employment_status === 'offboarded' ? 'side-tag-offboarded' : data.is_active ? 'side-tag-active' : 'side-tag-inactive')}
                 style={data.employment_status === 'absconded' ? { background:'#fff3e0', color:'#e65100' } : data.employment_status === 'offboarded' ? { background:'#fce4ec', color:'#c62828' } : {}}>
                 {data.employment_status === 'absconded' ? 'Absconded' : data.employment_status === 'offboarded' ? 'Offboarded' : data.is_active ? 'Active' : 'Inactive'}
               </span>
+              <button
+                type="button"
+                onClick={toggleDocsSubmitted}
+                disabled={docsBusy}
+                style={{ background:'none', border:'none', padding:0, cursor: docsBusy ? 'wait' : 'pointer', display:'inline-flex', alignItems:'center', gap:4 }}
+                title="Mark documents as submitted"
+              >
+                <span className="side-tag" style={{
+                  background: data.documents_submitted ? '#1a8d3a' : '#e5e5e5',
+                  color: data.documents_submitted ? '#fff' : '#9ca3af',
+                  display:'inline-flex', alignItems:'center', gap:4, fontWeight:600,
+                }}>
+                  {docsBusy ? 'Saving…' : (data.documents_submitted ? 'Documents ✓' : 'Documents')}
+                </span>
+              </button>
             </div>
           </div>
           <div className="side-fields">
@@ -770,21 +794,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               </div>
 
               <Field label="Onboarding" value={data.onboarding_completed ? 'Completed' : 'Pending'} />
-
-              <div className="card" style={{ marginTop:16 }}>
-                <div className="card-head"><h3>Documents Submitted</h3></div>
-                <div className="card-pad" style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <button
-                    type="button"
-                    onClick={toggleDocsSubmitted}
-                    disabled={docsBusy}
-                    style={{ width:120, padding:'8px 0', borderRadius:20, border:'none', cursor: docsBusy ? 'wait' : 'pointer', fontWeight:600, fontSize:13, transition:'all .15s', background: data.documents_submitted ? '#16a34a' : '#e5e5e5', color: data.documents_submitted ? '#fff' : 'var(--ink-soft)' }}
-                  >
-                    {docsBusy ? 'Saving…' : (data.documents_submitted ? 'Yes ✓' : 'No')}
-                  </button>
-                  <span style={{ fontSize:12, color:'var(--ink-soft)' }}>{data.documents_submitted ? 'Documents received from this volunteer.' : 'Volunteer has not submitted documents yet.'}</span>
-                </div>
-              </div>
 
               {[data.aadhar_front_url, data.aadhar_back_url, data.pan_card_url, data.bank_proof_url, data.light_bill_url].some(Boolean) && (
                 <div className="card" style={{ marginTop:16 }}>
