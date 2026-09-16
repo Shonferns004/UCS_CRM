@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRem } from './store'
-import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon } from './helpers'
+import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon, normalizeCategory } from './helpers'
 import { computeEffectiveDueDate } from './notifications'
 import { Icon } from './components'
 import { toast } from './Toast'
-import { buildReminderItems } from './reminderSeedData'
+
 
 const STATUS_OPTIONS = ['Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Upcoming', 'Completed', 'Snoozed']
 const PAGE_SIZE = 20
@@ -47,6 +47,7 @@ function matchesView(r, viewKey) {
 }
 
 function itemStatus(it) {
+  if (it._dbStatus) return it._dbStatus
   const due = it.due || ''
   if (/paid by tenant/i.test(due) || /paid by tenant/i.test(it.notes || '')) return 'Upcoming'
   const eff = computeEffectiveDueDate(it)
@@ -63,7 +64,57 @@ function itemStatus(it) {
 export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   const { reminders, activeFilter, setActiveFilter } = useRem()
 
-  const sourceItems = useMemo(() => buildReminderItems(), [])
+  const sourceItems = useMemo(() => {
+    const fmtDate = (d) => {
+      if (!d) return ''
+      const s = String(d).slice(0, 10)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, day] = s.split('-')
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        return `${parseInt(day)} ${months[parseInt(m) - 1]}`
+      }
+      return String(d)
+    }
+    const activeReminders = reminders.filter(r => !r.is_deleted)
+    const seenIds = new Set()
+    const seenKeys = new Set()
+    const uniqueReminders = activeReminders.filter(r => {
+      if (seenIds.has(r.id)) return false
+      seenIds.add(r.id)
+      const normCat = normalizeCategory(r.category).toLowerCase()
+      const normOwner = (r.owner || '').toLowerCase()
+      const normTitle = (r.title || '').toLowerCase()
+      const key = `${normTitle}||${normCat}||${normOwner}`
+      if (seenKeys.has(key)) return false
+      seenKeys.add(key)
+      return true
+    })
+    const dbItems = uniqueReminders.map(r => {
+      const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
+      const grp = normalizeCategory(r.category)
+      return {
+        category: grp,
+        _group: grp,
+        _sub: '',
+        _dbId: r.id,
+        _dbStatus: computed,
+        title: r.title || '',
+        owner: r.owner || '',
+        due: fmtDate(r.due_date) || '',
+        due_date: r.due_date || null,
+        renewal: fmtDate(r.renewal_date) || '',
+        renewal_date: r.renewal_date || null,
+        lastPaid: r.paid_at ? fmtDate(r.paid_at) : '',
+        paidAmount: r.amount ? `₹${r.amount}` : '',
+        frequency: r.frequency_type || '',
+        notes: r.notes || '',
+        due_date_display: fmtDate(r.due_date) || '',
+        display_frequency: r.frequency_type || '',
+        amount: r.amount,
+      }
+    })
+    return dbItems
+  }, [reminders])
 
   const [search, setSearch] = useState('')
   const [ownerFilter, setOwnerFilter] = useState('')
@@ -78,12 +129,36 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     return Array.from(set).sort()
   }, [sourceItems])
 
-  const filtered = useMemo(() => {
-    let list = sourceItems.map(it => ({ ...it, _status: itemStatus(it) }))
+  const categories = useMemo(() => {
+    const byLabel = new Map()
+    sourceItems.forEach(it => {
+      if (!it.category) return
+      const label = normalizeCategory(it.category)
+      if (!byLabel.has(label)) byLabel.set(label, it.category)
+    })
+    return Array.from(byLabel.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([, key]) => key)
+  }, [sourceItems])
 
-    if (activeFilter && !isCategoryKey(activeFilter)) {
-      const viewKey = VIEW_FILTERS[activeFilter]
-      if (viewKey) list = list.filter(it => matchesView(it, activeFilter))
+  const catMatch = (itemCat, filterCat) => {
+    if (!filterCat) return true
+    const ic = normalizeCategory(itemCat).toLowerCase()
+    const fc = normalizeCategory(filterCat).toLowerCase()
+    return ic === fc
+  }
+
+  const filtered = useMemo(() => {
+    let list = sourceItems.map((it, idx) => ({ ...it, _status: itemStatus(it), _seq: idx }))
+
+    if (activeFilter) {
+      if (VIEW_FILTERS[activeFilter]) {
+        list = list.filter(it => matchesView(it, activeFilter))
+      } else {
+        const filterLabel = normalizeCategory(activeFilter).toLowerCase()
+        list = list.filter(it => {
+          const itemLabel = normalizeCategory(it.category).toLowerCase()
+          return itemLabel === filterLabel
+        })
+      }
     }
 
     if (search.trim()) {
@@ -91,57 +166,73 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       list = list.filter(it =>
         it.title.toLowerCase().includes(q) ||
         (it.owner || '').toLowerCase().includes(q) ||
-        categoryLabel(it.category).toLowerCase().includes(q) ||
-        it._group.toLowerCase().includes(q) ||
-        it._sub.toLowerCase().includes(q) ||
-        it.frequency.toLowerCase().includes(q) ||
-        it.due.toLowerCase().includes(q) ||
-        it.renewal.toLowerCase().includes(q) ||
-        it.lastPaid.toLowerCase().includes(q) ||
-        it.paidAmount.toLowerCase().includes(q) ||
-        it.notes.toLowerCase().includes(q)
+        normalizeCategory(it.category).toLowerCase().includes(q) ||
+        (it._group || '').toLowerCase().includes(q) ||
+        (it._sub || '').toLowerCase().includes(q) ||
+        (it.frequency || '').toLowerCase().includes(q) ||
+        (it.due || '').toLowerCase().includes(q) ||
+        (it.renewal || '').toLowerCase().includes(q) ||
+        (it.lastPaid || '').toLowerCase().includes(q) ||
+        (it.paidAmount || '').toLowerCase().includes(q) ||
+        (it.notes || '').toLowerCase().includes(q)
       )
     }
 
-    const effectiveCat = isCategoryKey(activeFilter) ? activeFilter : ''
-    if (effectiveCat) list = list.filter(it => it.category === effectiveCat)
-
     if (ownerFilter) list = list.filter(it => it.owner === ownerFilter)
 
-    const effectiveStatus =
-      activeFilter === 'completed' ? 'Completed'
-        : activeFilter === 'overdue' ? 'Overdue'
-        : statusFilter
-    if (effectiveStatus) list = list.filter(it => it._status === effectiveStatus)
+    if (statusFilter) list = list.filter(it => it._status === statusFilter)
 
     return list
   }, [sourceItems, activeFilter, search, ownerFilter, statusFilter])
 
-  const displayRows = useMemo(() => {
-    const rows = []
-    let lastGroup = null
-    let lastSub = null
-    for (const it of filtered) {
-      if (it._group !== lastGroup) {
-        rows.push({ kind: 'group', label: it._group })
-        lastGroup = it._group
-        lastSub = null
-      }
-      if (it._sub && it._sub !== lastSub) {
-        rows.push({ kind: 'sub', label: it._sub })
-        lastSub = it._sub
-      }
-      rows.push({ kind: 'item', it })
-    }
-    return rows
-  }, [filtered])
-
   const itemCount = filtered.length
-  const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(itemCount / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const pageStart = (safePage - 1) * PAGE_SIZE
-  const pageItems = displayRows.slice(pageStart, pageStart + PAGE_SIZE)
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, displayRows.length)
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, itemCount)
+
+  const displayRows = useMemo(() => {
+    const selectedGroup = activeFilter && !VIEW_FILTERS[activeFilter] ? normalizeCategory(activeFilter) : null
+    const sorted = [...filtered].sort((a, b) => {
+      const ga = (a._group || '').toLowerCase()
+      const gb = (b._group || '').toLowerCase()
+      if (selectedGroup) {
+        const aMatch = ga === selectedGroup.toLowerCase()
+        const bMatch = gb === selectedGroup.toLowerCase()
+        if (aMatch && !bMatch) return -1
+        if (!aMatch && bMatch) return 1
+      }
+      if (ga !== gb) return ga.localeCompare(gb)
+      const sa = (a._sub || '').toLowerCase()
+      const sb = (b._sub || '').toLowerCase()
+      if (sa !== sb) return sa.localeCompare(sb)
+      return (a.title || '').localeCompare(b.title || '')
+    })
+    const slice = sorted.slice(pageStart, pageEnd)
+    const rows = []
+    let i = 0
+    while (i < slice.length) {
+      const group = slice[i]._group
+      let j = i
+      let count = 0
+      const block = []
+      let lastSub = null
+      while (j < slice.length && slice[j]._group === group) {
+        const it = slice[j]
+        if (it._sub && it._sub !== lastSub) {
+          block.push({ kind: 'sub', label: it._sub })
+          lastSub = it._sub
+        }
+        block.push({ kind: 'item', it })
+        count++
+        j++
+      }
+      rows.push({ kind: 'group', label: group, count })
+      rows.push(...block)
+      i = j
+    }
+    return rows
+  }, [filtered, pageStart, pageEnd, activeFilter])
 
   const handleCategoryChange = (val) => {
     setActiveFilter(val || '')
@@ -157,38 +248,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }
 
   const resolveDbItem = (it) => {
-    const cat = it.category
-    const title = it.title || ''
-    const ownerKey = it.owner || ''
-    let found = reminders.find(r =>
-      r.category === cat &&
-      String(r.title || '') === title &&
-      String(r.owner || '') === ownerKey
-    )
-    if (found) return found
-    if (it._sub) {
-      found = reminders.find(r =>
-        r.category === cat &&
-        String(r.title || '') === it._sub &&
-        String(r.owner || '') === title
-      )
-      if (found) return found
-      found = reminders.find(r =>
-        r.category === cat &&
-        String(r.title || '').startsWith(title) &&
-        String(r.title || '').includes(it._sub)
-      )
+    if (it._dbId) {
+      const found = reminders.find(r => r.id === it._dbId)
       if (found) return found
     }
-    if (it._sub === 'Rent TDS' && cat === 'RENT_TDS') {
-      found = reminders.find(r =>
-        r.category === cat &&
-        String(r.owner || '') === title &&
-        / TDS$/i.test(String(r.title || ''))
-      )
-      if (found) return found
-    }
-    return null
+    return reminders.find(r =>
+      normalizeCategory(r.category) === it.category &&
+      String(r.title || '') === (it.title || '') &&
+      String(r.owner || '') === (it.owner || '')
+    ) || null
   }
 
   const handleAction = (it, kind) => {
@@ -211,14 +279,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     justifyContent: 'center',
   }
 
-  const effectiveCat = isCategoryKey(activeFilter) ? activeFilter : ''
   const hasFilters = search || ownerFilter || statusFilter || activeFilter
+  const isViewFilter = activeFilter && VIEW_FILTERS[activeFilter]
+  const catDropdownVal = activeFilter && !isViewFilter ? activeFilter : ''
 
-  const activeLabel = activeFilter ? (isCategoryKey(activeFilter) ? categoryLabel(activeFilter) : (
+  const activeLabel = activeFilter ? (
     VIEW_FILTERS[activeFilter]
       ? ({ completed: 'Completed', overdue: 'Overdue', dueToday: 'Due Today', dueTomorrow: 'Due Tomorrow', dueThisWeek: 'Due This Week', upcoming: 'Upcoming', renewalsThisMonth: 'Renewals This Month', attention: 'Needs Attention' })[activeFilter]
-      : 'All Reminders'
-  )) : 'All Reminders'
+      : normalizeCategory(activeFilter)
+  ) : 'All Reminders'
 
   return (
     <>
@@ -249,10 +318,10 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <select className="rem-select" value={effectiveCat} onChange={e => handleCategoryChange(e.target.value)}>
+          <select className="rem-select" value={catDropdownVal} onChange={e => handleCategoryChange(e.target.value)}>
             <option value="">All Categories</option>
-            {CATEGORIES.map(c => (
-              <option key={c.key} value={c.key}>{c.label}</option>
+            {categories.map(c => (
+              <option key={c} value={c}>{normalizeCategory(c)}</option>
             ))}
           </select>
           <select className="rem-select" value={ownerFilter} onChange={e => { setOwnerFilter(e.target.value); setPage(1) }}>
@@ -261,7 +330,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
               <option key={o} value={o}>{o}</option>
             ))}
           </select>
-          <select className="rem-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); if (activeFilter === 'completed' || activeFilter === 'overdue') setActiveFilter('') }}>
+          <select className="rem-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
             <option value="">All Statuses</option>
             {STATUS_OPTIONS.map(s => (
               <option key={s} value={s}>{s}</option>
@@ -290,7 +359,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
               </tr>
             </thead>
             <tbody>
-              {pageItems.length === 0 ? (
+              {displayRows.length === 0 ? (
                 <tr>
                   <td colSpan={9}>
                     <div className="empty-state">
@@ -300,12 +369,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                     </div>
                   </td>
                 </tr>
-              ) : pageItems.map((row, i) => {
+              ) : displayRows.map((row, i) => {
                 if (row.kind === 'group') {
                   return (
                     <tr className="rem-group-row" key={`g-${i}-${row.label}`}>
                       <td colSpan={9}>
                         <span className="rem-heading-label">{row.label}</span>
+                        {typeof row.count === 'number' && (
+                          <span className="pill pill-upcoming" style={{ marginLeft: 8 }}>{row.count} reminder{row.count !== 1 ? 's' : ''}</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -326,7 +398,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
                         <Icon name={categoryIcon(it.category)} size={14} />
-                        {categoryLabel(it.category)}
+                        {normalizeCategory(it.category)}
                       </span>
                     </td>
                     <td>
@@ -371,10 +443,10 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
           </table>
         </div>
 
-        {displayRows.length > 0 && (
+        {itemCount > 0 && (
           <div className="pagination">
             <span style={{ fontSize: 12, color: 'var(--rem-ink-soft)' }}>
-              Showing {pageStart + 1}–{pageEnd} of {displayRows.length}
+              Showing {pageStart + 1}–{pageEnd} of {itemCount}
             </span>
             <div className="pages">
               <button className="page-btn" disabled={safePage <= 1} onClick={() => setPage(1)}>&laquo;</button>
