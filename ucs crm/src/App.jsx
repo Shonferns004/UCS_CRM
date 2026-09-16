@@ -15,6 +15,7 @@ import WhatsAppPanel from './panels/whatsapp/WhatsAppPanel'
 import DevPanel from './panels/dev-panel/DevPanel'
 import SimCardPanel from './panels/sim-card/SimCardPanel'
 import NoticesBar from './components/NoticesBar'
+import MeetingGate from './components/MeetingGate'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -133,6 +134,7 @@ export default function App() {
     <ErrorBoundary>
     <UcsProvider>
     <SalaryPrivacyProvider>
+      <MeetingGate />
       <Routes>
         <Route path="/login" element={<LoginWrapper />} />
         <Route path="/" element={<RootRedirect />} />
