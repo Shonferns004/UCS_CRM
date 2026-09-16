@@ -334,6 +334,7 @@ export const getWorker = async (req, res) => {
       is_active: p.is_active,
       employment_status: p.employment_status || 'active',
       onboarding_completed: p.onboarding_completed,
+      documents_submitted: p.documents_submitted,
       ngo_id: p.ngo_id,
       created_at: p.created_at,
       father_husband_name: p.father_husband_name,
@@ -381,6 +382,7 @@ export const editWorker = async (req, res) => {
       declaration_date, declaration_place,
       team,
       is_test,
+      documents_submitted,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -392,6 +394,7 @@ export const editWorker = async (req, res) => {
     if (department !== undefined) updates.department = department;
     if (team !== undefined) updates.team = team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null;
     if (is_test !== undefined) updates.is_test = !!is_test;
+    if (documents_submitted !== undefined) updates.documents_submitted = !!documents_submitted;
     if (address !== undefined) updates.address = address;
     if (city !== undefined) updates.city = city;
     if (state !== undefined) updates.state = state;
