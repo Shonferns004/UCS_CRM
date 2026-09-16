@@ -347,7 +347,7 @@ export default function Dashboard() {
     String(c.donor_mobile || '').includes(cq) ||
     String(c.receipt_no || '').includes(cq))
 
-  return (
+return (
     <div>
       <div style={{
         display: 'grid',

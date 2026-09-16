@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { api } from '../../../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { toast } from '../../../components/Toast'
@@ -175,7 +175,7 @@ function LiveCompetitionsStrip() {
 
   const load = useCallback(() => {
     const date = todayLocal()
-    api(`/incentive/lead/leaderboard?date=${date}`, { _prefix: 'ucs' })
+    api(`/incentive/lead/leaderboard?date=${date}&includeWon=1`, { _prefix: 'ucs' })
       .then(r => setLive(Array.isArray(r?.ranges) ? r : null))
       .catch(() => {})
   }, [])
@@ -183,8 +183,9 @@ function LiveCompetitionsStrip() {
   useEffect(() => { load() }, [load])
   useRealtime('lead_champion_announcements', { event: '*', onInsert: load, onUpdate: load, onDelete: load })
   useRealtime('incentive_slabs', { event: '*', onInsert: load, onUpdate: load, onDelete: load })
+  useRealtime('fro_donor_logs', { event: '*', onInsert: load, onUpdate: load, onDelete: load })
   useEffect(() => {
-    const t = setInterval(load, 15000)
+    const t = setInterval(load, 5000)
     return () => clearInterval(t)
   }, [load])
 
@@ -236,7 +237,9 @@ function LiveCompetitionsStrip() {
             First FRO to hit a range's Minimum Lead Amount (by verified time) wins that range
           </div>
         </div>
-        <span style={{ padding: '4px 12px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 900, letterSpacing: .5, whiteSpace: 'nowrap', animation: 'li-pulse 1.4s ease-in-out infinite' }}>● LIVE NOW</span>
+        {liveCount > 0
+          ? <span style={{ padding: '4px 12px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 900, letterSpacing: .5, whiteSpace: 'nowrap', animation: 'li-pulse 1.4s ease-in-out infinite' }}>● LIVE NOW</span>
+          : <span style={{ padding: '4px 12px', borderRadius: 999, background: 'rgba(255,255,255,.18)', color: '#ffe4b8', fontSize: 11, fontWeight: 900, letterSpacing: .5, whiteSpace: 'nowrap' }}>● NO LIVE RANGE</span>}
         {liveCount > 0 && (
           <button
             onClick={() => setConfirmAll(true)}
@@ -260,38 +263,73 @@ function LiveCompetitionsStrip() {
           No live lead competition is running today. Configure ranges in the 🟢 Live tab (or Apply to All Ranges) to start one.
         </div>
       ) : (
-        <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {ranges.map(r => {
             const leader = r.champion
               ? { name: r.champion.fro_name, won: true }
               : (r.fros && r.fros.length ? { name: r.fros[0].fro_name, won: false } : null)
+            const ranked = (r.fros || []).slice(0, 5)
             return (
               <div key={r.slab_id} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px',
-                borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--bg)',
+                borderRadius: 12, border: r.champion ? '2px solid #22c55e' : '1.5px solid var(--line)',
+                background: r.champion ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : 'var(--bg)', overflow: 'hidden',
               }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', flex: '0 0 auto', minWidth: 100 }}>
-                  {r.slab_label}
-                </span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: '#fff7ed', border: '1px solid #fcd34d', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                  Min Lead ₹{fmt(r.min_lead_amount)}
-                </span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                  ₹{fmt(r.lead_rate)}/lead
-                </span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: leader?.won ? 800 : 600, color: leader?.won ? '#166534' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {leader ? `${leader.name}${leader.won ? ' 🏆' : ` · ${r.fros[0].qualified_leads} ✓`}` : '🏁 no lead yet'}
-                </span>
-                <button
-                  onClick={() => setConfirmSlab({ slab_id: r.slab_id, slab_label: r.slab_label })}
-                  disabled={busy === r.slab_id}
-                  style={{
-                    padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fef2f2',
-                    color: '#b91c1c', fontSize: 11.5, fontWeight: 800, cursor: busy === r.slab_id ? 'wait' : 'pointer', whiteSpace: 'nowrap',
-                  }}
-                >
-                  {busy === r.slab_id ? '⏹ Stopping…' : '⏹ Stop Competition'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', flex: '0 0 auto' }}>
+                    {r.slab_label}
+                  </span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: '#fff7ed', border: '1px solid #fcd34d', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                    Min Lead ₹{fmt(r.min_lead_amount)}
+                  </span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                    ₹{fmt(r.lead_rate)}/lead
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: leader?.won ? 800 : 600, color: leader?.won ? '#166534' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.champion
+                      ? `🏆 Winner: ${r.champion.fro_name}`
+                      : (leader ? `${leader.name} leading · ${r.fros[0].qualified_leads || 0} ✓` : '🏁 no lead yet')}
+                  </span>
+                  <button
+                    onClick={() => setConfirmSlab({ slab_id: r.slab_id, slab_label: r.slab_label })}
+                    disabled={busy === r.slab_id}
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, border: '1.5px solid #fca5a5', background: '#fef2f2',
+                      color: '#b91c1c', fontSize: 11.5, fontWeight: 800, cursor: busy === r.slab_id ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {busy === r.slab_id ? '⏹ Stopping…' : '⏹ Stop Competition'}
+                  </button>
+                </div>
+
+                {r.champion && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 11px', background: 'rgba(255,255,255,.65)', borderTop: '1px dashed #bbf7d0' }}>
+                    <Avatar url={r.champion.photo_url} name={r.champion.fro_name} size={24} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 800, color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.champion.fro_name}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>₹{fmt(r.champion.hit_amount)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#166534' }}>{r.champion.qualified_leads || 0} ✓</span>
+                    <span style={{ fontSize: 12, fontWeight: 900, color: '#166534' }}>🏆 Won +₹{fmt(r.champion.lead_incentive)}</span>
+                  </div>
+                )}
+
+                {!r.champion && ranked.length > 0 && (
+                  <div style={{ borderTop: '1px dashed var(--line)', padding: '4px 11px 8px' }}>
+                    {ranked.map((f, i) => (
+                      <div key={f.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                        <span style={{ width: 18, fontSize: 11, textAlign: 'center', flexShrink: 0, fontWeight: 800, color: 'var(--ink-soft)' }}>
+                          {['🥇', '🥈', '🥉'][i] || (i + 1)}
+                        </span>
+                        <Avatar url={f.photo_url} name={f.fro_name} size={20} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: f.is_winner ? 800 : 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.fro_name}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', flexShrink: 0 }}>₹{fmt(f.total_amount)}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', flexShrink: 0 }}>{f.qualified_leads} ✓</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -333,6 +371,19 @@ function HistoryList({ history, loading, busyId, onDelete }) {
   // Per-date leaderboard (fetched once per date from the live daily summary).
   const [openDate, setOpenDate] = useState(null)
   const [lbCache, setLbCache] = useState({})
+
+  // Auto-open the leaderboard for the most recent date (today if live) so the
+  // Top 5 persons + their leads are always visible in History without clicks.
+  useEffect(() => {
+    if (openDate || history.length === 0) return
+    const today = todayLocal()
+    const liveToday = history.some(r => String(r.announcement_date).slice(0, 10) === today)
+    const latest = liveToday
+      ? today
+      : String([...history].sort((a, b) => String(b.announcement_date).localeCompare(String(a.announcement_date)))[0]?.announcement_date || '').slice(0, 10)
+    if (latest) setOpenDate(latest)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, openDate])
 
   useEffect(() => {
     if (!openDate || lbCache[openDate] !== undefined) return
@@ -391,6 +442,11 @@ function HistoryList({ history, loading, busyId, onDelete }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 20 }}>🏆</span>
+                <Avatar
+                  url={(lbCache[row.announcement_date] || []).find(f => champIds.includes(f.fro_id))?.photo_url}
+                  name={row.fro_name}
+                  size={30}
+                />
                 <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{row.fro_name}</span>
                 {isLive && (
                   <span style={{
@@ -472,7 +528,66 @@ const pulseStyle = `
 
 const medals = ['🥇', '🥈', '🥉']
 
+const initialsOf = (name) => String(name || 'F')
+  .split(' ')
+  .slice(0, 2)
+  .map(s => s[0]).join('').toUpperCase()
+
+function Avatar({ url, name, size = 34 }) {
+  const [err, setErr] = useState(false)
+  useEffect(() => { setErr(false) }, [url])
+  if (url && !err) {
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+        border: '2px solid #f59e0b', background: 'var(--bg)',
+      }}>
+        <img src={url} alt={name} onError={() => setErr(true)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      </div>
+    )
+  }
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      background: 'linear-gradient(135deg,#b45309,#f59e0b)', color: '#fff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.38, fontWeight: 800, border: '2px solid #fbbf24',
+    }}>{initialsOf(name)}</div>
+  )
+}
+
 function LeaderboardPanel({ date, rows, champIds }) {
+  const [limit, setLimit] = useState(5)
+  const [collapsed, setCollapsed] = useState({})
+  const [leadsCache, setLeadsCache] = useState({})
+  const [loadingIds, setLoadingIds] = useState({})
+  const loadedRef = useRef({})
+
+  // Auto-load + show every visible (top 5) person's individual leads so the
+  // winner's leads are visible right away — from the competition start window.
+  useEffect(() => {
+    const need = (rows || []).slice(0, limit).filter(f => loadedRef.current[f.fro_id] !== true)
+    if (need.length === 0) return
+    let alive = true
+    setLoadingIds(p => {
+      const n = { ...p }
+      for (const f of need) n[f.fro_id] = true
+      return n
+    })
+    Promise.all(need.map(f =>
+      api(`/incentive/lead/lead-summary/fro/${f.fro_id}?date=${date}`, { _prefix: 'ucs' })
+        .then(d => { if (alive) setLeadsCache(p => ({ ...p, [f.fro_id]: d || null })) })
+        .catch(() => { if (alive) setLeadsCache(p => ({ ...p, [f.fro_id]: null })) })
+        .finally(() => {
+          loadedRef.current[f.fro_id] = true
+          if (alive) setLoadingIds(p => { const n = { ...p }; delete n[f.fro_id]; return n })
+        })
+    ))
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, rows.length, limit])
+
   if (!rows || rows.length === 0) {
     return (
       <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: 16, marginTop: 12, fontSize: 12, color: 'var(--ink-soft)', textAlign: 'center', background: 'var(--bg)' }}>
@@ -480,35 +595,142 @@ function LeaderboardPanel({ date, rows, champIds }) {
       </div>
     )
   }
+
+  const visible = rows.slice(0, limit)
+  const showAll = limit >= rows.length
+  const champ = rows.find(f => champIds.includes(f.fro_id)) || null
+
   return (
     <div style={{ border: '1px dashed #fcd34d', borderRadius: 12, marginTop: 12, overflow: 'hidden', background: 'var(--bg)' }}>
       <div style={{ padding: '8px 12px', background: 'linear-gradient(90deg,#fff3d6,#fef3c7)', borderBottom: '1px dashed #fcd34d', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e' }}>📊 Leaderboard · {fmtDay(date)}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#b45309' }}>ranked by total incentive</span>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e' }}>📊 Top {visible.length} · {fmtDay(date)}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#b45309' }}>every person's verified leads · from competition start</span>
       </div>
-      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-        {rows.map((f, i) => {
-          const isChamp = champIds.includes(f.fro_id)
-          return (
-            <div key={f.fro_id} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
-              borderBottom: '1px solid var(--line)', background: isChamp ? '#dcfce7' : 'transparent',
-            }}>
-              <span style={{ width: 26, fontSize: 13, textAlign: 'center', flexShrink: 0 }}>
-                {isChamp ? '🏆' : (medals[i] || <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{i + 1}</span>)}
-              </span>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: isChamp ? 800 : 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {f.fro_name}
-              </span>
-              <span style={{ width: 96, fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {f.slab ? `₹${fmt(f.slab.min_amount)}–₹${fmt(f.slab.max_amount)}` : '—'}
-              </span>
-              <span style={{ width: 44, fontSize: 11.5, fontWeight: 700, color: '#16a34a', textAlign: 'center', flexShrink: 0 }}>{f.qualified_leads || 0} ✓</span>
-              <span style={{ width: 82, fontSize: 12, fontWeight: 700, color: '#b45309', textAlign: 'right', flexShrink: 0 }}>₹{fmt(f.total_incentive)}</span>
+
+      {champ && (
+        <div style={{ padding: '10px 14px', borderBottom: '1px dashed #fcd34d', background: 'linear-gradient(135deg,#dcfce7,#f0fdf4)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ position: 'relative' }}>
+            <Avatar url={champ.photo_url} name={champ.fro_name} size={46} />
+            <span style={{ position: 'absolute', bottom: -4, right: -6, fontSize: 18 }}>👑</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>🏆 Winner · {champ.fro_name}</div>
+            <div style={{ fontSize: 11.5, color: '#15803d', marginTop: 2 }}>
+              First FRO to hit their range's target wins it! Won ₹{fmt(champ.lead_incentive)} ({champ.qualified_leads || 0} × per qualified lead)
             </div>
-          )
-        })}
+          </div>
+          {champ.photo_url && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+              <span style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>+₹{fmt(champ.lead_incentive)}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a' }}>{champ.qualified_leads} qualified ✓</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+        {visible.map((f, i) => (
+          <LeaderboardRow
+            key={f.fro_id}
+            f={f}
+            rank={i}
+            isChamp={champIds.includes(f.fro_id)}
+            open={!collapsed[f.fro_id]}
+            loading={!!loadingIds[f.fro_id]}
+            detail={leadsCache[f.fro_id]}
+            onToggle={() => setCollapsed(p => ({ ...p, [f.fro_id]: !p[f.fro_id] }))}
+          />
+        ))}
       </div>
+      {(rows.length > 5) && (
+        <div style={{ padding: 8, borderTop: '1px dashed #fcd34d' }}>
+          <button
+            onClick={() => setLimit(showAll ? 5 : rows.length)}
+            style={{
+              width: '100%', padding: '8px 0', borderRadius: 9, border: '1.5px solid #fcd34d',
+              background: '#fffbeb', color: '#b45309', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+            }}
+          >
+            {showAll ? '↑ Show top 5' : `↓ Show all (${rows.length})`}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LeaderboardRow({ f, rank, isChamp, open, loading, detail, onToggle }) {
+  return (
+    <div style={{ borderBottom: '1px solid var(--line)', background: isChamp ? '#f0fdf4' : 'transparent' }}>
+      <div onClick={onToggle} style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer',
+      }}>
+        <span style={{ width: 26, fontSize: 13, textAlign: 'center', flexShrink: 0 }}>
+          {isChamp ? '🏆' : (medals[rank] || <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{rank + 1}</span>)}
+        </span>
+        <Avatar url={f.photo_url} name={f.fro_name} size={26} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: isChamp ? 800 : 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {f.fro_name}{isChamp ? ' 🏆' : ''}
+        </span>
+        <span style={{ width: 96, fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {f.slab ? `₹${fmt(f.slab.min_amount)}–₹${fmt(f.slab.max_amount)}` : '—'}
+        </span>
+        <span style={{ width: 44, fontSize: 11.5, fontWeight: 700, color: '#16a34a', textAlign: 'center', flexShrink: 0 }}>{f.qualified_leads || 0} ✓</span>
+        {isChamp ? (
+          <span style={{ width: 82, fontSize: 11.5, fontWeight: 800, color: '#166534', textAlign: 'right', flexShrink: 0 }}>🏆 Won +₹{fmt(f.lead_incentive)}</span>
+        ) : (
+          <span style={{ width: 82, flexShrink: 0 }} />
+        )}
+        <span style={{ width: 18, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)', flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ padding: '2px 12px 12px', borderTop: '1px dashed var(--line)' }}>
+          {loading ? (
+            <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading {f.fro_name}'s leads…</div>
+          ) : detail ? (
+            <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '10px 0' }}>
+                {stat('Qualified Leads', detail.qualified_leads || 0, '#16a34a')}
+                {stat('Amount', `₹${fmt(detail.total_amount)}`)}
+                {stat('Lead Inc.', `₹${fmt(detail.lead_incentive)}`)}
+                {stat('Slab Bonus', `₹${fmt(detail.slab_bonus)}`, '#b45309')}
+                {stat('Total', `₹${fmt(detail.total_incentive)}`, '#b45309')}
+              </div>
+              {(detail.leads || []).length > 0 ? (
+                <div style={{ border: '1.5px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg)', borderBottom: '1px solid var(--line)', fontSize: 10.5, fontWeight: 800, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>
+                    <span style={{ width: 18 }} />
+                    <span style={{ flex: 1 }}>Donor</span>
+                    <span style={{ width: 84, textAlign: 'right' }}>Amount</span>
+                    <span style={{ width: 40, textAlign: 'right' }}></span>
+                  </div>
+                  {(detail.leads || []).map((l, k) => (
+                    <div key={l.id || k} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+                      borderBottom: '1px solid var(--line)', background: l.qualified ? 'rgba(220,252,231,.35)' : 'transparent',
+                      fontSize: 12,
+                    }}>
+                      <span style={{ width: 18, textAlign: 'center', fontWeight: 800, color: l.qualified ? '#16a34a' : '#94a3b8', flexShrink: 0 }}>{l.qualified ? '✓' : '✗'}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {l.donor_name || `Donor ${l.donor_id || '—'}`}
+                        {l.donor_mobile ? ` · ${l.donor_mobile}` : ''}
+                      </span>
+                      <span style={{ width: 84, textAlign: 'right', fontWeight: 800, color: l.qualified ? '#16a34a' : 'var(--ink-soft)', flexShrink: 0 }}>₹{fmt(l.amount)}</span>
+                      <span style={{ width: 96, textAlign: 'right', fontSize: 11, color: 'var(--ink-soft)', flexShrink: 0 }}>{fmtDate(l.verified_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ padding: 12, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-soft)' }}>
+                  No leads inside this competition's window for {f.fro_name}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: '#b91c1c' }}>Failed to load this FRO's leads</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
