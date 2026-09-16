@@ -225,6 +225,73 @@ function BirthdayPopup() {
   )
 }
 
+function WorkAnniversaryPopup() {
+  const { user } = useUcs()
+  const [celebrants, setCelebrants] = useState([])
+
+  useEffect(() => {
+    if (!user?.id) return
+    let cancelled = false
+    let retryTimer = null
+    const load = () => {
+      api('/workers/anniversaries', { _prefix: 'ucs' })
+        .then(data => {
+          if (cancelled) return
+          if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+          const todayMD = istDateString().slice(5)
+          const todays = (data || []).filter(w => {
+            if (!w.created_at) return false
+            const d = new Date(w.created_at)
+            if (isNaN(d.getTime())) return false
+            const annMD = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            return annMD === todayMD
+          })
+          setCelebrants(todays)
+        })
+        .catch(err => {
+          if (cancelled) return
+          console.error('Work anniversary popup error:', err.message)
+          if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; load() }, 30 * 1000)
+        })
+    }
+    load()
+    const t = setInterval(load, 10 * 60 * 1000)
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); clearInterval(t) }
+  }, [user?.id])
+
+  if (celebrants.length === 0) return null
+
+  return (
+    <div className="fro-ann-hdr">
+      <style>{`@keyframes froAnnSparkle {0%,100%{box-shadow:0 2px 10px rgba(139,92,246,.18);opacity:1}50%{box-shadow:0 4px 18px rgba(139,92,246,.5);opacity:.8}}
+.fro-ann-hdr{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-right:8px}
+.fro-ann-card{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 5px;border-radius:12px;background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1.5px solid #a78bfa;animation:froAnnSparkle 2.2s ease-in-out infinite}
+.fro-ann-card .ph{width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0;background:#f5f3ff;border:2px solid #8b5cf6}
+.fro-ann-card .av{width:38px;height:38px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;border:2px solid #a78bfa}
+.fro-ann-txt{line-height:1.15;min-width:0;max-width:150px}
+.fro-ann-txt .nm{font-size:12.5px;font-weight:700;color:#4c1d95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fro-ann-txt .sub{font-size:10px;font-weight:700;color:#7c3aed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){.fro-ann-hdr{margin-right:6px}.fro-ann-card{padding:3px 6px 3px 4px}.fro-ann-card .ph,.fro-ann-card .av{width:32px;height:32px;font-size:13px}.fro-ann-txt{max-width:110px}.fro-ann-txt .nm{font-size:11.5px}.fro-ann-txt .sub{font-size:9px}}`}</style>
+      {celebrants.map(c => {
+        const yrs = c.yearsCompleted || 1
+        return (
+          <div key={c.id} className="fro-ann-card" title={`Happy Work Anniversary ${c.name}!`}>
+            {c.photo_url ? (
+              <img className="ph" src={c.photo_url} alt={c.name} />
+            ) : (
+              <div className="av">{String(c.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 1).join('').toUpperCase()}</div>
+            )}
+            <div className="fro-ann-txt">
+              <div className="nm">{c.name || 'Team Member'}</div>
+              <div className="sub">🎉 {yrs} Year Work Anniversary!</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function Sidebar({ open, onClose, waUnreadCounts }) {
   const location = useLocation()
   const nav = [...NAV_BASE]
@@ -755,6 +822,7 @@ useEffect(() => onFroAction((action) => {
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
             <BirthdayPopup />
+            <WorkAnniversaryPopup />
             <div onClick={openAki} title="Aaj Ka Incentive (AKI)" style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s' }}>
               <Coins size={20} strokeWidth={2} color="var(--ink-soft)" style={{ color: '#B45309' }} />
             </div>
