@@ -1136,19 +1136,6 @@ export default function Dashboard() {
   const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
   const lowPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct < 100).sort((a, b) => a.performance_pct - b.performance_pct), [weakPerformers]);
 
-  // Global rank across every targeted FRO: best daily-target pace first (rank 1),
-  // so the High list reads 1,2,3 top-down and the Low list's rank numbers run
-  // bottom-up (its best performer, closest to 100%, carries the smallest number).
-  const perfRankMap = useMemo(() => {
-    const ranked = weakPerformers
-      .filter(p => p.monthly_target > 0)
-      .slice()
-      .sort((a, b) => (b.performance_pct - a.performance_pct) || ((b.today_collection || 0) - (a.today_collection || 0)) || String(a.fro_name).localeCompare(b.fro_name));
-    const map = {};
-    ranked.forEach((p, i) => { map[p.fro_id] = i + 1; });
-    return map;
-  }, [weakPerformers]);
-
   // NGO filter pills from the admin's accessible NGOs
   const ngoFilterPills = useMemo(() => (accessibleNgos || []).filter(n => n && n.id).map(n => ({
     id: n.id,
@@ -2240,7 +2227,7 @@ export default function Dashboard() {
                     {highRows.map((p, i) => (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#16a34a', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{perfRankMap[p.fro_id]}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#16a34a', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
                         </td>
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
@@ -2353,7 +2340,7 @@ export default function Dashboard() {
                     {lowRows.map((p, i) => (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#EF4444', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{perfRankMap[p.fro_id]}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#EF4444', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{lowRows.length - i}</span>
                         </td>
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
