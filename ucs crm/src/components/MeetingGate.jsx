@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMeeting, endMeeting } from '../meetingStore'
 
 const ADMIN_ROLES = new Set(['admin', 'super_admin', 'superadmin', 'master', 'administrator'])
+const GATE_ROLES = new Set(['fro', 'worker', 'team_lead'])
 
 function getRole() {
   try {
@@ -27,16 +28,21 @@ function ElapsedTicker({ since }) {
   return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(Number.isNaN(start) ? 0 : Math.max(0, Math.floor((now - start) / 1000)))}</span>
 }
 
-// Global, non-dismissible "Meeting" gate. Mounted once in App.jsx so every
-// panel shows it. There is deliberately no close button — it disappears only
-// when an admin ends the meeting.
+// Team-scoped "Meeting" gate. Mounted once in App.jsx; it only renders for FRO
+// panel roles (backend already scopes GET /meeting to the caller's team), so
+// admin/HR/Accounts panels never block. There is deliberately no close button —
+// it disappears only when an admin ends the meeting.
 export default function MeetingGate() {
   const meeting = useMeeting()
   const [stopping, setStopping] = useState(false)
 
+  const role = getRole().trim().toLowerCase()
+
+  // Only FRO workforce roles surface the gate.
+  if (!GATE_ROLES.has(role)) return null
   if (!meeting || !meeting.active) return null
 
-  const canStop = ADMIN_ROLES.has(getRole().trim().toLowerCase())
+  const canStop = ADMIN_ROLES.has(role)
 
   const stop = async () => {
     if (stopping) return
@@ -56,7 +62,9 @@ export default function MeetingGate() {
           <div style={{ width: 96, height: 96, borderRadius: '50%', margin: '0 auto', background: 'linear-gradient(135deg,#7c3aed,#4338ca)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 14px 34px rgba(124,58,237,.45)' }}>
             <span style={{ fontSize: 42 }}>📢</span>
           </div>
-          <div style={{ marginTop: 18, fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', color: '#7c3aed', background: '#f5f3ff', padding: '5px 12px', borderRadius: 999, display: 'inline-block' }}>Company-wide</div>
+          <div style={{ marginTop: 18, fontSize: 12, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#7c3aed', background: '#f5f3ff', padding: '5px 12px', borderRadius: 999, display: 'inline-block' }}>
+            {(meeting.teams && meeting.teams.length > 0) ? `Teams: ${meeting.teams.join(' · ')}` : 'All Teams'}
+          </div>
           <h2 style={{ margin: '12px 0 4px', fontSize: 26, fontWeight: 900, color: '#0f172a' }}>Meeting in Progress</h2>
           <div style={{ fontSize: 17, fontWeight: 700, color: '#374151' }}>{meeting.title || 'Meeting'}</div>
           <div style={{ marginTop: 10, fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>

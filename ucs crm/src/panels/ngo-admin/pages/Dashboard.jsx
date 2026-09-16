@@ -1938,6 +1938,7 @@ export default function Dashboard() {
           <span style={{ fontSize: 16 }}>📢</span>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#6d28d9' }}>
             Meeting in progress{meeting && meeting.title !== 'Meeting' ? ` — ${meeting.title}` : ''}
+            {meeting && meeting.teams && meeting.teams.length > 0 ? ` (Teams: ${meeting.teams.join(' · ')})` : ' (All teams)'}
           </span>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', background: '#ede9fe', padding: '2px 10px', borderRadius: 999 }}>
             Started by {meeting?.started_by_name || 'Admin'}
