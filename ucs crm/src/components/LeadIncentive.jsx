@@ -22,6 +22,10 @@ const toLocalInput = (d) => {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
 }
 
+// Absolute UTC ISO for a filled datetime-local value so the backend stores the
+// exact instant the admin picked regardless of its own timezone. Blank → null.
+const toIso = (v) => (v ? new Date(v).toISOString() : null)
+
 const pad2 = (n) => String(n).padStart(2, '0')
 const todayLocal = () => {
   const d = new Date()
@@ -1080,8 +1084,8 @@ export default function LeadIncentive() {
           incentive_amount: Number(slab.incentive_amount) || 0,
           min_lead_amount,
           lead_rate,
-          started_at: started_at === undefined || started_at === null || started_at === '' ? null : started_at,
-          ended_at: ended_at === undefined || ended_at === null || ended_at === '' ? null : ended_at,
+          started_at: toIso(started_at),
+          ended_at: toIso(ended_at),
         }),
       })
       await loadSlabs()
@@ -1109,7 +1113,7 @@ export default function LeadIncentive() {
     try {
       const r = await api('/incentive/lead/slabs/apply-all', {
         method: 'PUT', _prefix: 'ucs',
-        body: JSON.stringify({ started_at: started_at || null, ended_at: ended_at || null }),
+        body: JSON.stringify({ started_at: toIso(started_at), ended_at: toIso(ended_at) }),
       })
       await loadSlabs()
       loadSummary()

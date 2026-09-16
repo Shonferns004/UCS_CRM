@@ -4,7 +4,10 @@ import { useRealtime } from '../../../hooks/useRealtime'
 import { toast } from '../../../components/Toast'
 import LeadIncentive from '../../../components/LeadIncentive'
 
-const todayLocal = () => new Date().toISOString().slice(0, 10)
+const todayLocal = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const fmt = (n) => {
   const v = Number(n)
@@ -191,7 +194,7 @@ function LiveCompetitionsStrip() {
     setBusy(slab.slab_id)
     setError('')
     try {
-      await api(`/incentive/lead/slabs/${slab.slab_id}/stop`, { method: 'POST', _prefix: 'ucs' })
+      await api(`/incentive/lead/slabs/${slab.slab_id}/stop?date=${todayLocal()}`, { method: 'POST', _prefix: 'ucs' })
       toast(`⏹ ${slab.slab_label} competition stopped`, 'success')
       setConfirmSlab(null)
       load()
@@ -207,7 +210,7 @@ function LiveCompetitionsStrip() {
     setBusy('all')
     setError('')
     try {
-      const r = await api('/incentive/lead/slabs/stop-all', { method: 'POST', _prefix: 'ucs' })
+      const r = await api(`/incentive/lead/slabs/stop-all?date=${todayLocal()}`, { method: 'POST', _prefix: 'ucs' })
       toast(`⏹ All competitions stopped (${r?.stopped_slabs || 0} range(s))`, 'success')
       setConfirmAll(false)
       load()
@@ -355,7 +358,7 @@ function HistoryList({ history, loading, busyId, onDelete }) {
     )
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = todayLocal()
   const liveRows = history.filter(r => String(r.announcement_date).slice(0, 10) === todayStr)
   const anyLive = liveRows.length > 0
 
