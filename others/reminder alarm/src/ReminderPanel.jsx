@@ -16,7 +16,7 @@ import {
 import AllReminders from './AllReminders'
 import RemSettings from './Settings'
 import DashboardPage from './Dashboard'
-import { ReminderFormModal, HistoryModal, DeleteConfirmModal, ImportModal, AlarmToast } from './modals'
+import { ReminderFormModal, HistoryModal, DeleteConfirmModal, AlarmToast } from './modals'
 
 const PAGE_META = {
   '/rem': ['Priyank Shah Reminder', 'All Reminders', 'One table for every reminder, category filter, due date and renewal.'],
@@ -65,7 +65,6 @@ function PanelInner() {
   const [historyReminder, setHistoryReminder] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
 
   function openHistory(id, reminder) {
     setHistoryId(id)
@@ -227,7 +226,6 @@ function PanelInner() {
                 <>
                   <button className="rem-btn" onClick={() => { exportToCSV(reminders.filter(r => !r.is_deleted)); toast('CSV exported', 'success') }}>Export CSV</button>
                   <button className="rem-btn" onClick={() => { exportToExcel(reminders.filter(r => !r.is_deleted)); toast('Excel exported', 'success') }}>Export</button>
-                  <button className="rem-btn" onClick={() => setImportOpen(true)}>Import</button>
                 </>
               )}
               </div>
@@ -247,7 +245,6 @@ function PanelInner() {
       <ReminderFormModal key={formKey} open={formOpen} reminder={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={handleSaved} onDelete={(c) => { setFormOpen(false); setEditing(null); setDeleteId(c) }} />
       <HistoryModal reminderId={historyId} reminder={historyReminder} open={!!historyId} onClose={() => { setHistoryId(null); setHistoryReminder(null) }} />
       <DeleteConfirmModal reminder={deleteId} deleting={deleting} onClose={() => { if (!deleting) setDeleteId(null) }} onConfirm={() => deleteId && doDelete(deleteId)} />
-      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); refresh() }} />
 
       {showComplete && (
         <div className="modal-overlay" onClick={() => { setShowComplete(false); setCompleteId(null) }}>
