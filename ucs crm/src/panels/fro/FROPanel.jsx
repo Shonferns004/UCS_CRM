@@ -23,7 +23,7 @@ import MyLeadsSuspense from './pages/MyLeadsSuspense'
 import Donors from './pages/Donors'
 import IncentiveInfo from './pages/IncentiveInfo'
 import AkiBanner from '../../components/AkiBanner'
-import SpecialIncentive from '../../components/SpecialIncentive'
+import SpecialIncentive, { SidebarIncentive, useSpecialIncentive } from '../../components/SpecialIncentive'
 import RangeRulePopup from '../../components/RangeRulePopup'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
@@ -348,7 +348,7 @@ function WorkAnniversaryPopup() {
   )
 }
 
-function Sidebar({ open, onClose, waUnreadCounts }) {
+function Sidebar({ open, onClose, waUnreadCounts, si }) {
   const location = useLocation()
   const nav = [...NAV_BASE]
   const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
@@ -372,7 +372,7 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" style={{ flex: 1 }}>
           {nav.map(n => {
             const waDisabled = n.id.startsWith('whatsapp');
             return (
@@ -409,6 +409,7 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
             );
           })}
         </nav>
+        <SidebarIncentive si={si} />
       </aside>
     </>
   )
@@ -418,6 +419,7 @@ export default function FROPanel() {
   const { user, logout } = useUcs()
   const location = useLocation()
   const isMobile = useIsMobile()
+  const si = useSpecialIncentive()
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -1206,7 +1208,7 @@ useEffect(() => onFroAction((action) => {
         sections={drawerSections}
         onItemClick={handleDrawerItemClick}
       />
-      <SpecialIncentive />
+      <SpecialIncentive si={si} />
       <RangeRulePopup />
       <LeadChampionCelebration />
       <LeadIncentiveLeaderboard />
