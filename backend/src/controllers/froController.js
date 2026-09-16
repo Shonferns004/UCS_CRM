@@ -778,30 +778,94 @@ export const getMyPerformance = async (req, res) => {
     }
     const teamIds = [...roster.keys()];
 
-    // Rank org-wide by today's raw collection amount (₹), most collected first.
-    // Equal amounts fall back to the current month's collection, then name.
+    // Rank the roster with the exact dashboard pace metric so the strip number
+    // matches the admin High/Low tables: pct = today's collection ÷ remaining
+    // daily pace target, where the pace target is remaining monthly target ÷
+    // remaining working days (falling back to monthly target ÷ total working
+    // days). Only FROs holding a current monthly target compete; equal pct
+    // falls back to the month's collection, then name.
     const todayCollection = {};
     const monthCollection = {};
-    const dailyTarget = {};
-    for (const id of teamIds) { todayCollection[id] = 0; monthCollection[id] = 0; dailyTarget[id] = 0; }
+    const monthlyTargetMap = {};
+    const dailyTargetMap = {};
+    const pacePct = {};
+    for (const id of teamIds) {
+      todayCollection[id] = 0;
+      monthCollection[id] = 0;
+      monthlyTargetMap[id] = 0;
+      dailyTargetMap[id] = 0;
+      pacePct[id] = 0;
+    }
     if (teamIds.length > 0) {
       const stats = await getBatchCollectionStats(teamIds, istMonthStart, istMonthEnd, dayStart, dayEnd);
       for (const id of teamIds) {
         todayCollection[id] = stats?.todayCollection[id] || 0;
         monthCollection[id] = stats?.monthCollection[id] || 0;
       }
-      const { data: targetRows } = await db
-        .from('workers')
-        .select('id, daily_collection_target')
-        .in('id', teamIds);
-      for (const row of targetRows || []) {
-        dailyTarget[String(row.id)] = Number(row.daily_collection_target) || 0;
+
+      const { data: monthTargetRows } = await db
+        .from('fro_monthly_targets')
+        .select('fro_worker_id, target_amount, achieved_target')
+        .eq('month', `${day.slice(0, 7)}-01`);
+      const targetMap = {};
+      for (const t of monthTargetRows || []) {
+        const key = String(t.fro_worker_id);
+        const current = targetMap[key];
+        if (!current || Number(t.target_amount || 0) > current.target_amount) {
+          targetMap[key] = {
+            target_amount: Number(t.target_amount || 0),
+            achieved_target: t.achieved_target == null ? null : Number(t.achieved_target),
+          };
+        }
+      }
+
+      // Working days: non-Sundays, except the month's last Sunday also counts.
+      const [yy, mm] = day.slice(0, 7).split('-').map(Number);
+      const monthLastDay = new Date(yy, mm, 0).getDate();
+      let lastSunday = 0;
+      for (let d = monthLastDay; d >= 1; d--) {
+        if (new Date(yy, mm - 1, d).getDay() === 0) { lastSunday = d; break; }
+      }
+      let workingDays = 0;
+      for (let d = 1; d <= monthLastDay; d++) {
+        const sunday = new Date(yy, mm - 1, d).getDay() === 0;
+        if (!sunday || d === lastSunday) workingDays++;
+      }
+
+      const { data: attendanceRows } = await db
+        .from('attendance')
+        .select('worker_id, date, status')
+        .gte('date', `${day.slice(0, 7)}-01`)
+        .lte('date', `${day.slice(0, 7)}-${String(monthLastDay).padStart(2, '0')}`)
+        .in('worker_id', teamIds);
+      const workedDaysMap = {};
+      for (const row of attendanceRows || []) {
+        if (row.status !== 'present' && row.status !== 'late') continue;
+        if (!workedDaysMap[row.worker_id]) workedDaysMap[row.worker_id] = new Set();
+        workedDaysMap[row.worker_id].add(String(row.date).slice(0, 10));
+      }
+
+      for (const id of teamIds) {
+        const target = targetMap[id];
+        const monthlyTarget = target?.target_amount || 0;
+        monthlyTargetMap[id] = monthlyTarget;
+        const achievedTarget = (target?.achieved_target != null && Number(target.achieved_target) > 0)
+          ? Number(target.achieved_target)
+          : monthCollection[id];
+        const workedDays = workedDaysMap[id]?.size || 0;
+        const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
+        const remainingDays = Math.max(workingDays - workedDays, 0);
+        const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
+        const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
+        const paceTarget = remainingDays > 0 && averageCollection > 0 ? averageCollection : perDayCollection;
+        dailyTargetMap[id] = Math.round(paceTarget * 100) / 100;
+        pacePct[id] = paceTarget > 0 ? (todayCollection[id] / paceTarget) * 100 : 0;
       }
     }
-    const pctOf = (id) => dailyTarget[id] > 0 ? (todayCollection[id] / dailyTarget[id]) * 100 : 0;
+    const rankedIds = teamIds.filter(id => monthlyTargetMap[id] > 0);
     const nameOf = (id) => roster.get(id)?.name || String(id);
-    const ranking = teamIds.sort((a, b) =>
-      (todayCollection[b] - todayCollection[a])
+    const ranking = rankedIds.sort((a, b) =>
+      (pacePct[b] - pacePct[a])
       || (monthCollection[b] - monthCollection[a])
       || nameOf(a).localeCompare(nameOf(b))
     );
@@ -830,8 +894,8 @@ export const getMyPerformance = async (req, res) => {
       today_calls: teamLogs[String(workerId)] || liveStatus?.today_calls || 0,
       today_collected: todayCollection[String(workerId)] || 0,
       monthly_collected: monthCollection[String(workerId)] || 0,
-      daily_target: dailyTarget[String(workerId)] || 0,
-      today_pct: Math.round(pctOf(String(workerId)) * 10) / 10,
+      daily_target: dailyTargetMap[String(workerId)] || 0,
+      today_pct: Math.round(pacePct[String(workerId)] * 10) / 10,
       date: day,
     });
   } catch (error) {
