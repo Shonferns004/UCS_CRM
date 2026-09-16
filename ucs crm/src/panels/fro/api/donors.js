@@ -76,6 +76,10 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
+export async function getMyPerformance() {
+  return api('/fro/my-performance', { _prefix: 'ucs' })
+}
+
 export async function getMyCollections(ngoId, month) {
   const params = new URLSearchParams();
   if (ngoId) params.set('ngo_id', ngoId);
