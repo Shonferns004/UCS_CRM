@@ -8,7 +8,10 @@ const fmt = (n) => {
   return (Number.isFinite(v) ? v : 0).toLocaleString('en-IN');
 };
 
-const todayLocal = () => new Date().toISOString().slice(0, 10);
+const todayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const LEAD_CSS = `
 @keyframes lil-pop { 0% { transform: scale(.85); opacity: 0; } 60% { transform: scale(1.03); } 100% { transform: scale(1); opacity: 1; } }

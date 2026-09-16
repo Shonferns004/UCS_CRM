@@ -137,6 +137,20 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
     const e = new Date(slab.ended_at);
     if (e.getTime() < winEnd.getTime()) winEnd = e;
   }
+  // No start time yet = this range's competition has not begun → nothing counts
+  // (matches the UI "empty = not started" and the FRO live view hiding it).
+  if (slab && !slab.started_at) {
+    return {
+      target: target != null ? target : 0,
+      slab,
+      total_leads: 0,
+      qualified_leads: 0,
+      total_amount: 0,
+      lead_incentive: 0,
+      slab_bonus: 0,
+      leads: [],
+    };
+  }
   // Window fully outside the day (e.g. not yet started, or ended before day) → nothing counts.
   if (winStart.getTime() >= winEnd.getTime()) {
     return {
