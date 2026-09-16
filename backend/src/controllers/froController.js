@@ -734,13 +734,14 @@ export const getMyPerformance = async (req, res) => {
       connected: 0,
     }));
 
-    let query = db
+    // Overall, not NGO-scoped: the strip's Calls metric counts every connected
+    // call the worker logged today across all their NGOs.
+    const { data: logs, error } = await db
       .from('fro_donor_logs')
-      .select('created_at, fro_worker_id, disposition_detail, disposition_category, accounts_status, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, is_test)')
+      .select('created_at, fro_worker_id, disposition_detail, disposition_category, accounts_status, workers!fro_donor_logs_fro_worker_id_fkey(id, name, is_test)')
+      .eq('fro_worker_id', workerId)
       .gte('created_at', dayStart)
       .lte('created_at', dayEnd);
-    if (allowedNgoIds?.length) query = query.in('fro_assignments.ngo_id', allowedNgoIds);
-    const { data: logs, error } = await query;
     if (error) throw error;
 
     const teamConnected = {};
@@ -777,6 +778,42 @@ export const getMyPerformance = async (req, res) => {
       }
     }
     const teamIds = [...roster.keys()];
+
+    // Presence mirrors the admin High/Low panels: an FRO competes for the rank
+    // only while they hold an open CRM login session (logged_out_at IS NULL),
+    // and is excluded while another operator covers their panel (work-as). This
+    // keeps the strip rank identical to the number the admin dashboard shows.
+    let useLoginPresence = true;
+    const sessionByUser = {};
+    try {
+      const { data: sessions } = await db
+        .from('auth_sessions')
+        .select('user_id, logged_out_at')
+        .in('user_id', teamIds);
+      for (const s of sessions || []) sessionByUser[String(s.user_id)] = s;
+    } catch (e) {
+      useLoginPresence = false; // auth_sessions missing → everyone competes
+    }
+    let workAsCovered = null;
+    try {
+      const now = new Date();
+      const liveCutoff = new Date(now.getTime() - 2 * 60 * 1000);
+      const { data: liveRows } = await db
+        .from('fro_live_status')
+        .select('worker_id, work_as_operator_id, updated_at')
+        .in('worker_id', teamIds);
+      workAsCovered = new Set((liveRows || [])
+        .filter(r => r.work_as_operator_id && r.updated_at && new Date(r.updated_at) >= liveCutoff)
+        .map(r => String(r.worker_id)));
+    } catch (e) {
+      workAsCovered = new Set();
+    }
+    const isPresent = (id) => {
+      if (!useLoginPresence) return true;
+      const s = sessionByUser[String(id)];
+      return !!s && !s.logged_out_at;
+    };
+    const canCompete = (id) => isPresent(id) && !(workAsCovered && workAsCovered.has(String(id)));
 
     // Rank the roster with the exact dashboard pace metric so the strip number
     // matches the admin High/Low tables: pct = today's collection ÷ remaining
@@ -862,7 +899,7 @@ export const getMyPerformance = async (req, res) => {
         pacePct[id] = paceTarget > 0 ? (todayCollection[id] / paceTarget) * 100 : 0;
       }
     }
-    const rankedIds = teamIds.filter(id => monthlyTargetMap[id] > 0);
+    const rankedIds = teamIds.filter(id => monthlyTargetMap[id] > 0 && canCompete(id));
     const nameOf = (id) => roster.get(id)?.name || String(id);
     const ranking = rankedIds.sort((a, b) =>
       (pacePct[b] - pacePct[a])
@@ -891,7 +928,7 @@ export const getMyPerformance = async (req, res) => {
       calls: hours,
       idle_seconds: liveStatus?.today_idle_seconds || 0,
       idle_since: liveStatus?.idle_since || null,
-      today_calls: teamLogs[String(workerId)] || liveStatus?.today_calls || 0,
+      today_calls: connected,
       today_collected: todayCollection[String(workerId)] || 0,
       monthly_collected: monthCollection[String(workerId)] || 0,
       daily_target: dailyTargetMap[String(workerId)] || 0,
