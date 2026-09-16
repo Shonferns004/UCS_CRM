@@ -10,6 +10,7 @@ import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import DonorDetailModal from '../../components/DonorDetailModal'
 import NoticePopup from '../../components/NoticePopup'
+import { useMeeting, startMeeting, endMeeting } from '../../meetingStore'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Donors = lazy(() => import('./pages/Donors'))
@@ -118,6 +119,57 @@ export default function NgoAdminPanel() {
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('ngoadmin_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs));
 
+  // Team-scoped meeting mode (admin starts/ends; MeetingGate blocks only selected teams' FROs).
+  const meeting = useMeeting();
+  const meetingActive = !!meeting;
+  const [meetingBusy, setMeetingBusy] = useState(false);
+  const [showMeetingPrompt, setShowMeetingPrompt] = useState(false);
+  const [meetingTitle, setMeetingTitle] = useState('');
+  const [meetingTeams, setMeetingTeams] = useState([]);
+  const [teamsList, setTeamsList] = useState([]);
+  const meetingRef = useRef(null);
+
+  useEffect(() => {
+    if (meetingActive) setShowMeetingPrompt(false);
+  }, [meetingActive]);
+
+  const toggleMeetingTeam = (t) => {
+    setMeetingTeams(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  };
+
+  const loadTeams = () => {
+    api('/teams', { _prefix: 'ucs' })
+      .then(data => setTeamsList(data?.teams || []))
+      .catch(err => console.error('Error:', err.message));
+  };
+
+  useEffect(() => {
+    if (showMeetingPrompt) loadTeams();
+  }, [showMeetingPrompt]);
+
+  const handleStartMeeting = async () => {
+    if (meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      await startMeeting(meetingTitle.trim() || undefined, meetingTeams.length ? meetingTeams : undefined);
+    } catch (e) { console.error('Error:', e.message); }
+    finally {
+      setMeetingBusy(false);
+      setShowMeetingPrompt(false);
+      setMeetingTitle('');
+      setMeetingTeams([]);
+    }
+  };
+
+  const handleEndMeeting = async () => {
+    if (meetingBusy) return;
+    setMeetingBusy(true);
+    try {
+      await endMeeting();
+    } catch (e) { console.error('Error:', e.message); }
+    finally { setMeetingBusy(false); }
+  };
+
   const loadRejectedCount = (showDesktop = false) => {
     api('/ngo-admin/rejected-leads', { _prefix: 'ucs' })
       .then(data => {
@@ -187,11 +239,12 @@ export default function NgoAdminPanel() {
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
+      if (meetingRef.current && !meetingRef.current.contains(e.target)) setShowMeetingPrompt(false)
       if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifList(false)
     }
-    if (showMenu || showNotifList) document.addEventListener('mousedown', handler)
+    if (showMenu || showNotifList || showMeetingPrompt) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showMenu, showNotifList])
+  }, [showMenu, showNotifList, showMeetingPrompt])
 
   const handleMasterSearch = async (q) => {
     setSearchQuery(q);
@@ -360,6 +413,72 @@ export default function NgoAdminPanel() {
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <div style={{ position: 'relative' }} ref={meetingRef}>
+              <button
+                onClick={() => { if (meetingActive) handleEndMeeting(); else setShowMeetingPrompt(v => !v); }}
+                disabled={meetingBusy}
+                title={meetingActive
+                  ? `End the team meeting${meeting?.teams?.length ? ` for ${meeting.teams.join(' · ')}` : ' (all teams)'} and resume counters`
+                  : 'Start a team meeting — pauses live counters for the selected teams\' FROs'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 13px', border: 'none', borderRadius: 9,
+                  fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: meetingBusy ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                  color: '#fff', background: meetingActive ? '#dc2626' : '#7c3aed',
+                  boxShadow: meetingActive ? '0 4px 14px rgba(220,38,38,.35)' : '0 4px 14px rgba(124,58,237,.35)',
+                }}
+              >
+                {meetingActive ? '⏹ End Meeting' : '▶ Meeting'}
+              </button>
+              {!meetingActive && showMeetingPrompt && (
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 288, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14, zIndex: 300 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>Start team meeting</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
+                    A blocking popup appears for the selected teams' FROs and their live counters (idle, calls, breaks) pause.
+                  </div>
+                  <input
+                    type="text"
+                    value={meetingTitle}
+                    onChange={e => setMeetingTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleStartMeeting(); }}
+                    placeholder="Optional title (e.g. All-hands)"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)' }}
+                  />
+                  {teamsList.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Apply to teams</span>
+                        <button
+                          onClick={() => setMeetingTeams(meetingTeams.length ? [] : [...teamsList])}
+                          style={{ border: 'none', background: 'none', color: '#7c3aed', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                        >{meetingTeams.length ? 'Clear' : 'Select all'}</button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {teamsList.map(t => (
+                          <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: meetingTeams.includes(t) ? '#f5f3ff' : 'var(--bg)', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>
+                            <input type="checkbox" checked={meetingTeams.includes(t)} onChange={() => toggleMeetingTeam(t)} style={{ accentColor: '#7c3aed', margin: 0, cursor: 'pointer' }} />
+                            {t}
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 10, color: meetingTeams.length ? '#7c3aed' : 'var(--ink-soft)', fontWeight: 600 }}>
+                        {meetingTeams.length ? `Only ${meetingTeams.join(', ')} will be paused.` : 'No teams selected → applies to all teams (company-wide).'}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button
+                      onClick={handleStartMeeting}
+                      disabled={meetingBusy}
+                      style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 700, cursor: meetingBusy ? 'default' : 'pointer', fontFamily: 'inherit' }}
+                    >{meetingBusy ? 'Starting…' : 'Start Meeting'}</button>
+                    <button
+                      onClick={() => setShowMeetingPrompt(false)}
+                      style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink-soft)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
               <div className="avatar">{initials}</div>
               {showMenu && (

@@ -58,3 +58,9 @@ export function onFroTeamBroadcast(handler) {
   s.on('fro:team-broadcast', handler)
   return () => s.off('fro:team-broadcast', handler)
 }
+
+export function onFroResetIdle(handler) {
+  const s = getSocket()
+  s.on('fro:reset-idle', handler)
+  return () => s.off('fro:reset-idle', handler)
+}

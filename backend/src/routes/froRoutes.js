@@ -5,6 +5,7 @@ import {
 } from '../controllers/bankAuditController.js';
 import {
   getDashboard,
+  getMyPerformance,
   getMyCollections,
   getMyDonors,
   getTransferredLeads,
@@ -39,6 +40,8 @@ import {
   getSuspenseReceipts,
   claimSuspenseReceipt,
   searchSuspenseDonors,
+  resetAllFroIdle,
+  getMyLiveStatus,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -46,6 +49,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
+router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
+router.get('/status/me', getMyLiveStatus);
 
 const requireFro = (req, res, next) => {
   if (req.user.role === 'fro') return next();
@@ -57,6 +62,7 @@ router.use(requireFro);
 
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
+router.get('/my-performance', getMyPerformance);
 router.get('/dashboard/collections', getMyCollections);
 router.get('/dashboard/suspense', getSuspenseReceipts);
 router.post('/dashboard/suspense/:receiptId/claim', claimSuspenseReceipt);

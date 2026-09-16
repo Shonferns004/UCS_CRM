@@ -5,6 +5,7 @@ import { apiGet, getFroHourlyPerformance, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import RecentNotices from '../../../components/RecentNotices';
+import { useMeeting } from '../../../meetingStore';
 
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
@@ -1145,6 +1146,11 @@ export default function Dashboard() {
 
   const [tlData, setTlData] = useState(null);
 
+  // Global meeting mode (from meetingStore): freezes live counts + suppresses
+  // idle/zero-call alerts while a company-wide meeting is active.
+  const meeting = useMeeting();
+  const meetingActive = !!meeting;
+
   // Live presence set — offline (absent) FROs are excluded from High/Low panels
   const presentFroIds = useMemo(() => {
     if (!tlData?.performance) return null;
@@ -1906,7 +1912,7 @@ export default function Dashboard() {
       </div>
 
       {/* Idle Alert Banner */}
-      {tlData?.idle_alerts?.length > 0 && (
+      {!meetingActive && tlData?.idle_alerts?.length > 0 && (
         <div style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14 }}>⚠️</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>Idle Alerts:</span>
@@ -1926,10 +1932,28 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Meeting in-progress banner: live counters are frozen */}
+      {meetingActive && (
+        <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 8, background: '#f5f3ff', border: '1px solid #ddd6fe', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 16 }}>📢</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#6d28d9' }}>
+            Meeting in progress{meeting && meeting.title !== 'Meeting' ? ` — ${meeting.title}` : ''}
+            {meeting && meeting.teams && meeting.teams.length > 0 ? ` (Teams: ${meeting.teams.join(' · ')})` : ' (All teams)'}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', background: '#ede9fe', padding: '2px 10px', borderRadius: 999 }}>
+            Started by {meeting?.started_by_name || 'Admin'}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#6d28d9' }}>
+            Live counters (idle, calls, breaks) are paused.
+          </span>
+        </div>
+      )}
+
       {/* Telecaller Live Status KPI Bar */}
       {tlData?.kpis && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
           {[
+            ...(meetingActive ? [{ label: 'Meeting', value: tlData.kpis.meeting || 0, color: '#7c3aed', bg: '#f5f3ff' }] : []),
             { label: 'Telecallers', value: tlData.kpis.total_fros || 0, color: '#1e40af', bg: '#eff6ff' },
             { label: 'Calling', value: tlData.kpis.calling || 0, color: '#16a34a', bg: '#f0fdf4' },
             { label: 'Idle', value: tlData.kpis.idle || 0, color: '#d97706', bg: '#fffbeb' },
@@ -2572,7 +2596,7 @@ export default function Dashboard() {
               </div>
 
               {/* Zero Calls section (inside the same container) */}
-              {!hourlyLoading && hourlyAlerts.noCalls.length > 0 && !(hourlyAlerts.isToday && hourlyAlerts.elapsed === 0) && (
+              {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && !(hourlyAlerts.isToday && hourlyAlerts.elapsed === 0) && (
                 <div style={{ padding: '0 24px 16px' }}>
                   <div style={{ border: '1px solid #fecdd3', borderRadius: 12, background: '#fff5f6', padding: '14px 16px', minHeight: 72 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
@@ -2594,12 +2618,12 @@ export default function Dashboard() {
               )}
 
               {/* Divider between zero-call section and toolbar */}
-              {!hourlyLoading && hourlyAlerts.noCalls.length > 0 && hourlyAlerts.idle.length > 0 && (
+              {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && hourlyAlerts.idle.length > 0 && (
                 <div style={{ borderBottom: '1px solid #e5eaf1' }} />
               )}
 
               {/* Toolbar: search + date filter + export */}
-              {!hourlyLoading && hourlyAlerts.idle.length > 0 && (
+              {!meetingActive && !hourlyLoading && hourlyAlerts.idle.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '14px 24px' }}>
                   <input
                     type="text"
@@ -2627,6 +2651,15 @@ export default function Dashboard() {
                       ? { level: 'Medium', color: '#d97706', bg: '#ffedcc' }
                       : { level: 'Low', color: '#2563eb', bg: '#eaf1fe' }
                 );
+                if (meetingActive) {
+                  return (
+                    <div style={{ padding: '28px 24px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 26 }}>📢</div>
+                      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: '#7c3aed' }}>Counts paused — meeting in progress</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: '#64748B' }}>Idle / zero-call alerts resume automatically when an admin ends the meeting.</div>
+                    </div>
+                  );
+                }
                 if (hourlyLoading) {
                   return (
                     <div style={{ padding: '8px 24px 20px' }} aria-label="Loading productivity data">
@@ -2747,11 +2780,12 @@ export default function Dashboard() {
             </div>
           );
         }
-        const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], offline: ['offline'] };
-        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.idle.includes(p.status) ? 'idle' : 'offline';
+        const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], meeting: ['meeting'], offline: ['offline'] };
+        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.idle.includes(p.status) ? 'idle' : statusBuckets.meeting.includes(p.status) ? 'meeting' : 'offline';
         const bucketRows = {
           online: perfRows.filter(p => statusOf(p) === 'online'),
           idle: perfRows.filter(p => statusOf(p) === 'idle'),
+          meeting: perfRows.filter(p => statusOf(p) === 'meeting'),
           offline: perfRows.filter(p => statusOf(p) === 'offline'),
         };
         const viewRows = perfStatusFilter === 'all'
@@ -2761,6 +2795,7 @@ export default function Dashboard() {
           all: perfRows.filter(p => statusOf(p) !== 'offline').length,
           online: bucketRows.online.length,
           idle: bucketRows.idle.length,
+          meeting: bucketRows.meeting.length,
           offline: bucketRows.offline.length,
         };
         const ncOf = (p) => p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
@@ -2842,6 +2877,7 @@ export default function Dashboard() {
           { key: 'all', label: 'All', color: '#334155' },
           { key: 'online', label: 'Online', color: '#16a34a' },
           { key: 'idle', label: 'Idle', color: '#2F80D9' },
+          { key: 'meeting', label: 'Meeting', color: '#7c3aed' },
           { key: 'offline', label: 'Offline', color: '#94a3b8' },
         ];
 
@@ -2951,7 +2987,8 @@ export default function Dashboard() {
                     {sortedRows.map((p) => {
                       const live = p.status === 'online' || p.status === 'on_call';
                       const idle = p.status === 'idle';
-                      const highlighted = live || idle;
+                      const met = p.status === 'meeting';
+                      const highlighted = live || idle || met;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9' }}>
@@ -2962,7 +2999,13 @@ export default function Dashboard() {
                               {idle && (
                                 <span className="pf-idle-dot" title="Idle · no recent activity" style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-block', flexShrink: 0 }} />
                               )}
-                              <span style={{ fontWeight: highlighted ? 700 : 600, color: live ? '#15803d' : (idle ? '#2F80D9' : '#17233C') }}>{p.fro_name}</span>
+                              {met && (
+                                <span title="In meeting · counters paused" style={{ width: 9, height: 9, borderRadius: '50%', background: '#7c3aed', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(124,58,237,.18)' }} />
+                              )}
+                              <span style={{ fontWeight: highlighted ? 700 : 600, color: live ? '#15803d' : (idle ? '#2F80D9' : (met ? '#6d28d9' : '#17233C')) }}>{p.fro_name}</span>
+                              {met && (
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', whiteSpace: 'nowrap' }}>📢 Meeting</span>
+                              )}
                             </div>
                             {p.work_as_operator_name && (
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>⚡ {p.work_as_operator_name} work as {p.fro_name}</div>
