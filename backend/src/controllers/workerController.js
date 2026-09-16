@@ -484,10 +484,43 @@ export const getBirthdays = async (req, res) => {
   }
 };
 
+export const getAnniversaries = async (req, res) => {
+  try {
+    const workers = await getAllWorkers(null);
+    const today = new Date();
+    const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const upcoming = workers
+      .filter((w) => w.created_at)
+      .filter((w) => !(w.is_active === false || ['terminated', 'absconded'].includes(String(w.employment_status || '').toLowerCase().trim())))
+      .map((w) => {
+        const joinDate = new Date(w.created_at);
+        if (isNaN(joinDate.getTime())) return null;
+        const years = today.getFullYear() - joinDate.getFullYear();
+        if (years < 1) return null;
+        const md = `${String(joinDate.getMonth() + 1).padStart(2, '0')}-${String(joinDate.getDate()).padStart(2, '0')}`;
+        const diffDays = (new Date(today.getFullYear(), joinDate.getMonth(), joinDate.getDate()) - today) / 86400000;
+        const isToday = md === todayMD;
+        return { ...w, _md: md, _diff: isToday ? 0 : (diffDays >= 0 ? diffDays : diffDays + 365), _years: years };
+      })
+      .filter(Boolean)
+      .filter((w) => w._diff <= 30)
+      .sort((a, b) => a._diff - b._diff)
+      .slice(0, 10)
+      .map(({ password, _md, _diff, _years, ...rest }) => ({
+        ...rest,
+        anniversaryInDays: Math.round(_diff),
+        yearsCompleted: _years,
+      }));
+    return res.json(upcoming);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const removeWorker = async (req, res) => {
   try {
-    const result = await deleteWorker(req.params.id);
-    return res.json(result);
+    const data = await deleteWorker(req.params.id);
+    return res.json({ message: 'Worker deleted', worker: data });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
