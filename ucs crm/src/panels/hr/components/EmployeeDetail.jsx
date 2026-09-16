@@ -65,6 +65,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [viewingMonthKey, setViewingMonthKey] = useState(null);
   const [salaryHold, setSalaryHoldData] = useState(null);
   const [holdBusy, setHoldBusy] = useState(false);
+  const [docsBusy, setDocsBusy] = useState(false);
   const [holdModal, setHoldModal] = useState(false);
   const [holdReason, setHoldReason] = useState('');
   const [currentTarget, setCurrentTarget] = useState(null);
@@ -220,6 +221,19 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       alert(e.message);
     } finally {
       setHoldBusy(false);
+    }
+  };
+
+  const toggleDocsSubmitted = async () => {
+    setDocsBusy(true);
+    try {
+      await updateWorker(worker.id, { documents_submitted: !data.documents_submitted });
+      const fresh = await fetchWorkerById(worker.id);
+      setData(fresh);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setDocsBusy(false);
     }
   };
 
@@ -756,6 +770,21 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               </div>
 
               <Field label="Onboarding" value={data.onboarding_completed ? 'Completed' : 'Pending'} />
+
+              <div className="card" style={{ marginTop:16 }}>
+                <div className="card-head"><h3>Documents Submitted</h3></div>
+                <div className="card-pad" style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <button
+                    type="button"
+                    onClick={toggleDocsSubmitted}
+                    disabled={docsBusy}
+                    style={{ width:120, padding:'8px 0', borderRadius:20, border:'none', cursor: docsBusy ? 'wait' : 'pointer', fontWeight:600, fontSize:13, transition:'all .15s', background: data.documents_submitted ? '#16a34a' : '#e5e5e5', color: data.documents_submitted ? '#fff' : 'var(--ink-soft)' }}
+                  >
+                    {docsBusy ? 'Saving…' : (data.documents_submitted ? 'Yes ✓' : 'No')}
+                  </button>
+                  <span style={{ fontSize:12, color:'var(--ink-soft)' }}>{data.documents_submitted ? 'Documents received from this volunteer.' : 'Volunteer has not submitted documents yet.'}</span>
+                </div>
+              </div>
 
               {[data.aadhar_front_url, data.aadhar_back_url, data.pan_card_url, data.bank_proof_url, data.light_bill_url].some(Boolean) && (
                 <div className="card" style={{ marginTop:16 }}>
