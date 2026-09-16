@@ -29,7 +29,7 @@ import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../uti
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
 // excluded from all dashboard stats by default; pass { includeTest: true }
 // only for pickers where test members must stay selectable.
-async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
+export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
   const workerIds = await getWorkersByNgo(ngoId);
 
   const conditions = [`ngo_id.eq.${ngoId}`];
@@ -3111,7 +3111,7 @@ const NOT_CONNECTED_DISPOSITIONS = ['busy', 'ringing', 'call_waiting', 'unreacha
 
 // Three-tier classifier: known disposition set first, then disposition_category
 // (every FRO save carries it), else unclassified. Mirrors fro/dispositions.js.
-function classifyLogSide(l) {
+export function classifyLogSide(l) {
   const detail = l?.disposition_detail || '';
   if (CONNECTED_DISPOSITIONS.includes(detail)) return 'connected';
   if (NOT_CONNECTED_DISPOSITIONS.includes(detail)) return 'not_connected';

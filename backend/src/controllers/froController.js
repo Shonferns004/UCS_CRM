@@ -13,6 +13,7 @@ import {
   getScheduledByAssignment,
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker } from '../models/froTargetModel.js';
+import { classifyLogSide, getFroWorkersByNgo } from './ngoAdminController.js';
 import {
   createDonorLog,
   ensureLogSequenceHealth,
@@ -21,6 +22,7 @@ import {
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
+  getBatchCollectionStats,
   getCollectedByNgo,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
@@ -737,11 +739,13 @@ export const getMyPerformance = async (req, res) => {
     if (error) throw error;
 
     const teamConnected = {};
+    const teamLogs = {};
     const currentName = worker?.name || logs?.find(l => String(l.fro_worker_id) === String(workerId))?.workers?.name || null;
     for (const log of logs || []) {
       if (!log.fro_worker_id || log.workers?.is_test === true) continue;
       const id = String(log.fro_worker_id);
-      if (!teamConnected[id]) teamConnected[id] = 0;
+      teamConnected[id] = (teamConnected[id] || 0);
+      teamLogs[id] = (teamLogs[id] || 0) + 1;
       if (classifyLogSide(log) === 'connected') teamConnected[id]++;
       if (id !== String(workerId)) continue;
       const hour = new Date(new Date(log.created_at).getTime() + istOffset).getUTCHours();
@@ -750,16 +754,40 @@ export const getMyPerformance = async (req, res) => {
       bucket.calls++;
       if (classifyLogSide(log) === 'connected') bucket.connected++;
     }
-
+    if (!teamLogs[String(workerId)]) teamLogs[String(workerId)] = 0;
     if (!teamConnected[String(workerId)]) teamConnected[String(workerId)] = 0;
+
+    // Roster: this worker plus every active non-test FRO across their stations.
     const teamWorkers = (await Promise.all((allowedNgoIds || []).map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const roster = new Map();
+    if (worker?.id) roster.set(String(worker.id), { id: String(worker.id), name: String(worker?.name || '').trim() });
     for (const teamWorker of teamWorkers) {
       if (teamWorker?.is_active !== false && teamWorker?.is_test !== true && teamWorker?.id) {
-        teamConnected[String(teamWorker.id)] = teamConnected[String(teamWorker.id)] || 0;
+        roster.set(String(teamWorker.id), { id: String(teamWorker.id), name: String(teamWorker.name || '').trim() });
       }
     }
-    const ranking = Object.entries(teamConnected).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const rank = ranking.findIndex(([id]) => id === String(workerId)) + 1;
+    const teamIds = [...roster.keys()];
+
+    // Rank by today's collection first; tie-break on total collection collected.
+    const todayCollection = {};
+    const totalCollection = {};
+    for (const id of teamIds) { todayCollection[id] = 0; totalCollection[id] = 0; }
+    if (teamIds.length > 0) {
+      const stats = await getBatchCollectionStats(teamIds, dayStart, dayEnd, dayStart, dayEnd);
+      for (const id of teamIds) todayCollection[id] = stats?.todayCollection[id] || 0;
+      await Promise.all(teamIds.map(async (id) => {
+        try { totalCollection[id] = await getTotalCollectedByWorker(id, '1970-01-01', '2099-12-31'); }
+        catch { totalCollection[id] = 0; }
+      }));
+    }
+    const nameOf = (id) => roster.get(id)?.name || String(id);
+    const ranking = teamIds.sort((a, b) =>
+      (todayCollection[b] - todayCollection[a])
+      || (totalCollection[b] - totalCollection[a])
+      || nameOf(a).localeCompare(nameOf(b))
+    );
+    const rank = ranking.indexOf(String(workerId)) + 1 || null;
+
     const connected = teamConnected[String(workerId)] || 0;
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
     const { data: liveStatus } = await db
@@ -776,11 +804,13 @@ export const getMyPerformance = async (req, res) => {
       performance,
       level: performance >= 100 ? 'high' : 'low',
       rank: rank || null,
-      team_size: ranking.length,
+      team_size: teamIds.length,
       calls: hours,
       idle_seconds: liveStatus?.today_idle_seconds || 0,
       idle_since: liveStatus?.idle_since || null,
-      today_calls: liveStatus?.today_calls || 0,
+      today_calls: teamLogs[String(workerId)] || liveStatus?.today_calls || 0,
+      today_collected: todayCollection[String(workerId)] || 0,
+      total_collected: totalCollection[String(workerId)] || 0,
       date: day,
     });
   } catch (error) {
@@ -3777,6 +3807,21 @@ export const saveMyProgress = async (req, res) => {
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     return res.json({ message: 'Progress saved' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Super admin: clear every FRO's current idle streak (today_idle_seconds + idle_since).
+export const resetAllFroIdle = async (req, res) => {
+  try {
+    const updatedAt = new Date().toISOString();
+    const { error } = await db
+      .from('fro_live_status')
+      .update({ today_idle_seconds: 0, today_break_seconds: 0, idle_since: null, updated_at: updatedAt })
+      .not('worker_id', 'is', null);
+    if (error) throw error;
+    return res.json({ message: 'All FRO idle counts reset' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
