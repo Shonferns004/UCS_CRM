@@ -592,52 +592,34 @@ export function useSpecialIncentive() {
 // modal (the default <SpecialIncentive/> widget renders it).
 export function SidebarIncentive({ si }) {
   if (!si) return null;
-  const { incentives, nowMs, user, setOpenId, freshIds } = si;
+  const { incentives, setOpenId } = si;
   if (!incentives || incentives.length === 0) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto', padding: '12px 8px 0' }}>
       <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: 'var(--ink-soft)', padding: '0 6px' }}>Special Incentives</div>
       {incentives.map((inc) => {
         const target = Number(inc?.target_amount) || 0;
-        const myPct = pctOf(inc?.mine?.collected_amount, target);
-        const left = inc ? Math.max(0, new Date(inc.end_at).getTime() - nowMs) : 0;
+        const collected = Number(inc?.mine?.collected_amount) || 0;
+        const myPct = pctOf(collected, target);
         return (
           <div
             key={inc.id}
             onClick={() => { playNgoAudio(inc.ngo_name); setOpenId(inc.id); }}
             title="View leaderboard"
-            style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #f59e0b', background: 'linear-gradient(160deg,#fffdf5,#fff3d6)', cursor: 'pointer', boxShadow: '0 8px 20px rgba(180,83,9,.18)', transition: 'transform .12s ease, boxShadow .12s ease' }}
+            style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #f59e0b', background: 'linear-gradient(160deg,#fffdf5,#fff3d6)', cursor: 'pointer', boxShadow: '0 8px 20px rgba(180,83,9,.18)', transition: 'transform .12s ease, boxShadow .12s ease' }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 24px rgba(180,83,9,.28)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(180,83,9,.18)'; }}
           >
-            {freshIds && freshIds.has(inc.id) && (
-              <div style={{ position: 'absolute', top: -1, right: 8, zIndex: 3, padding: '2px 8px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, letterSpacing: .4, animation: 'si-pulse 1s linear infinite' }}>🔴 NEW</div>
-            )}
-            <div style={{ background: 'linear-gradient(90deg,#b45309,#f59e0b,#fbbf24)', color: '#fff', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px' }}>
-              <span style={{ fontSize: 13 }}>💰</span>
-              <span style={{ flex: 1, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inc.title}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 9px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', animation: 'si-pulse 1s linear infinite', flexShrink: 0 }}>Live</span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inc.title}</span>
             </div>
-            <div style={{ padding: '9px 10px 10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 8.5, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: '#dc2626', background: '#dc26261a', padding: '2px 7px', borderRadius: 999, border: '1px solid #dc262655', whiteSpace: 'nowrap' }}>
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#dc2626', display: 'inline-block', animation: 'si-pulse 1s linear infinite' }} /> LIVE
-                </span>
-                <NgoBadge ngoName={inc.ngo_name} />
-                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: '#b45309', whiteSpace: 'nowrap' }}>⏳ {fmtClock(left)}</span>
-              </div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)' }}>My progress</div>
-              <div style={{ fontSize: 13.5, fontWeight: 900, color: 'var(--ink)', margin: '1px 0 4px' }}>
-                ₹{fmt(inc.mine?.collected_amount || 0)} <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)' }}>/ ₹{fmt(target)}</span>
-              </div>
-              <div style={{ height: 7, borderRadius: 6, background: 'var(--line)', overflow: 'hidden', marginBottom: 7 }}>
-                <div style={{ width: `${myPct}%`, height: '100%', background: 'linear-gradient(90deg,#fbbf24,#f59e0b)', borderRadius: 6, transition: 'width .5s ease' }} />
-              </div>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                🏁 Leader: {((inc.leaderboard || [])[0]?.name) || '—'}
-              </div>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                Ends {fmtEnd(inc.end_at)}
-              </div>
+            <div style={{ height: 8, borderRadius: 6, background: 'var(--line)', overflow: 'hidden' }}>
+              <div style={{ width: `${myPct}%`, height: '100%', background: 'linear-gradient(90deg,#fbbf24,#f59e0b)', borderRadius: 6, transition: 'width .5s ease' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, fontSize: 9.5, fontWeight: 800, color: 'var(--ink-soft)' }}>
+              <span>{fmt(collected)}</span>
+              <span>{fmt(target)}</span>
             </div>
           </div>
         );
