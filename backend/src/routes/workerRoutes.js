@@ -8,6 +8,7 @@ import {
   bulkEditWorkers,
   removeWorker,
   getBirthdays,
+  getAnniversaries,
   getMyProfile,
   updateMyProfile,
   updateMyEducation,
@@ -31,6 +32,7 @@ router.post('/bulk', adminOrHrOrHo, bulkAddWorkers);
 router.put('/bulk', adminOrHrOrHo, bulkEditWorkers);
 router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkers);
 router.get('/birthdays', allRoles, getBirthdays);
+router.get('/anniversaries', allRoles, getAnniversaries);
 router.get('/me', authenticate, getMyProfile);
 router.put('/me', authenticate, updateMyProfile);
 router.put('/me/education', authenticate, updateMyEducation);
