@@ -117,14 +117,15 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
   if (!worker?.name) return {};
   const workerName = worker.name.trim();
 
-  const monthStartDay = String(monthStart).slice(0, 10);
+const monthStartDay = String(monthStart).slice(0, 10);
   const monthEndDay = String(monthEnd).slice(0, 10);
-  const { data: receipts, error } = await db
-    .from('receipts')
-    .select('id, donor_id, amount, project_id, receipt_date, receipt_no, agent_name, payment_id')
-    .ilike('agent_name', workerName)
-    .gte('receipt_date', monthStartDay)
-    .lte('receipt_date', monthEndDay);
+  const { data: receipts, error } = await sql(
+    `SELECT id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name
+     FROM receipts
+     WHERE receipt_date >= $1 AND receipt_date <= $2
+       AND lower(btrim(agent_name)) = $3`,
+    [monthStartDay, monthEndDay, workerName.toLowerCase()]
+  ).then(r => ({ data: r, error: null })).catch(e => ({ data: null, error: e }));
   if (error) throw error;
 
   const { data: ngos } = await db.from('ngos').select('id, name');
@@ -257,14 +258,14 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name
      FROM receipts
      WHERE receipt_date >= $1 AND receipt_date <= $2
-       AND lower(agent_name) = ANY($3)`,
+       AND lower(btrim(agent_name)) = ANY($3)`,
     [monthStartDay, monthEndDay, Object.keys(byName)]
   );
 
   const dedup = {}; for (const id of workerIds) dedup[id] = new Set();
 
   for (const r of receipts) {
-    const matched = byName[String(r.agent_name || '').toLowerCase()];
+    const matched = byName[String(r.agent_name || '').trim().toLowerCase()];
     if (!matched) continue;
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
