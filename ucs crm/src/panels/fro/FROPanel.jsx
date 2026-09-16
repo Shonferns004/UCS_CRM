@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, Coins } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, Coins, Trophy } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -22,6 +22,7 @@ import Dashboard from './pages/Dashboard'
 import MyLeadsSuspense from './pages/MyLeadsSuspense'
 import Donors from './pages/Donors'
 import IncentiveInfo from './pages/IncentiveInfo'
+import LeadIncentive from './pages/LeadIncentive'
 import AkiBanner from '../../components/AkiBanner'
 import SpecialIncentive from '../../components/SpecialIncentive'
 import RangeRulePopup from '../../components/RangeRulePopup'
@@ -120,6 +121,7 @@ const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
+  { id: 'lead-incentive', path: '/fro/lead-incentive', label: 'Lead Incentive', Icon: Trophy },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
 ]
 
@@ -1185,6 +1187,7 @@ useEffect(() => onFroAction((action) => {
             <Route path="donors" element={<Donors />} />
             <Route path="history" element={<History />} />
             <Route path="incentive-info" element={<IncentiveInfo />} />
+            <Route path="lead-incentive" element={<LeadIncentive />} />
             <Route path="tickets" element={<FroTickets />} />
             <Route path="whatsapp-chat" element={<WhatsAppComingSoon />} />
             <Route path="whatsapp-chat/:project" element={<WhatsAppComingSoon />} />
