@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useRef, useCallback, useEffect } f
 import { api } from './api/auth'
 import { useActivityTracking } from './hooks/useActivityTracking'
 import { istDateString } from './utils/time'
+import { useMeeting } from '../../meetingStore'
 
 const CallContext = createContext()
 
@@ -188,6 +189,17 @@ export function CallProvider({ children, userId }) {
   const [breakElapsed, setBreakElapsed] = useState(0)
   const breakTimerRef = useRef(null)
 
+  // Company-wide meeting mode: freezes every live counter while active.
+  const meeting = useMeeting()
+  const meetingActive = !!meeting
+  const meetingActiveRef = useRef(false); meetingActiveRef.current = meetingActive
+  // Wall-clock frozen while the meeting is active (null when not in a meeting).
+  const meetingStartRef = useRef(null)
+  // Paused milliseconds accumulated for the CURRENT call / break (per cycle).
+  const callPausedMsRef = useRef(0)
+  const breakPausedMsRef = useRef(0)
+  const breakStartRef = useRef(null) // when the current break started
+
   // Refs mirroring state so syncAllStats stays stable and always reads fresh values
   const activeCallRef = useRef(null); activeCallRef.current = activeCall
   const onBreakRef = useRef(false); onBreakRef.current = onBreak
@@ -202,9 +214,10 @@ export function CallProvider({ children, userId }) {
   const isBreakOvertime = totalBreakWithCurrent > BREAK_LIMIT
 
   const syncAllStats = useCallback((extra = {}) => {
-    const status = onBreakRef.current ? 'break'
-      : (activeCallRef.current ? 'on_call'
-        : (callIdleSinceRef.current ? 'idle' : 'online'))
+    const status = meetingActiveRef.current ? 'meeting'
+      : (onBreakRef.current ? 'break'
+        : (activeCallRef.current ? 'on_call'
+          : (callIdleSinceRef.current ? 'idle' : 'online')))
     api('/fro/status', {
       method: 'PUT',
       body: JSON.stringify({
@@ -222,11 +235,11 @@ export function CallProvider({ children, userId }) {
     }).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
-  // ---------- Combined mouse/call idle engine (5 min) ----------
+// ---------- Combined mouse/call idle engine (5 min) ----------
   const { isCallIdle, callIdleSince, resetCallActivity, sendHeartbeat } = useActivityTracking(userId, {
     callIdleThreshold: 5 * 60 * 1000,
-    // Breaks, live calls and open donor views are exempt from idle detection
-    isExempt: () => onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
+    // Breaks, live calls, open donor views and meeting mode are exempt from idle detection
+    isExempt: () => meetingActiveRef.current || onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
     onCallIdle: (sinceIso) => {
       callIdleSinceRef.current = sinceIso
       syncAllStats({ status: 'idle', idle_since: sinceIso })
@@ -253,6 +266,40 @@ export function CallProvider({ children, userId }) {
     onActive: () => {},
   })
 
+  // ---------- Meeting mode: freeze every counter ----------
+  useEffect(() => {
+    if (meetingActive) {
+      meetingStartRef.current = Date.now()
+      // Close any open idle streak counting only up to the meeting start, so
+      // meeting time never becomes idle time.
+      if (callIdleSinceRef.current) {
+        const since = callIdleSinceRef.current
+        const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
+        callIdleSinceRef.current = null
+        if (idleSecs > 0) {
+          setTodayStats(prev => {
+            const next = { ...prev, idleSeconds: prev.idleSeconds + idleSecs }
+            saveStats(userId, next)
+            return next
+          })
+        }
+        syncAllStats({ idle_since: null })
+      }
+      resetCallActivity()
+      syncAllStats({ idle_since: null })
+    } else {
+      // Meeting over — accrue the paused window once, then resume normally.
+      if (meetingStartRef.current) {
+        const paused = Date.now() - meetingStartRef.current
+        callPausedMsRef.current += paused
+        breakPausedMsRef.current += paused
+        meetingStartRef.current = null
+      }
+      resetCallActivity() // fresh idle streak starts post-meeting, no meeting seconds
+      syncAllStats()
+    }
+  }, [meetingActive, syncAllStats, resetCallActivity])
+
   // ---------- Stats sync & status transitions ----------
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return
@@ -273,23 +320,31 @@ export function CallProvider({ children, userId }) {
     if (activeCall) {
       clearBreakTimer()
       timerRef.current = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - activeCall.startTime) / 1000))
+        const nowClock = Date.now()
+        const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
+        setElapsed(Math.max(0, Math.floor((nowClock - activeCall.startTime - paused) / 1000)))
       }, 1000)
       return clearTimer
     } else {
       setElapsed(0)
+      callPausedMsRef.current = 0
     }
   }, [activeCall])
 
   useEffect(() => {
     if (onBreak) {
       clearTimer()
+      breakStartRef.current = Date.now()
       breakTimerRef.current = setInterval(() => {
-        setBreakElapsed(prev => prev + 1)
+        const nowClock = Date.now()
+        const paused = breakPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
+        setBreakElapsed(Math.max(0, Math.floor((nowClock - breakStartRef.current - paused) / 1000)))
       }, 1000)
       return clearBreakTimer
     } else {
       setBreakElapsed(0)
+      breakPausedMsRef.current = 0
+      breakStartRef.current = null
     }
   }, [onBreak])
 
@@ -302,7 +357,9 @@ export function CallProvider({ children, userId }) {
     const start = donorViewStartRef.current
     if (!start) return
     const elapsedView = Math.floor((Date.now() - start) / 1000)
-    if (!wasCalled && elapsedView >= 3) {
+    // Meeting mode freezes all counters — a donor view during a meeting counts
+    // as neither a skip nor idle time.
+    if (!meetingActiveRef.current && !wasCalled && elapsedView >= 3) {
       setTodayStats(prev => {
         const next = {
           ...prev,
@@ -348,12 +405,17 @@ export function CallProvider({ children, userId }) {
 
   const endCall = useCallback(() => {
     if (activeCall) {
-      const duration = Math.floor((Date.now() - activeCall.startTime) / 1000)
-      setTodayStats(prev => {
-        const next = { ...prev, calls: prev.calls + 1, totalSeconds: prev.totalSeconds + duration }
-        saveStats(userId, next)
-        return next
-      })
+      const nowClock = Date.now()
+      // Meeting time is excluded: only talk time outside the meeting counts.
+      const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
+      const duration = Math.max(0, Math.floor((nowClock - activeCall.startTime - paused) / 1000))
+      if (duration > 0) {
+        setTodayStats(prev => {
+          const next = { ...prev, calls: prev.calls + 1, totalSeconds: prev.totalSeconds + duration }
+          saveStats(userId, next)
+          return next
+        })
+      }
     }
     setActiveCall(null)
     resetCallActivity() // call ended → idle timer restarts
@@ -367,7 +429,7 @@ export function CallProvider({ children, userId }) {
       isCallIdle, resetCallActivity, sendHeartbeat,
     }}>
       {children}
-      {isCallIdle && (
+      {isCallIdle && !meetingActive && (
         <IdleAlertPopup
           callIdleSince={callIdleSince}
           resetCallActivity={resetCallActivity}

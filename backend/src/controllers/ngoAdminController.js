@@ -4705,7 +4705,7 @@ export const getTLDashboard = async (req, res) => {
     }
 
     if (ngoIds.length === 0) return res.json({ 
-      kpis: { total_fros: 0, calling: 0, idle: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0 },
+      kpis: { total_fros: 0, calling: 0, idle: 0, meeting: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0 },
       collections_per_ngo: [],
       funnel: [],
       hourly: [],
@@ -4800,6 +4800,9 @@ export const getTLDashboard = async (req, res) => {
     const livePresent = (s) => isLiveFresh(s) && !isWorkAs(s) && isPresent(s.worker_id);
     const callingRows = (liveStatus || []).filter(s => s.status === 'on_call' && livePresent(s));
     const idleRows = (liveStatus || []).filter(s => s.status === 'idle' && livePresent(s));
+    // Meeting mode: FROs pushed status 'meeting' during a company-wide meeting.
+    // They remain present but never count as calling/idle/online/offline.
+    const meetingRows = (liveStatus || []).filter(s => s.status === 'meeting' && livePresent(s));
     // Operators working covered FRO panels carry that panel's call state too —
     // an operator mid-call on a covered station counts as calling.
     const opCalling = froWorkers.filter(w => {
@@ -4812,14 +4815,15 @@ export const getTLDashboard = async (req, res) => {
     });
     const calling = callingRows.length + opCalling.length;
     const idle = idleRows.length + opIdle.length;
+    const meeting = meetingRows.length;
     // FROs whose panel is being operated by another worker (work-as) are treated
     // as absent today: the covering operator carries the online/calling/idle state.
     const workAsCoveredIds = new Set((liveStatus || []).filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
     const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
     const online = useLoginPresence
-      ? froWorkers.filter(w => !coveredOnly(String(w.id)) && (isPresent(w.id) || isOperatorActive(w.id)) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id)) && !opCalling.some(o => String(o.id) === String(w.id)) && !opIdle.some(o => String(o.id) === String(w.id))).length
+      ? froWorkers.filter(w => !coveredOnly(String(w.id)) && (isPresent(w.id) || isOperatorActive(w.id)) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id)) && !meetingRows.some(s => String(s.worker_id) === String(w.id)) && !opCalling.some(o => String(o.id) === String(w.id)) && !opIdle.some(o => String(o.id) === String(w.id))).length
       : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
-    const offline = froWorkers.length - calling - idle - online;
+    const offline = Math.max(0, froWorkers.length - calling - idle - meeting - online);
 
     // 2. Call analytics for the selected range
     let callLogsQuery = db
@@ -5300,6 +5304,7 @@ const tlPayload = {
         total_fros: froWorkers.length,
         calling,
         idle,
+        meeting,
         online,
         offline,
         logouts_today: Object.values(logoutCounts).reduce((s, c) => s + c.today, 0),

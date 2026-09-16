@@ -3543,8 +3543,8 @@ export const updateLiveStatus = async (req, res) => {
     const workerId = req.user.id;
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at } = req.body;
 
-    if (status && !['online', 'idle', 'on_call', 'break', 'offline'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline' });
+    if (status && !['online', 'idle', 'on_call', 'break', 'offline', 'meeting'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline, meeting' });
     }
     const numericFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
     for (const [key, val] of Object.entries(numericFields)) {
