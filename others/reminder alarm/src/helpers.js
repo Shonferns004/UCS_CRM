@@ -160,20 +160,20 @@ function downloadBlob(content, filename, mime) {
 }
 
 export const EXPORT_COLUMNS = [
-  'Reminder / Property', 'Category', 'Owner', 'Due Date', 'Renewal Date',
-  'Frequency', 'Days Left', 'Priority', 'Status', 'Alarm', 'Reminder', 'Notes',
+  'Category', 'Reminder / Property / Item', 'Owner', 'Due Date', 'Renewal Date',
+  'Last Paid Date', 'Paid Amount', 'Status',
 ]
 
 export function toExportRow(r) {
-  const dl = daysLeft(r.due_date)
   return [
-    r.title || '', r.category || '', r.owner || '',
-    r.due_date ? formatDate(r.due_date) : '',
-    r.renewal_date ? formatDate(r.renewal_date) : '',
-    r.display_frequency || '', dl !== null ? dl : '',
-    r.priority || '', derivedStatus(r),
-    r.alarm_enabled ? 'ON' : 'OFF', r.reminder_enabled ? 'ON' : 'OFF',
-    r.notes || '',
+    normalizeCategory(r.category) || '—',
+    r.title || '—',
+    r.owner || '—',
+    r.due_date ? formatDate(r.due_date) : '—',
+    r.renewal_date ? formatDate(r.renewal_date) : '—',
+    r.paid_at ? formatDate(r.paid_at) : '—',
+    r.amount ? `₹${r.amount}` : '—',
+    derivedStatus(r),
   ]
 }
 

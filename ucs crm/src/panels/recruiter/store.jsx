@@ -85,6 +85,8 @@ export const STATUS_TO_STAGE = {
   screening: 'Screening',
   shortlisted: 'Shortlisted',
   scheduled: 'Interview Scheduled',
+  re_scheduled: 'Interview Scheduled',
+  schedule: 'Interview Scheduled',
   interviewed: 'Interviewed',
   selected: 'Selected',
   offer_released: 'Offer Released',
