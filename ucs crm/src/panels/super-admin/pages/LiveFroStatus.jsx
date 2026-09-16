@@ -11,6 +11,7 @@ export default function LiveFroStatus() {
   const [loading, setLoading] = useState(true)
   const [selectedFro, setSelectedFro] = useState(null)
   const [deepFro, setDeepFro] = useState(null)
+  const [resetting, setResetting] = useState(false)
 
   const loadStatuses = async () => {
     try {
@@ -18,6 +19,17 @@ export default function LiveFroStatus() {
       setStatuses(data || [])
     } catch { setStatuses([]) }
     finally { setLoading(false) }
+  }
+
+  const resetAllIdle = async () => {
+    if (!window.confirm('Clear today\\'s idle time for ALL FROs? This resets every FRO\\'s current idle counter to zero.')) return
+    setResetting(true)
+    try {
+      await api('/fro/status/reset-idle', { method: 'PUT', body: JSON.stringify({}), _prefix: 'ucs' })
+      await loadStatuses()
+    } catch (e) {
+      console.error('Error:', e.message)
+    } finally { setResetting(false) }
   }
 
   useEffect(() => {
@@ -57,10 +69,20 @@ export default function LiveFroStatus() {
         <div style={{ width: 36, height: 36, borderRadius: 10, background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>radio</span>
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Live FRO Status</h3>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{onlineCount} online · {statuses.length} total FROs</div>
         </div>
+        {user?.role === 'super_admin' && (
+          <button
+            className="btn btn-sm"
+            onClick={resetAllIdle}
+            disabled={resetting}
+            style={{ fontSize: 11, padding: '6px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: resetting ? 'wait' : 'pointer' }}
+          >
+            {resetting ? 'Clearing...' : 'Clear Idle Time'}
+          </button>
+        )}
       </div>
 
       {statuses.length === 0 ? (
