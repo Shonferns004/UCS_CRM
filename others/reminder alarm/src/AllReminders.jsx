@@ -147,7 +147,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
   }
 
   const filtered = useMemo(() => {
-    let list = sourceItems.map(it => ({ ...it, _status: itemStatus(it) }))
+    let list = sourceItems.map((it, idx) => ({ ...it, _status: itemStatus(it), _seq: idx }))
 
     if (activeFilter) {
       if (VIEW_FILTERS[activeFilter]) {
@@ -185,6 +185,12 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     return list
   }, [sourceItems, activeFilter, search, ownerFilter, statusFilter])
 
+  const itemCount = filtered.length
+  const totalPages = Math.max(1, Math.ceil(itemCount / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageStart = (safePage - 1) * PAGE_SIZE
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, itemCount)
+
   const displayRows = useMemo(() => {
     const selectedGroup = activeFilter && !VIEW_FILTERS[activeFilter] ? normalizeCategory(activeFilter) : null
     const sorted = [...filtered].sort((a, b) => {
@@ -202,30 +208,31 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       if (sa !== sb) return sa.localeCompare(sb)
       return (a.title || '').localeCompare(b.title || '')
     })
+    const slice = sorted.slice(pageStart, pageEnd)
     const rows = []
-    let lastGroup = null
-    let lastSub = null
-    for (const it of sorted) {
-      if (it._group !== lastGroup) {
-        rows.push({ kind: 'group', label: it._group })
-        lastGroup = it._group
-        lastSub = null
+    let i = 0
+    while (i < slice.length) {
+      const group = slice[i]._group
+      let j = i
+      let count = 0
+      const block = []
+      let lastSub = null
+      while (j < slice.length && slice[j]._group === group) {
+        const it = slice[j]
+        if (it._sub && it._sub !== lastSub) {
+          block.push({ kind: 'sub', label: it._sub })
+          lastSub = it._sub
+        }
+        block.push({ kind: 'item', it })
+        count++
+        j++
       }
-      if (it._sub && it._sub !== lastSub) {
-        rows.push({ kind: 'sub', label: it._sub })
-        lastSub = it._sub
-      }
-      rows.push({ kind: 'item', it })
+      rows.push({ kind: 'group', label: group, count })
+      rows.push(...block)
+      i = j
     }
     return rows
-  }, [filtered])
-
-  const itemCount = filtered.length
-  const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE))
-  const safePage = Math.min(page, totalPages)
-  const pageStart = (safePage - 1) * PAGE_SIZE
-  const pageItems = displayRows.slice(pageStart, pageStart + PAGE_SIZE)
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, displayRows.length)
+  }, [filtered, pageStart, pageEnd, activeFilter])
 
   const handleCategoryChange = (val) => {
     setActiveFilter(val || '')
@@ -352,7 +359,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
               </tr>
             </thead>
             <tbody>
-              {pageItems.length === 0 ? (
+              {displayRows.length === 0 ? (
                 <tr>
                   <td colSpan={9}>
                     <div className="empty-state">
@@ -362,12 +369,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                     </div>
                   </td>
                 </tr>
-              ) : pageItems.map((row, i) => {
+              ) : displayRows.map((row, i) => {
                 if (row.kind === 'group') {
                   return (
                     <tr className="rem-group-row" key={`g-${i}-${row.label}`}>
                       <td colSpan={9}>
                         <span className="rem-heading-label">{row.label}</span>
+                        {typeof row.count === 'number' && (
+                          <span className="pill pill-upcoming" style={{ marginLeft: 8 }}>{row.count} reminder{row.count !== 1 ? 's' : ''}</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -433,10 +443,10 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
           </table>
         </div>
 
-        {displayRows.length > 0 && (
+        {itemCount > 0 && (
           <div className="pagination">
             <span style={{ fontSize: 12, color: 'var(--rem-ink-soft)' }}>
-              Showing {pageStart + 1}–{pageEnd} of {displayRows.length}
+              Showing {pageStart + 1}–{pageEnd} of {itemCount}
             </span>
             <div className="pages">
               <button className="page-btn" disabled={safePage <= 1} onClick={() => setPage(1)}>&laquo;</button>
