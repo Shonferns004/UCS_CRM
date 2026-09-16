@@ -76,7 +76,8 @@ function playAlertBeep() {
 
 // Blocking popup shown while the FRO is call-idle. Sound plays on the first
 // alert only; snoozing hides it for 5 minutes and it re-appears (silently)
-// while idle continues. Only real call activity dismisses it for good.
+// while idle continues. Mouse activity or real call activity dismisses it when
+// the other inactivity condition is also clear.
 const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
   const [now, setNow] = useState(Date.now())
   const [visible, setVisible] = useState(true)
@@ -142,7 +143,7 @@ const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
         </div>
 
         <div style={{ marginBottom: 16, fontSize: 13, fontWeight: 600, color: '#d97706' }}>
-          No call activity for over 2 minutes. Please resume calling donors.
+          No mouse movement or call activity for over 5 minutes. Please resume calling donors.
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -221,9 +222,9 @@ export function CallProvider({ children, userId }) {
     }).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
-  // ---------- Call-idle engine (2 min) ----------
+  // ---------- Combined mouse/call idle engine (5 min) ----------
   const { isCallIdle, callIdleSince, resetCallActivity, sendHeartbeat } = useActivityTracking(userId, {
-    callIdleThreshold: 2 * 60 * 1000,
+    callIdleThreshold: 5 * 60 * 1000,
     // Breaks, live calls and open donor views are exempt from idle detection
     isExempt: () => onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
     onCallIdle: (sinceIso) => {
@@ -245,8 +246,11 @@ export function CallProvider({ children, userId }) {
       }
       syncAllStats({ idle_since: null })
     },
-    onIdle: () => { syncAllStats() },
-    onActive: () => { syncAllStats() },
+    // Combined activity callbacks own backend status updates. The legacy
+    // browser-idle callbacks are intentionally no-ops to avoid an online
+    // heartbeat racing the idle status update.
+    onIdle: () => {},
+    onActive: () => {},
   })
 
   // ---------- Stats sync & status transitions ----------

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react'
-import { login as apiLogin, setSession, clearSession, getToken, getUser, releaseWorkAs } from './api/auth'
+import { login as apiLogin, logout as apiLogout, setSession, clearSession, getToken, getUser, releaseWorkAs } from './api/auth'
 
 const ROLE_ALIASES = {
   'hr': 'hr',
@@ -75,7 +75,10 @@ export function UcsProvider({ children }) {
   const logout = useCallback(() => {
     try {
       const u = getUser('ucs');
-      if (u?.id) releaseWorkAs().catch(() => {});
+      if (u?.id) {
+        apiLogout().catch(() => {});
+        releaseWorkAs().catch(() => {});
+      }
     } catch {}
     const keep = [];
     try {

@@ -88,7 +88,9 @@ import { ensureLoanDeductionSchema } from './bootstrap/ensureLoanDeductionSchema
 import { ensureSpecialIncentiveSchema } from './bootstrap/ensureSpecialIncentiveSchema.js';
 import { ensureSalaryHoldSchema } from './bootstrap/ensureSalaryHoldSchema.js';
 import { ensureCertificateSchema } from './bootstrap/ensureCertificateSchema.js';
+import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js';
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
+import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema.js';
 import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 
@@ -638,6 +640,7 @@ app.post('/api/db/query', async (req, res) => {
     let rowCount = null;
     let fields = [];
     let rows = [];
+    const commands = [];
     try {
       await client.query('BEGIN');
       for (const stmt of statements) {
@@ -646,9 +649,10 @@ app.post('/api/db/query', async (req, res) => {
         rowCount = r.rowCount ?? rowCount;
         fields = (r.fields || []).map((f) => ({ name: f.name, dataTypeID: f.dataTypeID }));
         rows = r.rows || [];
+        if (r.command) commands.push(r.command);
       }
       await client.query('COMMIT');
-      res.json({ command, rowCount, columns: fields, rows });
+      res.json({ command, commands, statementCount: statements.length, rowCount, columns: fields, rows });
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch (_) { /* connection may be dead */ }
       res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
@@ -898,6 +902,8 @@ if (!process.env.VERCEL) {
     await ensureSalaryHoldSchema().catch(e => console.error('ensureSalaryHoldSchema failed:', e?.message || e));
     await ensureCertificateSchema().catch(e => console.error('ensureCertificateSchema failed:', e?.message || e));
     await ensureNoticeSchema().catch(e => console.error('ensureNoticeSchema failed:', e?.message || e));
+    await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));
+    await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureNotificationLogTypes().catch(e => console.error('ensureNotificationLogTypes failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');

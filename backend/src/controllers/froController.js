@@ -3562,6 +3562,16 @@ export const updateLiveStatus = async (req, res) => {
       status,
       updated_at: new Date().toISOString(),
     };
+    // Work-as context: when an operator (abc) is covering this FRO's stations,
+    // record who is actually operating. Regular logins must clear any residue
+    // left behind by an earlier work-as session.
+    if (req.user.impersonation && req.user.imposter_id) {
+      payload.work_as_operator_id = String(req.user.imposter_id);
+      payload.work_as_operator_name = req.user.imposter_name || null;
+    } else {
+      payload.work_as_operator_id = null;
+      payload.work_as_operator_name = null;
+    }
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
     if (today_calls !== undefined) payload.today_calls = today_calls;
@@ -3583,7 +3593,7 @@ export const updateLiveStatus = async (req, res) => {
       payload.on_break = true;
     }
     // idle_since: the start of the current idle streak (drives "Idle Xm" on
-    // the NGO admin dashboard). The FRO panel sets it when the 2-minute
+    // the NGO admin dashboard). The FRO panel sets it when the 5-minute
     // call-idle detector fires and clears it on resume.
     if (idle_since !== undefined) payload.idle_since = parseTs(idle_since);
     if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
@@ -3594,6 +3604,50 @@ export const updateLiveStatus = async (req, res) => {
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     if (error) throw error;
+
+    // Daily activity snapshot: the FRO panel's counters reset to 0 at IST
+    // midnight, so the previous day's idle/talk/break totals would otherwise be
+    // lost. Upsert today's row keeping the max value seen (the counters only
+    // grow within a day) — this powers monthly/yearly idle aggregation while
+    // the dashboard keeps showing today's fresh-from-0 count. Non-fatal: table
+    // may be missing until migration 126 is applied.
+    try {
+      const istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const daily = {
+        idle_seconds: today_idle_seconds,
+        talk_seconds: today_talk_seconds,
+        break_seconds: today_break_seconds,
+        calls: today_calls,
+        skipped: today_skipped,
+      };
+      if (Object.values(daily).some(v => v !== undefined)) {
+        await db._pool.query(
+          `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, talk_seconds, break_seconds, calls, skipped, updated_at)
+           VALUES ($1, $2::date, GREATEST(0, COALESCE($3,0)), GREATEST(0, COALESCE($4,0)), GREATEST(0, COALESCE($5,0)), GREATEST(0, COALESCE($6,0)), GREATEST(0, COALESCE($7,0)), now())
+           ON CONFLICT (worker_id, stat_date) DO UPDATE SET
+             idle_seconds  = GREATEST(fro_daily_stats.idle_seconds, COALESCE(EXCLUDED.idle_seconds, 0)),
+             talk_seconds  = GREATEST(fro_daily_stats.talk_seconds,  COALESCE(EXCLUDED.talk_seconds, 0)),
+             break_seconds = GREATEST(fro_daily_stats.break_seconds, COALESCE(EXCLUDED.break_seconds, 0)),
+             calls         = GREATEST(fro_daily_stats.calls,         COALESCE(EXCLUDED.calls, 0)),
+             skipped       = GREATEST(fro_daily_stats.skipped,       COALESCE(EXCLUDED.skipped, 0)),
+             updated_at    = now()`,
+          [workerId, istDay, daily.idle_seconds, daily.talk_seconds, daily.break_seconds, daily.calls, daily.skipped]
+        );
+      }
+    } catch (e) {
+      // Non-fatal: fro_daily_stats may be absent until migration 126 is applied.
+    }
+
+    // CRM presence heartbeat: any live-status write means the user is active
+    // on the CRM — keep their login session fresh for Telecaller Performance.
+    try {
+      await db._pool.query(
+        `UPDATE auth_sessions SET last_active_at = now() WHERE user_id = $1 AND logged_out_at IS NULL`,
+        [String(workerId)]
+      );
+    } catch (e) {
+      // Non-fatal: auth_sessions may be absent until migration 125 is applied.
+    }
 
     return res.json({ message: 'Status updated' });
   } catch (error) {

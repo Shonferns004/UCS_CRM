@@ -80,7 +80,7 @@ const REALTIME_TABLES = new Set([
   'fro_assignments', 'fro_live_status', 'messages', 'conversations',
   'attendance', 'leaves', 'worker_loans', 'attendance_corrections', 'impersonation_codes',
   'receipts', 'leads', 'special_incentives', 'special_incentive_progress',
-  'lead_champion_announcements',
+  'lead_champion_announcements', 'incentive_slabs',
 ]);
 
 function emitRealtimeRows(table, eventType, rows) {

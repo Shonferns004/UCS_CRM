@@ -7,10 +7,18 @@ import {
   createSlabHandler,
   updateSlabHandler,
   deleteSlabHandler,
+  applyAllSlabsHandler,
+  stopSlabCompetitionHandler,
+  stopAllSlabsCompetitionHandler,
   dailySummaryHandler,
   froDetailHandler,
   currentChampionHandler,
+  leaderboardHandler,
   announceChampionHandler,
+  championHistoryHandler,
+  deleteChampionHandler,
+  getSlabFrosHandler,
+  setSlabFrosHandler,
 } from '../controllers/leadIncentiveController.js';
 
 const router = Router();
@@ -25,15 +33,27 @@ router.put('/settings', sirLevel, updateSettingsHandler);
 // Slab CRUD
 router.get('/slabs', sirLevel, listSlabsHandler);
 router.post('/slabs', sirLevel, createSlabHandler);
+// Bulk set: apply a common Min Lead + ₹/Qualified Lead to every active slab.
+// Must be registered before /slabs/:id so "apply-all" is not matched as an id.
+router.put('/slabs/apply-all', sirLevel, applyAllSlabsHandler);
+// Stop a range's live competition (clears FRO view of it for the date).
+router.post('/slabs/stop-all', sirLevel, stopAllSlabsCompetitionHandler);
+router.post('/slabs/:id/stop', sirLevel, stopSlabCompetitionHandler);
 router.put('/slabs/:id', sirLevel, updateSlabHandler);
 router.delete('/slabs/:id', sirLevel, deleteSlabHandler);
+// Which FROs compete in a range (⚙️ Configure).
+router.get('/slabs/:id/fros', sirLevel, getSlabFrosHandler);
+router.put('/slabs/:id/fros', sirLevel, setSlabFrosHandler);
 
 // Lead incentive summary
 router.get('/lead-summary', sirLevel, dailySummaryHandler);
 router.get('/lead-summary/fro/:id', sirLevel, froDetailHandler);
 
 // Champion announcement
+router.get('/leaderboard', popupLevel, leaderboardHandler);
 router.get('/champion/current', popupLevel, currentChampionHandler);
+router.get('/champion/history', sirLevel, championHistoryHandler);
 router.post('/champion/announce', sirLevel, announceChampionHandler);
+router.delete('/champion/:id', sirLevel, deleteChampionHandler);
 
 export default router;

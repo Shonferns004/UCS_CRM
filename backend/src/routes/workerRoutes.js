@@ -22,6 +22,7 @@ import { authenticateRole, authenticate } from '../middleware/authMiddleware.js'
 const router = Router();
 
 const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
+const allRoles = authenticateRole('super_admin', 'admin', 'hr', 'fro', 'ngo_admin', 'recruiter', 'event_head', 'accounts');
 // Volunteers tab is also rendered inside the Accounts panel.
 const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
@@ -29,7 +30,7 @@ router.post('/', adminOrHrOrHo, addWorker);
 router.post('/bulk', adminOrHrOrHo, bulkAddWorkers);
 router.put('/bulk', adminOrHrOrHo, bulkEditWorkers);
 router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkers);
-router.get('/birthdays', adminOrHrOrHo, getBirthdays);
+router.get('/birthdays', allRoles, getBirthdays);
 router.get('/me', authenticate, getMyProfile);
 router.put('/me', authenticate, updateMyProfile);
 router.put('/me/education', authenticate, updateMyEducation);
