@@ -40,6 +40,7 @@ import {
   getSuspenseReceipts,
   claimSuspenseReceipt,
   searchSuspenseDonors,
+  resetAllFroIdle,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -47,6 +48,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
+router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
 
 const requireFro = (req, res, next) => {
   if (req.user.role === 'fro') return next();
