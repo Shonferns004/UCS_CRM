@@ -52,10 +52,10 @@ export function refreshMeeting() {
     .finally(() => { inflight = false })
 }
 
-export async function startMeeting(title) {
+export async function startMeeting(title, teams) {
   const r = await api('/meeting/start', {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, teams }),
     _prefix: 'ucs',
   })
   refreshMeeting()

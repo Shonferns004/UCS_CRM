@@ -119,28 +119,45 @@ export default function NgoAdminPanel() {
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('ngoadmin_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs));
 
-  // Company-wide meeting mode (global MeetingGate overlay covers all panels).
+  // Team-scoped meeting mode (admin starts/ends; MeetingGate blocks only selected teams' FROs).
   const meeting = useMeeting();
   const meetingActive = !!meeting;
   const [meetingBusy, setMeetingBusy] = useState(false);
   const [showMeetingPrompt, setShowMeetingPrompt] = useState(false);
   const [meetingTitle, setMeetingTitle] = useState('');
+  const [meetingTeams, setMeetingTeams] = useState([]);
+  const [teamsList, setTeamsList] = useState([]);
   const meetingRef = useRef(null);
 
   useEffect(() => {
     if (meetingActive) setShowMeetingPrompt(false);
   }, [meetingActive]);
 
+  const toggleMeetingTeam = (t) => {
+    setMeetingTeams(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  };
+
+  const loadTeams = () => {
+    api('/teams', { _prefix: 'ucs' })
+      .then(data => setTeamsList(data?.teams || []))
+      .catch(err => console.error('Error:', err.message));
+  };
+
+  useEffect(() => {
+    if (showMeetingPrompt) loadTeams();
+  }, [showMeetingPrompt]);
+
   const handleStartMeeting = async () => {
     if (meetingBusy) return;
     setMeetingBusy(true);
     try {
-      await startMeeting(meetingTitle.trim() || undefined);
+      await startMeeting(meetingTitle.trim() || undefined, meetingTeams.length ? meetingTeams : undefined);
     } catch (e) { console.error('Error:', e.message); }
     finally {
       setMeetingBusy(false);
       setShowMeetingPrompt(false);
       setMeetingTitle('');
+      setMeetingTeams([]);
     }
   };
 
@@ -400,7 +417,9 @@ export default function NgoAdminPanel() {
               <button
                 onClick={() => { if (meetingActive) handleEndMeeting(); else setShowMeetingPrompt(v => !v); }}
                 disabled={meetingBusy}
-                title={meetingActive ? 'End the company-wide meeting and resume all counters' : 'Start a company-wide meeting — pauses all live counters across panels'}
+                title={meetingActive
+                  ? `End the team meeting${meeting?.teams?.length ? ` for ${meeting.teams.join(' · ')}` : ' (all teams)'} and resume counters`
+                  : 'Start a team meeting — pauses live counters for the selected teams\' FROs'}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 13px', border: 'none', borderRadius: 9,
                   fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: meetingBusy ? 'default' : 'pointer', whiteSpace: 'nowrap',
@@ -412,9 +431,9 @@ export default function NgoAdminPanel() {
               </button>
               {!meetingActive && showMeetingPrompt && (
                 <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 288, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14, zIndex: 300 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>Start company-wide meeting</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>Start team meeting</div>
                   <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
-                    A blocking popup appears on every panel and all live counters (idle, calls, breaks) pause.
+                    A blocking popup appears for the selected teams' FROs and their live counters (idle, calls, breaks) pause.
                   </div>
                   <input
                     type="text"
@@ -424,7 +443,29 @@ export default function NgoAdminPanel() {
                     placeholder="Optional title (e.g. All-hands)"
                     style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)' }}
                   />
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  {teamsList.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Apply to teams</span>
+                        <button
+                          onClick={() => setMeetingTeams(meetingTeams.length ? [] : [...teamsList])}
+                          style={{ border: 'none', background: 'none', color: '#7c3aed', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                        >{meetingTeams.length ? 'Clear' : 'Select all'}</button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {teamsList.map(t => (
+                          <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: meetingTeams.includes(t) ? '#f5f3ff' : 'var(--bg)', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>
+                            <input type="checkbox" checked={meetingTeams.includes(t)} onChange={() => toggleMeetingTeam(t)} style={{ accentColor: '#7c3aed', margin: 0, cursor: 'pointer' }} />
+                            {t}
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 10, color: meetingTeams.length ? '#7c3aed' : 'var(--ink-soft)', fontWeight: 600 }}>
+                        {meetingTeams.length ? `Only ${meetingTeams.join(', ')} will be paused.` : 'No teams selected → applies to all teams (company-wide).'}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                     <button
                       onClick={handleStartMeeting}
                       disabled={meetingBusy}

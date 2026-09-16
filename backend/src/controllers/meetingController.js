@@ -1,6 +1,30 @@
 import db from '../config/db.js';
 import { emitDbChange } from '../socket.js';
 
+const FRO_ROLES = new Set(['fro', 'worker', 'team_lead']);
+
+const normalizeTeams = (val) => {
+  if (!Array.isArray(val)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const t of val) {
+    const s = String(t ?? '').trim().toUpperCase();
+    if (s && !seen.has(s)) { seen.add(s); out.push(s); }
+  }
+  return out;
+};
+
+const getCallerTeam = async (userId) => {
+  try {
+    const { data } = await db
+      .from('workers')
+      .select('team')
+      .eq('id', userId)
+      .maybeSingle();
+    return data?.team ? String(data.team).trim().toUpperCase() : null;
+  } catch { return null; }
+};
+
 const serialize = (meeting) => meeting ? {
   active: true,
   id: meeting.id,
@@ -8,6 +32,7 @@ const serialize = (meeting) => meeting ? {
   started_by: meeting.started_by,
   started_by_name: meeting.started_by_name || 'Admin',
   started_at: meeting.started_at,
+  teams: meeting.teams || [],
 } : { active: false };
 
 export const getMeetingStatus = async (req, res) => {
@@ -19,7 +44,21 @@ export const getMeetingStatus = async (req, res) => {
       .order('started_at', { ascending: false })
       .limit(1);
     if (error) throw error;
-    return res.json(serialize(data?.[0] || null));
+    const meeting = data?.[0] || null;
+
+    // FRO / worker / team_lead: only return the meeting if it covers their team.
+    // An empty teams array means global (all teams).
+    if (meeting && FRO_ROLES.has(String(req.user?.role || '').trim().toLowerCase())) {
+      const teams = meeting.teams || [];
+      if (teams.length > 0) {
+        const callerTeam = await getCallerTeam(req.user.id);
+        if (!callerTeam || !teams.includes(callerTeam)) {
+          return res.json({ active: false });
+        }
+      }
+    }
+
+    return res.json(serialize(meeting));
   } catch (error) {
     return res.status(500).json({ message: 'Failed to fetch meeting status', error: error.message });
   }
@@ -27,8 +66,11 @@ export const getMeetingStatus = async (req, res) => {
 
 export const startMeeting = async (req, res) => {
   try {
-    const title = typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim().slice(0, 120) : 'Meeting';
-    // A new meeting replaces any active one (globally single active meeting).
+    const title = typeof req.body?.title === 'string' && req.body.title.trim()
+      ? req.body.title.trim().slice(0, 120) : 'Meeting';
+    const teams = normalizeTeams(req.body?.teams);
+
+    // End any currently active meeting.
     await db
       .from('meetings')
       .update({ is_active: false, ended_at: new Date().toISOString() })
@@ -42,6 +84,7 @@ export const startMeeting = async (req, res) => {
         started_by: String(req.user.id ?? ''),
         started_by_name: req.user.name || 'Admin',
         started_at: new Date().toISOString(),
+        teams: teams.length > 0 ? teams : null,
       })
       .select()
       .single();
