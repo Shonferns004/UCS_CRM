@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { emitRealtime } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
@@ -3812,16 +3813,40 @@ export const saveMyProgress = async (req, res) => {
   }
 };
 
-// Super admin: clear every FRO's current idle streak (today_idle_seconds + idle_since).
+// Super admin: clear every FRO's current idle streak (today_idle_seconds + idle_since)
+// and push a fro:reset-idle socket event so connected FRO panels zero their in-memory
+// idle counters too (they are not persisted to localStorage anymore).
 export const resetAllFroIdle = async (req, res) => {
   try {
     const updatedAt = new Date().toISOString();
     const { error } = await db
       .from('fro_live_status')
-      .update({ today_idle_seconds: 0, today_break_seconds: 0, idle_since: null, updated_at: updatedAt })
+      .update({
+        today_idle_seconds: 0,
+        idle_since: null,
+        updated_at: updatedAt,
+      })
       .not('worker_id', 'is', null);
     if (error) throw error;
+
+    emitRealtime('fro:reset-idle', { at: updatedAt }, 'role:fro');
+
     return res.json({ message: 'All FRO idle counts reset' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// FRO's own live status row — used to restore today's counters in memory on panel
+// load (the client no longer mirrors these into localStorage).
+export const getMyLiveStatus = async (req, res) => {
+  try {
+    const { data } = await db
+      .from('fro_live_status')
+      .select('*')
+      .eq('worker_id', req.user.id)
+      .maybeSingle();
+    return res.json(data || null);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

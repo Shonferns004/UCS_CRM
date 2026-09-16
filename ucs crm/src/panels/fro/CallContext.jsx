@@ -3,46 +3,13 @@ import { api } from './api/auth'
 import { useActivityTracking } from './hooks/useActivityTracking'
 import { istDateString } from './utils/time'
 import { useMeeting } from '../../meetingStore'
+import { onFroResetIdle } from '../../lib/socket'
 
 const CallContext = createContext()
 
-const STATS_KEY = 'fro_call_stats'
 const BREAK_LIMIT = 3600
 
-function loadStats(userId) {
-  try {
-    const raw = localStorage.getItem(STATS_KEY)
-    if (!raw) return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
-    const data = JSON.parse(raw)
-    const today = istDateString()
-    if (data.date === today && data.userId === userId) {
-      return {
-        calls: data.calls || 0,
-        totalSeconds: data.totalSeconds || 0,
-        skippedDonors: data.skippedDonors || 0,
-        idleSeconds: data.idleSeconds || 0,
-        breakSeconds: data.breakSeconds || 0,
-        breakCount: data.breakCount || 0,
-      }
-    }
-    return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
-  } catch { return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 } }
-}
-
-function saveStats(userId, stats) {
-  try {
-    localStorage.setItem(STATS_KEY, JSON.stringify({
-      date: istDateString(),
-      userId,
-      calls: stats.calls,
-      totalSeconds: stats.totalSeconds,
-      skippedDonors: stats.skippedDonors,
-      idleSeconds: stats.idleSeconds,
-      breakSeconds: stats.breakSeconds,
-      breakCount: stats.breakCount,
-    }))
-  } catch (e) { console.error('Error:', e.message); }
-}
+const ZERO_STATS = { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
 
 function fmt(seconds) {
   if (seconds == null) return '00:00'
@@ -182,7 +149,7 @@ export function CallProvider({ children, userId }) {
   const [activeCall, setActiveCall] = useState(null)
   const [elapsed, setElapsed] = useState(0)
   const timerRef = useRef(null)
-  const [todayStats, setTodayStats] = useState(() => loadStats(userId))
+  const [todayStats, setTodayStats] = useState(ZERO_STATS)
   const donorViewStartRef = useRef(null)
   const lastDonorIdRef = useRef(null)
   const [onBreak, setOnBreak] = useState(false)
@@ -213,7 +180,11 @@ export function CallProvider({ children, userId }) {
   const totalBreakWithCurrent = todayStats.breakSeconds + (onBreak ? breakElapsed : 0)
   const isBreakOvertime = totalBreakWithCurrent > BREAK_LIMIT
 
-  const syncAllStats = useCallback((extra = {}) => {
+  // Stats are server-authoritative: the client keeps today's counters in memory
+  // only (never localStorage) and pushes them on every change. statsOverride lets
+  // a caller push a freshly-computed value before React re-renders the ref.
+  const syncAllStats = useCallback((extra = {}, statsOverride = null) => {
+    const stats = statsOverride || todayStatsRef.current
     const status = meetingActiveRef.current ? 'meeting'
       : (onBreakRef.current ? 'break'
         : (activeCallRef.current ? 'on_call'
@@ -224,15 +195,29 @@ export function CallProvider({ children, userId }) {
         status,
         current_donor_name: activeCallRef.current?.donorName || null,
         current_donor_id: activeCallRef.current?.donorId || null,
-        today_calls: todayStatsRef.current.calls,
-        today_talk_seconds: todayStatsRef.current.totalSeconds,
-        today_skipped: todayStatsRef.current.skippedDonors,
-        today_idle_seconds: todayStatsRef.current.idleSeconds,
-        today_break_seconds: todayStatsRef.current.breakSeconds,
+        today_calls: stats.calls,
+        today_talk_seconds: stats.totalSeconds,
+        today_skipped: stats.skippedDonors,
+        today_idle_seconds: stats.idleSeconds,
+        today_break_seconds: stats.breakSeconds,
         on_break: onBreakRef.current,
         ...extra,
       }),
     }).catch((err) => { console.error('Error:', err.message); })
+  }, [])
+
+  // Update todayStats in memory (merge or replace) + push it to the server.
+  const commitTodayStats = useCallback((next, extra = {}, opts = {}) => {
+    const merged = opts.replace ? next : { ...todayStatsRef.current, ...next }
+    todayStatsRef.current = merged
+    setTodayStats(merged)
+    syncAllStats(extra, merged)
+  }, [syncAllStats])
+
+  // Seed today's counters (used on panel load — no localStorage anymore).
+  const hydrateTodayStats = useCallback((next) => {
+    todayStatsRef.current = next
+    setTodayStats(next)
   }, [])
 
 // ---------- Combined mouse/call idle engine (5 min) ----------
@@ -250,11 +235,7 @@ export function CallProvider({ children, userId }) {
       if (since) {
         const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
         if (idleSecs > 0) {
-          setTodayStats(prev => {
-            const next = { ...prev, idleSeconds: prev.idleSeconds + idleSecs }
-            saveStats(userId, next)
-            return next
-          })
+          commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
         }
       }
       syncAllStats({ idle_since: null })
@@ -277,11 +258,7 @@ export function CallProvider({ children, userId }) {
         const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
         callIdleSinceRef.current = null
         if (idleSecs > 0) {
-          setTodayStats(prev => {
-            const next = { ...prev, idleSeconds: prev.idleSeconds + idleSecs }
-            saveStats(userId, next)
-            return next
-          })
+          commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
         }
         syncAllStats({ idle_since: null })
       }
@@ -303,12 +280,49 @@ export function CallProvider({ children, userId }) {
   // ---------- Stats sync & status transitions ----------
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return
-    syncAllStats()
+    let cancelled = false
+    // No localStorage anymore: hydrate today's counters from the server (same IST
+    // day only — a new day starts at zero), then announce online/status.
+    ;(async () => {
+      try {
+        const live = await api('/fro/status/me', { _prefix: 'ucs' })
+        if (cancelled || !live) return
+        const serverDay = istDateString(live.updated_at || new Date().toISOString())
+        if (serverDay === istDateString()) {
+          hydrateTodayStats({
+            calls: live.today_calls || 0,
+            totalSeconds: live.today_talk_seconds || 0,
+            skippedDonors: live.today_skipped || 0,
+            idleSeconds: live.today_idle_seconds || 0,
+            breakSeconds: live.today_break_seconds || 0,
+            breakCount: 0,
+          })
+        }
+      } catch (e) {
+        console.error('Error:', e.message)
+      } finally {
+        if (!cancelled) syncAllStats()
+      }
+    })()
     return () => {
+      cancelled = true
       if (!localStorage.getItem('ucs_token')) return
       api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch(() => {})
     }
-  }, [])
+  }, [hydrateTodayStats, syncAllStats])
+
+  // Admin "Clear Idle Time": the backend zeroed today_idle_seconds server-side
+  // and broadcast fro:reset-idle. Mirror it in memory so the UI matches.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    return onFroResetIdle(() => {
+      callIdleSinceRef.current = null
+      const next = { ...todayStatsRef.current, idleSeconds: 0 }
+      todayStatsRef.current = next
+      setTodayStats(next)
+      syncAllStats({ idle_since: null })
+    })
+  }, [syncAllStats])
 
   // Push status whenever it changes (call started/ended, break toggled)
   useEffect(() => {
@@ -360,26 +374,20 @@ export function CallProvider({ children, userId }) {
     // Meeting mode freezes all counters — a donor view during a meeting counts
     // as neither a skip nor idle time.
     if (!meetingActiveRef.current && !wasCalled && elapsedView >= 3) {
-      setTodayStats(prev => {
-        const next = {
-          ...prev,
-          skippedDonors: prev.skippedDonors + 1,
-          idleSeconds: prev.idleSeconds + elapsedView,
-        }
-        saveStats(userId, next)
-        return next
+      commitTodayStats({
+        skippedDonors: todayStatsRef.current.skippedDonors + 1,
+        idleSeconds: todayStatsRef.current.idleSeconds + elapsedView,
       })
     }
     donorViewStartRef.current = null
     resetCallActivity() // donor reviewed → counts as activity
-  }, [userId, resetCallActivity])
+  }, [resetCallActivity])
 
   const toggleBreak = useCallback(() => {
     if (onBreak) {
-      setTodayStats(prev => {
-        const next = { ...prev, breakSeconds: prev.breakSeconds + breakElapsed, breakCount: prev.breakCount + 1 }
-        saveStats(userId, next)
-        return next
+      commitTodayStats({
+        breakSeconds: todayStatsRef.current.breakSeconds + breakElapsed,
+        breakCount: todayStatsRef.current.breakCount + 1,
       })
       setOnBreak(false)
       setBreakElapsed(0)
@@ -389,7 +397,7 @@ export function CallProvider({ children, userId }) {
       setBreakElapsed(0)
       resetCallActivity() // break started → clear any live idle streak
     }
-  }, [onBreak, breakElapsed, userId, resetCallActivity])
+  }, [onBreak, breakElapsed, resetCallActivity])
 
   const startCall = useCallback((donor) => {
     if (onBreak) toggleBreak()
@@ -410,16 +418,15 @@ export function CallProvider({ children, userId }) {
       const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
       const duration = Math.max(0, Math.floor((nowClock - activeCall.startTime - paused) / 1000))
       if (duration > 0) {
-        setTodayStats(prev => {
-          const next = { ...prev, calls: prev.calls + 1, totalSeconds: prev.totalSeconds + duration }
-          saveStats(userId, next)
-          return next
+        commitTodayStats({
+          calls: todayStatsRef.current.calls + 1,
+          totalSeconds: todayStatsRef.current.totalSeconds + duration,
         })
       }
     }
     setActiveCall(null)
     resetCallActivity() // call ended → idle timer restarts
-  }, [activeCall, userId, resetCallActivity])
+  }, [activeCall, resetCallActivity])
 
   return (
     <CallContext.Provider value={{
