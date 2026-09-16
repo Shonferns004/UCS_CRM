@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticateRole, authenticateWorker } from '../middleware/authMiddleware.js';
 import {
   getSettingsHandler,
   updateSettingsHandler,
@@ -12,6 +12,7 @@ import {
   stopAllSlabsCompetitionHandler,
   dailySummaryHandler,
   froDetailHandler,
+  myLeadSummaryHandler,
   currentChampionHandler,
   leaderboardHandler,
   announceChampionHandler,
@@ -44,6 +45,9 @@ router.delete('/slabs/:id', sirLevel, deleteSlabHandler);
 // Which FROs compete in a range (⚙️ Configure).
 router.get('/slabs/:id/fros', sirLevel, getSlabFrosHandler);
 router.put('/slabs/:id/fros', sirLevel, setSlabFrosHandler);
+
+// Lead incentive summary (FRO self-view for dashboard).
+router.get('/my-summary', authenticateWorker, myLeadSummaryHandler);
 
 // Lead incentive summary
 router.get('/lead-summary', sirLevel, dailySummaryHandler);

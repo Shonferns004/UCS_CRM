@@ -69,8 +69,11 @@ const slabInputStyle = {
 }
 
 // Live status for a range based on its Start/End window (mirrors "Sir ka Incentive").
-const statusChip = (slab) => {
+const statusChip = (slab, { wonById = {} } = {}) => {
   const now = Date.now()
+  if (wonById[slab?.id]) {
+    return { text: '🏆 Won', bg: '#dcfce7', fg: '#166534' }
+  }
   if (slab?.stopped_date && String(slab.stopped_date).slice(0, 10) === todayLocal()) {
     return { text: '⏹ Stopped', bg: '#fee2e2', fg: '#b91c1c' }
   }
@@ -88,7 +91,7 @@ const statusChip = (slab) => {
 }
 
 // ─── Lead Rules Settings ──────────────────────────────────
-function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, onApplyAllTime, saving, savingSlab }) {
+function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, onApplyAllTime, saving, savingSlab, wonById = {} }) {
   const [local, setLocal] = useState({ ...settings })
   const [dirty, setDirty] = useState(false)
 
@@ -332,7 +335,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {activeSlabs.map(slab => {
-            const chip = statusChip(slab)
+            const chip = statusChip(slab, { wonById })
             return (
               <div key={slab.id} style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
@@ -985,6 +988,18 @@ export default function LeadIncentive() {
   // Only one row per range may ever reach the UI (fixes "double" ranges).
   const uniqueSlabs = useMemo(() => uniqueByRange(slabs), [slabs])
 
+  // Ranges that already produced a winner today (announced champions) — STOP-AFTER-WIN.
+  const wonSlabById = useMemo(() => {
+    const map = {}
+    for (const a of announced || []) {
+      if (a && a.slab_id) map[a.slab_id] = true
+    }
+    for (const c of summary?.champions || []) {
+      if (c && c.slab_id) map[c.slab_id] = true
+    }
+    return map
+  }, [announced, summary])
+
   const loadSettings = useCallback(async () => {
     try {
       const data = await api('/incentive/lead/settings', { _prefix: 'ucs' })
@@ -1174,6 +1189,7 @@ export default function LeadIncentive() {
       <LeadRulesSettings
         settings={settings}
         slabs={uniqueSlabs}
+        wonById={wonSlabById}
         onSave={saveSettings}
         onUpdateSlab={updateSlabRates}
         onApplyAll={applyAllRates}

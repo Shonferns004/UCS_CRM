@@ -12,6 +12,7 @@ import {
   updateAllSlabs,
   getSlabFros,
   setSlabFros,
+  getStoppedSlabIds,
   clearSlabStop,
   clearAllSlabStops,
 } from '../models/incentiveSlabModel.js';
@@ -268,6 +269,24 @@ export async function dailySummaryHandler(req, res) {
     try { await ensureLowLeadRangeActive(); } catch (e) { console.error('[lead rules heal]', e?.message); }
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     const summary = await getDailySummary(date);
+
+    // Enrich with worker photos so the history leaderboard can show the
+    // winner's image (like "Sir ka Incentive" winner display).
+    const ids = [...new Set([
+      ...(summary.fros || []).map(f => f.fro_id),
+      ...(summary.champions || []).map(c => c.fro_id),
+    ])];
+    if (ids.length > 0) {
+      const { data: workers } = await db.from('workers').select('id, photo_url').in('id', ids);
+      const photoMap = {};
+      for (const w of workers || []) photoMap[w.id] = w.photo_url || null;
+      summary.fros = (summary.fros || []).map(f => ({ ...f, photo_url: photoMap[f.fro_id] || null }));
+      summary.champions = (summary.champions || []).map(c => ({ ...c, photo_url: photoMap[c.fro_id] || null }));
+    } else {
+      summary.fros = (summary.fros || []).map(f => ({ ...f, photo_url: null }));
+      summary.champions = (summary.champions || []).map(c => ({ ...c, photo_url: null }));
+    }
+
     return res.json(summary);
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -285,11 +304,70 @@ export async function froDetailHandler(req, res) {
   }
 }
 
+// FRO-facing "my summary" for the Lead Incentive dashboard. Lets the logged-in
+// FRO see their own daily numbers, their range, whether today's competition is
+// live, and whether they are today's champion (includes the champion bonus).
+export async function myLeadSummaryHandler(req, res) {
+  try {
+    const froId = req.user?.id;
+    if (!froId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const detail = await getFroDetail(froId, date);
+    if (!detail) return res.status(404).json({ message: 'FRO not found' });
+
+    // Same daily computation used everywhere → consistent champion/bonus figures.
+    const summary = await getDailySummary(date);
+    const champ = (summary.champions || []).find(c => String(c.fro_id) === String(froId));
+
+    const isChampion = !!champ;
+    const championBonus = champ ? Number(champ.champion_bonus || 0) : 0;
+    const totalIncentive = (Number(detail.lead_incentive) || 0)
+      + (Number(detail.slab_bonus) || 0)
+      + championBonus;
+
+    // Is this FRO's range competition live right now? Mirrors getFroRanks logic:
+    // needs a started_at in the past, an ended_at (if set) still in the future,
+    // and the range must not have been stopped for today.
+    const slab = detail.slab;
+    let isLive = false;
+    if (slab && slab.started_at) {
+      const nowMs = Date.now();
+      const started = new Date(slab.started_at).getTime();
+      const ended = slab.ended_at ? new Date(slab.ended_at).getTime() : null;
+      isLive = started <= nowMs && (!ended || ended > nowMs);
+    }
+    if (isLive && slab) {
+      try {
+        const stopped = await getStoppedSlabIds();
+        const datePrefix = String(date).slice(0, 10);
+        const stoppedToday = (stopped || []).some(s =>
+          String(s.stopped_date).slice(0, 10) === datePrefix && String(s.id) === String(slab.id)
+        );
+        if (stoppedToday) isLive = false;
+      } catch (e) {
+        console.error('[lead my summary] stopped check:', e?.message);
+      }
+    }
+
+    return res.json({
+      ...detail,
+      is_live: isLive,
+      is_champion: isChampion,
+      champion_bonus: championBonus,
+      total_incentive: totalIncentive,
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
 // FRO-facing daily leaderboard (corner card + big popup, any active role).
 export async function leaderboardHandler(req, res) {
   try {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
-    const ranks = await getFroRanks(date);
+    const includeWon = req.query.includeWon === '1' || req.query.include_won === '1';
+    const ranks = await getFroRanks(date, { includeWon });
     return res.json(ranks);
   } catch (e) {
     return res.status(500).json({ message: e.message });
