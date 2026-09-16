@@ -4,6 +4,7 @@ import { Dropdown } from './ui';
 import * as XLSX from 'xlsx-js-style';
 import { API_BASE } from '../../../lib/apiBase';
 import { deptLabel } from '../../../lib/labels';
+import { useRealtime } from '../../../hooks/useRealtime';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
@@ -179,15 +180,24 @@ export default function Attendance() {
   });
   const todayRecords = punchStatus ? todaySearched.filter(r => r.status === punchStatus) : todaySearched;
 
+  const loadAttendance = () => Promise.all([fetchAttendance(), fetchWorkers()]).then(([a, w]) => {
+    setAttendance(Array.isArray(a) ? a : []);
+    setWorkers(Array.isArray(w) ? w : []);
+    setLoading(false);
+  }).catch((err) => { console.error('API error:', err.message); setLoading(false); });
+
+  useRealtime('attendance', {
+    event: '*',
+    onInsert: loadAttendance,
+    onUpdate: loadAttendance,
+    onDelete: loadAttendance,
+  });
+
   useEffect(() => {
     const d = new Date();
     const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     setMonthFilter(m);
-    Promise.all([fetchAttendance(), fetchWorkers()]).then(([a, w]) => {
-      setAttendance(Array.isArray(a) ? a : []);
-      setWorkers(Array.isArray(w) ? w : []);
-      setLoading(false);
-    }).catch((err) => { console.error('API error:', err.message); setLoading(false); });
+    loadAttendance();
   }, []);
 
   useEffect(() => {
