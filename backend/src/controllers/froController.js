@@ -14,7 +14,7 @@ import {
   getScheduledByAssignment,
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker } from '../models/froTargetModel.js';
-import { classifyLogSide, getFroWorkersByNgo } from './ngoAdminController.js';
+import { classifyLogSide } from './ngoAdminController.js';
 import {
   createDonorLog,
   ensureLogSequenceHealth,
@@ -721,6 +721,10 @@ export const getMyPerformance = async (req, res) => {
     const day = istNow.toISOString().slice(0, 10);
     const dayStart = new Date(`${day}T00:00:00.000+05:30`).toISOString();
     const dayEnd = new Date(`${day}T23:59:59.999+05:30`).toISOString();
+    const [yr, mo] = day.slice(0, 7).split('-').map(Number);
+    const lastDay = new Date(Date.UTC(yr, mo, 0)).getUTCDate();
+    const istMonthStart = new Date(`${day.slice(0, 7)}-01T00:00:00.000+05:30`).toISOString();
+    const istMonthEnd = new Date(`${day.slice(0, 7)}-${String(lastDay).padStart(2, '0')}T23:59:59.999+05:30`).toISOString();
     const istHour = istNow.getUTCHours();
     const elapsedHours = Math.max(0, Math.min(12, istHour < 9 ? 0 : istHour - 8));
     const targetPace = Math.round((200 * elapsedHours) / 12);
@@ -758,33 +762,49 @@ export const getMyPerformance = async (req, res) => {
     if (!teamLogs[String(workerId)]) teamLogs[String(workerId)] = 0;
     if (!teamConnected[String(workerId)]) teamConnected[String(workerId)] = 0;
 
-    // Roster: this worker plus every active non-test FRO across their stations.
-    const teamWorkers = (await Promise.all((allowedNgoIds || []).map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    // Roster: this worker plus every active non-test FRO in the organisation, so
+    // the performance rank is one shared org-wide leaderboard (no per-station
+    // duplicates). A worker's own logged metrics stay scoped to their stations.
+    const { data: globalFroWorkers } = await db
+      .from('workers')
+      .select('id, name, is_test, is_active')
+      .eq('department', 'FRO');
     const roster = new Map();
     if (worker?.id) roster.set(String(worker.id), { id: String(worker.id), name: String(worker?.name || '').trim() });
-    for (const teamWorker of teamWorkers) {
+    for (const teamWorker of globalFroWorkers || []) {
       if (teamWorker?.is_active !== false && teamWorker?.is_test !== true && teamWorker?.id) {
         roster.set(String(teamWorker.id), { id: String(teamWorker.id), name: String(teamWorker.name || '').trim() });
       }
     }
     const teamIds = [...roster.keys()];
 
-    // Rank by today's collection first; tie-break on total collection collected.
+    // Rank strictly by today's % of this FRO's daily collection target:
+    // pct = today_collected / daily_collection_target. Equal % (including a
+    // day where nobody has collected) falls back to the current month's
+    // collection, then name. Lifetime totals are never part of the ranking.
     const todayCollection = {};
-    const totalCollection = {};
-    for (const id of teamIds) { todayCollection[id] = 0; totalCollection[id] = 0; }
+    const monthCollection = {};
+    const dailyTarget = {};
+    for (const id of teamIds) { todayCollection[id] = 0; monthCollection[id] = 0; dailyTarget[id] = 0; }
     if (teamIds.length > 0) {
-      const stats = await getBatchCollectionStats(teamIds, dayStart, dayEnd, dayStart, dayEnd);
-      for (const id of teamIds) todayCollection[id] = stats?.todayCollection[id] || 0;
-      await Promise.all(teamIds.map(async (id) => {
-        try { totalCollection[id] = await getTotalCollectedByWorker(id, '1970-01-01', '2099-12-31'); }
-        catch { totalCollection[id] = 0; }
-      }));
+      const stats = await getBatchCollectionStats(teamIds, istMonthStart, istMonthEnd, dayStart, dayEnd);
+      for (const id of teamIds) {
+        todayCollection[id] = stats?.todayCollection[id] || 0;
+        monthCollection[id] = stats?.monthCollection[id] || 0;
+      }
+      const { data: targetRows } = await db
+        .from('workers')
+        .select('id, daily_collection_target')
+        .in('id', teamIds);
+      for (const row of targetRows || []) {
+        dailyTarget[String(row.id)] = Number(row.daily_collection_target) || 0;
+      }
     }
+    const pctOf = (id) => dailyTarget[id] > 0 ? (todayCollection[id] / dailyTarget[id]) * 100 : 0;
     const nameOf = (id) => roster.get(id)?.name || String(id);
     const ranking = teamIds.sort((a, b) =>
-      (todayCollection[b] - todayCollection[a])
-      || (totalCollection[b] - totalCollection[a])
+      (pctOf(b) - pctOf(a))
+      || (monthCollection[b] - monthCollection[a])
       || nameOf(a).localeCompare(nameOf(b))
     );
     const rank = ranking.indexOf(String(workerId)) + 1 || null;
@@ -811,7 +831,9 @@ export const getMyPerformance = async (req, res) => {
       idle_since: liveStatus?.idle_since || null,
       today_calls: teamLogs[String(workerId)] || liveStatus?.today_calls || 0,
       today_collected: todayCollection[String(workerId)] || 0,
-      total_collected: totalCollection[String(workerId)] || 0,
+      monthly_collected: monthCollection[String(workerId)] || 0,
+      daily_target: dailyTarget[String(workerId)] || 0,
+      today_pct: Math.round(pctOf(String(workerId)) * 10) / 10,
       date: day,
     });
   } catch (error) {
