@@ -55,6 +55,35 @@ const TARGET_COLUMNS = [
 
 const MANDATORY = ['Donor Name', 'Amount', 'Receipt No.']
 const PAGE_SIZE = 20
+const RECEIPT_NUMBER_NGOS = {
+  bsct: { label: 'Being Sevak', bg: '#d4e4ff', accent: '#1e40af' },
+  aflf: { label: 'Ashray', bg: '#c8ecd4', accent: '#166534' },
+  mann: { label: 'Mann Care', bg: '#ecc9df', accent: '#be185d' },
+}
+
+function ReceiptNumberCards({ receiptNums }) {
+  return (
+    <div className="rx-number-card">
+      <div className="rx-number-card-title">Receipt Numbers</div>
+      {receiptNums === null ? [0, 1, 2].map(i => (
+        <div key={i} className="rx-number-row">
+          <span className="sk" style={{ width: 90, height: 11, borderRadius: 5 }} />
+          <span className="sk" style={{ width: 45, height: 11, borderRadius: 5 }} />
+          <span className="sk" style={{ width: 45, height: 11, borderRadius: 5 }} />
+        </div>
+      )) : Object.entries(RECEIPT_NUMBER_NGOS).map(([key, meta]) => {
+        const item = receiptNums.find(n => n.project_id === key)
+        return (
+          <div key={key} className="rx-number-row" style={{ background: meta.bg, borderColor: meta.accent + '44' }}>
+            <span className="rx-number-ngo" style={{ color: meta.accent }}>{key.toUpperCase()}</span>
+            <span className="rx-number-value"><small>Current</small>{item?.last_no || '\u2014'}</span>
+            <span className="rx-number-value rx-number-next" style={{ color: meta.accent }}><small>Next</small>{item?.next_no || '\u2014'}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function normalize(str) {
   return str.toLowerCase().replace(/[\s.,()\-_]+/g, '')
@@ -227,6 +256,7 @@ export default function Receipts() {
   const [markAllProgress, setMarkAllProgress] = useState({ completed: 0, total: 0 })
   const [ngoFilter, setNgoFilter] = useState('all')
   const [receiptSearch, setReceiptSearch] = useState('')
+  const [receiptNums, setReceiptNums] = useState(null)
   const [goBackRow, setGoBackRow] = useState(null)
   const [goBackSubmitting, setGoBackSubmitting] = useState(false)
 
@@ -267,6 +297,14 @@ export default function Receipts() {
         return true
       }))
     }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    apiGet('/accounts/receipts/numbers')
+      .then(data => { if (!cancelled) setReceiptNums(Array.isArray(data) ? data : []) })
+      .catch(() => { if (!cancelled) setReceiptNums([]) })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -760,7 +798,9 @@ export default function Receipts() {
         </div>
       </div>
 
-      <div className="rx-card">
+      <ReceiptNumberCards receiptNums={receiptNums} />
+
+      <div className="rx-card rx-upload-card">
         <button className="rx-upload-toggle" aria-expanded={uploadOpen} onClick={() => setUploadOpen(o => !o)}>
           <span className="rx-upload-ico">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/></svg>

@@ -58,10 +58,29 @@ CREATE TABLE IF NOT EXISTS incentive_slabs (
   min_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   max_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   incentive_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  min_lead_amount NUMERIC(12,2) NOT NULL DEFAULT 300,
+  lead_rate NUMERIC(12,2) NOT NULL DEFAULT 20,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Self-heal for older DBs: add per-slab columns (ADD COLUMN ... DEFAULT fills
+-- existing rows with the sane baseline; migration 124 copies the then-current
+-- global values across once).
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS min_lead_amount NUMERIC(12,2) NOT NULL DEFAULT 300;
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS lead_rate NUMERIC(12,2) NOT NULL DEFAULT 20;
+-- Admin "⏹ Stop competition" for today: when set (= a date), the range is
+-- hidden from the FRO-facing live leaderboard for that date, without deleting
+-- the slab. Restarting the competition (configure / apply-all / announce)
+-- clears it.
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS stopped_date DATE;
+-- Competition window (like "Sir ka Incentive"): started_at = when the range's
+-- competition begins, ended_at = when it ends. NULL started_at = not started yet;
+-- NULL ended_at = runs until stopped/end of day. Leads verified outside the
+-- window never count. Set via the ⏱ Start/End Time controls (all or single range).
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS incentive_settings (
   id SERIAL PRIMARY KEY,
@@ -70,7 +89,6 @@ CREATE TABLE IF NOT EXISTS incentive_settings (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_incentive_slabs_range ON incentive_slabs(min_amount, max_amount);
 CREATE INDEX IF NOT EXISTS idx_incentive_slabs_active ON incentive_slabs(is_active);
 CREATE INDEX IF NOT EXISTS idx_incentive_settings_key ON incentive_settings(setting_key);
 
@@ -83,7 +101,7 @@ ON CONFLICT (setting_key) DO NOTHING;
 -- Only seed slabs if table is empty (prevents duplicates on restart)
 INSERT INTO incentive_slabs (min_amount, max_amount, incentive_amount)
 SELECT * FROM (VALUES
-  (0, 20000, 0),
+  (1, 20000, 0),
   (20000, 50000, 500),
   (50000, 80000, 1000),
   (80000, 135000, 2000),
@@ -93,10 +111,66 @@ SELECT * FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM incentive_slabs LIMIT 1);
 `;
 
+// Unique (min_amount, max_amount) index. Created AFTER the dedupe self-heal runs,
+// because an older deployment could have seeded duplicate ranges (no index back
+// then) — the index creation would fail on those duplicates until they are cleaned.
+const LEAD_UNIQUE_RANGE_INDEX_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_incentive_slabs_range ON incentive_slabs(min_amount, max_amount);
+`;
+
+// Self-heal: guarantee the low lead band exists as an ACTIVE ₹1–₹20,000 slab.
+// The UI/API only lists is_active=true slabs, so if the low band row is missing
+// or was soft-deleted (is_active=false), the "1 to 20k" range silently vanishes
+// and re-adding it hits the unique (min_amount, max_amount) index. This block
+// repairs all three states at every backend start:
+//   1) (1, 20000) exists (active or inactive)  -> reactivate
+//   2) legacy (0, 20000) row exists            -> migrate to (1, 20000), reactivate
+//   3) no low band at all                      -> insert a new (1, 20000) slab
+// It also de-duplicates ranges: an older deployment could have seeded the same
+// (min_amount, max_amount) more than once, which made the UI list every range
+// twice. One row is kept per range (an active one if any exists), the extra
+// duplicate rows are permanently deleted so the unique index can be created
+// (no other table references incentive_slabs by id).
+const LEAD_LOW_RANGE_SELF_HEAL_SQL = `
+UPDATE incentive_slabs SET is_active = true, updated_at = now()
+ WHERE min_amount = 1 AND max_amount = 20000;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM incentive_slabs WHERE min_amount = 1 AND max_amount = 20000) THEN
+    UPDATE incentive_slabs
+       SET min_amount = 1, max_amount = 20000, is_active = true, updated_at = now()
+     WHERE id = (
+       SELECT id FROM incentive_slabs
+       WHERE min_amount = 0 AND max_amount = 20000
+       ORDER BY created_at ASC
+       LIMIT 1
+     );
+  END IF;
+END $$;
+
+INSERT INTO incentive_slabs (min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate, is_active)
+SELECT 1, 20000, 0,
+       COALESCE((SELECT setting_value FROM incentive_settings WHERE setting_key = 'min_lead_amount'), 300),
+       COALESCE((SELECT setting_value FROM incentive_settings WHERE setting_key = 'lead_rate'), 20),
+       true
+WHERE NOT EXISTS (SELECT 1 FROM incentive_slabs WHERE min_amount = 1 AND max_amount = 20000);
+
+WITH ranked AS (
+  SELECT id,
+         ROW_NUMBER() OVER (PARTITION BY min_amount, max_amount
+                            ORDER BY (is_active) DESC, created_at ASC, id ASC) AS rn
+  FROM incentive_slabs
+)
+DELETE FROM incentive_slabs WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+`;
+
 const CHAMPION_ANNOUNCEMENT_SQL = `
 CREATE TABLE IF NOT EXISTS lead_champion_announcements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  announcement_date DATE NOT NULL UNIQUE,
+  announcement_date DATE NOT NULL,
+  slab_id UUID,
+  slab_label TEXT,
   fro_worker_id UUID REFERENCES workers(id) ON DELETE SET NULL,
   fro_name TEXT,
   total_leads INT DEFAULT 0,
@@ -112,8 +186,37 @@ CREATE TABLE IF NOT EXISTS lead_champion_announcements (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Older DBs: add the per-range columns and relax the date-only uniqueness so a
+-- date can hold one winner PER RANGE (each range runs its own competition).
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_id UUID;
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_label TEXT;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint
+             WHERE conrelid = 'lead_champion_announcements'::regclass
+               AND conname = 'lead_champion_announcements_announcement_date_key') THEN
+    ALTER TABLE lead_champion_announcements DROP CONSTRAINT lead_champion_announcements_announcement_date_key;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_lead_champion_date ON lead_champion_announcements(announcement_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_champion_date_slab ON lead_champion_announcements(announcement_date, slab_id);
+
+-- Which FROs compete in which range (set from the ⚙️ Configure popup). FROs left
+-- unassigned still fall into a range automatically via their monthly target.
+CREATE TABLE IF NOT EXISTS incentive_slab_fros (
+  slab_id UUID NOT NULL REFERENCES incentive_slabs(id) ON DELETE CASCADE,
+  fro_worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (slab_id, fro_worker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_incentive_slab_fros_slab ON incentive_slab_fros(slab_id);
+CREATE INDEX IF NOT EXISTS idx_incentive_slab_fros_fro ON incentive_slab_fros(fro_worker_id);
 `;
+
+export const ensureLowLeadRangeActive = async () => {
+  await db._pool.query(LEAD_LOW_RANGE_SELF_HEAL_SQL);
+};
 
 export async function ensureSpecialIncentiveSchema() {
   try {
@@ -124,6 +227,10 @@ export async function ensureSpecialIncentiveSchema() {
   }
   try {
     await db._pool.query(LEAD_INCENTIVE_SQL);
+    // Self-heal + de-dupe first, then the unique (min_amount, max_amount) index
+    // can be built safely on a DB that still has duplicate range rows.
+    await ensureLowLeadRangeActive();
+    await db._pool.query(LEAD_UNIQUE_RANGE_INDEX_SQL);
     console.log('incentive_slabs + incentive_settings tables ready');
   } catch (e) {
     console.warn('[lead incentive schema] skip:', e?.message || String(e));

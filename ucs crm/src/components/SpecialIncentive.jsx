@@ -4,10 +4,86 @@ import { useRealtime } from '../hooks/useRealtime';
 import { CoinsBag } from './AkiBanner';
 import { useUcs } from '../store';
 import { requestNotifPermission, showDesktopNotification } from '../utils/desktopNotif';
+import beingMp3 from '../assets/audio/being.mp3';
+import mannMp3 from '../assets/audio/mann.mp3';
+import ashrayMp3 from '../assets/audio/ashray.mp3';
+import ngoMp3 from '../assets/audio/ngo.mp3';
 
 const SEEN_KEY = 'si_seen_v1';
 const CELEB_KEY = 'si_celeb_v1';
 const CELEB_PHOTO_KEY = 'si_celeb_photo_v1';
+
+// One recycled Audio object per file so repeated incentives don't re-download.
+const siAudioCache = {};
+let siAudioUnlocked = false;
+let siPendingAudioSrc = null;
+const getSiAudio = (src) => {
+  if (!siAudioCache[src]) {
+    try {
+      const a = new Audio(src);
+      a.preload = 'auto';
+      siAudioCache[src] = a;
+    } catch { siAudioCache[src] = null; }
+  }
+  return siAudioCache[src] || null;
+};
+// NGO-specific intro sound when the "Sir ka Incentive" popup appears:
+// BSCT -> being, MANN -> mann, ASHRAY -> ashray, everything else / all-NGO -> ngo.
+const ngoAudioFor = (ngoName) => {
+  const name = String(ngoName || '').toUpperCase();
+  if (name.includes('BSCT') || name.includes('BS') || name.includes('BEING') || name.includes('SEVAK')) return beingMp3;
+  if (name.includes('MANN') || name.includes('MAA')) return mannMp3;
+  if (name.includes('ASHRAY') || name.includes('AFL')) return ashrayMp3;
+  return ngoMp3;
+};
+const playSiAudioSrc = (src) => {
+  if (!siAudioUnlocked) {
+    siPendingAudioSrc = src;
+    return;
+  }
+  try {
+    const a = getSiAudio(src);
+    if (a) {
+      a.muted = false;
+      a.volume = 1;
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch { /* ignore */ }
+};
+const warmupSiAudio = () => {
+  if (siAudioUnlocked) return;
+  siAudioUnlocked = true;
+  const pending = siPendingAudioSrc;
+  siPendingAudioSrc = null;
+  for (const src of [beingMp3, mannMp3, ashrayMp3, ngoMp3]) {
+    if (src === pending) continue;
+    const a = getSiAudio(src);
+    if (!a) continue;
+    try {
+      a.muted = true;
+      a.volume = 0;
+      const p = a.play();
+      if (p && p.then) p.then(() => {
+        a.pause();
+        a.currentTime = 0;
+        a.muted = false;
+        a.volume = 1;
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }
+  // Keep this synchronous: setTimeout would lose the browser's user gesture.
+  if (pending) playSiAudioSrc(pending);
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', warmupSiAudio, { once: false, passive: true });
+  window.addEventListener('keydown', warmupSiAudio, { once: false });
+  window.addEventListener('touchstart', warmupSiAudio, { once: false, passive: true });
+}
+const playNgoAudio = (ngoName) => {
+  playSiAudioSrc(ngoAudioFor(ngoName));
+};
 
 const fmt = (n) => {
   const v = Number(n);
@@ -318,7 +394,7 @@ export function SpecialIncentiveCard({ inc, you, nowMs }) {
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inc.title}</span>
           <span style={{ flexShrink: 0 }}><NgoBadge ngoName={inc.ngo_name} /></span>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 800, background: '#fff', color: '#b45309', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 800, background: '#fff', color: '#b45309', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>
           {inc.status === 'won' ? '🏆 WON' : inc.status === 'ended' || inc.status === 'cancelled' ? (inc.status === 'cancelled' ? 'CANCELLED' : 'ENDED') : `⏳ ${fmtClock(left)}`}
         </span>
       </div>
@@ -341,7 +417,10 @@ export function SpecialIncentiveCard({ inc, you, nowMs }) {
                 <div style={{ flex: 1, fontSize: 12, color: 'var(--ink-soft)' }}>Win ₹{fmt(inc.incentive_amount)} — first past ₹{fmt(target)}! 🏁</div>
               )}
             </div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)' }}>Leader: {((inc.leaderboard || [])[0]?.name) || '—'} · Ends {fmtEnd(inc.end_at)}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Leader: {((inc.leaderboard || [])[0]?.name) || '—'}</span>
+              <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>· Ends {fmtEnd(inc.end_at)}</span>
+            </div>
           </>
         )}
       </div>
@@ -376,15 +455,30 @@ export function useSpecialIncentive() {
   const debMsg = useRef(0);
   const reloadSoon = useCallback(() => {
     clearTimeout(debMsg.current);
-    debMsg.current = setTimeout(() => load(), 1200);
+    debMsg.current = setTimeout(() => load(), 300);
   }, [load]);
 
-  useRealtime('special_incentives', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
+  // Instantly drop a deleted/stopped incentive from every piece of local state
+  // so popups, corner cards, winner cards and queues vanish on deletion.
+  const purgeIncentive = useCallback((id) => {
+    const sid = String(id);
+    setData((prev) => ({
+      ...prev,
+      incentives: (prev.incentives || []).filter((i) => String(i.id) !== sid),
+      recent: (prev.recent || []).filter((c) => String(c.id) !== sid),
+      celeb: prev.celeb && String(prev.celeb.id) === sid ? null : prev.celeb,
+    }));
+    setPopupQueue((prev) => prev.filter((qid) => String(qid) !== sid));
+    setCelebrateQueue((prev) => prev.filter((qid) => String(qid) !== sid));
+    setPhotoCeleb((prev) => (prev && String(prev.id) === sid ? null : prev));
+  }, []);
+
+  useRealtime('special_incentives', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: (old) => { if (old && old.id) { purgeIncentive(old.id); reloadSoon(); } } });
   useRealtime('special_incentive_progress', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon });
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 20000);
+    const t = setInterval(load, 5000);
     const c = setInterval(() => setNowMs(Date.now()), 1000);
     return () => { clearInterval(t); clearInterval(c); };
   }, [load]);
@@ -393,6 +487,11 @@ export function useSpecialIncentive() {
 
   // Auto-queue the popup for every new active incentive, once per id.
   useEffect(() => {
+    const liveIds = new Set(incentives.map((i) => String(i.id)));
+    setPopupQueue((prev) => {
+      const stray = prev.some((id) => !liveIds.has(String(id)));
+      return stray ? prev.filter((id) => liveIds.has(String(id))) : prev;
+    });
     const fresh = incentives.filter((i) => !trackedRef.current.has(i.id));
     if (fresh.length === 0) return;
     fresh.forEach((i) => trackedRef.current.add(i.id));
@@ -405,6 +504,7 @@ export function useSpecialIncentive() {
     if (popupInc && !notifiedRef.current.has(popupInc.id)) {
       notifiedRef.current.add(popupInc.id);
       try { if (navigator.vibrate) navigator.vibrate(300); } catch { /* ignore */ }
+      playNgoAudio(popupInc.ngo_name);
       requestNotifPermission().then(() => {
         showDesktopNotification('Sir ka Incentive LIVE 🎯', popupInc.title || 'New special incentive is live — go collect!');
       }).catch(() => {});
@@ -462,33 +562,67 @@ export function useSpecialIncentive() {
 }
 
 export default function SpecialIncentive() {
-  const { incentives, popupInc, popupOpen, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
+  const { incentives, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
   const you = user?.id || null;
-  // Winner popups (auto hit-target card + Sir's posted photo celebration) show
-  // ONLY in the FRO panel. Other panels keep the LIVE announcement + cards.
+  // Winner popups, LIVE cards and celebrations show ONLY in the FRO panel.
+  // Accounts / HR / Super Admin render nothing from this widget.
   const isFro = !!user && (user.role === 'fro' || user.role === 'worker');
+  if (!isFro) return null;
 
-  // Sticky bottom-left cards: one per still-running race not in the popup and
-  // not dismissed. Once a race is won/ended/cancelled its card disappears.
-  const cards = incentives.filter((i) => !popupInc || i.id !== popupInc.id);
-  const visibleCards = cards.filter((i) => !dismissedIds.has(String(i.id)));
+  const [openModalId, setOpenModalId] = useState(null);
+  const [freshIds, setFreshIds] = useState(() => new Set());
+  const freshTimersRef = useRef(new Map());
+
+  // Brand-new races get a pulsing "NEW" tag on their corner card for ~12s.
+  useEffect(() => {
+    if (incentives.length === 0) return;
+    const ids = new Set(freshIds);
+    let changed = false;
+    incentives.forEach((i) => {
+      if (!ids.has(i.id)) { ids.add(i.id); changed = true; }
+    });
+    if (changed) {
+      setFreshIds(ids);
+      incentives.forEach((i) => {
+        if (freshTimersRef.current.has(i.id)) return;
+        freshTimersRef.current.set(i.id, setTimeout(() => {
+          freshTimersRef.current.delete(i.id);
+          setFreshIds((prev) => { const n = new Set(prev); n.delete(i.id); return n; });
+        }, 12000));
+      });
+    }
+  }, [incentives]);
+
+  const expanded = openModalId ? incentives.find((i) => i.id === openModalId) || null : null;
+
+  // Sticky bottom-left cards: one per still-running race; click a card to open
+  // the big leaderboard view. Dismissed cards hide until the race ends.
+  const visibleCards = incentives.filter((i) => !dismissedIds.has(String(i.id)));
 
   return (
     <>
       <style>{CONFETTI_CSS}</style>
       {isFro && photoCeleb && <CornerWinnerCard inc={photoCeleb} />}
       {isFro && celebrate && <Celebration inc={celebrate} you={you} onClose={closeCelebrate} />}
-      {popupOpen && popupInc && <PopupModal inc={popupInc} you={you} onClose={closePopup} nowMs={nowMs} />}
-      {!popupOpen && visibleCards.length > 0 && !celebrate && (
+      {expanded && <PopupModal inc={expanded} you={you} nowMs={nowMs} onClose={() => { setOpenModalId(null); closePopup(); }} />}
+      {visibleCards.length > 0 && !celebrate && (
         <div style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 99980, display: 'flex', flexDirection: 'column', gap: 10, width: 312 }}>
           {visibleCards.map((inc) => (
-            <div key={inc.id} style={{ position: 'relative' }}>
+            <div
+              key={inc.id}
+              style={{ position: 'relative', cursor: 'pointer' }}
+              onClick={() => { playNgoAudio(inc.ngo_name); setOpenModalId(inc.id); closePopup(); }}
+            >
               <div
-                onClick={() => dismissCard(inc.id)}
+                onClick={(e) => { e.stopPropagation(); dismissCard(inc.id); }}
                 title="Close"
                 style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, cursor: 'pointer', width: 24, height: 24, borderRadius: 50, background: '#fff', border: '1.5px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#b45309', boxShadow: '0 2px 6px rgba(0,0,0,.18)' }}
               >✕</div>
+              {freshIds.has(inc.id) && (
+                <div style={{ position: 'absolute', top: -7, left: 10, zIndex: 3, padding: '2px 8px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: .4, animation: 'si-pulse 1s linear infinite' }}>🔴 NEW</div>
+              )}
               <SpecialIncentiveCard inc={inc} you={you} nowMs={nowMs} />
+              <div style={{ marginTop: 4, textAlign: 'center', fontSize: 11, fontWeight: 800, color: '#b45309', background: '#fffdf5', border: '1.5px dashed #f59e0b', borderRadius: 9, padding: '5px 8px' }}>&#128072; Tap to view full leaderboard &#9654;</div>
             </div>
           ))}
         </div>
