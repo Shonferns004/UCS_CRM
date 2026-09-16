@@ -44,7 +44,7 @@ const readList = (key, defaults) => {
 };
 
 const statusPill = (s, labelMap) => {
-  const m = { rejected:'pill-danger', hold:'pill-gold', scheduled:'pill-clay', selected:'pill-green', joined:'pill-green' };
+  const m = { rejected:'pill-danger', 'Rejected':'pill-danger', hold:'pill-gold', 'On Hold':'pill-gold', scheduled:'pill-clay', 'Schedule':'pill-clay', 'Interview Scheduled':'pill-clay', selected:'pill-green', 'Selected':'pill-green', 'Offer Released':'pill-green', 'Offer Accepted':'pill-green', 'Onboarding':'pill-green', joined:'pill-green' };
   const label = s ? (labelMap[s] || s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())) : '\u2014';
   return <span className={`pill ${m[s] || 'pill-gray'}`}>{label}</span>;
 };
@@ -372,7 +372,7 @@ export default function Candidates() {
                       <tr key={c.id}>
                         <td><Who name={c.name} role={c.role} /></td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.phone}</td>
-                        <td>{statusPill(cleanField(c._raw ? c._raw.status : c.status), statusLabelMap)}</td>
+                        <td>{statusPill(c.stage, statusLabelMap)}</td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.source}</td>
                         <td style={{ color: 'var(--ink-soft)', whiteSpace: 'nowrap', fontSize: 13 }}>
                           {c.createdAt

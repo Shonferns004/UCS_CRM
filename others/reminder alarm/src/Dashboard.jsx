@@ -580,9 +580,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="dash-section">
+        <div className="dash-section rn-card">
           <div className="sec-head">
-            <h3><Icon name="history" size={16} /> Renewal Tracker</h3>
+            <h3><Icon name="refresh" size={16} /> Renewal Tracker</h3>
             <span className="sec-count">{renewalTracker.length}</span>
           </div>
           <div className="rn-list">
