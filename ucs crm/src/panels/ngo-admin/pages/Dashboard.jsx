@@ -2374,6 +2374,405 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* REQUIREMENT 5: Hourly Call Performance — summary chips + disposition breakdown + productivity alerts */}
+      {(() => {
+        const hourlyToday = toIstDate();
+        const hourlyYesterday = toIstDate(new Date(Date.now() - 86400000));
+        const dateBtn = (active) => ({
+          padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+          border: `1px solid ${active ? 'var(--sage)' : 'var(--line)'}`,
+          background: active ? 'var(--sage)' : '#fff',
+          color: active ? '#fff' : 'var(--ink)',
+        });
+        const dayChips = [
+          { key: 'calls', label: 'Calls', value: hourlyTotals.calls, color: '#2563eb', bg: '#eff6ff' },
+          { key: 'connected', label: 'Connected', value: hourlyTotals.connected, color: '#16a34a', bg: '#f0fdf4' },
+          { key: 'nonConnected', label: 'Non-Connected', value: hourlyTotals.nonConnected, color: '#dc2626', bg: '#fef2f2' },
+          { key: 'interested', label: 'Interested', value: hourlyTotals.interested, color: '#ec4899', bg: '#fdf2f8' },
+          { key: 'donations', label: 'Donations', value: hourlyTotals.donations, color: '#8b5cf6', bg: '#f5f3ff' },
+        ];
+        const chipBadge = (color) => ({
+          background: color, color: '#fff', borderRadius: 999, minWidth: 18, height: 16,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, padding: '0 5px',
+          animation: 'countPop .3s ease-out',
+        });
+        const chipWrap = (c) => ({
+          display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700,
+          padding: '3px 10px', borderRadius: 999, background: c.bg, color: c.color, border: `1px solid ${c.color}22`,
+        });
+
+        const dayIST = toIstDate();
+        const isToday = hourlyDate === dayIST;
+        const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
+        // how many working hours are in the past/bucketable from 09:00 IST
+        const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
+
+        const froGroups = hourlyGroups;
+        const totalConn = hourlyTotalsCalc.totalConn;
+        const totalNon = hourlyTotalsCalc.totalNon;
+        const overallConnPct = hourlyTotalsCalc.overallConnPct;
+        const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
+        const targetPace = Math.round((DAILY_CONNECTED_TARGET * elapsedHrs) / HOURS_IN_WORKDAY);
+        const froPerf = (g) => (targetPace > 0 ? Math.round((g.connected / targetPace) * 1000) / 10 : null);
+        const q = hourlyFroSearch.trim().toLowerCase();
+        const lowGroups = (q ? froGroups.filter(g => (g.name || '').toLowerCase().includes(q)) : froGroups)
+          .filter(g => (froPerf(g) ?? 0) < 100)
+          .sort((a, b) => (froPerf(a) - froPerf(b)) || a.name.localeCompare(b.name));
+        const teamPerf = froGroups.length > 0 && targetPace > 0 ? Math.round((totalConn / (targetPace * froGroups.length)) * 1000) / 10 : 0;
+        const froRow = (g) => {
+          const perf = froPerf(g);
+          const pct = g.connPct;
+          return (
+            <tr key={g.id} className="performance-row" style={{ borderBottom: '1px solid #edf1f5' }}>
+              <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{g.name}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a', fontSize: 11, whiteSpace: 'nowrap' }}>{g.connected}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#64748B', fontSize: 11, whiteSpace: 'nowrap' }}>{targetPace}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, color: '#dc2626', fontSize: 11, whiteSpace: 'nowrap' }}>{g.nonConnected}</td>
+              <td style={{ padding: '7px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: pct == null ? '#f1f5f9' : pct >= 60 ? '#f0fdf4' : pct >= 40 ? '#fffbeb' : '#fef2f2', color: pct == null ? '#64748b' : pct >= 60 ? '#16a34a' : pct >= 40 ? '#d97706' : '#dc2626' }}>
+                  {pct == null ? '—' : pct + '%'}
+                </span>
+              </td>
+              <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                <div style={{ fontWeight: 700, color: perf == null ? '#64748b' : '#ef4444', fontSize: 11, marginBottom: 4 }}>{perf == null ? '—' : perf + '%'}</div>
+                <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                  <div style={{ width: `${perf == null ? 0 : Math.min(perf, 100)}%`, height: '100%', borderRadius: 'inherit', background: '#ef4444' }} />
+                </div>
+              </td>
+            </tr>
+          );
+        };
+
+        return (
+          <>
+            {/* Header card: date controls + day summary chips */}
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Hourly Call Performance
+                </h3>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                  <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
+                  <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
+                  <input
+                    type="date"
+                    value={hourlyDate}
+                    onChange={e => setHourlyDate(e.target.value)}
+                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)', color: 'var(--ink)' }}
+                  />
+                  <button
+                    onClick={handleHourlyExport}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', cursor: 'pointer' }}
+                  >
+                    <Download width="12" height="12" />
+                    Export Hourly (XLSX)
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>
+                {dayChips.map(c => (
+                  <span key={c.key} style={chipWrap(c)}>
+                    {c.label}
+                    <span style={chipBadge(c.color)}><AnimatedNumber value={c.value} /></span>
+                  </span>
+                ))}
+                <span style={chipWrap({ bg: '#f0fdf4', color: '#15803d' })}>
+                  ₹ Amount
+                  <span style={chipBadge('#15803d')}><AnimatedNumber value={hourlyTotals.amount} /></span>
+                </span>
+                {hourlyLoading && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>updating…</span>}
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-soft)' }}>IST hours • 09:00–21:00 working window</span>
+              </div>
+            </div>
+
+            {/* FRO Hourly Performance + Productivity Alerts — side by side */}
+            <div className="performance-sections">
+              <div className="performance-card">
+              <div className="performance-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+                  <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 className="performance-title" style={{ color: '#17233C' }}>FRO Hourly Performance — Connected vs Target</h3>
+                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '12px 16px' }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Search FRO name..."
+                  value={hourlyFroSearch}
+                  onChange={e => setHourlyFroSearch(e.target.value)}
+                  style={{ flex: 1, minWidth: 200, maxWidth: 360, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div className="performance-table-wrapper" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                {hourlyLoading ? (
+                  <div style={{ minHeight: 320, padding: '4px 16px' }}>
+                    {[0,1,2,3,4,5].map(i => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                        <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 70, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 55, height: 10, background: '#eef2f6', borderRadius: 5 }} />
+                        <div style={{ width: 90, height: 18, background: '#eef2f6', borderRadius: 999 }} />
+                      </div>
+                    ))}
+                  </div>
+                ) : hourlyTotals.calls === 0 && elapsedIdx < 0 ? (
+                  <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                  </div>
+                ) : hourlyTotals.calls === 0 ? (
+                  <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>No calls recorded on this date</div>
+                  </div>
+                ) : lowGroups.length === 0 ? (
+                  <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>✓</div>
+                      <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>All FROs are at or above the target pace.</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="performance-table-scroll">
+                    <table className="performance-table">
+                      <colgroup>
+                        <col style={{ width: '30%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '14%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '20%' }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          {['FRO','Conn','Tgt Pace','Non-Conn','Conn%','Perf'].map((h, ci) => (
+                            <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'left' : ci === 4 ? 'center' : ci === 5 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lowGroups.map(froRow)}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                          <td colSpan={2} style={{ padding: '8px 8px', fontSize: 10, fontWeight: 800, color: '#17233C', textTransform: 'uppercase' }}>Total · {froGroups.length} FROs</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#64748B' }}>{targetPace}×{froGroups.length}</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626' }}>{totalNon}</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'center', fontWeight: 800, color: '#16a34a' }}>{overallConnPct}%</td>
+                          <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                            <span style={{ fontWeight: 800, color: teamPerf >= 100 ? '#16a34a' : '#ef4444' }}>{teamPerf}% of pace</span>
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Productivity Alerts — Idle Hours (single unified container) */}
+            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              {/* Header */}
+              <div style={{ padding: '20px 24px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ fontSize: 20, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: '#dc2626' }}>⚠️</span> Productivity Alerts — Idle Hours
+                  </h3>
+                  <p style={{ fontSize: 13, fontWeight: 400, color: '#64748B', margin: '4px 0 0' }}>
+                    FROs with idle hours — zero calls during elapsed working hours
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ height: 38, padding: '0 14px', border: '1px solid #dbe5f1', borderRadius: 9, background: '#f8fafc', display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: '#17233C', whiteSpace: 'nowrap' }}>📅 {hourlyDate}</span>
+                  <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
+                  <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
+                  <input
+                    type="date"
+                    value={hourlyDate}
+                    onChange={e => setHourlyDate(e.target.value)}
+                    style={{ height: 34, padding: '0 8px', borderRadius: 8, border: '1px solid #dbe5f1', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: '#f8fafc', color: '#17233C' }}
+                  />
+                </div>
+              </div>
+
+              {/* Zero Calls section (inside the same container) */}
+              {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && !(hourlyAlerts.isToday && hourlyAlerts.elapsed === 0) && (
+                <div style={{ padding: '0 24px 16px' }}>
+                  <div style={{ border: '1px solid #fecdd3', borderRadius: 12, background: '#fff5f6', padding: '14px 16px', minHeight: 72 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                      🔴 ZERO CALLS {hourlyAlerts.isToday ? 'SO FAR TODAY' : 'THIS DAY'} — {hourlyAlerts.noCalls.length} FRO{hourlyAlerts.noCalls.length > 1 ? 's' : ''}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
+                      {hourlyAlerts.noCalls.map(f => (
+                        <span
+                          key={f.id}
+                          title={f.workAsName ? `${f.workAsName} work as ${f.name}` : f.name}
+                          style={{ display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', border: '1px solid #fecdd3', borderRadius: 8, background: '#fff5f6', color: '#dc2626', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          {f.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Divider between zero-call section and toolbar */}
+              {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && hourlyAlerts.idle.length > 0 && (
+                <div style={{ borderBottom: '1px solid #e5eaf1' }} />
+              )}
+
+              {/* Toolbar: search + date filter + export */}
+              {!meetingActive && !hourlyLoading && hourlyAlerts.idle.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '14px 24px' }}>
+                  <input
+                    type="text"
+                    placeholder="🔍 Search FRO name..."
+                    value={idleSearch}
+                    onChange={e => setIdleSearch(e.target.value)}
+                    style={{ flex: 1, minWidth: 280, maxWidth: 620, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C' }}
+                  />
+                  <button
+                    onClick={handleHourlyExport}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 34, padding: '0 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid #e2e8f0', background: '#fff', color: '#17233C', cursor: 'pointer' }}
+                  >
+                    <Download width="12" height="12" /> Export XLSX
+                  </button>
+                </div>
+              )}
+
+              {/* Body: loading / empty states / table */}
+              {(() => {
+                const colSep = { borderLeft: '1px solid #eef2f6' };
+                const idleTone = (mins) => (
+                  mins >= 120
+                    ? { level: 'High', color: '#dc2626', bg: '#fee2e2' }
+                    : mins >= 60
+                      ? { level: 'Medium', color: '#d97706', bg: '#ffedcc' }
+                      : { level: 'Low', color: '#2563eb', bg: '#eaf1fe' }
+                );
+                if (meetingActive) {
+                  return (
+                    <div style={{ padding: '28px 24px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 26 }}>📢</div>
+                      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: '#7c3aed' }}>Counts paused — meeting in progress</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: '#64748B' }}>Idle / zero-call alerts resume automatically when an admin ends the meeting.</div>
+                    </div>
+                  );
+                }
+                if (hourlyLoading) {
+                  return (
+                    <div style={{ padding: '8px 24px 20px' }} aria-label="Loading productivity data">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '14px 0' }}>
+                        <div style={{ width: 220, height: 14, background: '#eef2f6', borderRadius: 6 }} />
+                        <div style={{ width: 140, height: 14, background: '#eef2f6', borderRadius: 6 }} />
+                      </div>
+                      {[0, 1, 2, 3, 4].map(i => (
+                        <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < 4 ? '1px solid #f1f5f9' : 'none' }}>
+                          <div style={{ flex: 2.2, height: 14, background: '#eef2f6', borderRadius: 6 }} />
+                          <div style={{ flex: 1, height: 20, background: '#eef2f6', borderRadius: 999 }} />
+                          <div style={{ flex: 1, height: 14, background: '#eef2f6', borderRadius: 6 }} />
+                          <div style={{ flex: 1, height: 14, background: '#eef2f6', borderRadius: 6 }} />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                if (hourlyAlerts.elapsed === 0) {
+                  return (
+                    <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#64748B' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                  );
+                }
+                if (hourlyAlerts.idle.length === 0 && hourlyAlerts.noCalls.length === 0) {
+                  return (
+                    <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>✓</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>No idle-hour alerts</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>All FROs have made calls during the elapsed working hours.</div>
+                    </div>
+                  );
+                }
+                if (idleFiltered.length === 0) {
+                  return (
+                    <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#64748B' }}>No FROs match your search.</div>
+                  );
+                }
+                return (
+                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>FRO Name</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Idle Hrs</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Calls</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Connected</th>
+                          <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {idleFiltered.map(f => {
+                          const tone = idleTone(f.idleMinutes);
+                          return (
+                            <tr key={f.id} style={{ borderBottom: '1px solid #edf1f5', height: 48 }}>
+                              <td style={{ padding: '8px 16px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
+                                {f.workAsName && (
+                                  <div
+                                    title={`${f.workAsName} work as ${f.name}`}
+                                    style={{ marginTop: 3, display: 'inline-flex', alignItems: 'center', maxWidth: 260, padding: '3px 8px', border: '1px solid #f6c453', borderRadius: 999, background: '#fff9e8', color: '#c77700', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                  >
+                                    ⚡ {f.workAsName} work as {f.name}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
+                                <span style={{ minWidth: 42, height: 28, padding: '0 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', background: tone.bg, color: tone.color, animation: 'countPop .3s ease-out' }}>
+                                  {formatIdleDuration(f.idleMinutes)}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#17233C', fontWeight: 600, ...colSep }}>{f.calls}</td>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#16a34a', fontWeight: 700, ...colSep }}>{f.connected}</td>
+                              <td style={{ padding: '8px 16px', textAlign: 'center', ...colSep }}>
+                                <button
+                                  onClick={() => handleNotifyFro(f.id, f.name)}
+                                  disabled={notifyingFroId === f.id}
+                                  title={`Send idle alert to ${f.name}`}
+                                  style={{ height: 34, padding: '0 14px', border: '1px solid #f59e0b', borderRadius: 8, background: notifyingFroId === f.id ? '#fffbeb' : '#ffffff', color: '#d97706', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: notifyingFroId === f.id ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                  {notifyingFroId === f.id ? '…' : '🔔 Notify'}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+
+              <style>{`
+                .productivity-alerts thead th { position: sticky; top: 0; z-index: 5; }
+                .productivity-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+                .productivity-table-wrap::-webkit-scrollbar-thumb { background: #d3dae4; border-radius: 999px; }
+                .productivity-table-wrap::-webkit-scrollbar-track { background: transparent; }
+                .productivity-alerts tbody tr:hover { background: #f8fbff; }
+                @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+              `}</style>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
       {/* Section 6: Telecaller Performance */}
