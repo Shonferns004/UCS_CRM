@@ -857,7 +857,7 @@ useEffect(() => onFroAction((action) => {
   return (
     <CallProvider userId={user?.id}>
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
