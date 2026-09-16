@@ -144,6 +144,7 @@ export default function Leads() {
   const [followUpDateTime, setFollowUpDateTime] = useState('');
   const [callBackTime, setCallBackTime] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
+  const [reScheduledDate, setReScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
   const [selectedJobRole, setSelectedJobRole] = useState('');
@@ -193,7 +194,7 @@ export default function Leads() {
   };
 
   const resetForm = () => {
-    setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
+    setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setReScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
     setEditingLead(null);
   };
 
@@ -229,6 +230,7 @@ export default function Leads() {
     setFollowUpDateTime(toLocalDT(l.follow_up_date));
     setCallBackTime(toLocalDT(l.call_back_time));
     setScheduledDate(toLocalDT(l.scheduled_date));
+    setReScheduledDate(toLocalDT(l.re_scheduled_date));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -258,6 +260,7 @@ export default function Leads() {
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
+      if (finalStatus === 're_scheduled' && reScheduledDate) payload.re_scheduled_date = reScheduledDate;
       if (editingLead) {
         await updateLead(editingLead.id, payload);
         setSuccessMsg('Lead updated successfully.');
@@ -394,6 +397,12 @@ export default function Leads() {
                           <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
                         </div>
                       )}
+                      {connectedOption === 're_scheduled' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Re-Scheduled</span>
+                          <input type="datetime-local" value={reScheduledDate} onChange={e=>setReScheduledDate(e.target.value)} style={{width:'auto'}} />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div style={{flex:1,minWidth:0}}>
@@ -483,6 +492,12 @@ export default function Leads() {
                       <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                         <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
                         <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                    {connectedOption === 're_scheduled' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Re-Scheduled</span>
+                        <input type="datetime-local" value={reScheduledDate} onChange={e=>setReScheduledDate(e.target.value)} style={{width:'auto'}} />
                       </div>
                     )}
                   </div>

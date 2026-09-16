@@ -354,7 +354,7 @@ export default function Candidates() {
             </div>
           </div>
           {leadsLoading && candidates.length === 0 ? (
-            <div style={{ overflowX: 'auto' }}><table><tbody>{[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table></div>
+            <div style={{ overflowX: 'auto' }}><table><tbody>{[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={7}/>)}</tbody></table></div>
           ) : filtered.length === 0 ? (
             <div className="empty">No candidates match.</div>
           ) : (
@@ -362,7 +362,7 @@ export default function Candidates() {
               <table>
                 <thead>
                   <tr>
-                    <th>Candidate</th><th>Phone</th><th>Stage</th><th>Source</th><th>Next Interview</th><th>Action</th>
+                    <th>Candidate</th><th>Phone</th><th>Stage</th><th>Source</th><th>Date</th><th>Next Interview</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -374,6 +374,11 @@ export default function Candidates() {
                         <td style={{ color: 'var(--ink-soft)' }}>{c.phone}</td>
                         <td>{statusPill(cleanField(c._raw ? c._raw.status : c.status), statusLabelMap)}</td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.source}</td>
+                        <td style={{ color: 'var(--ink-soft)', whiteSpace: 'nowrap', fontSize: 13 }}>
+                          {c.createdAt
+                            ? new Date(c.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                            : '—'}
+                        </td>
                         <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
                           {nextIv ? (
                             <>
