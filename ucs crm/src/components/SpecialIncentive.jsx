@@ -440,6 +440,9 @@ export function useSpecialIncentive() {
   const [photoCeleb, setPhotoCeleb] = useState(null);
   const [popupQueue, setPopupQueue] = useState([]);
   const [dismissedIds, setDismissedIds] = useState(() => new Set());
+  const [openId, setOpenId] = useState(null);
+  const [freshIds, setFreshIds] = useState(() => new Set());
+  const freshTimersRef = useRef(new Map());
   const trackedRef = useRef(new Set());
   const notifiedRef = useRef(new Set());
   const celebrationShownRef = useRef(new Set());
@@ -498,6 +501,26 @@ export function useSpecialIncentive() {
     setPopupQueue((prev) => [...prev, ...fresh.map((i) => i.id)]);
   }, [incentives]);
 
+  // Brand-new races get a pulsing "NEW" tag for ~12s (shared so sidebar + float cards agree).
+  useEffect(() => {
+    if (incentives.length === 0) return;
+    const ids = new Set(freshIds);
+    let changed = false;
+    incentives.forEach((i) => {
+      if (!ids.has(i.id)) { ids.add(i.id); changed = true; }
+    });
+    if (changed) {
+      setFreshIds(ids);
+      incentives.forEach((i) => {
+        if (freshTimersRef.current.has(i.id)) return;
+        freshTimersRef.current.set(i.id, setTimeout(() => {
+          freshTimersRef.current.delete(i.id);
+          setFreshIds((prev) => { const n = new Set(prev); n.delete(i.id); return n; });
+        }, 12000));
+      });
+    }
+  }, [incentives]);
+
   // Notify + vibrate when a new popup actually shows (first time only).
   const popupInc = popupQueue.length ? incentives.find((i) => i.id === popupQueue[0]) || null : null;
   useEffect(() => {
@@ -554,6 +577,9 @@ export function useSpecialIncentive() {
     user,
     dismissedIds,
     dismissCard: (id) => setDismissedIds((prev) => { const s = new Set(prev); s.add(String(id)); return s; }),
+    openId,
+    setOpenId,
+    freshIds,
     closePopup: () => setPopupQueue((prev) => prev.slice(1)),
     closeCelebrate: () => setCelebrateQueue((prev) => prev.slice(1)),
     closePhotoCeleb: () => setPhotoCeleb(null),
@@ -561,57 +587,104 @@ export function useSpecialIncentive() {
   };
 }
 
-export default function SpecialIncentive() {
-  const { incentives, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate } = useSpecialIncentive();
-  const you = user?.id || null;
+// Compact "Sir ka Incentive" card for the FRO sidebar. Renders below the nav,
+// styled to match the gold FRO incentive theme. Clicking opens the shared popup
+// modal (the default <SpecialIncentive/> widget renders it).
+export function SidebarIncentive({ si }) {
+  if (!si) return null;
+  const { incentives, nowMs, user, setOpenId, freshIds } = si;
+  if (!incentives || incentives.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto', padding: '12px 8px 0' }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: 'var(--ink-soft)', padding: '0 6px' }}>Special Incentives</div>
+      {incentives.map((inc) => {
+        const target = Number(inc?.target_amount) || 0;
+        const myPct = pctOf(inc?.mine?.collected_amount, target);
+        const left = inc ? Math.max(0, new Date(inc.end_at).getTime() - nowMs) : 0;
+        return (
+          <div
+            key={inc.id}
+            onClick={() => { playNgoAudio(inc.ngo_name); setOpenId(inc.id); }}
+            title="View leaderboard"
+            style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #f59e0b', background: 'linear-gradient(160deg,#fffdf5,#fff3d6)', cursor: 'pointer', boxShadow: '0 8px 20px rgba(180,83,9,.18)', transition: 'transform .12s ease, boxShadow .12s ease' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 24px rgba(180,83,9,.28)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(180,83,9,.18)'; }}
+          >
+            {freshIds && freshIds.has(inc.id) && (
+              <div style={{ position: 'absolute', top: -1, right: 8, zIndex: 3, padding: '2px 8px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 9, fontWeight: 800, letterSpacing: .4, animation: 'si-pulse 1s linear infinite' }}>🔴 NEW</div>
+            )}
+            <div style={{ background: 'linear-gradient(90deg,#b45309,#f59e0b,#fbbf24)', color: '#fff', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px' }}>
+              <span style={{ fontSize: 13 }}>💰</span>
+              <span style={{ flex: 1, fontSize: 10.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inc.title}</span>
+            </div>
+            <div style={{ padding: '9px 10px 10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 8.5, fontWeight: 800, letterSpacing: .4, textTransform: 'uppercase', color: '#dc2626', background: '#dc26261a', padding: '2px 7px', borderRadius: 999, border: '1px solid #dc262655', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#dc2626', display: 'inline-block', animation: 'si-pulse 1s linear infinite' }} /> LIVE
+                </span>
+                <NgoBadge ngoName={inc.ngo_name} />
+                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: '#b45309', whiteSpace: 'nowrap' }}>⏳ {fmtClock(left)}</span>
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)' }}>My progress</div>
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: 'var(--ink)', margin: '1px 0 4px' }}>
+                ₹{fmt(inc.mine?.collected_amount || 0)} <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)' }}>/ ₹{fmt(target)}</span>
+              </div>
+              <div style={{ height: 7, borderRadius: 6, background: 'var(--line)', overflow: 'hidden', marginBottom: 7 }}>
+                <div style={{ width: `${myPct}%`, height: '100%', background: 'linear-gradient(90deg,#fbbf24,#f59e0b)', borderRadius: 6, transition: 'width .5s ease' }} />
+              </div>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                🏁 Leader: {((inc.leaderboard || [])[0]?.name) || '—'}
+              </div>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Ends {fmtEnd(inc.end_at)}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function SpecialIncentive({ si }) {
+  const own = useSpecialIncentive();
+  const h = si || own;
+  const { incentives, celebrate, photoCeleb, nowMs, user, dismissedIds, dismissCard, closePopup, closeCelebrate, openId, setOpenId, freshIds } = h;
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width:820px)').matches);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width:820px)');
+    const onMq = (e) => setIsMobile(e.matches);
+    mq.addEventListener('change', onMq);
+    return () => mq.removeEventListener('change', onMq);
+  }, []);
+
   // Winner popups, LIVE cards and celebrations show ONLY in the FRO panel.
   // Accounts / HR / Super Admin render nothing from this widget.
   const isFro = !!user && (user.role === 'fro' || user.role === 'worker');
-  if (!isFro) return null;
+  const you = user?.id || null;
+  const expanded = openId ? incentives.find((i) => i.id === openId) || null : null;
 
-  const [openModalId, setOpenModalId] = useState(null);
-  const [freshIds, setFreshIds] = useState(() => new Set());
-  const freshTimersRef = useRef(new Map());
-
-  // Brand-new races get a pulsing "NEW" tag on their corner card for ~12s.
-  useEffect(() => {
-    if (incentives.length === 0) return;
-    const ids = new Set(freshIds);
-    let changed = false;
-    incentives.forEach((i) => {
-      if (!ids.has(i.id)) { ids.add(i.id); changed = true; }
-    });
-    if (changed) {
-      setFreshIds(ids);
-      incentives.forEach((i) => {
-        if (freshTimersRef.current.has(i.id)) return;
-        freshTimersRef.current.set(i.id, setTimeout(() => {
-          freshTimersRef.current.delete(i.id);
-          setFreshIds((prev) => { const n = new Set(prev); n.delete(i.id); return n; });
-        }, 12000));
-      });
-    }
-  }, [incentives]);
-
-  const expanded = openModalId ? incentives.find((i) => i.id === openModalId) || null : null;
-
-  // Sticky bottom-left cards: one per still-running race; click a card to open
-  // the big leaderboard view. Dismissed cards hide until the race ends.
+  // Sticky bottom-left cards float ONLY on mobile (sidebar is a drawer there).
+  // On desktop the incentive card lives inside the sidebar instead.
   const visibleCards = incentives.filter((i) => !dismissedIds.has(String(i.id)));
+
+  if (!isFro) return null;
 
   return (
     <>
       <style>{CONFETTI_CSS}</style>
-      {isFro && photoCeleb && <CornerWinnerCard inc={photoCeleb} />}
-      {isFro && celebrate && <Celebration inc={celebrate} you={you} onClose={closeCelebrate} />}
-      {expanded && <PopupModal inc={expanded} you={you} nowMs={nowMs} onClose={() => { setOpenModalId(null); closePopup(); }} />}
-      {visibleCards.length > 0 && !celebrate && (
+      {photoCeleb && <CornerWinnerCard inc={photoCeleb} />}
+      {celebrate && <Celebration inc={celebrate} you={you} onClose={closeCelebrate} />}
+      {expanded && <PopupModal inc={expanded} you={you} nowMs={nowMs} onClose={() => { setOpenId(null); closePopup(); }} />}
+      {isMobile && visibleCards.length > 0 && !celebrate && (
         <div style={{ position: 'fixed', left: 14, bottom: 14, zIndex: 99980, display: 'flex', flexDirection: 'column', gap: 10, width: 312 }}>
           {visibleCards.map((inc) => (
             <div
               key={inc.id}
               style={{ position: 'relative', cursor: 'pointer' }}
-              onClick={() => { playNgoAudio(inc.ngo_name); setOpenModalId(inc.id); closePopup(); }}
+              onClick={() => { playNgoAudio(inc.ngo_name); setOpenId(inc.id); closePopup(); }}
             >
               <div
                 onClick={(e) => { e.stopPropagation(); dismissCard(inc.id); }}
