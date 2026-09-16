@@ -251,7 +251,8 @@ export default function App() {
       const r = await api('/api/db/query', { method: 'POST', body: JSON.stringify({ sql }) });
       pushHistory(sql);
       setRunnerResult(r);
-      setRunStatus({ msg: `Done — ${r.rowCount ?? ''} ${r.command}`.trim(), cls: 'ok' });
+      const stmts = r.statementCount && r.statementCount > 1 ? ` (${r.statementCount} statements)` : '';
+      setRunStatus({ msg: `Done — ${r.rowCount ?? ''} ${r.command}${stmts}`.trim(), cls: 'ok' });
     } catch (e) {
       setRunStatus({ msg: 'Error: ' + e.message, cls: 'err' });
     }

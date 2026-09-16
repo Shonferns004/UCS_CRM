@@ -287,6 +287,14 @@ export default function AttendanceCalendar({ workerId, worker }) {
               <input type="number" min="0" value={draft.lateMinutes} onChange={e => setDraft({ ...draft, lateMinutes: e.target.value })} />
             </label>
           </div>
+          <div className="att-status-actions">
+            <button type="button" className="att-quick-btn att-quick-half" onClick={() => setDraft({ ...draft, status: 'half-day' })}>
+              Set Half-day
+            </button>
+            <button type="button" className="att-quick-btn att-quick-present" onClick={() => setDraft({ ...draft, status: 'present' })}>
+              Remove Half-day
+            </button>
+          </div>
           <div className="att-detail-actions">
             <button className="att-btn att-btn-null" onClick={handleNullify} disabled={saving}>Null</button>
             <button className="att-btn att-btn-save" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
@@ -514,6 +522,25 @@ export default function AttendanceCalendar({ workerId, worker }) {
   justify-content: flex-end;
   gap: 8px;
 }
+.att-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.att-quick-btn {
+  border: 1px solid;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #fff;
+}
+.att-quick-half { border-color: #b995d5; color: #7B3FB3; }
+.att-quick-half:hover { background: #EBDDF7; }
+.att-quick-present { border-color: #8ac7a2; color: #1B7A3D; }
+.att-quick-present:hover { background: #B9EFCE; }
 .att-btn {
   border: none;
   padding: 8px 18px;

@@ -640,6 +640,7 @@ app.post('/api/db/query', async (req, res) => {
     let rowCount = null;
     let fields = [];
     let rows = [];
+    const commands = [];
     try {
       await client.query('BEGIN');
       for (const stmt of statements) {
@@ -648,9 +649,10 @@ app.post('/api/db/query', async (req, res) => {
         rowCount = r.rowCount ?? rowCount;
         fields = (r.fields || []).map((f) => ({ name: f.name, dataTypeID: f.dataTypeID }));
         rows = r.rows || [];
+        if (r.command) commands.push(r.command);
       }
       await client.query('COMMIT');
-      res.json({ command, rowCount, columns: fields, rows });
+      res.json({ command, commands, statementCount: statements.length, rowCount, columns: fields, rows });
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch (_) { /* connection may be dead */ }
       res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });

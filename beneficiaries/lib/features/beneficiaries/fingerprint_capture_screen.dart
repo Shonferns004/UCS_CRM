@@ -32,8 +32,11 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
   String? _qualityScore;
   bool _showDiagnostics = false;
   Map<String, dynamic>? _diagnostics;
+  bool _checkingRd = false;
+  Map<String, dynamic>? _rdCheck;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
   bool _phoneAvailable = false;
+  bool _useRawCapture = false;
 
   @override
   void initState() {
@@ -164,12 +167,32 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
 
   Future<void> _runDiagnostics() async {
     setState(() => _showDiagnostics = true);
+    _runRdCheck();
     final diag = await FingerprintService.diagnose();
     if (!mounted) return;
     setState(() => _diagnostics = diag);
   }
 
+  Future<void> _runRdCheck() async {
+    setState(() {
+      _rdCheck = null;
+      _checkingRd = true;
+      _showDiagnostics = true;
+    });
+    final result = await FingerprintService.checkRdService(forceRefresh: true);
+    if (!mounted) return;
+    setState(() {
+      _checkingRd = false;
+      _rdCheck = result;
+    });
+  }
+
   Future<void> _startCapture() async {
+    if (_useRawCapture) {
+      await _startCaptureRaw();
+      return;
+    }
+
     var device = _selectedDevice;
     if (device == null && _devices.isNotEmpty) {
       final available = _devices.where((d) => d.isAvailable).toList();
@@ -211,17 +234,93 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
     }
   }
 
+  /// Own-system raw capture: enrolls with two captures (repeat-scan for quality).
+  Future<void> _startCaptureRaw() async {
+    setState(() {
+      _capturing = true;
+      _captureComplete = false;
+      _qualityScore = null;
+      _errored = false;
+      _lastError = null;
+      _statusMessage = 'Place finger on the scanner (capture 1 of 2)...';
+    });
+
+    final first = await FingerprintService.capture(
+      deviceType: BiometricDeviceType.mfs110Raw,
+    );
+    if (!mounted) return;
+
+    if (!first.success) {
+      setState(() {
+        _capturing = false;
+        _errored = true;
+        _lastError = first.error;
+        _statusMessage = first.error ?? 'Raw capture failed';
+      });
+      return;
+    }
+
+    if (!first.isRawCapture) {
+      setState(() {
+        _capturing = false;
+        _errored = true;
+        _lastError = 'No raw image returned (implementation pending Phase 0 protocol).';
+        _statusMessage = 'Raw capture incomplete';
+      });
+      return;
+    }
+
+    setState(() => _statusMessage = 'Remove finger. Place again (capture 2 of 2)...');
+    final second = await FingerprintService.capture(
+      deviceType: BiometricDeviceType.mfs110Raw,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _capturing = false;
+      _captureComplete = true;
+      _qualityScore = first.qualityScore;
+      _errored = !second.success;
+      _lastError = second.success ? null : (second.error ?? 'Second capture failed');
+      _statusMessage = second.success
+          ? 'Fingerprint captured (2/2)'
+          : 'First capture ok, second try failed — saving first capture';
+    });
+
+    await _saveBiometric(first);
+  }
+
   Future<void> _saveBiometric(CaptureResult result) async {
     try {
-      await ApiService.post('/biometrics/enroll', body: {
-        'beneficiary_code': widget.beneficiaryCode,
-        'pid_data': result.pidData,
-        'fid_data': result.fidData,
-        'template': result.template,
-        'device_type': _selectedDevice?.type.name,
-        'device_name': _selectedDevice?.displayName,
-        'quality_score': result.qualityScore,
-      });
+      const requestTimeout = Duration(minutes: 1);
+      if (result.isRawCapture) {
+        await ApiService.post(
+          '/biometrics/enroll',
+          body: {
+            'beneficiary_code': widget.beneficiaryCode,
+            'device_type': 'MFS110_RAW',
+            'device_name': 'Mantra MFS110 (Raw USB)',
+            'image_b64': result.rawImage,
+            'template_b64': result.template,
+            'width': result.width,
+            'height': result.height,
+            'dpi': result.dpi,
+            'quality_score': result.qualityScore,
+            'finger_position': 'UNKNOWN',
+          },
+          timeout: requestTimeout,
+        );
+      } else {
+        await ApiService.post('/biometrics/enroll', body: {
+          'beneficiary_code': widget.beneficiaryCode,
+          'pid_data': result.pidData,
+          'fid_data': result.fidData,
+          'template': result.template,
+          'device_type': _selectedDevice?.type.name,
+          'device_name': _selectedDevice?.displayName,
+          'quality_score': result.qualityScore,
+        });
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -260,6 +359,51 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                 Text(widget.beneficiaryName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(widget.beneficiaryCode, style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Capture source: vendor RD Service vs own raw USB system
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.outline),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Capture Source', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(Icons.wifi_tethering, size: 16),
+                      label: Text('RD Service'),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(Icons.usb, size: 16),
+                      label: Text('Own System (Raw)'),
+                    ),
+                  ],
+                  selected: {_useRawCapture},
+                  onSelectionChanged: (selection) {
+                    setState(() => _useRawCapture = selection.first);
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _useRawCapture
+                      ? 'Raw USB capture stores the plain fingerprint image + SourceAFIS template directly to your system '
+                          '(no UIDAI encryption). NOTE: capture protocol is pending Phase 0 documentation — expects a '
+                          '"protocol not documented" error until then.'
+                      : 'Uses the vendor RD Service app (UIDAI-encrypted PID payload).',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
               ],
             ),
           ),
@@ -469,10 +613,24 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
           const SizedBox(height: 12),
 
           // Diagnostics
-          OutlinedButton.icon(
-            onPressed: _runDiagnostics,
-            icon: const Icon(Icons.bug_report_outlined, size: 16),
-            label: const Text('Device Diagnostics'),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _runDiagnostics,
+                  icon: const Icon(Icons.bug_report_outlined, size: 16),
+                  label: const Text('Diagnostics'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _runRdCheck,
+                  icon: const Icon(Icons.wifi_tethering, size: 16),
+                  label: const Text('Check RD'),
+                ),
+              ),
+            ],
           ),
           if (_showDiagnostics) ...[
             const SizedBox(height: 12),
@@ -505,7 +663,55 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
     final installed = (diag['installed_rd_services'] as List?) ?? [];
     final usb = (diag['usb_devices'] as List?) ?? [];
 
+    final rd = _rdCheck;
+    final rdSection = <Widget>[
+      const Text('RD SERVICE CONNECTION', style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
+      const SizedBox(height: 6),
+      if (_checkingRd)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 6),
+          child: Row(children: [
+            SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 8),
+            Text('Detecting RD Service...', style: TextStyle(fontSize: 12)),
+          ]),
+        )
+      else if (rd == null)
+        const Text('Not checked yet', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))
+      else if (rd['found'] == true)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle, size: 14, color: AppTheme.success),
+              const SizedBox(width: 6),
+              Expanded(child: Text(rd['uri'].toString(), style: const TextStyle(fontSize: 12))),
+            ],
+          ),
+        )
+      else ...[
+        const Icon(Icons.cancel, size: 14, color: AppTheme.error),
+        const SizedBox(height: 6),
+        Text(
+          rd['message']?.toString() ?? 'Not found',
+          style: const TextStyle(fontSize: 12, color: AppTheme.error),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Hosts tried: ${(rd['hosts'] as List?)?.join(', ') ?? 'none'}',
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          (rd['errors'] as List?)?.join('\n') ?? 'No errors recorded',
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, height: 1.4),
+        ),
+      ],
+      const SizedBox(height: 12),
+    ];
+
     return [
+      ...rdSection,
       const Text('INSTALLED RD SERVICE APPS', style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
       const SizedBox(height: 6),
       if (installed.isEmpty)
