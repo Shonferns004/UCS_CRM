@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { emitRealtime } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
@@ -13,6 +14,7 @@ import {
   getScheduledByAssignment,
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker } from '../models/froTargetModel.js';
+import { classifyLogSide, getFroWorkersByNgo } from './ngoAdminController.js';
 import {
   createDonorLog,
   ensureLogSequenceHealth,
@@ -21,6 +23,7 @@ import {
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
+  getBatchCollectionStats,
   getCollectedByNgo,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
@@ -699,6 +702,117 @@ export const getDashboard = async (req, res) => {
         unused: dataUnused,
       },
       assignedData,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// FRO-facing performance summary for the My Leads workspace. This stays scoped
+// to the authenticated worker while rank is calculated against their active NGO
+// team, so the admin performance endpoint is never exposed to FRO users.
+export const getMyPerformance = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const worker = await getWorkerBySession(req.user);
+    const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(Date.now() + istOffset);
+    const day = istNow.toISOString().slice(0, 10);
+    const dayStart = new Date(`${day}T00:00:00.000+05:30`).toISOString();
+    const dayEnd = new Date(`${day}T23:59:59.999+05:30`).toISOString();
+    const istHour = istNow.getUTCHours();
+    const elapsedHours = Math.max(0, Math.min(12, istHour < 9 ? 0 : istHour - 8));
+    const targetPace = Math.round((200 * elapsedHours) / 12);
+    const hours = Array.from({ length: 12 }, (_, i) => ({
+      hour: `${String(9 + i).padStart(2, '0')}:00`,
+      calls: 0,
+      connected: 0,
+    }));
+
+    let query = db
+      .from('fro_donor_logs')
+      .select('created_at, fro_worker_id, disposition_detail, disposition_category, accounts_status, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, is_test)')
+      .gte('created_at', dayStart)
+      .lte('created_at', dayEnd);
+    if (allowedNgoIds?.length) query = query.in('fro_assignments.ngo_id', allowedNgoIds);
+    const { data: logs, error } = await query;
+    if (error) throw error;
+
+    const teamConnected = {};
+    const teamLogs = {};
+    const currentName = worker?.name || logs?.find(l => String(l.fro_worker_id) === String(workerId))?.workers?.name || null;
+    for (const log of logs || []) {
+      if (!log.fro_worker_id || log.workers?.is_test === true) continue;
+      const id = String(log.fro_worker_id);
+      teamConnected[id] = (teamConnected[id] || 0);
+      teamLogs[id] = (teamLogs[id] || 0) + 1;
+      if (classifyLogSide(log) === 'connected') teamConnected[id]++;
+      if (id !== String(workerId)) continue;
+      const hour = new Date(new Date(log.created_at).getTime() + istOffset).getUTCHours();
+      if (hour < 9 || hour > 20) continue;
+      const bucket = hours[hour - 9];
+      bucket.calls++;
+      if (classifyLogSide(log) === 'connected') bucket.connected++;
+    }
+    if (!teamLogs[String(workerId)]) teamLogs[String(workerId)] = 0;
+    if (!teamConnected[String(workerId)]) teamConnected[String(workerId)] = 0;
+
+    // Roster: this worker plus every active non-test FRO across their stations.
+    const teamWorkers = (await Promise.all((allowedNgoIds || []).map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const roster = new Map();
+    if (worker?.id) roster.set(String(worker.id), { id: String(worker.id), name: String(worker?.name || '').trim() });
+    for (const teamWorker of teamWorkers) {
+      if (teamWorker?.is_active !== false && teamWorker?.is_test !== true && teamWorker?.id) {
+        roster.set(String(teamWorker.id), { id: String(teamWorker.id), name: String(teamWorker.name || '').trim() });
+      }
+    }
+    const teamIds = [...roster.keys()];
+
+    // Rank by today's collection first; tie-break on total collection collected.
+    const todayCollection = {};
+    const totalCollection = {};
+    for (const id of teamIds) { todayCollection[id] = 0; totalCollection[id] = 0; }
+    if (teamIds.length > 0) {
+      const stats = await getBatchCollectionStats(teamIds, dayStart, dayEnd, dayStart, dayEnd);
+      for (const id of teamIds) todayCollection[id] = stats?.todayCollection[id] || 0;
+      await Promise.all(teamIds.map(async (id) => {
+        try { totalCollection[id] = await getTotalCollectedByWorker(id, '1970-01-01', '2099-12-31'); }
+        catch { totalCollection[id] = 0; }
+      }));
+    }
+    const nameOf = (id) => roster.get(id)?.name || String(id);
+    const ranking = teamIds.sort((a, b) =>
+      (todayCollection[b] - todayCollection[a])
+      || (totalCollection[b] - totalCollection[a])
+      || nameOf(a).localeCompare(nameOf(b))
+    );
+    const rank = ranking.indexOf(String(workerId)) + 1 || null;
+
+    const connected = teamConnected[String(workerId)] || 0;
+    const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
+    const { data: liveStatus } = await db
+      .from('fro_live_status')
+      .select('today_idle_seconds, today_calls, idle_since')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+
+    return res.json({
+      worker: { id: workerId, name: currentName },
+      connected,
+      target_pace: targetPace,
+      elapsed_hours: elapsedHours,
+      performance,
+      level: performance >= 100 ? 'high' : 'low',
+      rank: rank || null,
+      team_size: teamIds.length,
+      calls: hours,
+      idle_seconds: liveStatus?.today_idle_seconds || 0,
+      idle_since: liveStatus?.idle_since || null,
+      today_calls: teamLogs[String(workerId)] || liveStatus?.today_calls || 0,
+      today_collected: todayCollection[String(workerId)] || 0,
+      total_collected: totalCollection[String(workerId)] || 0,
+      date: day,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -3543,8 +3657,8 @@ export const updateLiveStatus = async (req, res) => {
     const workerId = req.user.id;
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at } = req.body;
 
-    if (status && !['online', 'idle', 'on_call', 'break', 'offline'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline' });
+    if (status && !['online', 'idle', 'on_call', 'break', 'offline', 'meeting'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline, meeting' });
     }
     const numericFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
     for (const [key, val] of Object.entries(numericFields)) {
@@ -3694,6 +3808,45 @@ export const saveMyProgress = async (req, res) => {
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     return res.json({ message: 'Progress saved' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Super admin: clear every FRO's current idle streak (today_idle_seconds + idle_since)
+// and push a fro:reset-idle socket event so connected FRO panels zero their in-memory
+// idle counters too (they are not persisted to localStorage anymore).
+export const resetAllFroIdle = async (req, res) => {
+  try {
+    const updatedAt = new Date().toISOString();
+    const { error } = await db
+      .from('fro_live_status')
+      .update({
+        today_idle_seconds: 0,
+        idle_since: null,
+        updated_at: updatedAt,
+      })
+      .not('worker_id', 'is', null);
+    if (error) throw error;
+
+    emitRealtime('fro:reset-idle', { at: updatedAt }, 'role:fro');
+
+    return res.json({ message: 'All FRO idle counts reset' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// FRO's own live status row — used to restore today's counters in memory on panel
+// load (the client no longer mirrors these into localStorage).
+export const getMyLiveStatus = async (req, res) => {
+  try {
+    const { data } = await db
+      .from('fro_live_status')
+      .select('*')
+      .eq('worker_id', req.user.id)
+      .maybeSingle();
+    return res.json(data || null);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
