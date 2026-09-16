@@ -590,6 +590,7 @@ export function useSpecialIncentive() {
 // Compact "Sir ka Incentive" card for the FRO sidebar. Renders below the nav,
 // styled to match the gold FRO incentive theme. Clicking opens the shared popup
 // modal (the default <SpecialIncentive/> widget renders it).
+const stripTitleEmoji = (s) => String(s || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{3030}]/gu, '').trim();
 export function SidebarIncentive({ si }) {
   if (!si) return null;
   const { incentives, setOpenId } = si;
@@ -601,25 +602,29 @@ export function SidebarIncentive({ si }) {
         const target = Number(inc?.target_amount) || 0;
         const collected = Number(inc?.mine?.collected_amount) || 0;
         const myPct = pctOf(collected, target);
+        const title = stripTitleEmoji(inc.title) || 'Special Incentive';
         return (
           <div
             key={inc.id}
             onClick={() => { playNgoAudio(inc.ngo_name); setOpenId(inc.id); }}
             title="View leaderboard"
-            style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #f59e0b', background: 'linear-gradient(160deg,#fffdf5,#fff3d6)', cursor: 'pointer', boxShadow: '0 8px 20px rgba(180,83,9,.18)', transition: 'transform .12s ease, boxShadow .12s ease' }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 24px rgba(180,83,9,.28)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(180,83,9,.18)'; }}
+            style={{ borderRadius: 14, border: '1.5px solid #f59e0b', background: 'linear-gradient(170deg,#fffdf6,#ffefd0)', boxShadow: '0 6px 18px rgba(180,83,9,.16)', cursor: 'pointer', padding: '9px 10px 10px', transition: 'transform .12s ease, boxShadow .12s ease' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 22px rgba(180,83,9,.26)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(180,83,9,.16)'; }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 9px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', animation: 'si-pulse 1s linear infinite', flexShrink: 0 }}>Live</span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inc.title}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 9px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 8, fontWeight: 800, letterSpacing: .7, textTransform: 'uppercase', animation: 'si-pulse 1s linear infinite', flexShrink: 0 }}>Live</span>
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <NgoBadge ngoName={inc.ngo_name} />
+              </div>
             </div>
-            <div style={{ height: 8, borderRadius: 6, background: 'var(--line)', overflow: 'hidden' }}>
-              <div style={{ width: `${myPct}%`, height: '100%', background: 'linear-gradient(90deg,#fbbf24,#f59e0b)', borderRadius: 6, transition: 'width .5s ease' }} />
+            <div style={{ fontSize: 10.5, fontWeight: 800, lineHeight: 1.4, color: 'var(--ink)', marginBottom: 9, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{title}</div>
+            <div style={{ height: 9, borderRadius: 7, background: '#f6e7c3', overflow: 'hidden', border: '1px solid #f59e0b33' }}>
+              <div style={{ width: `${myPct}%`, height: '100%', background: 'linear-gradient(90deg,#f59e0b,#fbbf24)', borderRadius: 7, transition: 'width .5s ease', boxShadow: '0 1px 4px rgba(180,83,9,.4)' }} />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, fontSize: 9.5, fontWeight: 800, color: 'var(--ink-soft)' }}>
-              <span>{fmt(collected)}</span>
-              <span>{fmt(target)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 900, color: '#b45309' }}>₹{fmt(collected)}</span>
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--ink-soft)' }}>₹{fmt(target)}</span>
             </div>
           </div>
         );
