@@ -44,7 +44,7 @@ const readList = (key, defaults) => {
 };
 
 const statusPill = (s, labelMap) => {
-  const m = { rejected:'pill-danger', hold:'pill-gold', scheduled:'pill-clay', selected:'pill-green', joined:'pill-green' };
+  const m = { rejected:'pill-danger', 'Rejected':'pill-danger', hold:'pill-gold', 'On Hold':'pill-gold', scheduled:'pill-clay', 'Schedule':'pill-clay', 'Interview Scheduled':'pill-clay', selected:'pill-green', 'Selected':'pill-green', 'Offer Released':'pill-green', 'Offer Accepted':'pill-green', 'Onboarding':'pill-green', joined:'pill-green' };
   const label = s ? (labelMap[s] || s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())) : '\u2014';
   return <span className={`pill ${m[s] || 'pill-gray'}`}>{label}</span>;
 };
@@ -354,7 +354,7 @@ export default function Candidates() {
             </div>
           </div>
           {leadsLoading && candidates.length === 0 ? (
-            <div style={{ overflowX: 'auto' }}><table><tbody>{[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table></div>
+            <div style={{ overflowX: 'auto' }}><table><tbody>{[1, 2, 3, 4, 5].map(i => <SkeletonRow key={i} cols={7}/>)}</tbody></table></div>
           ) : filtered.length === 0 ? (
             <div className="empty">No candidates match.</div>
           ) : (
@@ -362,7 +362,7 @@ export default function Candidates() {
               <table>
                 <thead>
                   <tr>
-                    <th>Candidate</th><th>Phone</th><th>Stage</th><th>Source</th><th>Next Interview</th><th>Action</th>
+                    <th>Candidate</th><th>Phone</th><th>Stage</th><th>Source</th><th>Date</th><th>Next Interview</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -372,8 +372,13 @@ export default function Candidates() {
                       <tr key={c.id}>
                         <td><Who name={c.name} role={c.role} /></td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.phone}</td>
-                        <td>{statusPill(cleanField(c._raw ? c._raw.status : c.status), statusLabelMap)}</td>
+                        <td>{statusPill(c.stage, statusLabelMap)}</td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.source}</td>
+                        <td style={{ color: 'var(--ink-soft)', whiteSpace: 'nowrap', fontSize: 13 }}>
+                          {c.createdAt
+                            ? new Date(c.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                            : '—'}
+                        </td>
                         <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
                           {nextIv ? (
                             <>

@@ -1098,7 +1098,12 @@ export const getFroPerformance = async (req, res) => {
     const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     const workerIds = froWorkers.map(w => w.id);
-    const batchStats = await getBatchCollectionStats(workerIds, startDate.toISOString(), endDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
+    // Collection stats are always paced against the current calendar month
+    // (matching the monthly target / working-day calculation below), regardless
+    // of the selected from/to period.
+    const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const batchStats = await getBatchCollectionStats(workerIds, monthStartDate.toISOString(), monthEndDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
     const todayStr = localDateStr(now);
     const attendanceMap = {};
@@ -1198,7 +1203,7 @@ export const getFroPerformance = async (req, res) => {
       const attPct = attendanceMap[w.id] != null ? attendanceMap[w.id] : null;
       const target = targetMap[w.id] || { target_amount: 0, achieved_target: null };
       const monthlyTarget = target.target_amount;
-      const achievedTarget = target.achieved_target != null ? target.achieved_target : coll;
+      const achievedTarget = (target.achieved_target != null && Number(target.achieved_target) > 0) ? Number(target.achieved_target) : coll;
 const workedDays = workedDaysMap[w.id]?.size || 0;
       const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
       const remainingDays = Math.max(workingDays - workedDays, 0);

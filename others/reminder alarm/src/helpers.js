@@ -132,6 +132,16 @@ export function categoryLabel(key) {
   return found ? found.label : key || '—'
 }
 
+export function normalizeCategory(val) {
+  if (!val) return 'Other'
+  const lower = val.toLowerCase()
+  const byKey = CATEGORIES.find(c => c.key === val)
+  if (byKey) return byKey.label
+  const byLabel = CATEGORIES.find(c => c.label.toLowerCase() === lower)
+  if (byLabel) return byLabel.label
+  return val
+}
+
 export function categoryIcon(key) {
   const found = CATEGORIES.find(c => c.key === key)
   return found ? found.icon : 'bell'
@@ -150,20 +160,20 @@ function downloadBlob(content, filename, mime) {
 }
 
 export const EXPORT_COLUMNS = [
-  'Reminder / Property', 'Category', 'Owner', 'Due Date', 'Renewal Date',
-  'Frequency', 'Days Left', 'Priority', 'Status', 'Alarm', 'Reminder', 'Notes',
+  'Category', 'Reminder / Property / Item', 'Owner', 'Due Date', 'Renewal Date',
+  'Last Paid Date', 'Paid Amount', 'Status',
 ]
 
 export function toExportRow(r) {
-  const dl = daysLeft(r.due_date)
   return [
-    r.title || '', r.category || '', r.owner || '',
-    r.due_date ? formatDate(r.due_date) : '',
-    r.renewal_date ? formatDate(r.renewal_date) : '',
-    r.display_frequency || '', dl !== null ? dl : '',
-    r.priority || '', derivedStatus(r),
-    r.alarm_enabled ? 'ON' : 'OFF', r.reminder_enabled ? 'ON' : 'OFF',
-    r.notes || '',
+    normalizeCategory(r.category) || '—',
+    r.title || '—',
+    r.owner || '—',
+    r.due_date ? formatDate(r.due_date) : '—',
+    r.renewal_date ? formatDate(r.renewal_date) : '—',
+    r.paid_at ? formatDate(r.paid_at) : '—',
+    r.amount ? `₹${r.amount}` : '—',
+    derivedStatus(r),
   ]
 }
 
