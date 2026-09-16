@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { Trophy } from 'lucide-react';
 import { api } from '../api/auth';
 import { useRealtime } from '../hooks/useRealtime';
 import { CoinsBag } from './AkiBanner';
@@ -623,7 +624,9 @@ export function SidebarIncentive({ si }) {
               <div style={{ flex: 1, height: 12, borderRadius: 999, background: `${color}1c`, overflow: 'hidden', border: `1px solid ${color}40` }}>
                 <div style={{ width: `${myPct}%`, height: '100%', background: `linear-gradient(90deg,${color}99,${color})`, borderRadius: 999, transition: 'width .5s ease' }} />
               </div>
-              <span style={{ position: 'absolute', top: '50%', left: `${myPct}%`, transform: 'translate(-50%,-50%)', fontSize: 17, lineHeight: 1, transition: 'left .5s cubic-bezier(.22,1,.36,1)', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.25))' }}>🐱</span>
+              <span style={{ position: 'absolute', top: '50%', left: `${myPct}%`, transform: 'translate(-50%,-50%)', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: '#fff', border: `2px solid ${color}`, boxShadow: `0 2px 7px ${color}55`, transition: 'left .5s cubic-bezier(.22,1,.36,1)' }}>
+                <Trophy size={13} color={color} strokeWidth={2.6} fill={`${color}22`} />
+              </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 }}>
               <span style={{ fontSize: 11, fontWeight: 900, color }}>₹{fmt(collected)}</span>
