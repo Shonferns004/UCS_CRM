@@ -705,6 +705,89 @@ export const getDashboard = async (req, res) => {
   }
 };
 
+// FRO-facing performance summary for the My Leads workspace. This stays scoped
+// to the authenticated worker while rank is calculated against their active NGO
+// team, so the admin performance endpoint is never exposed to FRO users.
+export const getMyPerformance = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const worker = await getWorkerBySession(req.user);
+    const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(Date.now() + istOffset);
+    const day = istNow.toISOString().slice(0, 10);
+    const dayStart = new Date(`${day}T00:00:00.000+05:30`).toISOString();
+    const dayEnd = new Date(`${day}T23:59:59.999+05:30`).toISOString();
+    const istHour = istNow.getUTCHours();
+    const elapsedHours = Math.max(0, Math.min(12, istHour < 9 ? 0 : istHour - 8));
+    const targetPace = Math.round((200 * elapsedHours) / 12);
+    const hours = Array.from({ length: 12 }, (_, i) => ({
+      hour: `${String(9 + i).padStart(2, '0')}:00`,
+      calls: 0,
+      connected: 0,
+    }));
+
+    let query = db
+      .from('fro_donor_logs')
+      .select('created_at, fro_worker_id, disposition_detail, disposition_category, accounts_status, fro_assignments!inner(ngo_id), workers!fro_donor_logs_fro_worker_id_fkey(id, name, is_test)')
+      .gte('created_at', dayStart)
+      .lte('created_at', dayEnd);
+    if (allowedNgoIds?.length) query = query.in('fro_assignments.ngo_id', allowedNgoIds);
+    const { data: logs, error } = await query;
+    if (error) throw error;
+
+    const teamConnected = {};
+    const currentName = worker?.name || logs?.find(l => String(l.fro_worker_id) === String(workerId))?.workers?.name || null;
+    for (const log of logs || []) {
+      if (!log.fro_worker_id || log.workers?.is_test === true) continue;
+      const id = String(log.fro_worker_id);
+      if (!teamConnected[id]) teamConnected[id] = 0;
+      if (classifyLogSide(log) === 'connected') teamConnected[id]++;
+      if (id !== String(workerId)) continue;
+      const hour = new Date(new Date(log.created_at).getTime() + istOffset).getUTCHours();
+      if (hour < 9 || hour > 20) continue;
+      const bucket = hours[hour - 9];
+      bucket.calls++;
+      if (classifyLogSide(log) === 'connected') bucket.connected++;
+    }
+
+    if (!teamConnected[String(workerId)]) teamConnected[String(workerId)] = 0;
+    const teamWorkers = (await Promise.all((allowedNgoIds || []).map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    for (const teamWorker of teamWorkers) {
+      if (teamWorker?.is_active !== false && teamWorker?.is_test !== true && teamWorker?.id) {
+        teamConnected[String(teamWorker.id)] = teamConnected[String(teamWorker.id)] || 0;
+      }
+    }
+    const ranking = Object.entries(teamConnected).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const rank = ranking.findIndex(([id]) => id === String(workerId)) + 1;
+    const connected = teamConnected[String(workerId)] || 0;
+    const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
+    const { data: liveStatus } = await db
+      .from('fro_live_status')
+      .select('today_idle_seconds, today_calls, idle_since')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+
+    return res.json({
+      worker: { id: workerId, name: currentName },
+      connected,
+      target_pace: targetPace,
+      elapsed_hours: elapsedHours,
+      performance,
+      level: performance >= 100 ? 'high' : 'low',
+      rank: rank || null,
+      team_size: ranking.length,
+      calls: hours,
+      idle_seconds: liveStatus?.today_idle_seconds || 0,
+      idle_since: liveStatus?.idle_since || null,
+      today_calls: liveStatus?.today_calls || 0,
+      date: day,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // List this month's collections for the "Collected" card modal.
 // Own-money rule: every fro_donor_logs row credited to this worker (fro_worker_id)
 // is THEIR collection, regardless of which (station, ngo) assignment the donor sits
