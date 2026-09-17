@@ -566,25 +566,25 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) !== todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'scheduled' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'scheduled' });
           }
         });
         (callbacks || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, type: 'callback' });
           }
         });
         (scheduled || []).forEach(d => {
           if (d.scheduled_at && istDateString(d.scheduled_at) === todayStr && !seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'callback' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, type: 'callback' });
           }
         });
         (promises || []).forEach(d => {
           if (!seen.has(k(d))) {
             seen.add(k(d));
-            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
+            items.push({ id: d.id, ngo_id: d.ngo_id, ngo_name: d.ngo_name, owner_name: d.owner_name, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.due_date || d.scheduled_at || null, due_date: d.due_date || null, type: 'promise' });
           }
         });
         setFollowUps(items);
@@ -1575,6 +1575,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{d.donor_mobile || '—'}</span>
+                          {d.owner_name && (
+                            <span style={{ padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: '#e0e7ff', color: '#4338ca' }}>{d.owner_name}</span>
+                          )}
                           {d.ngo_name && (
                             <span style={{ padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: '#5B6B4E1A', color: '#5B6B4E' }}>{d.ngo_name}</span>
                           )}
