@@ -2828,7 +2828,7 @@ export default function Dashboard() {
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: '7px 5px', textAlign: 'center', cursor: 'pointer', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            style={{ background: '#fff', padding: '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
@@ -2848,19 +2848,19 @@ export default function Dashboard() {
           const show = v > 0;
           if (m.pill && show) {
             return (
-              <td key={m.key} style={{ padding: '7px 4px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              <td key={m.key} style={{ padding: '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
                 <span
                   onClick={click}
                   title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 26, padding: '1px 7px', borderRadius: 6, background: m.bg, color: m.color, fontSize: 11, fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, padding: '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: 10.5, fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
                   {m.display ? m.display(v) : v}
                 </span>
               </td>
             );
           }
           return (
-            <td key={m.key} style={{ padding: '7px 4px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-              {show ? <span onClick={click} style={{ fontSize: 11, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: 11 }}>{m.display ? m.display(v) : 0}</span>}
+            <td key={m.key} style={{ padding: '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              {show ? <span onClick={click} style={{ fontSize: 10.5, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: 10.5 }}>{m.display ? m.display(v) : 0}</span>}
             </td>
           );
         };
@@ -2957,7 +2957,7 @@ export default function Dashboard() {
               {sortedRows.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
-                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1500, width: '100%' }}>
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1180, width: '100%' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
                       {stickyTh('FRO Name', 0)}
