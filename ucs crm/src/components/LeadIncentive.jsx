@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../api/auth'
+import { RangeLeaderboard } from './LeadIncentiveLeaderboard'
 
 const fmt = (n) => {
   const v = Number(n)
@@ -37,6 +38,8 @@ const fmtDT = (d) => {
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
+
+const fmtSlabRange = (s) => `₹${fmt(s.min_amount)} – ₹${fmt(s.max_amount)}`
 
 // A stale DB could hold duplicate rows for the same (min, max) range, which would
 // make the UI list every range twice. Keep a single row per range — preferring an
@@ -196,29 +199,11 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
   }
 
   const activeSlabs = (slabs || []).filter(s => s.is_active)
-  const fmtSlabRange = (s) => `₹${fmt(s.min_amount)} – ₹${fmt(s.max_amount)}`
 
   return (
-    <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 20, background: 'var(--card-bg)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>⚙️</span>
-          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Lead Rules</div>
-        </div>
-      </div>
-
-      {/* How the flat prize works */}
-      <div style={{
-        padding: '12px 14px', borderRadius: 12, background: '#fffdf5',
-        border: '1.5px solid #fde68a', fontSize: 12.5, color: '#92400e', lineHeight: 1.6,
-      }}>
-        🏆 <b>Flat prize:</b> every verified lead counts — there's no per-lead minimum or ₹/lead reward.
-        The first FRO in a range to reach <b>Win On (₹)</b> in <b>total verified day collection</b>
-        wins that range's flat <b>Prize (₹)</b>. Once someone wins, the range stops for everyone that day.
-      </div>
-
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Per-range configure list */}
-      <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1.5px dashed var(--line)' }}>
+      <div>
         <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 3 }}>
           Per Range Settings
         </div>
@@ -325,7 +310,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
             )
           })}
           {activeSlabs.length === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No slabs configured yet — add one in Target Slabs below.</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No slabs configured yet — add one via the 📋 Target Slabs button above.</div>
           )}
         </div>
       </div>
@@ -421,7 +406,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>
-                    Set in the 📋 Target Slabs table below — full amount goes to the range's champion, nothing to anyone else.
+                    Set in the 📋 Target Slabs table — full amount goes to the range's champion, nothing to anyone else.
                   </div>
                 </div>
 
@@ -484,7 +469,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 }
 
 // ─── Slab Config ──────────────────────────────────────────
-function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
+function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false }) {
   const [editing, setEditing] = useState(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ min_amount: '', max_amount: '', incentive_amount: '', amount_to_win: '' })
@@ -539,8 +524,10 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
   }
 
   return (
-    <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 20, background: 'var(--card-bg)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div style={embedded
+      ? { display: 'flex', flexDirection: 'column', gap: 12 }
+      : { border: '1.5px solid var(--line)', borderRadius: 16, padding: 20, background: 'var(--card-bg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: embedded ? 4 : 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>📋</span>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Target Slabs</div>
@@ -929,6 +916,7 @@ export default function LeadIncentive() {
   const [announceMsg, setAnnounceMsg] = useState('')
   const [announcing, setAnnouncing] = useState(false)
   const [detailFroId, setDetailFroId] = useState(null)
+  const [slabsOpen, setSlabsOpen] = useState(false)
 
   // Only one row per range may ever reach the UI (fixes "double" ranges).
   const uniqueSlabs = useMemo(() => uniqueByRange(slabs), [slabs])
@@ -944,6 +932,30 @@ export default function LeadIncentive() {
     }
     return map
   }, [announced, summary])
+
+  // Leader board panel data — grouped from the summary, top 10 per active range.
+  const lbData = useMemo(() => {
+    const champs = summary?.champions || []
+    const ranges = (uniqueSlabs || [])
+      .map(slab => {
+        const members = (summary?.fros || [])
+          .filter(f => f.slab && String(f.slab.id) === String(slab.id))
+          .sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0))
+          .slice(0, 10)
+          .map(f => ({ ...f, is_winner: champs.some(c => String(c.fro_id) === String(f.fro_id)) }))
+        const champion = champs.find(c => String(c.slab_id) === String(slab.id)) || null
+        return {
+          slab_id: slab.id,
+          slab_label: fmtSlabRange(slab),
+          amount_to_win: Number(slab.amount_to_win) || 1500,
+          incentive_amount: Number(slab.incentive_amount) || 0,
+          champion,
+          fros: members,
+        }
+      })
+      .filter(r => r.champion || r.fros.length > 0)
+    return { ranges }
+  }, [uniqueSlabs, summary])
 
   const loadSettings = useCallback(async () => {
     try {
@@ -1127,21 +1139,55 @@ export default function LeadIncentive() {
         </div>
       </div>
 
-      {/* Lead Rules */}
-      <LeadRulesSettings
-        settings={settings}
-        slabs={uniqueSlabs}
-        wonById={wonSlabById}
-        onSave={saveSettings}
-        onUpdateSlab={updateSlabRates}
-        onApplyAll={applyAllRates}
-        onApplyAllTime={applyAllTime}
-        saving={savingSettings}
-        savingSlab={savingSlab}
-      />
+      {/* Target Slabs trigger → modal */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={() => setSlabsOpen(true)} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 10,
+          border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)',
+          fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
+        }}>
+          <span style={{ fontSize: 14 }}>📋</span> Target Slabs <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>✎</span>
+        </button>
+      </div>
 
-      {/* Slab Config */}
-      <SlabConfig slabs={uniqueSlabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} />
+      {/* Two-column: Lead Incentive | Leader Board */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 18, alignItems: 'start' }}>
+        {/* Left — Lead Incentive */}
+        <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 18, background: 'var(--card-bg)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 17 }}>🎯</span>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Lead Incentive</div>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>per-range settings</span>
+          </div>
+          <LeadRulesSettings
+            settings={settings}
+            slabs={uniqueSlabs}
+            wonById={wonSlabById}
+            onSave={saveSettings}
+            onUpdateSlab={updateSlabRates}
+            onApplyAll={applyAllRates}
+            onApplyAllTime={applyAllTime}
+            saving={savingSettings}
+            savingSlab={savingSlab}
+          />
+        </div>
+
+        {/* Right — Leader Board */}
+        <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 16, background: 'var(--card-bg)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, padding: '0 2px' }}>
+            <span style={{ width: 9, height: 9, borderRadius: 50, background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,.22)', flex: '0 0 auto' }} />
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Leader Board</div>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>live · top 10 per range</span>
+          </div>
+          {loading ? (
+            <div style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12.5 }}>Loading leaderboard…</div>
+          ) : (
+            <RangeLeaderboard data={lbData} you={null} />
+          )}
+        </div>
+      </div>
 
       {/* Champion */}
       {announced && announced.length > 0 ? (
@@ -1250,6 +1296,22 @@ export default function LeadIncentive() {
               <button onClick={confirmAnnounce} disabled={announcing} style={{ ...btnStyle('#b45309'), flex: 1 }}>
                 {announcing ? 'Announcing…' : '🏆 Confirm Announce'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Target Slabs Modal */}
+      {slabsOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99990, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px 16px', overflow: 'auto' }} onClick={() => setSlabsOpen(false)}>
+          <div style={{ width: 'min(700px,100%)', borderRadius: 18, background: 'var(--card-bg)', border: '1.5px solid var(--line)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: '#b45309' }}>
+              <span style={{ fontSize: 17 }}>📋</span>
+              <div style={{ flex: 1, color: '#fff', fontSize: 14, fontWeight: 800 }}>Target Slabs</div>
+              <button onClick={() => setSlabsOpen(false)} style={{ width: 30, height: 30, borderRadius: 50, background: 'rgba(255,255,255,.22)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ padding: 16, maxHeight: '78vh', overflowY: 'auto' }}>
+              <SlabConfig slabs={uniqueSlabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} embedded />
             </div>
           </div>
         </div>
