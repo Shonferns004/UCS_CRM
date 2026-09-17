@@ -2645,17 +2645,7 @@ export default function Dashboard() {
                           return (
                             <tr key={f.id} style={{ borderBottom: '1px solid #edf1f5', height: 48 }}>
                               <td style={{ padding: '8px 16px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                  <span style={{ fontWeight: 600, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                                  {f.workAsName && (
-                                    <span
-                                      title={`${f.workAsName} work as ${f.name}`}
-                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 160, padding: '3px 8px', border: '1px solid #f6c453', borderRadius: 999, background: '#fff9e8', color: '#c77700', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}
-                                    >
-                                      <Zap size={11} style={{ flexShrink: 0 }} /> {f.workAsName}
-                                    </span>
-                                  )}
-                                </div>
+                                <div style={{ fontWeight: 600, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
                               </td>
                               <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
                                 {f.rank ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#eef2ff', color: '#4338ca', fontSize: 11, fontWeight: 700 }}>#{f.rank}</span> : <span style={{ color: '#94a3b8' }}>—</span>}
