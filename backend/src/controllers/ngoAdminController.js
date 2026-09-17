@@ -900,7 +900,7 @@ export const getDashboard = async (req, res) => {
     const isAttendanceToday = attendanceDate === istToday;
 
     const activeFroIds = froWorkers.filter(w => w.is_active !== false).map(w => w.id);
-    let workersPresent = 0, workersAbsent = 0, workersLate = 0;
+    let workersPresent = 0, workersAbsent = 0, workersLate = 0, workersLeave = 0;
     if (activeFroIds.length > 0) {
       const { data: attendanceData } = await db
         .from('attendance')
@@ -910,6 +910,7 @@ export const getDashboard = async (req, res) => {
       workersPresent = (attendanceData || []).filter(a => a.status === 'present').length;
       workersLate = (attendanceData || []).filter(a => a.status === 'late').length;
       workersAbsent = (attendanceData || []).filter(a => a.status === 'absent').length;
+      workersLeave = (attendanceData || []).filter(a => a.status === 'leave').length;
     }
     const activeFroCount = froWorkers.filter(w => w.is_active !== false).length;
     const attendancePct = activeFroCount > 0 ? Math.round(((workersPresent + workersLate) / activeFroCount) * 1000) / 10 : 0;
@@ -953,7 +954,8 @@ export const getDashboard = async (req, res) => {
       monthly_target = daily_target * 26;
     }
 
-    const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersLate - workersAbsent);
+    const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersLate - workersAbsent - workersLeave);
+    const workersAbsentTotal = workersAbsent + noMarkCount;
 
     const payload = {
       ngos: origNgoNames,
@@ -999,8 +1001,8 @@ export const getDashboard = async (req, res) => {
         attendance: {
           present: workersPresent,
           late: workersLate,
-          absent: workersAbsent,
-          no_mark: noMarkCount,
+          absent: workersAbsentTotal,
+          no_mark: 0,
           pct: attendancePct,
         },
       },
