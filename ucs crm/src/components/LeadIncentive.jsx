@@ -87,20 +87,25 @@ const STATUS_META = {
   not_started: { label: 'Not Started', color: C.ns, bg: C.nsBg, accent: C.ns },
 }
 
-// Range live status based on its Start/End window + a possible winner today.
-const rangeStatus = (slab, wonById) => {
+// Range status: Running only while its live window is open. The moment the
+// live is over (end time passed, or never started), it goes back to
+// Not Started so it can be started fresh again.
+const rangeStatus = (slab) => {
   if (!slab) return 'not_started'
-  if (wonById[slab?.id]) return 'ended'
   if (!slab.started_at) return 'not_started'
   const s = new Date(slab.started_at).getTime()
   if (Number.isNaN(s) || s > Date.now()) return 'not_started'
   if (slab.ended_at) {
     const e = new Date(slab.ended_at).getTime()
-    if (!Number.isNaN(e) && e <= Date.now()) return 'ended'
+    if (!Number.isNaN(e) && e <= Date.now()) return 'not_started'
   }
-  if (slab.stopped_date && String(slab.stopped_date).slice(0, 10) === todayLocal()) return 'ended'
   return 'running'
 }
+
+// A range stopped by an admin today stays hidden until it is started again.
+const stoppedToday = (slab) => !!(
+  slab && slab.stopped_date && String(slab.stopped_date).slice(0, 10) === todayLocal()
+)
 
 const LI_CSS = `
 .li-wrap { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; color: ${C.dark}; background: ${C.pageBg}; max-width: 100%; margin: -24px; padding: 16px 20px; }
@@ -113,8 +118,6 @@ const LI_CSS = `
 .li-panel { background: ${C.panelBg}; border: 1px solid ${C.line}; border-radius: 12px; box-shadow: 0 2px 10px rgba(30,80,140,.05); overflow: hidden; max-width: 100%; }
 .li-table-scroll { overflow-x: auto; max-width: 100%; }
 .li-table { width: 100%; min-width: 460px; table-layout: fixed; border-collapse: collapse; }
-@keyframes li-live-blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
-.li-live-blink { animation: li-live-blink 1.2s ease-in-out infinite; }
 .li-table th { padding: 9px 10px; font-size: 11px; font-weight: 700; color: #52698A; background: #F8FAFD; border-bottom: 1px solid #E5EDF7; white-space: nowrap; }
 .li-table td { padding: 9px 10px; font-size: 13px; }
 .li-table tbody tr { border-bottom: 1px solid #F2F6FB; transition: background .15s ease; }
@@ -370,8 +373,8 @@ function LiveLeaderboardPanel({ ranges, totalRanges, loading, error, onRefresh, 
           <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>Live Leaderboard</div>
           <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Top performers based on verified collections</div>
         </div>
-        <span className="li-live-blink" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, background: C.greenBg, color: C.green, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green, display: 'inline-block' }} /> Live
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, background: '#FDECEC', color: '#D92D20', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#E5484D', display: 'inline-block' }} /> Live
         </span>
       </div>
 
@@ -1035,7 +1038,7 @@ function WinnerComposer({ row, onSent }) {
 }
 
 // ─── History: winners + celebrations ──────────────────────
-function HistoryPanel({ date, champions, announcements, announcing, announceError, onAnnounce, onSent }) {
+function HistoryPanel({ date, champions, announcements, loading, fetchError, onRetry, announcing, announceError, onAnnounce, onSent }) {
   const announcedSlabIds = useMemo(
     () => new Set((announcements || []).map(a => String(a.slab_id))),
     [announcements]
@@ -1082,7 +1085,24 @@ function HistoryPanel({ date, champions, announcements, announcing, announceErro
           <div style={{ padding: '9px 12px', borderRadius: 8, background: '#FEF2F2', color: '#C0392B', fontSize: 12, fontWeight: 600 }}>{announceError}</div>
         )}
 
-        {pending.length === 0 && dayRows.length === 0 && (
+        {loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} className="li-shimmer" style={{ height: 56, borderRadius: 10 }} />
+            ))}
+          </div>
+        ) : fetchError ? (
+          <div style={{ padding: '26px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>Unable to load history</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{fetchError}</div>
+            <button type="button" onClick={onRetry}
+              style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 14px', borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.primary, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <ArrowsClockwise size={14} /> Retry
+            </button>
+          </div>
+        ) : (
+        <>
+        {pending.length === 0 && dayRows.length === 0 && earlier.length === 0 && (
           <div style={{ padding: '26px 16px', textAlign: 'center' }}>
             <div style={{ width: 40, height: 40, margin: '0 auto 10px', borderRadius: '50%', background: C.nsBg, color: C.ns, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Trophy size={18} />
@@ -1161,6 +1181,8 @@ function HistoryPanel({ date, champions, announcements, announcing, announceErro
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
     </div>
   )
@@ -1175,7 +1197,6 @@ export default function LeadIncentive() {
   const [slabsLoading, setSlabsLoading] = useState(true)
   const [summaryError, setSummaryError] = useState(null)
   const [savingSlab, setSavingSlab] = useState(false)
-  const [announced, setAnnounced] = useState([])
   const [history, setHistory] = useState([])
   const [announcing, setAnnouncing] = useState(false)
   const [historyError, setHistoryError] = useState(null)
@@ -1187,18 +1208,6 @@ export default function LeadIncentive() {
   const [viewAll, setViewAll] = useState(null)
 
   const uniqueSlabs = useMemo(() => uniqueByRange(slabs), [slabs])
-
-  // Ranges that already produced a winner today (announced champions) — STOP-AFTER-WIN.
-  const wonSlabById = useMemo(() => {
-    const map = {}
-    for (const a of announced || []) {
-      if (a && a.slab_id) map[a.slab_id] = true
-    }
-    for (const c of summary?.champions || []) {
-      if (c && c.slab_id) map[c.slab_id] = true
-    }
-    return map
-  }, [announced, summary])
 
   // Aggregate each award range with live status + leaderboard members + progress.
   const rangeRows = useMemo(() => {
@@ -1222,8 +1231,12 @@ export default function LeadIncentive() {
           slab,
           slab_label: fmtSlabRange(slab),
           idx: idx + 1,
-          status: rangeStatus(slab, wonSlabById),
+          status: rangeStatus(slab),
+          // STOP-AFTER-WIN: a range with a winner (or stopped today) is out of
+          // the live race — the table shows it back as Not Started and the
+          // leaderboard hides it; the winner lives on in History.
           won: !!champion,
+          stopped: stoppedToday(slab),
           champion,
           members,
           top3: members.slice(0, 3),
@@ -1234,7 +1247,7 @@ export default function LeadIncentive() {
           totalCount: members.length,
         }
       })
-  }, [uniqueSlabs, summary, wonSlabById])
+  }, [uniqueSlabs, summary])
 
   const loadSlabs = useCallback(async () => {
     try {
@@ -1257,22 +1270,22 @@ export default function LeadIncentive() {
     finally { setLoading(false) }
   }, [date])
 
-  const loadAnnouncement = useCallback(async () => {
-    try {
-      const r = await api(`/incentive/lead/champion/current?date=${date}`, { _prefix: 'ucs' })
-      setAnnounced(Array.isArray(r?.champions) ? r.champions : [])
-    } catch { /* ignore */ }
-  }, [date])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyFetchError, setHistoryFetchError] = useState(null)
 
   const loadHistory = useCallback(async () => {
     try {
+      setHistoryFetchError(null)
       const h = await api('/incentive/lead/champion/history', { _prefix: 'ucs' })
       setHistory(Array.isArray(h) ? h : [])
-    } catch { /* ignore */ }
+    } catch (e) {
+      setHistoryFetchError(e.message || 'Failed to load history')
+    }
+    finally { setHistoryLoading(false) }
   }, [])
 
   useEffect(() => { loadSlabs() }, [loadSlabs])
-  useEffect(() => { loadSummary(); loadAnnouncement(); loadHistory() }, [loadSummary, loadAnnouncement, loadHistory])
+  useEffect(() => { loadSummary(); loadHistory() }, [loadSummary, loadHistory])
 
   // Live updates via realtime (no polling): slabs, verified collections,
   // champion announcements and celebrations all refresh this page instantly.
@@ -1280,9 +1293,8 @@ export default function LeadIncentive() {
   const reloadAll = useCallback(() => {
     loadSlabs()
     loadSummary()
-    loadAnnouncement()
     loadHistory()
-  }, [loadSlabs, loadSummary, loadAnnouncement, loadHistory])
+  }, [loadSlabs, loadSummary, loadHistory])
   const reloadSoon = useCallback(() => {
     clearTimeout(reloadTimer.current)
     reloadTimer.current = setTimeout(reloadAll, 1200)
@@ -1301,7 +1313,7 @@ export default function LeadIncentive() {
         method: 'POST', _prefix: 'ucs',
         body: JSON.stringify({ date }),
       })
-      await Promise.all([loadAnnouncement(), loadHistory(), loadSummary()])
+      await Promise.all([loadHistory(), loadSummary()])
     } catch (e) {
       setHistoryError(e.message || 'Failed to announce winners')
     } finally { setAnnouncing(false) }
@@ -1310,7 +1322,7 @@ export default function LeadIncentive() {
   const refresh = async () => {
     setRefreshing(true)
     try {
-      await Promise.all([loadSlabs(), loadSummary(), loadAnnouncement(), loadHistory()])
+      await Promise.all([loadSlabs(), loadSummary(), loadHistory()])
     } finally { setRefreshing(false) }
   }
 
@@ -1436,15 +1448,18 @@ export default function LeadIncentive() {
             date={date}
             champions={summary?.champions || []}
             announcements={history}
+            loading={historyLoading}
+            fetchError={historyFetchError}
+            onRetry={() => { setHistoryLoading(true); loadHistory() }}
             announcing={announcing}
             announceError={historyError}
             onAnnounce={announceWinners}
-            onSent={() => { loadHistory(); loadAnnouncement() }}
+            onSent={() => { loadHistory() }}
           />
         </div>
         <div className="li-col">
           <LiveLeaderboardPanel
-            ranges={rangeRows.filter(r => r.status === 'running')}
+            ranges={rangeRows.filter(r => r.status === 'running' && !r.won && !r.stopped)}
             totalRanges={rangeRows.length}
             loading={loading}
             error={summaryError}
