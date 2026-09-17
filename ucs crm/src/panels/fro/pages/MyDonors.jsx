@@ -1477,6 +1477,13 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
         {/* List */}
         <div ref={listScrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
+          {(isFollowUps || isOverdueTab) && !followUpsLoading && (
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', lineHeight: 1.5, padding: '6px 10px', marginBottom: 8, borderRadius: 8, background: 'var(--bg)', border: '1px dashed var(--line)', fontStyle: 'italic' }}>
+              {isOverdueTab
+                ? 'Overdues you tagged - the follow-up time given has passed. Most overdue first. Tagging a new follow-up moves the lead back to Follow Up.'
+                : 'Fresh follow-ups you tagged. When a follow-up\'s given time passes, it moves to Overdue, where you\'ll see it until re-logged.'}
+            </div>
+          )}
           {loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {Array.from({ length: 6 }).map((_, i) => (
