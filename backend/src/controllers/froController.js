@@ -3470,7 +3470,14 @@ export const getMyAllotmentSummary = async (req, res) => {
 
     let periodRows = rows || [];
     const { month } = req.query;
-    if (month && /^\d{4}-\d{2}$/.test(month)) {
+    if (month === 'today') {
+      // IST day boundaries (UTC+5:30) against the timestamptz column.
+      const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const y = ist.getUTCFullYear(), m = ist.getUTCMonth(), d = ist.getUTCDate();
+      const start = new Date(Date.UTC(y, m, d) - 5.5 * 3600 * 1000).toISOString();
+      const end = new Date(Date.UTC(y, m, d + 1) - 5.5 * 3600 * 1000).toISOString();
+      periodRows = periodRows.filter(r => r.created_at && r.created_at >= start && r.created_at < end);
+    } else if (month && /^\d{4}-\d{2}$/.test(month)) {
       const [y, m] = month.split('-').map(Number);
       // IST month boundaries (UTC+5:30) against the timestamptz column.
       const start = new Date(Date.UTC(y, m - 1, 1) - 5.5 * 3600 * 1000).toISOString();
