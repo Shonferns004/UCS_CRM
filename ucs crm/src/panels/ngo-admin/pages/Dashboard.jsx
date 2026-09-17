@@ -2568,12 +2568,12 @@ export default function Dashboard() {
 
               {/* Zero Calls section (inside the same container) */}
               {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && !(hourlyAlerts.isToday && hourlyAlerts.elapsed === 0) && (
-                <div style={{ padding: '0 24px 16px' }}>
+                <div style={{ padding: '0 24px 16px', flexShrink: 0 }}>
                   <div style={{ border: '1px solid #fecdd3', borderRadius: 12, background: '#fff5f6', padding: '14px 16px', minHeight: 72 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                       <Circle size={10} fill="#dc2626" stroke="#dc2626" /> ZERO CALLS {hourlyAlerts.isToday ? 'SO FAR TODAY' : 'THIS DAY'} — {hourlyAlerts.noCalls.length} FRO{hourlyAlerts.noCalls.length > 1 ? 's' : ''}
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
+                    <div className="zero-calls-scroll" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', maxHeight: 112, overflowY: 'auto', paddingRight: 4 }}>
                       {hourlyAlerts.noCalls.map(f => (
                         <span
                           key={f.id}
@@ -2715,6 +2715,10 @@ export default function Dashboard() {
                 .productivity-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
                 .productivity-table-wrap::-webkit-scrollbar-thumb { background: #d3dae4; border-radius: 999px; }
                 .productivity-table-wrap::-webkit-scrollbar-track { background: transparent; }
+                .zero-calls-scroll { scrollbar-width: thin; scrollbar-color: #f3b7c0 transparent; }
+                .zero-calls-scroll::-webkit-scrollbar { width: 8px; }
+                .zero-calls-scroll::-webkit-scrollbar-thumb { background: #f3b7c0; border-radius: 999px; }
+                .zero-calls-scroll::-webkit-scrollbar-track { background: transparent; }
                 .productivity-alerts tbody tr:hover { background: #f8fbff; }
                 @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
               `}</style>
