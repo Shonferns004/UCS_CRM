@@ -3579,7 +3579,7 @@ export const getMyHistory = async (req, res) => {
         ngo_name: l.fro_assignments?.ngos?.name || null,
       };
     });
-    return res.json(result);
+    return res.json(result.reverse());
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
