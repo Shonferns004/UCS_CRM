@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises } from '../api/donors';
+import { getMyDonors, getQueueCurrent, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType, getMyDisposedLeads, getScheduled, getCallbacks, getPromises, getOverdue } from '../api/donors';
 import { api, isImpersonating, getUser } from '../../../api/auth';
 import { SkeletonMyLeads } from '../../../components/Skeleton';
 import { toast } from '../../../components/Toast';
@@ -552,9 +552,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
   // Follow-ups: scheduled contacts + callback assignments + money promises,
   // merged/deduplicated the same way the standalone Follow Ups page did.
-  // Feeds both the Follow Ups and Overdue tabs (overdue = past-due subset).
   useEffect(() => {
-    if ((listView !== 'followups' && listView !== 'overdue') || activeDonor) return;
+    if (listView !== 'followups' || activeDonor) return;
     let cancelled = false;
     setFollowUpsLoading(true);
     Promise.all([getScheduled(), getCallbacks(), getPromises()])
@@ -591,6 +590,20 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         setFollowUps(items);
       })
       .catch((err) => { if (!cancelled) { console.error('Follow-ups error:', err.message); setFollowUps([]); } })
+      .finally(() => { if (!cancelled) setFollowUpsLoading(false); });
+    return () => { cancelled = true; };
+  }, [listView, activeDonor]);
+
+  // Overdue tab: server-side list of every lead whose follow-up date (across all
+  // past days/months) has passed and is still open — most overdue first.
+  const [overdueLeads, setOverdueLeads] = useState([]);
+  useEffect(() => {
+    if (listView !== 'overdue' || activeDonor) return;
+    let cancelled = false;
+    setFollowUpsLoading(true);
+    getOverdue()
+      .then((list) => { if (!cancelled) setOverdueLeads(list || []); })
+      .catch((err) => { if (!cancelled) { console.error('Overdue error:', err.message); setOverdueLeads([]); } })
       .finally(() => { if (!cancelled) setFollowUpsLoading(false); });
     return () => { cancelled = true; };
   }, [listView, activeDonor]);
@@ -1310,19 +1323,10 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
     const isHistory = listView === 'history';
     const isFollowUps = listView === 'followups';
-    // Overdue tab: every past-due follow-up/callback/promise, most-overdue first.
+    // Overdue tab: every past-due follow-up/callback/promise, most-overdue first,
+    // fetched server-side from next_follow_up so it spans every past day/month.
     const isOverdueTab = listView === 'overdue';
-    const overdueList = followUps
-      .filter(d => {
-        const t = d.due_date || d.scheduled_at;
-        return t ? new Date(t).getTime() < Date.now() : false;
-      })
-      .sort((a, b) => {
-        const ta = new Date(a.due_date || a.scheduled_at).getTime();
-        const tb = new Date(b.due_date || b.scheduled_at).getTime();
-        return ta - tb;
-      })
-      .map(d => ({ ...d, is_overdue: true }));
+    const overdueList = overdueLeads;
     // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
     const searching = listView === 'leads' && searchQuery.trim().length >= 2;
     const historyFiltered = isHistory ? historyLeads.filter(d => {
