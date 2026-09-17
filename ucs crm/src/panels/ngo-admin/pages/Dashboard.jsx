@@ -2474,19 +2474,18 @@ export default function Dashboard() {
 
               <div className="performance-table-wrapper" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                 {hourlyLoading ? (
-                  <div style={{ minHeight: 320, padding: '4px 16px' }}>
-                    {[0,1,2,3,4,5].map(i => (
-                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
-                        <div style={{ width: 24, height: 10, background: '#eef2f6', borderRadius: 5 }} />
-                        <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 5 }} />
-                        <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
-                        <div style={{ width: 80, height: 10, background: '#eef2f6', borderRadius: 5 }} />
-                        <div style={{ width: 70, height: 10, background: '#eef2f6', borderRadius: 5 }} />
-                        <div style={{ width: 55, height: 10, background: '#eef2f6', borderRadius: 5 }} />
-                        <div style={{ width: 90, height: 18, background: '#eef2f6', borderRadius: 999 }} />
-                      </div>
-                    ))}
-                  </div>
+                  <div style={{ minHeight: 200, padding: '4px 16px' }}>
+                      {[0,1,2,3,4,5].map(i => (
+                        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '5px 0', borderBottom: i < 5 ? '1px solid #f1f5f9' : 'none' }}>
+                          <div style={{ width: 14, height: 6, background: '#eef2f6', borderRadius: 4 }} />
+                          <div style={{ flex: 1, height: 6, background: '#eef2f6', borderRadius: 4 }} />
+                          <div style={{ width: 36, height: 6, background: '#eef2f6', borderRadius: 4 }} />
+                          <div style={{ width: 36, height: 6, background: '#eef2f6', borderRadius: 4 }} />
+                          <div style={{ width: 30, height: 6, background: '#eef2f6', borderRadius: 4 }} />
+                          <div style={{ width: 44, height: 11, background: '#eef2f6', borderRadius: 999 }} />
+                        </div>
+                      ))}
+                    </div>
                 ) : hourlyTotals.calls === 0 && elapsedIdx < 0 ? (
                   <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                     <div style={{ textAlign: 'center' }}>
