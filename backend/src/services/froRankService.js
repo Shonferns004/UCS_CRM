@@ -137,9 +137,10 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
     };
   });
 
-  // One deterministic comparator everywhere: performance, then month collection,
-  // then name. Without this an all-tie day ranked by DB order and the two screens
-  // produced different numbers.
+  // One deterministic comparator everywhere: period performance, then month
+  // collection, then name. Without this an all-tie day ranked by DB order and the
+  // two screens produced different numbers. The period is whatever the caller
+  // asked for (today / week / month / custom), so the rank follows that period.
   list
     .filter(p => p.monthly_target > 0)
     .sort((a, b) =>
