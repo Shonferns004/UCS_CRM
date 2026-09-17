@@ -4,7 +4,6 @@ import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck
 import { apiGet, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
-import RecentNotices from '../../../components/RecentNotices';
 import { useMeeting } from '../../../meetingStore';
 
 const DISPOSITION_LABELS = {
@@ -42,8 +41,9 @@ const CONNECTED_STATUS_COLUMNS = [
 // FRO hourly call target default: 200 connected calls per FRO per day over a 12-hr
 // (09:00–21:00) working window. The daily figure is editable from the Connected vs
 // Target card (stored server-side in settings.connected_call_target) and only
-// connected calls count toward it.
-const HOURS_IN_WORKDAY = 12;
+// connected calls count toward it. A 9-hour shift includes a 1-hour break, so
+// the effective working time is 8 hours.
+const HOURS_IN_WORKDAY = 8;
 const DAILY_CONNECTED_TARGET = 200;
 
 const MERGED_STATUS_GROUPS = {
@@ -1549,7 +1549,6 @@ export default function Dashboard() {
   const c = s.collection || {};
   const cm = c.month || {};
   const ct = c.today || {};
-  const r = s.reactivations || {};
   const w = data.workers || {};
   const f = w.fro || {};
   const att = w.attendance || {};
@@ -1576,10 +1575,6 @@ export default function Dashboard() {
   const attendance_pct = Number(att.pct) || 0;
   const data_used = Number(a.data_connected) || 0;
   const data_unused = Number(a.data_unconnected) || 0;
-  const active_donors = Number(d.active) || 0;
-  const inactive_donors = Number(d.inactive) || 0;
-  const reactivated_today = Number(r.today) || 0;
-  const reactivated_monthly = Number(r.month) || 0;
   // For "Today" the stations card reads the live tl-data (refreshes every 10s);
   // for any other date it reads the (date-aware) dashboard summary instead so the
   // card follows the selected period.
@@ -2466,7 +2461,7 @@ export default function Dashboard() {
                       <input type="number" min="1" value={connTargetDraft} onChange={e => setConnTargetDraft(e.target.value)}
                         style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 8, border: '1px solid #dbe5f1', fontSize: 13, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
                       />
-                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 5 }}>Hourly pace: {Math.round((Number(connTargetDraft) || 0) / HOURS_IN_WORKDAY)}/hr over 12 working hours</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 5 }}>Hourly pace: {Math.round((Number(connTargetDraft) || 0) / HOURS_IN_WORKDAY)}/hr over {HOURS_IN_WORKDAY} working hours</div>
                       {connTargetMsg && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 6 }}>{connTargetMsg}</div>}
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                         <button onClick={saveConnTarget} disabled={connTargetBusy}
@@ -3130,50 +3125,6 @@ export default function Dashboard() {
 
       {/* Call Connectivity Widget removed */}
 
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-        Donor Health
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginBottom: 20 }}>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Active Donors</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#8b5cf6' }}>{active_donors}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donated within last 1 year</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Inactive Donors</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#f97316' }}>{inactive_donors}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No donation in last 1 year</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Reactivated Today</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>{reactivated_today}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Inactive to active today</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Reactivated Month</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6' }}>{reactivated_monthly}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Inactive to active this month</div>
-        </div>
-      </div>
-
-    
       {selectedStation && (
         <StationDetailModal
           station={selectedStation}
@@ -3221,8 +3172,6 @@ export default function Dashboard() {
           onClose={() => setSelectedFro(null)}
         />
       )}
-
-      <RecentNotices limit={5} />
     </div>
   );
 }
