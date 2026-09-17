@@ -4813,11 +4813,22 @@ export const getTLDashboard = async (req, res) => {
     if (isNaN(rangeEnd.valueOf())) rangeEnd = todayEnd;
 
     // 1. Live status counts — driven by LOGIN PRESENCE (auth_sessions) plus the
-    //    current call state. An FRO is present only while they hold a fresh CRM
-    //    login session (logged_out_at NULL and heartbeat < 2 min old).
-    const { data: liveStatus } = await db.from('fro_live_status').select('worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name').in('worker_id', workerIds);
-    const liveFreshCutoff = new Date(now.getTime() - 2 * 60 * 1000);
+    //    current call state. An FRO is present while they hold an open CRM login
+    //    session (logged_out_at NULL) OR are emitting a fresh heartbeat.
+    const LIVE_FRESH_MS = 3 * 60 * 1000;
+    const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name';
+    const { data: liveStatus } = await db.from('fro_live_status').select(liveCols).in('worker_id', workerIds);
+    // Operator presence must not depend on the viewing NGO's scope: when an FRO
+    // here works-as someone OUTSIDE these NGOs, the covered row lives on another
+    // worker_id (e.g. Megha works as Deepa in another NGO). Fetch those rows too
+    // so the operator is still recognised as actively working.
+    const { data: opLiveStatus } = workerIds.length > 0
+      ? await db.from('fro_live_status').select(liveCols).in('work_as_operator_id', workerIds)
+      : { data: [] };
+    const allLive = [...(liveStatus || []), ...(opLiveStatus || [])];
+    const liveFreshCutoff = new Date(now.getTime() - LIVE_FRESH_MS);
     const isLiveFresh = (s) => s.updated_at && new Date(s.updated_at) >= liveFreshCutoff;
+    const liveRowByWorker = new Map((liveStatus || []).map(s => [String(s.worker_id), s]));
     // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
     // NOT present, so it never counts as calling/idle/online (it counts offline).
     const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
@@ -4827,7 +4838,7 @@ export const getTLDashboard = async (req, res) => {
     // while the covered FRO counts offline. Covers case where the operator has
     // no own live_status/auth_session (e.g. acting via admin/work-as setup).
     const workAsByOp = new Map();
-    for (const s of liveStatus || []) {
+    for (const s of allLive) {
       if (s.work_as_operator_id && isLiveFresh(s)) {
         const op = String(s.work_as_operator_id);
         if (!workAsByOp.has(op)) workAsByOp.set(op, s);
@@ -4836,9 +4847,10 @@ export const getTLDashboard = async (req, res) => {
     const isOperatorActive = (wid) => workAsByOp.has(String(wid));
 
     // Login presence: auth_sessions rows recorded on every UCS CRM login and
-    // closed on explicit logout. Online = an open session (logged_out_at IS
-    // NULL) — no 2-minute liveness window, so panel/FRO activity keeps working
-    // without losing status mid-day.
+    // closed on explicit logout. Presence = an open session OR a fresh
+    // heartbeat — a panel resumed from a saved token never re-POSTs /auth/login,
+    // so the session row can be missing or stale while the FRO is actively
+    // working. The freshness gate below still drops sleeping/closed panels.
     const sessionByUser = {};
     let useLoginPresence = true;
     try {
@@ -4850,7 +4862,9 @@ export const getTLDashboard = async (req, res) => {
     const isPresent = (wid) => {
       if (!useLoginPresence) return true;
       const s = sessionByUser[String(wid)];
-      return !!s && !s.logged_out_at;
+      if (s && !s.logged_out_at) return true;
+      const lrow = liveRowByWorker.get(String(wid));
+      return !!lrow && isLiveFresh(lrow);
     };
 
     // Logout counts: today (IST) and all-time, from explicit logout events.
@@ -4893,12 +4907,11 @@ export const getTLDashboard = async (req, res) => {
     const meeting = meetingRows.length;
     // FROs whose panel is being operated by another worker (work-as) are treated
     // as absent today: the covering operator carries the online/calling/idle state.
-    const workAsCoveredIds = new Set((liveStatus || []).filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
+    const workAsCoveredIds = new Set(allLive.filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
     const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
-    const liveRowByWorker = new Map((liveStatus || []).map(s => [String(s.worker_id), s]));
-    // Online requires a FRESH heartbeat (panel emitting within the last 2 min)
-    // on top of an open login session — a machine that is asleep, shut down, or
-    // a tab that was closed stops heartbeating and drops to offline ~2 min later.
+    // Online requires a FRESH heartbeat (panel emitting within the window) on
+    // top of presence — a machine that is asleep, shut down, or a tab that was
+    // closed stops heartbeating and drops to offline after the window.
     const online = useLoginPresence
       ? froWorkers.filter(w => {
           const lrow = liveRowByWorker.get(String(w.id));
@@ -5216,7 +5229,7 @@ export const getTLDashboard = async (req, res) => {
 
       const ls = liveStatusMap[w.id] || {};
       const claims = claimStatusMap[w.id] || { pending: 0, verified: 0, rejected: 0 };
-      const lsFresh = ls.updated_at && (now - new Date(ls.updated_at)) <= 2 * 60 * 1000;
+      const lsFresh = ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS;
       // Work-as: the row's heartbeat belongs to another operator (abc) covering
       // this FRO. The listed FRO (cbd) is not present — show offline, but let the
       // UI annotate "abc work as cbd" via work_as_operator_name.
@@ -5234,10 +5247,12 @@ export const getTLDashboard = async (req, res) => {
           ? Math.floor((now - new Date(ls.idle_since)) / 60000)
           : 0;
 
-      // Login-presence driven status: online requires a fresh, non-logged-out
-      // CRM session. Call state only refines it while the FRO is present. A FRO
-      // covered by another operator (work-as) is absent from the field — show
-      // them offline; the covering operator carries the presence.
+      // Presence-driven status: an operator actively working a covered panel
+      // mirrors that panel's call state. Otherwise online requires presence (an
+      // open CRM session OR a fresh heartbeat) plus a fresh self heartbeat. A
+      // FRO covered by another operator (work-as) with no panel of their own is
+      // absent from the field — show them offline; the covering operator carries
+      // the presence.
       let status = 'offline';
       if (acting) {
         if (acting.status === 'on_call') {
@@ -5360,7 +5375,7 @@ export const getTLDashboard = async (req, res) => {
     const callIdleAlerts = (idleFros || [])
       .filter(f => {
         if (f.work_as_operator_id) return false;
-        const lsFresh = f.updated_at && (now - new Date(f.updated_at)) <= 2 * 60 * 1000;
+        const lsFresh = f.updated_at && (now - new Date(f.updated_at)) <= LIVE_FRESH_MS;
         const hasIdleSince = f.idle_since != null;
         // New detector: status idle + idle_since set + heartbeat fresh (<=2 min)
         return f.status === 'idle' && hasIdleSince && lsFresh;
