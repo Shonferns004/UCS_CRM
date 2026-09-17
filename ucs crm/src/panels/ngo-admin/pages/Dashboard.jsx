@@ -2821,25 +2821,25 @@ export default function Dashboard() {
         });
         const setSort = (key) => setPerfSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: 1 });
         const sortIcon = (key) => (
-          <span style={{ color: perfSort.key === key ? '#2F80D9' : '#cbd5e1', fontSize: 9 }}>
+          <span style={{ color: perfSort.key === key ? '#2F80D9' : '#cbd5e1', fontSize: '0.5625rem' }}>
             {perfSort.key === key ? (perfSort.dir === 1 ? '▲' : '▼') : '↕'}
           </span>
         );
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            style={{ background: '#fff', padding: '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
         const stickyTh = (children, left) => (
           <th rowSpan={2} onClick={() => setSort('name')} title="FRO Name — click to sort"
-            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 120, maxWidth: 140 }}>
+            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 120, maxWidth: 140 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{children}{sortIcon('name')}</span>
           </th>
         );
         const groupTh = (label, color, bg, span) => (
-          <th colSpan={span} style={{ background: bg, color, padding: '7px 6px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
+          <th colSpan={span} style={{ background: bg, color, padding: '7px 6px', fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
         );
 
         const metricCell = (p, m) => {
@@ -2852,7 +2852,7 @@ export default function Dashboard() {
                 <span
                   onClick={click}
                   title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, padding: '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: 10.5, fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, padding: '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
                   {m.display ? m.display(v) : v}
                 </span>
               </td>
@@ -2860,7 +2860,7 @@ export default function Dashboard() {
           }
           return (
             <td key={m.key} style={{ padding: '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-              {show ? <span onClick={click} style={{ fontSize: 10.5, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: 10.5 }}>{m.display ? m.display(v) : 0}</span>}
+              {show ? <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: '0.656rem' }}>{m.display ? m.display(v) : 0}</span>}
             </td>
           );
         };
@@ -2990,7 +2990,7 @@ export default function Dashboard() {
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 8px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 120, maxWidth: 140 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, maxWidth: 120, overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', maxWidth: 120, overflow: 'hidden' }}>
                               {live && (
                                 <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
                               )}
