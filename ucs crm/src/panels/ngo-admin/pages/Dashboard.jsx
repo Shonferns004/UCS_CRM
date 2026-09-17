@@ -1683,24 +1683,24 @@ export default function Dashboard() {
     const headers1 = [
       'Telecaller', 'Login ID', 'Period', 'Total Calls', 'Connected',
       ...CONNECTED_STATUS_COLUMNS.map(c => c.label),
-      'Non-Connected', 'Interested', 'Amount (₹)', 'Logouts Today', 'Logouts Total', 'Live Status'
+      'Non-Connected', 'Interested', 'Amount (₹)', 'Logouts Today', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
       p.fro_name, p.fro_login_id || '', periodLabel, c.calls, c.connected,
       ...CONNECTED_STATUS_COLUMNS.map(col => c.statuses[col.key] || 0),
-      c.nonConnected, c.interested, c.received, p.logout_today || 0, p.logout_total || 0, p.status || 'offline'
+      c.nonConnected, c.interested, c.received, p.logout_today || 0, p.status || 'offline'
     ]);
     const t1 = calcRows1.reduce((a, { p, c }) => ({
       calls: a.calls + c.calls, connected: a.connected + c.connected, nonConnected: a.nonConnected + c.nonConnected,
       interested: a.interested + c.interested, donors: a.donors + (p.receivedDonors || 0), amount: a.amount + c.received,
-      logoutsToday: a.logoutsToday + (p.logout_today || 0), logoutsTotal: a.logoutsTotal + (p.logout_total || 0),
+      logoutsToday: a.logoutsToday + (p.logout_today || 0),
       statuses: CONNECTED_STATUS_COLUMNS.map((col, i) => a.statuses[i] + (c.statuses[col.key] || 0)),
-    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, logoutsToday: 0, logoutsTotal: 0, statuses: CONNECTED_STATUS_COLUMNS.map(() => 0) });
-    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.logoutsToday, t1.logoutsTotal, '']);
+    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, logoutsToday: 0, statuses: CONNECTED_STATUS_COLUMNS.map(() => 0) });
+    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.logoutsToday, '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
-    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 16 } }];
+    ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 15 } }];
     ws1['!rows'] = [{ hpt: 30 }, { hpt: 28 }];
     XLSX.utils.sheet_add_aoa(ws1, [headers1], { origin: 'A2' });
     XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
@@ -1708,21 +1708,21 @@ export default function Dashboard() {
     ws1['!cols'] = [
       { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
       ...CONNECTED_STATUS_COLUMNS.map(() => ({ wch: 16 })),
-      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }
     ];
     styleCell(ws1, 0, 0, TITLE);
-    for (let c = 0; c <= 16; c++) styleCell(ws1, 1, c, HDR);
-    const numCols1 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    for (let c = 0; c <= 15; c++) styleCell(ws1, 1, c, HDR);
+    const numCols1 = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
     for (let r = 2; r < 2 + aoa1.length; r++) {
-      for (let c = 0; c <= 16; c++) {
+      for (let c = 0; c <= 15; c++) {
         const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols1.includes(c) ? 'center' : 'left' } };
         if (c === 13) s.numFmt = AMT.numFmt;
         styleCell(ws1, r, c, s);
       }
     }
-    for (let c = 0; c <= 16; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 13 ? AMT.numFmt : undefined });
+    for (let c = 0; c <= 15; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 13 ? AMT.numFmt : undefined });
     ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
-    ws1['!autofilter'] = { ref: `A2:Q${1 + aoa1.length}` };
+    ws1['!autofilter'] = { ref: `A2:P${1 + aoa1.length}` };
     XLSX.utils.book_append_sheet(wb, ws1, 'Telecaller Performance');
 
     // ── Sheet 2: Hourly Performance (subtotals per telecaller) ──────
@@ -2545,7 +2545,6 @@ export default function Dashboard() {
                   <span style={chipBadge('#15803d')}><AnimatedNumber value={hourlyTotals.amount} /></span>
                 </span>
                 {hourlyLoading && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>updating…</span>}
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-soft)' }}>IST hours • 09:00–21:00 working window</span>
               </div>
             </div>
 
@@ -2915,7 +2914,6 @@ export default function Dashboard() {
           { key: 'dnd', param: 'DND', full: 'Do Not Disturb', val: (p) => statusesOf(p).dnd || 0, pill: false, filterType: 'connected', status: 'dnd' },
           { key: 'recvd', param: 'RECVD AMT', full: 'Received Amount', val: (p) => p.receivedAmount_range || 0, pill: true, color: '#166534', bg: '#f0fdf4', display: (v) => fmt(v) },
           { key: 'lt', param: 'LOGOUTS TODAY', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff' },
-          { key: 'ltot', param: 'LOGOUTS TOTAL', full: 'Logouts Total', val: (p) => p.logout_total || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff' },
         ];
 
         const COLUMNS = [
