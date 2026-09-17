@@ -1435,6 +1435,8 @@ export default function Dashboard() {
     setError(null);
     const params = new URLSearchParams();
     if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
+    if (activeRange.from) params.set('from', activeRange.from);
+    if (activeRange.to) params.set('to', activeRange.to);
     if (opts.fresh) params.set('fresh', '1');
     const ngoParam = params.toString() ? `?${params.toString()}` : '';
     const reqOpts = { signal: controller.signal, timeout: 180000 };
@@ -1451,7 +1453,7 @@ export default function Dashboard() {
       .then(st => { if (!controller.signal.aborted) setStationsData(Array.isArray(st) ? st : []); })
       .catch(() => {});
     return controller;
-  }, [selectedNgoId]);
+  }, [selectedNgoId, activeRange]);
 
   useEffect(() => {
     const controller = fetchDashboard();
@@ -1543,8 +1545,16 @@ export default function Dashboard() {
   const inactive_donors = Number(d.inactive) || 0;
   const reactivated_today = Number(r.today) || 0;
   const reactivated_monthly = Number(r.month) || 0;
-  const stations_per_ngo = tlData?.stations_per_ngo || data.stations_per_ngo || {};
-  const stations_summary = tlData?.stations_summary || data.stations_summary || { total: 0, active: 0 };
+  // For "Today" the stations card reads the live tl-data (refreshes every 10s);
+  // for any other date it reads the (date-aware) dashboard summary instead so the
+  // card follows the selected period.
+  const isTodayRange = !!(activeRange.to && activeRange.from === activeRange.to && activeRange.to === toIstDate());
+  const stations_per_ngo = isTodayRange
+    ? (tlData?.stations_per_ngo || data.stations_per_ngo || {})
+    : (data.stations_per_ngo || tlData?.stations_per_ngo || {});
+  const stations_summary = isTodayRange
+    ? (tlData?.stations_summary || data.stations_summary || { total: 0, active: 0 })
+    : (data.stations_summary || tlData?.stations_summary || { total: 0, active: 0 });
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = Number(d.assigned_pct) || 0;
   const direct_donation_month = Math.max(0, month_collection - verified_month_amount - unverified_month_amount);
