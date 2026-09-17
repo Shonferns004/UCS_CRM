@@ -23,7 +23,6 @@ import {
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
-  getBatchCollectionStats,
   getCollectedByNgo,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
@@ -35,6 +34,7 @@ import {
   paymentDiscriminant,
   inRange,
 } from '../models/froDonorLogModel.js';
+import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
@@ -721,10 +721,6 @@ export const getMyPerformance = async (req, res) => {
     const day = istNow.toISOString().slice(0, 10);
     const dayStart = new Date(`${day}T00:00:00.000+05:30`).toISOString();
     const dayEnd = new Date(`${day}T23:59:59.999+05:30`).toISOString();
-    const [yr, mo] = day.slice(0, 7).split('-').map(Number);
-    const lastDay = new Date(Date.UTC(yr, mo, 0)).getUTCDate();
-    const istMonthStart = new Date(`${day.slice(0, 7)}-01T00:00:00.000+05:30`).toISOString();
-    const istMonthEnd = new Date(`${day.slice(0, 7)}-${String(lastDay).padStart(2, '0')}T23:59:59.999+05:30`).toISOString();
     const istHour = istNow.getUTCHours();
     const elapsedHours = Math.max(0, Math.min(12, istHour < 9 ? 0 : istHour - 8));
     const targetPace = Math.round((200 * elapsedHours) / 12);
@@ -763,116 +759,31 @@ export const getMyPerformance = async (req, res) => {
     if (!teamLogs[String(workerId)]) teamLogs[String(workerId)] = 0;
     if (!teamConnected[String(workerId)]) teamConnected[String(workerId)] = 0;
 
-    // Roster: this worker plus every active non-test FRO in the organisation, so
-    // the performance rank is one shared org-wide leaderboard (no per-station
-    // duplicates). A worker's own logged metrics stay scoped to their stations.
-    const { data: globalFroWorkers } = await db
-      .from('workers')
-      .select('id, name, is_test, is_active')
-      .eq('department', 'FRO');
-    const roster = new Map();
-    if (worker?.id) roster.set(String(worker.id), { id: String(worker.id), name: String(worker?.name || '').trim() });
-    for (const teamWorker of globalFroWorkers || []) {
-      if (teamWorker?.is_active !== false && teamWorker?.is_test !== true && teamWorker?.id) {
-        roster.set(String(teamWorker.id), { id: String(teamWorker.id), name: String(teamWorker.name || '').trim() });
-      }
-    }
-    const teamIds = [...roster.keys()];
+    // Leaderboard: one shared org-wide ranking service so the strip number is
+    // always identical to the admin High/Low tables. This worker's own logged
+    // metrics above stay scoped to their stations.
+    const leaderboard = await buildFroLeaderboard({ startDay: day, endDay: day, todayDay: day });
+    const me = leaderboard.find(p => String(p.id) === String(workerId));
+    const rank = me?.rank || null;
 
-    // Rank the roster with the exact dashboard pace metric so the strip number
-    // matches the admin High/Low tables: pct = today's collection ÷ remaining
-    // daily pace target, where the pace target is remaining monthly target ÷
-    // remaining working days (falling back to monthly target ÷ total working
-    // days). Only FROs holding a current monthly target compete; equal pct
-    // falls back to the month's collection, then name.
     const todayCollection = {};
     const monthCollection = {};
-    const monthlyTargetMap = {};
     const dailyTargetMap = {};
     const pacePct = {};
-    for (const id of teamIds) {
-      todayCollection[id] = 0;
-      monthCollection[id] = 0;
-      monthlyTargetMap[id] = 0;
-      dailyTargetMap[id] = 0;
-      pacePct[id] = 0;
+    for (const p of leaderboard) {
+      const id = String(p.id);
+      todayCollection[id] = p.period_collection;
+      monthCollection[id] = p.collection_amount;
+      dailyTargetMap[id] = Math.round((p.period_target || 0) * 100) / 100;
+      pacePct[id] = p.performance_pct;
     }
-    if (teamIds.length > 0) {
-      const stats = await getBatchCollectionStats(teamIds, istMonthStart, istMonthEnd, dayStart, dayEnd);
-      for (const id of teamIds) {
-        todayCollection[id] = stats?.todayCollection[id] || 0;
-        monthCollection[id] = stats?.monthCollection[id] || 0;
-      }
-
-      const { data: monthTargetRows } = await db
-        .from('fro_monthly_targets')
-        .select('fro_worker_id, target_amount, achieved_target')
-        .eq('month', `${day.slice(0, 7)}-01`);
-      const targetMap = {};
-      for (const t of monthTargetRows || []) {
-        const key = String(t.fro_worker_id);
-        const current = targetMap[key];
-        if (!current || Number(t.target_amount || 0) > current.target_amount) {
-          targetMap[key] = {
-            target_amount: Number(t.target_amount || 0),
-            achieved_target: t.achieved_target == null ? null : Number(t.achieved_target),
-          };
-        }
-      }
-
-      // Working days: non-Sundays, except the month's last Sunday also counts.
-      const [yy, mm] = day.slice(0, 7).split('-').map(Number);
-      const monthLastDay = new Date(yy, mm, 0).getDate();
-      let lastSunday = 0;
-      for (let d = monthLastDay; d >= 1; d--) {
-        if (new Date(yy, mm - 1, d).getDay() === 0) { lastSunday = d; break; }
-      }
-      let workingDays = 0;
-      for (let d = 1; d <= monthLastDay; d++) {
-        const sunday = new Date(yy, mm - 1, d).getDay() === 0;
-        if (!sunday || d === lastSunday) workingDays++;
-      }
-
-      const { data: attendanceRows } = await db
-        .from('attendance')
-        .select('worker_id, date, status')
-        .gte('date', `${day.slice(0, 7)}-01`)
-        .lte('date', `${day.slice(0, 7)}-${String(monthLastDay).padStart(2, '0')}`)
-        .in('worker_id', teamIds);
-      const workedDaysMap = {};
-      for (const row of attendanceRows || []) {
-        if (row.status !== 'present' && row.status !== 'late') continue;
-        if (!workedDaysMap[row.worker_id]) workedDaysMap[row.worker_id] = new Set();
-        workedDaysMap[row.worker_id].add(String(row.date).slice(0, 10));
-      }
-
-      for (const id of teamIds) {
-        const target = targetMap[id];
-        const monthlyTarget = target?.target_amount || 0;
-        monthlyTargetMap[id] = monthlyTarget;
-        const achievedTarget = (target?.achieved_target != null && Number(target.achieved_target) > 0)
-          ? Number(target.achieved_target)
-          : monthCollection[id];
-        const workedDays = workedDaysMap[id]?.size || 0;
-        const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
-        const remainingDays = Math.max(workingDays - workedDays, 0);
-        const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
-        const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
-        const paceTarget = remainingDays > 0 && averageCollection > 0 ? averageCollection : perDayCollection;
-        dailyTargetMap[id] = Math.round(paceTarget * 100) / 100;
-        pacePct[id] = paceTarget > 0 ? (todayCollection[id] / paceTarget) * 100 : 0;
-      }
+    const workerKey = String(workerId);
+    if (!(workerKey in todayCollection)) {
+      todayCollection[workerKey] = 0;
+      monthCollection[workerKey] = 0;
+      dailyTargetMap[workerKey] = 0;
+      pacePct[workerKey] = 0;
     }
-    // Every FRO with a current monthly target competes, online or not, so the
-    // strip rank matches the admin dashboard's global High/Low numbering.
-    const rankedIds = teamIds.filter(id => monthlyTargetMap[id] > 0);
-    const nameOf = (id) => roster.get(id)?.name || String(id);
-    const ranking = rankedIds.sort((a, b) =>
-      (pacePct[b] - pacePct[a])
-      || (monthCollection[b] - monthCollection[a])
-      || nameOf(a).localeCompare(nameOf(b))
-    );
-    const rank = ranking.indexOf(String(workerId)) + 1 || null;
 
     const connected = teamConnected[String(workerId)] || 0;
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
@@ -890,7 +801,7 @@ export const getMyPerformance = async (req, res) => {
       performance,
       level: performance >= 100 ? 'high' : 'low',
       rank: rank || null,
-      team_size: teamIds.length,
+      team_size: leaderboard.length,
       calls: hours,
       idle_seconds: liveStatus?.today_idle_seconds || 0,
       idle_since: liveStatus?.idle_since || null,
