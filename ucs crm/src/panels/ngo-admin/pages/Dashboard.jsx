@@ -514,19 +514,7 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
   );
 }
 
-const FOLLOWUP_TAB_LABELS = {
-  overdue: 'Overdue', today: 'Today', tomorrow: 'Tomorrow', future: 'Future',
-  week: 'This Week', month: 'This Month',
-};
-
-const FOLLOWUP_BUCKETS = [
-  { key: 'overdue', label: 'Overdue', color: '#dc2626' },
-  { key: 'today', label: 'Today', color: '#ea580c' },
-  { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb' },
-  { key: 'future', label: 'Future', color: '#6b7280' },
-  { key: 'week', label: 'This Week', color: '#5B6B4E' },
-  { key: 'month', label: 'This Month', color: '#7c3aed' },
-];
+const PROMISE_STATUSES = new Set(['promise_to_pay', 'will_donate_online', 'payment_pending']);
 
 function buildWorkerSummary(rows, todayIst = toIstDate()) {
   const map = {};
@@ -541,6 +529,33 @@ function buildWorkerSummary(rows, todayIst = toIstDate()) {
   const list = Object.values(map).map(x => ({ ...x, total: x.callback + x.follow_up }));
   // Laziest first: most overdue on top, then busiest — so slackers are instantly visible.
   list.sort((a, b) => b.overdue - a.overdue || b.total - a.total || a.telecaller.localeCompare(b.telecaller));
+  return list;
+}
+
+function buildColumnSummary(rows, todayIst = toIstDate()) {
+  const map = {};
+  for (const r of rows) {
+    const key = r.fro_worker_id || r.telecaller || 'Unknown';
+    if (!map[key]) map[key] = { key, telecaller: r.telecaller || 'Unknown', today_fup: 0, today_cb: 0, cb_overdue: 0, fup_overdue: 0, future: 0, rows: [] };
+    const fd = r.followup_date ? String(r.followup_date).slice(0, 10) : null;
+    const isCb = r.type === 'callback';
+    const isPromise = PROMISE_STATUSES.has(r.status);
+    if (!fd || fd > todayIst) map[key].future++;
+    else if (fd === todayIst) {
+      if (isCb) map[key].today_cb++;
+      else map[key].today_fup++;
+    } else {
+      if (isCb) map[key].cb_overdue++;
+      else if (!isPromise) map[key].fup_overdue++;
+    }
+    map[key].rows.push(r);
+  }
+  const list = Object.values(map).map(x => ({
+    ...x,
+    total: x.today_fup + x.today_cb + x.cb_overdue + x.fup_overdue + x.future,
+  }));
+  // Laziest first: most overdue on top, then busiest.
+  list.sort((a, b) => (b.cb_overdue + b.fup_overdue) - (a.cb_overdue + a.fup_overdue) || b.total - a.total || a.telecaller.localeCompare(b.telecaller));
   return list;
 }
 
@@ -605,6 +620,73 @@ function FollowupSummaryTable({ summary, onSelect, hint }) {
         </table>
       </div>
       <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>{hint || 'Click a telecaller to view donors — sorted by most overdue first'}</div>
+    </div>
+  );
+}
+
+const COLUMN_HEADERS = [
+  ['#', 'center', 34],
+  ['Telecaller', 'left', null],
+  ['Today F/Up', 'center', null],
+  ['Today Cb', 'center', null],
+  ['Cb Overdue', 'center', null],
+  ['F/Up Overdue', 'center', null],
+  ['Future', 'center', null],
+  ['Total', 'center', null],
+];
+
+function FollowupColumnTable({ summary, onSelect, hint }) {
+  const cnt = (v, color) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, animation: 'countPop .3s ease-out', fontWeight: 700, color: v > 0 ? color : 'var(--ink-soft)' }}>
+      <AnimatedNumber value={v} />
+    </span>
+  );
+  return (
+    <div>
+      <style>{`@keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }`}</style>
+      <div style={{ overflowX: 'auto', maxHeight: 380, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              {COLUMN_HEADERS.map(([h, align, w]) => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: align, fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)', position: 'sticky', top: 0, background: 'var(--bg, #fff)', zIndex: 2, ...(w ? { width: w } : {}) }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map((w, i) => {
+              const overdue = w.cb_overdue + w.fup_overdue;
+              return (
+                <tr key={w.key} onClick={() => onSelect(w)} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer', animationDelay: `${Math.min(i, 10) * 25}ms` }} title="Click to view donors"
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: overdue > 0 ? (i < 3 ? '#dc2626' : '#b91c1c') : 'var(--ink-soft)' }}>
+                    {overdue > 0 ? `!${i + 1}` : i + 1}
+                  </td>
+                  <td style={{ padding: '8px 10px', fontWeight: 600 }}>{w.telecaller}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.today_fup, '#ea580c')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.today_cb, '#16a34a')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.cb_overdue, '#dc2626')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.fup_overdue, '#b45309')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cnt(w.future, '#2563eb')}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{cnt(w.total, 'var(--ink)')}</td>
+                </tr>
+              );
+            })}
+            <tr style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg)', fontWeight: 700, position: 'sticky', bottom: 0 }}>
+              <td style={{ padding: '8px 10px', fontWeight: 700, textAlign: 'center' }}>Σ</td>
+              <td style={{ padding: '8px 10px', fontWeight: 700 }}>TOTAL</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#ea580c' }}>{summary.reduce((s, w) => s + w.today_fup, 0)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{summary.reduce((s, w) => s + w.today_cb, 0)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#dc2626' }}>{summary.reduce((s, w) => s + w.cb_overdue, 0)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#b45309' }}>{summary.reduce((s, w) => s + w.fup_overdue, 0)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#2563eb' }}>{summary.reduce((s, w) => s + w.future, 0)}</td>
+              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700 }}>{summary.reduce((s, w) => s + w.total, 0)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>{hint || 'Click a telecaller to view their follow-ups and callbacks'}</div>
     </div>
   );
 }
@@ -1360,7 +1442,6 @@ export default function Dashboard() {
     !froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase())
   ), [tlData, froSearch]);
   const [followups, setFollowups] = useState([]);
-  const [followupTab, setFollowupTab] = useState('overdue');
 
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupMode, setFollowupMode] = useState('bucket');
@@ -1454,17 +1535,7 @@ export default function Dashboard() {
 
   const daywiseSummary = useMemo(() => buildWorkerSummary(daywiseRows), [daywiseRows]);
 
-  const bucketCountOf = useCallback((key) => {
-    if (!Array.isArray(followups)) return 0;
-    return followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(key)).length;
-  }, [followups]);
-
-  const bucketRows = useMemo(() => {
-    if (!Array.isArray(followups)) return [];
-    return followups.filter(f => (f.buckets || (f.bucket ? [f.bucket] : [])).includes(followupTab));
-  }, [followups, followupTab]);
-
-  const bucketSummary = useMemo(() => buildWorkerSummary(bucketRows), [bucketRows]);
+  const columnSummary = useMemo(() => buildColumnSummary(followups), [followups]);
 
   const fetchDashboard = useCallback((opts = {}) => {
     const controller = new AbortController();
@@ -2976,29 +3047,7 @@ export default function Dashboard() {
             ) : (
               <>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {FOLLOWUP_BUCKETS.map(t => {
-                    const count = bucketCountOf(t.key);
-                    const active = followupMode === 'bucket' && followupTab === t.key;
-                    return (
-                      <button key={t.key} onClick={() => { setFollowupMode('bucket'); setFollowupTab(t.key); }} style={{
-                        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999,
-                        border: active ? `1.5px solid ${t.color}` : '1px solid var(--line)',
-                        background: active ? `${t.color}14` : 'var(--bg, #fff)',
-                        color: active ? t.color : 'var(--ink-soft)',
-                        fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                        transition: 'all .18s ease',
-                        boxShadow: active ? `0 2px 8px ${t.color}2e` : 'none',
-                      }}>
-                        <span>●</span>
-                        <span>{t.label}</span>
-                        <span style={{ minWidth: 20, height: 18, padding: '0 7px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: active ? t.color : 'var(--line)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'background .18s ease', animation: 'countPop .3s ease-out' }}>
-                          <AnimatedNumber value={count} />
-                        </span>
-                      </button>
-                    );
-                  })}
-                  <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
-                  <button onClick={() => { setFollowupMode('daywise'); setFollowupTab(''); }} style={{
+                  <button onClick={() => setFollowupMode('daywise')} style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, fontFamily: 'inherit',
                     border: followupMode === 'daywise' ? '1.5px solid #5B6B4E' : '1px solid var(--line)',
                     fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -3049,18 +3098,14 @@ export default function Dashboard() {
                       </div>
                     );
                   })()
-) : (
-                  (() => {
-                    const tabLabel = FOLLOWUP_TAB_LABELS[followupTab] || followupTab;
-                    if (bucketSummary.length === 0) return <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {tabLabel} follow-ups</div>;
-                    return (
-                      <FollowupSummaryTable
-                        summary={bucketSummary}
-                        hint={`${bucketRows.length} record${bucketRows.length !== 1 ? 's' : ''} in ${tabLabel} — click a telecaller to view donors`}
-                        onSelect={setFupDetailWorker}
-                      />
-                    );
-                  })()
+) : columnSummary.length === 0 ? (
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No follow-ups or callbacks yet</div>
+                ) : (
+                  <FollowupColumnTable
+                    summary={columnSummary}
+                    hint={`${followups.length} record${followups.length !== 1 ? 's' : ''} — click a telecaller to view donors`}
+                    onSelect={setFupDetailWorker}
+                  />
                 )}
               </>
             )}
@@ -3081,7 +3126,7 @@ export default function Dashboard() {
       {fupDetailWorker && (
         <FollowupDetailModal
           worker={fupDetailWorker}
-          label={followupMode === 'daywise' ? followupDay : (FOLLOWUP_TAB_LABELS[followupTab] || followupTab)}
+          label={followupMode === 'daywise' ? followupDay : 'Overview'}
           onClose={() => setFupDetailWorker(null)}
         />
       )}
