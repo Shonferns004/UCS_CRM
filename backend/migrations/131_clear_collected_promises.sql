@@ -38,18 +38,20 @@ CREATE TEMP TABLE tmp_clear_promises ON COMMIT DROP AS
              FROM receipts r
             WHERE r.donor_id = a.donor_id
               AND lower(r.project_id) = lower(n.name)
-              AND r.receipt_date >= CASE lower(
-                    COALESCE(NULLIF(d.donor_type, ''), d.donation_frequency, '')
-                  )
-                  WHEN 'quarterly' THEN date_trunc('quarter', current_date)
-                  WHEN 'half_yearly'
-                    AND extract(month from current_date) < 7
-                                                    THEN date_trunc('year', current_date)
-                  WHEN 'half_yearly' THEN date_trunc('year', current_date) + interval '6 months'
-                  WHEN 'yearly'      THEN date_trunc('year', current_date)
-                  WHEN 'one_time'    THEN '2000-01-01'::date
-                  ELSE date_trunc('month', current_date)
-                END
+              AND r.receipt_date >= CASE
+                    WHEN lower(COALESCE(NULLIF(d.donor_type, ''), d.donation_frequency, '')) = 'quarterly'
+                      THEN date_trunc('quarter', current_date)
+                    WHEN lower(COALESCE(NULLIF(d.donor_type, ''), d.donation_frequency, '')) = 'half_yearly'
+                      AND extract(month from current_date) < 7
+                      THEN date_trunc('year', current_date)
+                    WHEN lower(COALESCE(NULLIF(d.donor_type, ''), d.donation_frequency, '')) = 'half_yearly'
+                      THEN date_trunc('year', current_date) + interval '6 months'
+                    WHEN lower(COALESCE(NULLIF(d.donor_type, ''), d.donation_frequency, '')) = 'yearly'
+                      THEN date_trunc('year', current_date)
+                    WHEN lower(COALESCE(NULLIF(d.donor_type, ''), d.donation_frequency, '')) = 'one_time'
+                      THEN '2000-01-01'::date
+                    ELSE date_trunc('month', current_date)
+                  END
          );
 
 UPDATE fro_assignments a
