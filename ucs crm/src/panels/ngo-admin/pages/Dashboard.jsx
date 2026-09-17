@@ -1728,7 +1728,7 @@ export default function Dashboard() {
     // Mirrors the on-screen table: FU + C/B under Follow-up, VISIT + P under
     // Field, plus Overdue (calls / follow-ups), Logout and Idle Hr columns.
     const EXPORT_STATUS_ORDER = ['scheduled', 'callback', 'office_program_visit', 'promise_pay_wa_email', 'not_interested_np', 'dnd'];
-    const EXPORT_STATUS_LABELS = { scheduled: 'Follow Up (FU)', callback: 'Callback (C/B)', office_program_visit: 'Visit', promise_pay_wa_email: 'P', not_interested_np: 'Not Inter / Disc / NP', dnd: 'DND' };
+    const EXPORT_STATUS_LABELS = { scheduled: 'Follow Up (FU)', callback: 'Callback (C/B)', office_program_visit: 'Visit', promise_pay_wa_email: 'P', not_interested_np: 'NI', dnd: 'DND' };
     const headers1 = [
       'Telecaller', 'Login ID', 'Period', 'Idle Hr', 'Total Calls', 'Connected', 'Leads Done',
       ...EXPORT_STATUS_ORDER.map(k => EXPORT_STATUS_LABELS[k]),
@@ -2797,12 +2797,12 @@ export default function Dashboard() {
           { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, filterType: 'connected', status: 'callback' },
           { key: 'odc', param: 'CO/D', full: 'Overdue Callbacks', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2' },
           { key: 'odf', param: 'FUP O/D', full: 'Overdue Follow-Ups', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7' },
-          { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, filterType: 'connected', status: 'office_program_visit' },
+          { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, narrow: true, filterType: 'connected', status: 'office_program_visit' },
           { key: 'ppay', param: 'P', full: 'Promise To Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, filterType: 'connected', status: 'promise_pay_wa_email' },
-          { key: 'ni', param: 'NI/DISC/NP', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, filterType: 'connected', status: 'not_interested_np' },
+          { key: 'ni', param: 'NI', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, narrow: true, filterType: 'connected', status: 'not_interested_np' },
           { key: 'dnd', param: 'DND', full: 'Do Not Disturb', val: (p) => statusesOf(p).dnd || 0, pill: false, filterType: 'connected', status: 'dnd' },
           { key: 'recvd', param: 'RECVD AMT', full: 'Received Amount', val: (p) => p.receivedAmount_range || 0, pill: true, color: '#166534', bg: '#f0fdf4', display: (v) => fmt(v) },
-          { key: 'lt', param: 'LOGOUT', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff' },
+          { key: 'lt', param: 'LOGOUT', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff', narrow: true },
         ];
 
         const COLUMNS = [
@@ -2828,8 +2828,8 @@ export default function Dashboard() {
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{m.param}{sortIcon(m.key)}</span>
+            style={{ background: '#fff', padding: m.narrow ? '7px 1px' : '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
         const stickyTh = (children, left) => (
@@ -2848,18 +2848,18 @@ export default function Dashboard() {
           const show = v > 0;
           if (m.pill && show) {
             return (
-              <td key={m.key} style={{ padding: '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
                 <span
                   onClick={click}
                   title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, padding: '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: m.narrow ? 18 : 22, padding: m.narrow ? '1px 4px' : '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
                   {m.display ? m.display(v) : v}
                 </span>
               </td>
             );
           }
           return (
-            <td key={m.key} style={{ padding: '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+            <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
               {show ? <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: '0.656rem' }}>{m.display ? m.display(v) : 0}</span>}
             </td>
           );
