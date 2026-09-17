@@ -1024,7 +1024,6 @@ export default function Dashboard() {
   const [hourlyExportFrom, setHourlyExportFrom] = useState(() => toIstDate());
   const [hourlyExportTo, setHourlyExportTo] = useState(() => toIstDate());
   const [froHourlyData, setFroHourlyData] = useState([]);
-  const [hourlyDate, setHourlyDate] = useState(() => toIstDate());
   const [hourlyList, setHourlyList] = useState([]);
   const [hourlyFroRows, setHourlyFroRows] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
@@ -1052,6 +1051,14 @@ export default function Dashboard() {
     }
     return { from: customFrom, to: customTo };
   }, [dashPeriod, customFrom, customTo]);
+
+  // Hourly performance/alerts date follows the top global filter: for a single-day
+  // range use that day, otherwise show the last day of the range.
+  const hourlyDate = useMemo(() => {
+    const { from, to } = activeRange;
+    if (from && from === to) return from;
+    return to || toIstDate();
+  }, [activeRange]);
 
   // Auto-update hourly export date range from the global header filter
   useEffect(() => {
@@ -1355,7 +1362,6 @@ export default function Dashboard() {
   const [followupTab, setFollowupTab] = useState('overdue');
 
   const [followupLoading, setFollowupLoading] = useState(false);
-  const [showFollowups, setShowFollowups] = useState(true);
   const [followupMode, setFollowupMode] = useState('bucket');
   const [followupDay, setFollowupDay] = useState(() => toIstDate());
   const [daywiseRows, setDaywiseRows] = useState([]);
@@ -1433,7 +1439,7 @@ export default function Dashboard() {
   }, [selectedNgoId, followupReload]);
 
   useEffect(() => {
-    if (!showFollowups || followupMode !== 'daywise') return;
+    if (followupMode !== 'daywise') return;
     let cancelled = false;
     setDaywiseLoading(true);
     const params = new URLSearchParams({ date: followupDay });
@@ -1443,7 +1449,7 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setDaywiseRows([]); })
       .finally(() => { if (!cancelled) setDaywiseLoading(false); });
     return () => { cancelled = true };
-  }, [showFollowups, followupMode, followupDay, selectedNgoId, followupReload]);
+  }, [followupMode, followupDay, selectedNgoId, followupReload]);
 
   const daywiseSummary = useMemo(() => buildWorkerSummary(daywiseRows), [daywiseRows]);
 
@@ -1594,38 +1600,6 @@ export default function Dashboard() {
     value: g.statuses.reduce((t, s) => t + (summary[s] || 0), 0),
     color: g.color,
   })).filter(d => d.value > 0);
-
-  const handleHourlyExport = async () => {
-    const XLSX = await import('xlsx-js-style');
-    const wb = XLSX.utils.book_new();
-    let data = [];
-    try {
-      data = await getFroHourlyPerformance({ from: hourlyDate, to: hourlyDate, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) });
-    } catch (e) {
-      data = [];
-    }
-    const headers = [
-      'Telecaller', 'Login ID', 'Date', 'Hour Slot', 'Calls', 'Connected', 'Non-Connected', 'Interested', 'Donations', 'Amount (₹)'
-    ];
-    const rows = (data || []).map(h => [
-      h.fro_name,
-      h.fro_login_id || '',
-      hourlyDate,
-      h.hour,
-      h.calls || 0,
-      h.connected || 0,
-      h.non_connected || 0,
-      h.interested || 0,
-      h.donations || 0,
-      h.amount || 0
-    ]);
-    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    sheet['!cols'] = [
-      { wch: 25 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }
-    ];
-    XLSX.utils.book_append_sheet(wb, sheet, 'Hourly Performance');
-    XLSX.writeFile(wb, `hourly-performance-${hourlyDate}.xlsx`);
-  };
 
   const handleTelecallerExport = async () => {
     if (!tlData?.performance) return;
@@ -2219,19 +2193,18 @@ export default function Dashboard() {
                 <h3 className="performance-title" style={{ color: '#14532D' }}>High Performance</h3>
               </div>
             </div>
-            {weakLoading
-              ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
-              : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
-          </div>
-
-          <div style={{ padding: '10px 16px' }}>
-            <input
-              type="text"
-              placeholder="🔍 Search FRO name..."
-              value={highPerfSearch}
-              onChange={e => setHighPerfSearch(e.target.value)}
-              style={{ width: '100%', height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              {weakLoading
+                ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
+                : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
+              <input
+                type="text"
+                placeholder="🔍 Search FRO name..."
+                value={highPerfSearch}
+                onChange={e => setHighPerfSearch(e.target.value)}
+                style={{ width: 190, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+              />
+            </div>
           </div>
 
           <div className="performance-table-wrapper" style={{ flex: 1 }}>
@@ -2321,19 +2294,18 @@ export default function Dashboard() {
                 <h3 className="performance-title" style={{ color: '#991B1B' }}>Low Performance</h3>
               </div>
             </div>
-            {weakLoading
-              ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
-              : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
-          </div>
-
-          <div style={{ padding: '10px 16px' }}>
-            <input
-              type="text"
-              placeholder="🔍 Search FRO name..."
-              value={lowPerfSearch}
-              onChange={e => setLowPerfSearch(e.target.value)}
-              style={{ width: '100%', height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              {weakLoading
+                ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
+                : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
+              <input
+                type="text"
+                placeholder="🔍 Search FRO name..."
+                value={lowPerfSearch}
+                onChange={e => setLowPerfSearch(e.target.value)}
+                style={{ width: 190, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+              />
+            </div>
           </div>
 
           <div className="performance-table-wrapper" style={{ flex: 1 }}>
@@ -2417,15 +2389,6 @@ export default function Dashboard() {
 
       {/* REQUIREMENT 5: Hourly Call Performance — summary chips + disposition breakdown + productivity alerts */}
       {(() => {
-        const hourlyToday = toIstDate();
-        const hourlyYesterday = toIstDate(new Date(Date.now() - 86400000));
-        const dateBtn = (active) => ({
-          padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-          border: `1px solid ${active ? 'var(--sage)' : 'var(--line)'}`,
-          background: active ? 'var(--sage)' : '#fff',
-          color: active ? '#fff' : 'var(--ink)',
-        });
-
         const dayIST = toIstDate();
         const isToday = hourlyDate === dayIST;
         const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
@@ -2474,12 +2437,15 @@ export default function Dashboard() {
             <div className="performance-sections">
               <div className="performance-card" style={{ height: 460 }}>
               <div className="performance-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                   <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
-                  <div style={{ minWidth: 0 }}>
-                    <h3 className="performance-title" style={{ color: '#17233C' }}>FRO Hourly Performance — Connected vs Target</h3>
-                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>{Math.round(connTarget / HOURS_IN_WORKDAY)} calls/hr</p>
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="🔍 Search FRO name..."
+                    value={hourlyFroSearch}
+                    onChange={e => setHourlyFroSearch(e.target.value)}
+                    style={{ flex: 1, minWidth: 200, maxWidth: 340, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+                  />
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button onClick={() => { setConnTargetDraft(String(connTarget)); setConnTargetMsg(''); setConnTargetOpen(o => !o); }}
@@ -2508,16 +2474,6 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '12px 16px' }}>
-                <input
-                  type="text"
-                  placeholder="🔍 Search FRO name..."
-                  value={hourlyFroSearch}
-                  onChange={e => setHourlyFroSearch(e.target.value)}
-                  style={{ flex: 1, minWidth: 200, maxWidth: 360, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
-                />
               </div>
 
               <div className="performance-table-wrapper" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -2592,22 +2548,17 @@ export default function Dashboard() {
             {/* Productivity Alerts — Idle Hours (single unified container) */}
             <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, height: 460, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {/* Header */}
-              <div style={{ padding: '20px 24px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ minWidth: 0 }}>
-                  <h3 style={{ fontSize: 20, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ color: '#dc2626' }}>⚠️</span> Productivity Alerts — Idle Hours
-                  </h3>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
-                  <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
-                  <input
-                    type="date"
-                    value={hourlyDate}
-                    onChange={e => setHourlyDate(e.target.value)}
-                    style={{ height: 34, padding: '0 8px', borderRadius: 8, border: '1px solid #dbe5f1', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: '#f8fafc', color: '#17233C' }}
-                  />
-                </div>
+              <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: '#dc2626' }}>⚠️</span> Idle Hours
+                </h3>
+                <input
+                  type="text"
+                  placeholder="🔍 Search FRO name..."
+                  value={idleSearch}
+                  onChange={e => setIdleSearch(e.target.value)}
+                  style={{ width: 220, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+                />
               </div>
 
               {/* Zero Calls section (inside the same container) */}
@@ -2632,28 +2583,9 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Divider between zero-call section and toolbar */}
+              {/* Divider between zero-call section and body */}
               {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && hourlyAlerts.idle.length > 0 && (
                 <div style={{ borderBottom: '1px solid #e5eaf1' }} />
-              )}
-
-              {/* Toolbar: search + date filter + export */}
-              {!meetingActive && !hourlyLoading && hourlyAlerts.idle.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '14px 24px' }}>
-                  <input
-                    type="text"
-                    placeholder="🔍 Search FRO name..."
-                    value={idleSearch}
-                    onChange={e => setIdleSearch(e.target.value)}
-                    style={{ flex: 1, minWidth: 280, maxWidth: 620, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C' }}
-                  />
-                  <button
-                    onClick={handleHourlyExport}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 34, padding: '0 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', border: '1px solid #e2e8f0', background: '#fff', color: '#17233C', cursor: 'pointer' }}
-                  >
-                    <Download width="12" height="12" /> Export XLSX
-                  </button>
-                </div>
               )}
 
               {/* Body: loading / empty states / table */}
@@ -3073,35 +3005,21 @@ export default function Dashboard() {
 
       {/* Section 7: Follow-up Management */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head" style={{ cursor: 'pointer', flexWrap: 'wrap', gap: 8 }} onClick={() => setShowFollowups(!showFollowups)}>
+        <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
           <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Follow-up Management
           </h3>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-            {[
-              { key: 'overdue', label: 'Overdue', color: '#dc2626', bg: '#fef2f2' },
-              { key: 'today', label: 'Due Today', color: '#ea580c', bg: '#fff7ed' },
-              { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb', bg: '#eff6ff' },
-            ].map(c => (
-              <span key={c.key} title={`${c.label} follow-ups across all FROs`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: c.bg, color: c.color, border: `1px solid ${c.color}22` }}>
-                {c.label}
-                <span style={{ background: c.color, color: '#fff', borderRadius: 999, minWidth: 16, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, padding: '0 4px', animation: 'countPop .3s ease-out' }}>
-                  <AnimatedNumber value={bucketCountOf(c.key)} />
-                </span>
-              </span>
-            ))}
             {followupLoading && (
               <span style={{ fontSize: 10, color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
               </span>
             )}
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', padding: '2px 8px', borderRadius: 6, background: 'var(--bg)' }}>{showFollowups ? '▲ collapse' : '▼ expand'}</span>
           </div>
         </div>
-        {showFollowups && (
-          <div className="card-pad">
-            {followupLoading && followups.length === 0 ? (
+        <div className="card-pad">
+          {followupLoading && followups.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading follow-ups...</div>
             ) : (
               <>
@@ -3195,7 +3113,6 @@ export default function Dashboard() {
               </>
             )}
           </div>
-        )}
       </div>
 
       {/* Call Connectivity Widget removed */}
