@@ -281,7 +281,7 @@ function RangeCard({ r, onViewAll, onSelectFro }) {
 }
 
 // ─── Left panel: Incentive Ranges ─────────────────────────
-function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
+function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
   return (
     <div className="li-panel">
       <div className="li-panel-head" style={{ padding: 16, borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -290,11 +290,11 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>Incentive Ranges</div>
-          <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Configure each range with Win On target and prize amount</div>
+          <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Start each range and track its live competition</div>
         </div>
-        <button type="button" onClick={onAdd}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: C.primary, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-          <Plus size={15} weight="bold" /> Add Range
+        <button type="button" onClick={onTargetSlabs}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          <FileText size={15} /> Target Slabs
         </button>
       </div>
 
@@ -316,9 +316,9 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
           </div>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.dark }}>No incentive ranges yet</div>
           <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Create your first incentive range to start tracking collections.</div>
-          <button type="button" onClick={onAdd}
-            style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: C.primary, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            <Plus size={15} weight="bold" /> Add Range
+          <button type="button" onClick={onTargetSlabs}
+            style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <FileText size={15} /> Target Slabs
           </button>
         </div>
       ) : (
@@ -529,89 +529,6 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
   )
 }
 
-// ─── Add Range modal ──────────────────────────────────────
-function AddRangeModal({ saving, onAdd, onClose }) {
-  const [form, setForm] = useState({ min_amount: '', max_amount: '', incentive_amount: '', amount_to_win: '' })
-  const [error, setError] = useState('')
-
-  const submit = async () => {
-    setError('')
-    if (!(Number(form.min_amount) >= 0) || !(Number(form.max_amount) > 0)) {
-      setError('Enter valid Min and Max amounts'); return
-    }
-    if (Number(form.min_amount) >= Number(form.max_amount)) {
-      setError('Min must be less than Max'); return
-    }
-    try {
-      await onAdd(form)
-      onClose()
-    } catch (e) {
-      setError(e.message || 'Failed to add range')
-    }
-  }
-
-  const money = (value, onChange, placeholder) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 12px', background: '#fff', border: '1px solid #DCE7F5', borderRadius: 10 }}>
-      <span style={{ fontSize: 14, fontWeight: 700, color: C.primary }}>₹</span>
-      <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 600, color: C.dark, fontFamily: 'inherit', boxSizing: 'border-box' }} />
-    </div>
-  )
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 99992, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 32, height: 32, borderRadius: 9, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Plus size={16} weight="bold" /></span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.dark }}>Add Range</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>Create a new incentive range</div>
-          </div>
-          <button type="button" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><X size={14} weight="bold" /></button>
-        </div>
-
-        <div style={{ padding: '18px 20px 0' }}>
-          {error && (
-            <div style={{ padding: '9px 12px', borderRadius: 8, background: '#FEF2F2', color: '#C0392B', fontSize: 12, fontWeight: 600, marginBottom: 14 }}>{error}</div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>Min Amount</label>
-              {money(form.min_amount, v => setForm(p => ({ ...p, min_amount: v })), '0')}
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>Max Amount</label>
-              {money(form.max_amount, v => setForm(p => ({ ...p, max_amount: v })), '50000')}
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12, marginBottom: 4 }}>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>Win On</label>
-              {money(form.amount_to_win, v => setForm(p => ({ ...p, amount_to_win: v })), '1500')}
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>Prize</label>
-              {money(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), '0')}
-            </div>
-          </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>After saving, use <b style={{ fontWeight: 600 }}>Configure</b> on the row to set Win On target, prize and the Start/End competition window.</div>
-        </div>
-
-        <div style={{ padding: '14px 20px 18px', borderTop: '1px solid #EEF2F8', marginTop: 18, display: 'flex', gap: 10 }}>
-          <button type="button" onClick={onClose} disabled={saving}
-            style={{ flex: 1, height: 40, borderRadius: 10, border: '1px solid #DCE7F5', background: '#fff', color: '#52698A', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Cancel
-          </button>
-          <button type="button" onClick={submit} disabled={saving}
-            style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: C.primary, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            {saving ? 'Adding…' : 'Add Range'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── View All modal: every FRO in a range ─────────────────
 function ViewAllModal({ range, onSelectFro, onClose }) {
   const meta = STATUS_META[range.status] || STATUS_META.not_started
@@ -659,12 +576,69 @@ function ViewAllModal({ range, onSelectFro, onClose }) {
   )
 }
 
+// ─── Overlapping FRO avatar stack (3 + view-more) ─────────
+function FroStack({ fros, onViewAll }) {
+  const list = fros || []
+  if (list.length === 0) {
+    return <span style={{ fontSize: 12, color: '#B9C8DC' }}>—</span>
+  }
+  const shown = list.slice(0, 3)
+  const extra = list.length - shown.length
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      {shown.map((f, i) => (
+        <span key={f.fro_id || i} title={f.fro_name}
+          style={{ marginLeft: i === 0 ? 0 : -9, border: '2px solid #fff', borderRadius: '50%', display: 'inline-flex', flexShrink: 0 }}>
+          <Avatar url={f.photo_url} name={f.fro_name} size={26} />
+        </span>
+      ))}
+      {extra > 0 && (
+        <button type="button" onClick={onViewAll} title={`View all ${list.length} FROs`}
+          style={{ marginLeft: -9, width: 30, height: 30, borderRadius: '50%', background: '#E8F3FF', color: C.primary, border: '2px solid #fff', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, padding: 0 }}>
+          +{extra}
+        </button>
+      )}
+    </span>
+  )
+}
+
+// ─── All FROs in a range (view-more modal) ────────────────
+function RangeFrosModal({ slabLabel, fros, onClose }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 99991, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 'min(420px, 100%)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #EEF2F8', background: '#F8FAFD', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 9, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Users size={15} /></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{slabLabel}</div>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{(fros || []).length} FRO{(fros || []).length !== 1 ? 's' : ''} in this range</div>
+          </div>
+          <button type="button" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><X size={14} weight="bold" /></button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: '8px 0' }}>
+          {(fros || []).map(f => (
+            <div key={f.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 18px' }}>
+              <Avatar url={f.photo_url} name={f.fro_name} size={30} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.fro_name}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.green, whiteSpace: 'nowrap' }}>₹{fmt(f.total_amount)}</span>
+            </div>
+          ))}
+          {(!fros || fros.length === 0) && (
+            <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: C.muted }}>No FROs in this range today.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Slab Config (Target Slabs modal) ─────────────────────
-function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false }) {
+function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedded = false }) {
   const [editing, setEditing] = useState(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ min_amount: '', max_amount: '', incentive_amount: '', amount_to_win: '' })
   const [error, setError] = useState('')
+  const [viewFros, setViewFros] = useState(null)
 
   const startEdit = (slab) => {
     setEditing(slab.id)
@@ -745,18 +719,19 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
       )}
 
       <div style={{ overflowX: 'auto', border: `1px solid #EEF2F8`, borderRadius: 10 }}>
-        <table style={{ width: '100%', minWidth: 480, borderCollapse: 'collapse', fontSize: 13 }}>
+        <table style={{ width: '100%', minWidth: 440, borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#F8FAFD' }}>
               <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Range (₹)</th>
-              <th style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Win On (₹)</th>
-              <th style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Prize (₹)</th>
+              <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>FROs</th>
               <th style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap', width: 108 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {active.map(slab => (
-              editing === slab.id ? (
+            {active.map(slab => {
+              const rangeFros = (slabFros || {})[slab.id] || []
+              const rangeLabel = `₹${fmt(slab.min_amount)} – ₹${fmt(slab.max_amount)}`
+              return editing === slab.id ? (
                 <tr key={slab.id} style={{ background: '#F4F9FF' }}>
                   <td style={{ padding: 8 }}>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
@@ -765,8 +740,9 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
                       <div style={{ flex: 1, minWidth: 0 }}>{moneyInput(form.max_amount, v => setForm(p => ({ ...p, max_amount: v })), 'Max')}</div>
                     </div>
                   </td>
-                  <td style={{ padding: 8, minWidth: 96 }}>{moneyInput(form.amount_to_win, v => setForm(p => ({ ...p, amount_to_win: v })), '1500')}</td>
-                  <td style={{ padding: 8, minWidth: 88 }}>{moneyInput(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), '0')}</td>
+                  <td style={{ padding: 8 }}>
+                    <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: rangeLabel, fros: rangeFros })} />
+                  </td>
                   <td style={{ padding: 8 }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                       <button type="button" onClick={submit} disabled={saving}
@@ -782,9 +758,10 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
                 </tr>
               ) : (
                 <tr key={slab.id} style={{ borderTop: '1px solid #F2F6FB' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap' }}>₹{fmt(slab.min_amount)} – ₹{fmt(slab.max_amount)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: C.muted, whiteSpace: 'nowrap' }}>₹{fmt(slab.amount_to_win ?? 1500)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap' }}>₹{fmt(slab.incentive_amount)}</td>
+                  <td style={{ padding: '10px 12px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap' }}>{rangeLabel}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: rangeLabel, fros: rangeFros })} />
+                  </td>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                       <button type="button" onClick={() => startEdit(slab)} title="Edit range"
@@ -799,10 +776,10 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
                   </td>
                 </tr>
               )
-            ))}
+            })}
             {active.length === 0 && !adding && (
               <tr>
-                <td colSpan={4} style={{ padding: '28px 16px', textAlign: 'center' }}>
+                <td colSpan={3} style={{ padding: '28px 16px', textAlign: 'center' }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>No incentive ranges yet</div>
                   <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Click Add Range to create the first one.</div>
                 </td>
@@ -812,8 +789,12 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
         </table>
       </div>
       <div style={{ fontSize: 11, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
-        Use <b style={{ fontWeight: 600 }}>Configure</b> on the main table to set each range's Win On target, prize and Start/End window.
+        Edit a range's Min/Max here. Use <b style={{ fontWeight: 600 }}>Start</b> on the main table to set its Win On target, prize and Start/End window.
       </div>
+
+      {viewFros && (
+        <RangeFrosModal slabLabel={viewFros.label} fros={viewFros.fros} onClose={() => setViewFros(null)} />
+      )}
     </div>
   )
 }
@@ -1038,7 +1019,7 @@ function WinnerComposer({ row, onSent }) {
 }
 
 // ─── History: winners + celebrations ──────────────────────
-function HistoryPanel({ date, champions, announcements, loading, fetchError, onRetry, announcing, announceError, onAnnounce, onSent }) {
+function HistoryPanel({ date, onDateChange, champions, announcements, loading, fetchError, onRetry, announcing, announceError, onAnnounce, onSent }) {
   const announcedSlabIds = useMemo(
     () => new Set((announcements || []).map(a => String(a.slab_id))),
     [announcements]
@@ -1071,6 +1052,15 @@ function HistoryPanel({ date, champions, announcements, loading, fetchError, onR
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>History</div>
           <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Winners, photos and celebrations</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 34, padding: '0 10px', border: `1px solid ${C.line}`, borderRadius: 9, background: '#fff', color: '#52698A' }}>
+          <CalendarBlank size={15} />
+          <input
+            type="date"
+            value={date}
+            onChange={e => onDateChange && e.target.value && onDateChange(e.target.value)}
+            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: C.dark, fontFamily: 'inherit', boxSizing: 'border-box' }}
+          />
         </div>
         {pending.length > 0 && (
           <button type="button" onClick={onAnnounce} disabled={announcing}
@@ -1192,7 +1182,9 @@ function HistoryPanel({ date, champions, announcements, loading, fetchError, onR
 export default function LeadIncentive() {
   const [slabs, setSlabs] = useState([])
   const [summary, setSummary] = useState(null)
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  // Live board always follows today; History has its own date filter.
+  const [date] = useState(() => todayLocal())
+  const [histDate, setHistDate] = useState(() => todayLocal())
   const [loading, setLoading] = useState(true)
   const [slabsLoading, setSlabsLoading] = useState(true)
   const [summaryError, setSummaryError] = useState(null)
@@ -1204,8 +1196,22 @@ export default function LeadIncentive() {
   const [detailFroId, setDetailFroId] = useState(null)
   const [slabsOpen, setSlabsOpen] = useState(false)
   const [configureSlab, setConfigureSlab] = useState(null)
-  const [addOpen, setAddOpen] = useState(false)
   const [viewAll, setViewAll] = useState(null)
+
+  // Today's FROs grouped by range (for the Target Slabs FRO stacks).
+  const frosBySlab = useMemo(() => {
+    const map = {}
+    for (const f of summary?.fros || []) {
+      const id = f.slab && String(f.slab.id)
+      if (!id) continue
+      if (!map[id]) map[id] = []
+      map[id].push(f)
+    }
+    for (const k of Object.keys(map)) {
+      map[k].sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0))
+    }
+    return map
+  }, [summary])
 
   const uniqueSlabs = useMemo(() => uniqueByRange(slabs), [slabs])
 
@@ -1414,15 +1420,6 @@ export default function LeadIncentive() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 10px', border: `1px solid ${C.line}`, borderRadius: 9, background: '#fff', color: '#52698A' }}>
-            <CalendarBlank size={16} />
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontWeight: 600, color: C.dark, fontFamily: 'inherit', boxSizing: 'border-box' }}
-            />
-          </div>
           <button type="button" onClick={refresh}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px', borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             <ArrowsClockwise size={15} className={refreshing ? 'li-spin' : ''} /> Refresh
@@ -1441,12 +1438,13 @@ export default function LeadIncentive() {
             ranges={rangeRows}
             loading={slabsLoading}
             onConfigure={setConfigureSlab}
-            onAdd={() => setAddOpen(true)}
+            onTargetSlabs={() => setSlabsOpen(true)}
           />
           <div style={{ height: 16 }} />
           <HistoryPanel
-            date={date}
-            champions={summary?.champions || []}
+            date={histDate}
+            onDateChange={setHistDate}
+            champions={histDate === date ? (summary?.champions || []) : []}
             announcements={history}
             loading={historyLoading}
             fetchError={historyFetchError}
@@ -1480,11 +1478,6 @@ export default function LeadIncentive() {
         />
       )}
 
-      {/* Add Range modal */}
-      {addOpen && (
-        <AddRangeModal saving={savingSlab} onAdd={addSlab} onClose={() => setAddOpen(false)} />
-      )}
-
       {/* View All modal */}
       {viewAll && (
         <ViewAllModal range={viewAll} onSelectFro={setDetailFroId} onClose={() => setViewAll(null)} />
@@ -1513,7 +1506,7 @@ export default function LeadIncentive() {
               <button type="button" onClick={() => setSlabsOpen(false)} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><X size={14} weight="bold" /></button>
             </div>
             <div style={{ padding: 16, overflowY: 'auto' }}>
-              <SlabConfig slabs={uniqueSlabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} embedded />
+              <SlabConfig slabs={uniqueSlabs} slabFros={frosBySlab} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} embedded />
             </div>
           </div>
         </div>
