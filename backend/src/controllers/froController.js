@@ -1582,7 +1582,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     // and credits the claimant — never another worker's or another NGO's assignment.
     const { data: assignment } = await db
       .from('fro_assignments')
-      .select('id, fro_worker_id')
+      .select('id, fro_worker_id, status')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .eq('ngo_id', receiptNgoId)
@@ -1653,6 +1653,22 @@ export const claimSuspenseReceipt = async (req, res) => {
           updated_at: new Date().toISOString(),
         }).eq('id', auditEntry.id);
       } catch (e) { console.error('Failed to update receipt_sent audit entry:', e.message); }
+    }
+
+    // Money is now confirmed (receipt linked to this donor). If the donor's
+    // assignment still carries an open money-promise status, close it to
+    // `donation_collected` so they stop appearing in the FRO "Promise to Pay"
+    // list — otherwise the donor lands in the list permanently even though the
+    // money came in. Same status semantics as the direct-donation save.
+    const PROMISE_STATUSES = new Set(['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent']);
+    if (assignmentId && PROMISE_STATUSES.has(assignment?.status)) {
+      try {
+        await db.from('fro_assignments').update({
+          status: 'donation_collected',
+          last_contacted_at: new Date().toISOString(),
+          hidden_until: firstOfNextMonthIST(),
+        }).eq('id', assignmentId);
+      } catch (e) { console.error('Failed to close promise assignment on claim:', e.message); }
     }
 
     try {
@@ -3232,20 +3248,50 @@ export const getFroPromises = async (req, res) => {
     if (error) throw error;
 
     const assignmentIds = (assignments || []).map(a => a.id);
-    const [donorsRes, schedulesRes] = await Promise.all([
-      db.from('donor_profiles').select('id, name, mobile_number')
-        .in('id', [...new Set(assignments.map(a => a.donor_id).filter(Boolean))]),
+    const donorIds = [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))];
+    const [donorsRes, schedulesRes, receiptsRes, donorTypesRes] = await Promise.all([
+      db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds),
       assignmentIds.length > 0
         ? db.from('fro_scheduled_contacts').select('assignment_id, scheduled_at').in('assignment_id', assignmentIds).eq('is_completed', false)
+        : { data: [] },
+      donorIds.length > 0
+        ? db.from('receipts').select('donor_id, project_id, receipt_date').in('donor_id', donorIds)
+        : { data: [] },
+      donorIds.length > 0
+        ? db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', donorIds)
         : { data: [] },
     ]);
 
     const donorMap = {};
     for (const d of donorsRes.data || []) donorMap[d.id] = d;
+    const donorTypeMap = {};
+    for (const p of donorTypesRes.data || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
     const scheduleMap = {};
     for (const s of schedulesRes.data || []) {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
     }
+
+    // Read-time self-heal: a donor only belongs in "Promise to Pay" while their
+    // promise is UNCOLLECTED. If they already have a confirmed donation/receipt
+    // for this NGO in the current donation period, drop the assignment so a
+    // donor who has ALREADY paid stops appearing. Mirrors the receipt/donation
+    // evidence used by getMyDonors (fetchScopedDonationEvidence). Uses project_id
+    // = the NGO name lowercased so money never leaks across NGOs.
+    const now = new Date();
+    const receiptPairsForPeriod = new Set();
+    for (const r of receiptsRes.data || []) {
+      if (!r.receipt_date) continue;
+      const key = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
+      if (new Date(r.receipt_date) >= periodStartForType(donorTypeMap[r.donor_id] || '', now)) receiptPairsForPeriod.add(key);
+    }
+    const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))]);
+    const ngoProjectById = {};
+    for (const n of ngoRows || []) ngoProjectById[n.id] = (n.name || '').toLowerCase();
+
+    const hasCollected = (a) => {
+      const project = ngoProjectById[a.ngo_id];
+      return project ? receiptPairsForPeriod.has(`${a.donor_id}|${project}`) : false;
+    };
 
     const seen = new Set();
     const result = [];
@@ -3254,6 +3300,7 @@ export const getFroPromises = async (req, res) => {
       if (!d) continue;
       const key = `${a.donor_id}-${a.ngo_id}`;
       if (seen.has(key)) continue;
+      if (hasCollected(a)) continue;
       seen.add(key);
       result.push({
         id: a.donor_id,
