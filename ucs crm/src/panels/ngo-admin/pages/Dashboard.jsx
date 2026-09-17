@@ -2472,7 +2472,7 @@ export default function Dashboard() {
           <>
             {/* FRO Hourly Performance + Productivity Alerts — side by side */}
             <div className="performance-sections">
-              <div className="performance-card">
+              <div className="performance-card" style={{ height: 460 }}>
               <div className="performance-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
                   <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
@@ -2590,7 +2590,7 @@ export default function Dashboard() {
             </div>
 
             {/* Productivity Alerts — Idle Hours (single unified container) */}
-            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, height: 460, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {/* Header */}
               <div style={{ padding: '20px 24px 14px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -2713,7 +2713,7 @@ export default function Dashboard() {
                   );
                 }
                 return (
-                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'auto' }}>
+                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto' }}>
                     <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr>
