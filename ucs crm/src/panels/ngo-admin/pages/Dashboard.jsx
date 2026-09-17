@@ -1730,16 +1730,17 @@ export default function Dashboard() {
     const EXPORT_STATUS_ORDER = ['scheduled', 'callback', 'office_program_visit', 'promise_pay_wa_email', 'not_interested_np', 'dnd'];
     const EXPORT_STATUS_LABELS = { scheduled: 'Follow Up (FU)', callback: 'Callback (C/B)', office_program_visit: 'Visit', promise_pay_wa_email: 'P', not_interested_np: 'Not Inter / Disc / NP', dnd: 'DND' };
     const headers1 = [
-      'Telecaller', 'Login ID', 'Period', 'Total Calls', 'Connected', 'Leads Done',
+      'Telecaller', 'Login ID', 'Period', 'Idle Hr', 'Total Calls', 'Connected', 'Leads Done',
       ...EXPORT_STATUS_ORDER.map(k => EXPORT_STATUS_LABELS[k]),
-      'Non-Connected', 'Interested', 'Amount (₹)', 'Calls O/D', 'FUP O/D', 'Logout', 'Idle Hr', 'Live Status'
+      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
-      p.fro_name, p.fro_login_id || '', periodLabel, c.calls, c.connected,
+      p.fro_name, p.fro_login_id || '', periodLabel, Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100,
+      c.calls, c.connected,
       c.statuses.lead_done || 0,
       ...EXPORT_STATUS_ORDER.map(k => c.statuses[k] || 0),
       c.nonConnected, c.interested, c.received, p.overdue_calls || 0, p.overdue_followups || 0,
-      p.logout_today || 0, Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100, p.status || 'offline'
+      p.logout_today || 0, p.status || 'offline'
     ]);
     const t1 = calcRows1.reduce((a, { p, c }) => ({
       calls: a.calls + c.calls, connected: a.connected + c.connected, nonConnected: a.nonConnected + c.nonConnected,
@@ -1750,7 +1751,7 @@ export default function Dashboard() {
       leadsDone: a.leadsDone + (c.statuses.lead_done || 0),
       statuses: EXPORT_STATUS_ORDER.map((k, i) => a.statuses[i] + (c.statuses[k] || 0)),
     }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, idleSeconds: 0, logoutsToday: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0) });
-    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, Math.round((t1.idleSeconds / 3600) * 100) / 100, '']);
+    aoa1.push(['TOTAL', '', '', Math.round((t1.idleSeconds / 3600) * 100) / 100, t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
@@ -1760,9 +1761,9 @@ export default function Dashboard() {
     XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
     spanRef(ws1);
     ws1['!cols'] = [
-      { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+      { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
       ...EXPORT_STATUS_ORDER.map(() => ({ wch: 16 })),
-      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
     ];
     styleCell(ws1, 0, 0, TITLE);
     for (let c = 0; c <= 19; c++) styleCell(ws1, 1, c, HDR);
@@ -1770,11 +1771,11 @@ export default function Dashboard() {
     for (let r = 2; r < 2 + aoa1.length; r++) {
       for (let c = 0; c <= 19; c++) {
         const s = { font: FONT, alignment: { vertical: 'center', horizontal: numCols1.includes(c) ? 'center' : 'left' } };
-        if (c === 14) s.numFmt = AMT.numFmt;
+        if (c === 15) s.numFmt = AMT.numFmt;
         styleCell(ws1, r, c, s);
       }
     }
-    for (let c = 0; c <= 19; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 14 ? AMT.numFmt : undefined });
+    for (let c = 0; c <= 19; c++) styleCell(ws1, 1 + aoa1.length, c, { ...SUB, numFmt: c === 15 ? AMT.numFmt : undefined });
     ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
     ws1['!autofilter'] = { ref: `A2:T${1 + aoa1.length}` };
     XLSX.utils.book_append_sheet(wb, ws1, 'Telecaller Performance');
@@ -2788,20 +2789,20 @@ export default function Dashboard() {
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
         const METRICS = [
+          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, display: (v) => formatIdleDuration(Math.round((v || 0) / 60)) },
           { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
           { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', filterType: 'connected' },
           { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
           { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', filterType: 'connected', status: 'scheduled' },
           { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, filterType: 'connected', status: 'callback' },
+          { key: 'odc', param: 'CO/D', full: 'Overdue Callbacks', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2' },
+          { key: 'odf', param: 'FUP O/D', full: 'Overdue Follow-Ups', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7' },
           { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, filterType: 'connected', status: 'office_program_visit' },
           { key: 'ppay', param: 'P', full: 'Promise To Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, filterType: 'connected', status: 'promise_pay_wa_email' },
           { key: 'ni', param: 'NI/DISC/NP', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, filterType: 'connected', status: 'not_interested_np' },
           { key: 'dnd', param: 'DND', full: 'Do Not Disturb', val: (p) => statusesOf(p).dnd || 0, pill: false, filterType: 'connected', status: 'dnd' },
           { key: 'recvd', param: 'RECVD AMT', full: 'Received Amount', val: (p) => p.receivedAmount_range || 0, pill: true, color: '#166534', bg: '#f0fdf4', display: (v) => fmt(v) },
-          { key: 'odc', param: 'CALLS O/D', full: 'Overdue Callbacks', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2' },
-          { key: 'odf', param: 'FUP O/D', full: 'Overdue Follow-Ups', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7' },
           { key: 'lt', param: 'LOGOUT', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff' },
-          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, display: (v) => formatIdleDuration(Math.round((v || 0) / 60)) },
         ];
 
         const COLUMNS = [
@@ -2827,18 +2828,18 @@ export default function Dashboard() {
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: '10px 8px', textAlign: 'center', cursor: 'pointer', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{m.param}{sortIcon(m.key)}</span>
+            style={{ background: '#fff', padding: '7px 5px', textAlign: 'center', cursor: 'pointer', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
         const stickyTh = (children, left) => (
           <th rowSpan={2} onClick={() => setSort('name')} title="FRO Name — click to sort"
-            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '12px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 130, maxWidth: 150 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{children}{sortIcon('name')}</span>
+            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px', fontSize: 9, textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 120, maxWidth: 140 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{children}{sortIcon('name')}</span>
           </th>
         );
         const groupTh = (label, color, bg, span) => (
-          <th colSpan={span} style={{ background: bg, color, padding: '9px 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
+          <th colSpan={span} style={{ background: bg, color, padding: '7px 6px', fontSize: 10, textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
         );
 
         const metricCell = (p, m) => {
@@ -2847,19 +2848,19 @@ export default function Dashboard() {
           const show = v > 0;
           if (m.pill && show) {
             return (
-              <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              <td key={m.key} style={{ padding: '7px 4px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
                 <span
                   onClick={click}
                   title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, padding: '2px 9px', borderRadius: 7, background: m.bg, color: m.color, fontSize: 13, fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 26, padding: '1px 7px', borderRadius: 6, background: m.bg, color: m.color, fontSize: 11, fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
                   {m.display ? m.display(v) : v}
                 </span>
               </td>
             );
           }
           return (
-            <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-              {show ? <span onClick={click} style={{ fontSize: 13, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1' }}>{m.display ? m.display(v) : 0}</span>}
+            <td key={m.key} style={{ padding: '7px 4px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              {show ? <span onClick={click} style={{ fontSize: 11, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: 11 }}>{m.display ? m.display(v) : 0}</span>}
             </td>
           );
         };
@@ -2952,29 +2953,29 @@ export default function Dashboard() {
             </div>
 
             {/* Performance table */}
-            <div className="perf-scroll" style={{ margin: '16px 24px 0', overflow: 'auto', maxHeight: 540, borderRadius: 12, border: '1px solid #eef2f6' }}>
+            <div className="perf-scroll" style={{ margin: '16px 12px 0', overflow: 'auto', maxHeight: 620, borderRadius: 12, border: '1px solid #eef2f6' }}>
               {sortedRows.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
-                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1400, width: '100%' }}>
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1500, width: '100%' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
                       {stickyTh('FRO Name', 0)}
+                      {groupTh('IDLE', '#475569', '#F1F5F9', 1)}
                       {groupTh('CALL ACTIVITY', '#be123c', '#FFF1F3', 3)}
                       {groupTh('FOLLOW-UP', '#1d4ed8', '#EFF6FF', 2)}
+                      {groupTh('OVERDUE', '#dc2626', '#FEF2F2', 2)}
                       {groupTh('FIELD', '#0e7490', '#ECFEFF', 2)}
                       {groupTh('OTHER', '#047857', '#ECFDF5', 2)}
                       {groupTh('RECEIPTS', '#b45309', '#FFF8E7', 1)}
-                      {groupTh('OVERDUE', '#dc2626', '#FEF2F2', 2)}
                       {groupTh('LOGOUT', '#6d28d9', '#F4EEFF', 1)}
-                      {groupTh('IDLE', '#475569', '#F1F5F9', 1)}
                     </tr>
                     <tr>
-                      {METRICS.slice(0, 3).map(subHeader)}
-                      {METRICS.slice(3, 5).map(subHeader)}
-                      {METRICS.slice(5, 7).map(subHeader)}
-                      {METRICS.slice(7, 9).map(subHeader)}
-                      {METRICS.slice(9, 10).map(subHeader)}
+                      {METRICS.slice(0, 1).map(subHeader)}
+                      {METRICS.slice(1, 4).map(subHeader)}
+                      {METRICS.slice(4, 6).map(subHeader)}
+                      {METRICS.slice(6, 8).map(subHeader)}
+                      {METRICS.slice(8, 10).map(subHeader)}
                       {METRICS.slice(10, 12).map(subHeader)}
                       {METRICS.slice(12, 13).map(subHeader)}
                       {METRICS.slice(13, 14).map(subHeader)}
@@ -2988,8 +2989,8 @@ export default function Dashboard() {
                       const highlighted = live || idle || met;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '12px 10px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 130, maxWidth: 150 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, maxWidth: 130, overflow: 'hidden' }}>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 8px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 120, maxWidth: 140 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, maxWidth: 120, overflow: 'hidden' }}>
                               {live && (
                                 <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
                               )}
