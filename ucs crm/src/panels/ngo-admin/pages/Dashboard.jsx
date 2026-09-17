@@ -2216,23 +2216,12 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
               <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🏆</span>
               <div style={{ minWidth: 0 }}>
-                <h3 className="performance-title" style={{ color: '#14532D' }}>High Performance (&ge;100%)</h3>
-                <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who have achieved their daily collection target</p>
+                <h3 className="performance-title" style={{ color: '#14532D' }}>High Performance</h3>
               </div>
             </div>
             {weakLoading
               ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
               : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Remaining daily target × 100</b>
-            </span>
-            <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
-              <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% Low</span>
-            </span>
           </div>
 
           <div style={{ padding: '10px 16px' }}>
@@ -2329,23 +2318,12 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
               <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#FFF1F2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>⚠️</span>
               <div style={{ minWidth: 0 }}>
-                <h3 className="performance-title" style={{ color: '#991B1B' }}>Low Performance (&lt;100%)</h3>
-                <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs who are below their daily collection target</p>
+                <h3 className="performance-title" style={{ color: '#991B1B' }}>Low Performance</h3>
               </div>
             </div>
             {weakLoading
               ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
               : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid #eef2f6', borderBottom: '1px solid #eef2f6', background: '#fafcff' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: '1px solid #bfdbfe', borderRadius: 999, background: '#eff6ff', color: '#2563eb', fontSize: 10, fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Daily performance&nbsp;=&nbsp;<b>Today&apos;s collection / Remaining daily target × 100</b>
-            </span>
-            <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&ge;100% High</span>
-              <span style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#ef4444', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>&lt;100% Low</span>
-            </span>
           </div>
 
           <div style={{ padding: '10px 16px' }}>
@@ -2500,7 +2478,7 @@ export default function Dashboard() {
                   <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
                   <div style={{ minWidth: 0 }}>
                     <h3 className="performance-title" style={{ color: '#17233C' }}>FRO Hourly Performance — Connected vs Target</h3>
-                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({connTarget}/day ≈ {Math.round(connTarget / HOURS_IN_WORKDAY)}/hr — connected calls only)</p>
+                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>{Math.round(connTarget / HOURS_IN_WORKDAY)} calls/hr</p>
                   </div>
                 </div>
                 <div style={{ position: 'relative' }}>
@@ -2619,12 +2597,8 @@ export default function Dashboard() {
                   <h3 style={{ fontSize: 20, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ color: '#dc2626' }}>⚠️</span> Productivity Alerts — Idle Hours
                   </h3>
-                  <p style={{ fontSize: 13, fontWeight: 400, color: '#64748B', margin: '4px 0 0' }}>
-                    FROs with idle hours — zero calls during elapsed working hours
-                  </p>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ height: 38, padding: '0 14px', border: '1px solid #dbe5f1', borderRadius: 9, background: '#f8fafc', display: 'inline-flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: '#17233C', whiteSpace: 'nowrap' }}>📅 {hourlyDate}</span>
                   <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
                   <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
                   <input
