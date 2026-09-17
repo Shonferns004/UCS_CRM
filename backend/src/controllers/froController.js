@@ -3223,6 +3223,7 @@ export const getFroScheduled = async (req, res) => {
       result.push({
         id: a.donor_id,
         ngo_id: a.ngo_id,
+        ngo_name: a.ngos?.name || '',
         donor_name: d?.name || 'Unknown',
         donor_mobile: d?.mobile_number || '',
         scheduled_at: c.scheduled_at,
@@ -3246,7 +3247,7 @@ export const getFroCallbacks = async (req, res) => {
     const { data: assignments, error } = await withStationNgoPairs(
       db
         .from('fro_assignments')
-        .select('*')
+        .select('*, ngos!left(name)')
         .in('station', stationNames)
         .in('status', ['follow_up', 'callback']),
       myScope
@@ -3288,6 +3289,7 @@ export const getFroCallbacks = async (req, res) => {
       result.push({
         id: a.donor_id,
         ngo_id: a.ngo_id,
+        ngo_name: a.ngos?.name || '',
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
@@ -3316,7 +3318,7 @@ export const getFroPromises = async (req, res) => {
     const { data: assignments, error } = await withStationNgoPairs(
       db
         .from('fro_assignments')
-        .select('*')
+        .select('*, ngos!left(name)')
         .in('station', stationNames)
         .in('status', ['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent']),
       myScope
@@ -3364,6 +3366,7 @@ export const getFroPromises = async (req, res) => {
       result.push({
         id: a.donor_id,
         ngo_id: a.ngo_id,
+        ngo_name: a.ngos?.name || '',
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
@@ -3408,7 +3411,7 @@ export const getFroOverdue = async (req, res) => {
     const { data: dateOverdue, error } = await withStationNgoPairs(
       db
         .from('fro_assignments')
-        .select('*')
+        .select('*, ngos!left(name)')
         .in('station', stationNames)
         .lt('next_follow_up', today)
         .not('status', 'in', FRO_OVERDUE_CLOSED_STATUSES),
@@ -3425,7 +3428,7 @@ export const getFroOverdue = async (req, res) => {
     const { data: schedules, error: sErr } = await withStationNgoPairs(
       db
         .from('fro_scheduled_contacts')
-        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, fro_worker_id, next_follow_up)')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, fro_worker_id, next_follow_up, ngos(name))')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames),
       myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
@@ -3517,6 +3520,7 @@ export const getFroOverdue = async (req, res) => {
       result.push({
         id: a.donor_id,
         ngo_id: a.ngo_id,
+        ngo_name: a.ngos?.name || '',
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: dueBy,
