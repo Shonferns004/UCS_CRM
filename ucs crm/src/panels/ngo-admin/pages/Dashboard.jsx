@@ -2400,7 +2400,6 @@ export default function Dashboard() {
         const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
 
         const froGroups = hourlyGroups;
-        const totalConn = hourlyTotalsCalc.totalConn;
         const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
         const targetPace = Math.round((connTarget * elapsedHrs) / HOURS_IN_WORKDAY);
         const froPerf = (g) => (targetPace > 0 ? Math.round((g.connected / targetPace) * 1000) / 10 : null);
@@ -2408,8 +2407,6 @@ export default function Dashboard() {
         const lowGroups = (q ? froGroups.filter(g => (g.name || '').toLowerCase().includes(q)) : froGroups)
           .filter(g => (froPerf(g) ?? 0) < 100)
           .sort((a, b) => (froPerf(a) - froPerf(b)) || a.name.localeCompare(b.name));
-        const teamPerf = froGroups.length > 0 && targetPace > 0 ? Math.round((totalConn / (targetPace * froGroups.length)) * 1000) / 10 : 0;
-        const totalTargetLeft = froGroups.length > 0 ? Math.max(0, connTarget * froGroups.length - totalConn) : 0;
         const froRow = (g) => {
           const perf = froPerf(g);
           const left = Math.max(0, connTarget - g.connected);
@@ -2528,17 +2525,6 @@ export default function Dashboard() {
                       <tbody>
                         {lowGroups.map(froRow)}
                       </tbody>
-                      <tfoot>
-                        <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                          <td colSpan={2} style={{ padding: '8px 8px', fontSize: 10, fontWeight: 800, color: '#17233C', textTransform: 'uppercase' }}>Total · {froGroups.length} FROs</td>
-                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{totalConn}</td>
-                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: '#64748B' }}>{targetPace}×{froGroups.length}</td>
-                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: totalTargetLeft > 0 ? '#2F80D9' : '#16a34a' }}>{totalTargetLeft}</td>
-                          <td style={{ padding: '8px 8px', textAlign: 'center' }}>
-                            <span style={{ fontWeight: 800, color: teamPerf >= 100 ? '#16a34a' : '#ef4444' }}>{teamPerf}% of pace</span>
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
                 )}
