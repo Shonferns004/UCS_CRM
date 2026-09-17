@@ -1343,6 +1343,13 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       return (d.donor_name || '').toLowerCase().includes(q)
         || (d.donor_mobile || '').includes(q);
     }) : [];
+    // Follow Up tab = FRESH follows only: no due time yet, or the given time is
+    // still ahead. Once that time passes the lead moves to Overdue; if it is
+    // re-logged with a new follow-up it comes back here and leaves Overdue.
+    const followUpActive = isFollowUps ? followUpFiltered.filter(d => {
+      const t = d.due_date || d.scheduled_at;
+      return !t || new Date(t).getTime() >= Date.now();
+    }) : [];
     const overdueFiltered = isOverdueTab ? overdueList.filter(d => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
@@ -1353,7 +1360,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       ...r,
       id: r.donor_id,
       is_disposed: true,
-    })) : isOverdueTab ? overdueFiltered : isFollowUps ? followUpFiltered : (searching ? disposedResults.map(r => ({
+    })) : isOverdueTab ? overdueFiltered : isFollowUps ? followUpActive : (searching ? disposedResults.map(r => ({
       ...r,
       id: r.donor_id,
       ngo_id: r.ngo_id,
@@ -1401,7 +1408,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
               <button onClick={() => setListView('followups')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'followups' ? 'var(--sage)' : 'transparent', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'followups' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                 Follow Ups
-                {followUps.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'followups' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)' }}>{followUps.length}</span> : null}
+                {followUpActive.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'followups' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)' }}>{followUpActive.length}</span> : null}
               </button>
               <button onClick={() => setListView('overdue')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: isOverdueTab ? 'var(--sage)' : 'transparent', color: isOverdueTab ? '#fff' : 'var(--ink-soft)', boxShadow: isOverdueTab ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
@@ -1482,7 +1489,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             </div>
           ) : (isFollowUps || isOverdueTab) && followUpsLoading ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
-              Loading follow-ups…
+              Loading…
             </div>
           ) : searching && disposedSearchLoading ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>

@@ -3363,8 +3363,11 @@ export const getFroOverdue = async (req, res) => {
     if (stationNames.length === 0) return res.json([]);
 
     const today = istDateString(new Date());
+    const nowTs = Date.now();
 
-    const { data: assignments, error } = await withStationNgoPairs(
+    // A) Date-based overdues: any open lead whose follow-up date is strictly
+    // before today (next_follow_up mirrors the schedule's IST date).
+    const { data: dateOverdue, error } = await withStationNgoPairs(
       db
         .from('fro_assignments')
         .select('*')
@@ -3376,8 +3379,47 @@ export const getFroOverdue = async (req, res) => {
 
     if (error) throw error;
 
-    const donorIds = [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))];
-    const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
+    // B) All un-completed schedule calls in scope. A call whose scheduled time
+    // has now passed counts as overdue even when its date-only next_follow_up is
+    // still today; a call still in the future means the lead was freshly
+    // re-logged as a follow-up — it must NOT stay overdue (it belongs to the
+    // Follow Up tab).
+    const { data: schedules, error: sErr } = await withStationNgoPairs(
+      db
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, next_follow_up)')
+        .eq('is_completed', false)
+        .in('fro_assignments.station', stationNames),
+      myScope
+    );
+
+    if (sErr) throw sErr;
+
+    const freshScheduleAt = new Map();
+    const passedScheduleAt = new Map();
+    for (const s of schedules || []) {
+      const a = s.fro_assignments;
+      if (!a) continue;
+      const when = new Date(s.scheduled_at).getTime();
+      if (when >= nowTs) {
+        if (!freshScheduleAt.has(a.id)) freshScheduleAt.set(a.id, s.scheduled_at);
+      } else if (!passedScheduleAt.has(a.id)) {
+        passedScheduleAt.set(a.id, s.scheduled_at);
+      }
+    }
+
+    const assignmentById = {};
+    for (const a of dateOverdue || []) assignmentById[a.id] = a;
+    for (const s of schedules || []) {
+      const a = s.fro_assignments;
+      if (a && passedScheduleAt.has(a.id) && FRO_OVERDUE_CLOSED_STATUSES.indexOf(a.status) === -1) {
+        assignmentById[a.id] = a;
+      }
+    }
+    const assignments = Object.values(assignmentById);
+
+    const donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
     const [donorsRes, receiptsRes, donorTypesRes, ngoRes] = await Promise.all([
       donorIds.length > 0
         ? db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
@@ -3422,20 +3464,22 @@ export const getFroOverdue = async (req, res) => {
 
     const seen = new Set();
     const result = [];
-    for (const a of assignments || []) {
+    for (const a of assignments) {
+      if (freshScheduleAt.has(a.id)) continue; // freshly re-logged as a follow-up -> Follow Up tab, not overdue
       const d = donorMap[a.donor_id];
       if (!d) continue;
       const key = `${a.donor_id}-${a.ngo_id}`;
       if (seen.has(key)) continue;
       if (hasCollected(a)) continue;
       seen.add(key);
+      const dueBy = passedScheduleAt.get(a.id) || a.next_follow_up || null;
       result.push({
         id: a.donor_id,
         ngo_id: a.ngo_id,
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
-        scheduled_at: a.next_follow_up || null,
-        due_date: a.next_follow_up || null,
+        scheduled_at: dueBy,
+        due_date: dueBy,
         station: a.station || null,
         status: a.status,
         type: typeFromStatus(a.status),
