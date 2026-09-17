@@ -1184,7 +1184,7 @@ export default function LeadIncentive() {
           {loading ? (
             <div style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12.5 }}>Loading leaderboard…</div>
           ) : (
-            <RangeLeaderboard data={lbData} you={null} />
+            <RangeLeaderboard data={lbData} you={null} spread />
           )}
         </div>
       </div>
