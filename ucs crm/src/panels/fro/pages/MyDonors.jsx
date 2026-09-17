@@ -552,8 +552,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
   // Follow-ups: scheduled contacts + callback assignments + money promises,
   // merged/deduplicated the same way the standalone Follow Ups page did.
+  // Feeds both the Follow Ups and Overdue tabs (overdue = past-due subset).
   useEffect(() => {
-    if (listView !== 'followups' || activeDonor) return;
+    if ((listView !== 'followups' && listView !== 'overdue') || activeDonor) return;
     let cancelled = false;
     setFollowUpsLoading(true);
     Promise.all([getScheduled(), getCallbacks(), getPromises()])
@@ -1309,6 +1310,19 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
     const isHistory = listView === 'history';
     const isFollowUps = listView === 'followups';
+    // Overdue tab: every past-due follow-up/callback/promise, most-overdue first.
+    const isOverdueTab = listView === 'overdue';
+    const overdueList = followUps
+      .filter(d => {
+        const t = d.due_date || d.scheduled_at;
+        return t ? new Date(t).getTime() < Date.now() : false;
+      })
+      .sort((a, b) => {
+        const ta = new Date(a.due_date || a.scheduled_at).getTime();
+        const tb = new Date(b.due_date || b.scheduled_at).getTime();
+        return ta - tb;
+      })
+      .map(d => ({ ...d, is_overdue: true }));
     // In History tab, filter locally; in Leads tab searching swaps queue for disposed search results
     const searching = listView === 'leads' && searchQuery.trim().length >= 2;
     const historyFiltered = isHistory ? historyLeads.filter(d => {
@@ -1325,11 +1339,17 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       return (d.donor_name || '').toLowerCase().includes(q)
         || (d.donor_mobile || '').includes(q);
     }) : [];
+    const overdueFiltered = isOverdueTab ? overdueList.filter(d => {
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (d.donor_name || '').toLowerCase().includes(q)
+        || (d.donor_mobile || '').includes(q);
+    }) : [];
     const listItems = isHistory ? historyFiltered.map(r => ({
       ...r,
       id: r.donor_id,
       is_disposed: true,
-    })) : isFollowUps ? followUpFiltered : (searching ? disposedResults.map(r => ({
+    })) : isOverdueTab ? overdueFiltered : isFollowUps ? followUpFiltered : (searching ? disposedResults.map(r => ({
       ...r,
       id: r.donor_id,
       ngo_id: r.ngo_id,
@@ -1342,7 +1362,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     })) : visible);
 
     const openLead = (d) => {
-      if (isHistory || isFollowUps) {
+      if (isHistory || isFollowUps || isOverdueTab) {
         if (listScrollRef.current) savedListScrollRef.current = listScrollRef.current.scrollTop;
         setActiveDonor({ ...d, _fromList: listView });
         setSelected(null); setNotes(''); setLeadAmount('');
@@ -1378,6 +1398,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'followups' ? 'var(--sage)' : 'transparent', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'followups' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
                 Follow Ups
                 {followUps.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: listView === 'followups' ? 'rgba(255,255,255,.22)' : 'var(--line)', color: listView === 'followups' ? '#fff' : 'var(--ink-soft)' }}>{followUps.length}</span> : null}
+              </button>
+              <button onClick={() => setListView('overdue')}
+                style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: isOverdueTab ? 'var(--sage)' : 'transparent', color: isOverdueTab ? '#fff' : 'var(--ink-soft)', boxShadow: isOverdueTab ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
+                Overdue
+                {overdueList.length ? <span style={{ minWidth: 16, padding: '0 4px', borderRadius: 999, fontSize: 9, fontWeight: 700, background: isOverdueTab ? 'rgba(255,255,255,.22)' : '#fee2e2', color: isOverdueTab ? '#fff' : '#b91c1c' }}>{overdueList.length}</span> : null}
               </button>
               <button onClick={() => setListView('history')}
                 style={{ padding: '6px 12px', borderRadius: 10, border: 'none', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', background: listView === 'history' ? 'var(--sage)' : 'transparent', color: listView === 'history' ? '#fff' : 'var(--ink-soft)', boxShadow: listView === 'history' ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s' }}>
@@ -1451,7 +1476,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
               Loading history…
             </div>
-          ) : isFollowUps && followUpsLoading ? (
+          ) : (isFollowUps || isOverdueTab) && followUpsLoading ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
               Loading follow-ups…
             </div>
@@ -1498,9 +1523,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
                 {isHistory
                   ? 'No disposed leads yet. Work a lead and it will appear here.'
-                  : isFollowUps
-                    ? 'No calls scheduled, no callbacks assigned, no promises to pay yet.'
-                    : 'No leads match the current filters.'}
+                  : isOverdueTab
+                    ? "No overdue leads — you're all caught up."
+                    : isFollowUps
+                      ? 'No calls scheduled, no callbacks assigned, no promises to pay yet.'
+                      : 'No leads match the current filters.'}
               </div>
             )
           ) : (
@@ -1547,7 +1574,12 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                             <span style={{ padding: `1px 7px`, borderRadius: 999, fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap', background: d.type === 'promise' ? '#ede9fe' : d.type === 'callback' ? '#dbeafe' : '#dcfce7', color: d.type === 'promise' ? '#7e22ce' : d.type === 'callback' ? '#1d4ed8' : '#166534' }}>
                               {d.type === 'promise' ? 'PROMISE' : d.type === 'callback' ? 'CALLBACK' : 'FOLLOW UP'}
                             </span>
-                            {d.scheduled_at && <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(d.scheduled_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
+                            {d.scheduled_at && <span style={{ fontSize: 9, color: d.is_overdue ? '#b91c1c' : 'var(--ink-soft)', fontWeight: d.is_overdue ? 800 : 400, whiteSpace: 'nowrap' }}>{new Date(d.scheduled_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
+                            {d.is_overdue && (
+                              <span style={{ padding: '2px 7px', borderRadius: 999, fontSize: 8.5, fontWeight: 800, whiteSpace: 'nowrap', background: '#dc2626', color: '#fff' }}>
+                                OVERDUE
+                              </span>
+                            )}
                           </>
                         ) : d.is_disposed ? (
                           <>
@@ -1569,8 +1601,10 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             ? 'Loading leads…'
             : isHistory
               ? `${listItems.length} disposed lead(s)${searchQuery.trim() ? ' found' : ''}`
-              : isFollowUps
-                ? `${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
+              : isOverdueTab
+                ? `${listItems.length} overdue lead(s)${searchQuery.trim() ? ' found' : ''}`
+                : isFollowUps
+                  ? `${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `${listItems.length} lead(s) found`
                   : `Showing ${listItems.length} of ${total || donors.length} leads`}
