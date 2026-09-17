@@ -194,126 +194,65 @@ function FroStatusPill() {
   );
 }
 
-// FRO activity: the all-time allotted-vs-used pool, plus how many leads the FRO
-// dispositioned in a period (all-time or the month the disposition was made) and
-// the status each was left in. Rendered inside <CallProvider>.
-function TodayActivityStats() {
-  const [month, setMonth] = useState('all');
-  const [allotment, setAllotment] = useState(null);
+const EMPTY_SUMMARY = { worked: 0, by_status: [], allotted_all_time: 0, used_all_time: 0 };
+
+// One activity section (stats + stacked distribution + status list) for a given
+// period: 'today', a 'YYYY-MM' month, or all-time (period undefined).
+function ActivitySection({ period, title, subtitle, headerRight }) {
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getMyAllotmentSummary(month === 'all' ? undefined : month)
-      .then(d => { if (!cancelled) setAllotment(d || { worked: 0, by_status: [] }); })
-      .catch(() => { if (!cancelled) setAllotment({ worked: 0, by_status: [] }); })
+    getMyAllotmentSummary(period)
+      .then(d => { if (!cancelled) setData(d || EMPTY_SUMMARY); })
+      .catch(() => { if (!cancelled) setData(EMPTY_SUMMARY); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [month]);
+  }, [period]);
 
-  const monthOptions = buildMonthOptions();
-  const worked = allotment?.worked || 0;
-  const byStatus = allotment?.by_status || [];
+  const worked = data?.worked || 0;
+  const byStatus = data?.by_status || [];
   const connected = byStatus.reduce((sum, s) => CONNECTED_IDS.has(s.status) ? sum + s.count : sum, 0);
-  const allottedAllTime = allotment?.allotted_all_time || 0;
-  const usedAllTime = allotment?.used_all_time || 0;
-  const usedPct = allottedAllTime > 0 ? Math.round((usedAllTime / allottedAllTime) * 100) : 0;
-  const periodLabel = month === 'all' ? 'All Time' : month === 'today' ? 'Today' : (monthOptions.find(m => m.value === month)?.label || month);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+    <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <div style={{ width: 32, height: 32, borderRadius: 9, background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Data Allotted</div>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>All Time &middot; unique leads</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{title}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{subtitle}</div>
           </div>
         </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
-          <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : allottedAllTime}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Allotted</div>
-          </div>
-          <div style={{ paddingLeft: 16 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: '#16a34a', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : usedAllTime}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Used</div>
-          </div>
-        </div>
-
-        {!loading && allottedAllTime > 0 && (
-          <div style={{ padding: '0 16px 14px' }}>
-            <div style={{ height: 8, borderRadius: 4, background: 'var(--bg)', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 4, width: `${usedPct}%`, background: '#16a34a' }} />
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>{usedAllTime} of {allottedAllTime} leads used ({usedPct}%)</div>
-          </div>
-        )}
+        {headerRight}
       </div>
 
-      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 9, background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Activity</div>
-              <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{periodLabel}</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => setMonth('today')}
-              style={{
-                padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                border: month === 'today' ? '1.5px solid #3b82f6' : '1.5px solid var(--line)',
-                background: month === 'today' ? '#eff6ff' : 'var(--bg)',
-                color: month === 'today' ? '#2563eb' : 'var(--ink-soft)',
-              }}
-            >
-              Today
-            </button>
-            <select
-              value={month === 'today' ? '' : month}
-              onChange={e => setMonth(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer', flexShrink: 0 }}
-            >
-              <option value="" disabled>Month</option>
-              <option value="all">All Time</option>
-              {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-          </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
+        <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
+          <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : worked}</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Leads worked</div>
         </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
-          <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : worked}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Leads worked</div>
-          </div>
-          <div style={{ paddingLeft: 16 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: '#3b82f6', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : connected}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Connected</div>
-          </div>
+        <div style={{ paddingLeft: 16 }}>
+          <div style={{ fontSize: 30, fontWeight: 800, color: '#3b82f6', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : connected}</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Connected</div>
         </div>
-
-        {!loading && worked > 0 && (
-          <div style={{ display: 'flex', height: 8, background: 'var(--bg)' }}>
-            {byStatus.map(s => (
-              <div key={s.status} title={`${statusLabel(s.status)}: ${s.count}`} style={{ width: `${(s.count / worked) * 100}%`, background: statusColor(s.status) }} />
-            ))}
-          </div>
-        )}
       </div>
 
-      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', padding: '14px 16px' }}>
+      {!loading && worked > 0 && (
+        <div style={{ display: 'flex', height: 8, background: 'var(--bg)' }}>
+          {byStatus.map(s => (
+            <div key={s.status} title={`${statusLabel(s.status)}: ${s.count}`} style={{ width: `${(s.count / worked) * 100}%`, background: statusColor(s.status) }} />
+          ))}
+        </div>
+      )}
+
+      <div style={{ padding: '14px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Status Breakdown</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>Status Breakdown</div>
           {!loading && byStatus.length > 0 && (
             <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{byStatus.length} statuses</div>
           )}
@@ -324,13 +263,13 @@ function TodayActivityStats() {
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--line)' }} />
                 <div style={{ flex: 1, height: 10, borderRadius: 5, background: 'var(--bg)' }} />
-                <div style={{ width: 90, height: 6, borderRadius: 3, background: 'var(--bg)' }} />
+                <div style={{ width: 84, height: 6, borderRadius: 3, background: 'var(--bg)' }} />
                 <div style={{ width: 30, height: 10, borderRadius: 5, background: 'var(--bg)' }} />
               </div>
             ))}
           </div>
         ) : byStatus.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '18px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No activity for this period</div>
+          <div style={{ textAlign: 'center', padding: '12px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No activity for this period</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
             {byStatus.map(s => {
@@ -351,6 +290,86 @@ function TodayActivityStats() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// FRO activity: the all-time allotted-vs-used pool, plus separate Today and
+// Monthly sections showing the leads worked and the status each was left in.
+// Rendered inside <CallProvider>.
+function TodayActivityStats() {
+  const [month, setMonth] = useState('all');
+  const [allTime, setAllTime] = useState(null);
+  const [loadingAll, setLoadingAll] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingAll(true);
+    getMyAllotmentSummary()
+      .then(d => { if (!cancelled) setAllTime(d || EMPTY_SUMMARY); })
+      .catch(() => { if (!cancelled) setAllTime(EMPTY_SUMMARY); })
+      .finally(() => { if (!cancelled) setLoadingAll(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const monthOptions = buildMonthOptions();
+  const allottedAllTime = allTime?.allotted_all_time || 0;
+  const usedAllTime = allTime?.used_all_time || 0;
+  const usedPct = allottedAllTime > 0 ? Math.round((usedAllTime / allottedAllTime) * 100) : 0;
+  const todayLabel = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const monthLabel = month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Data Allotted</div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>All Time &middot; unique leads</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
+          <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loadingAll ? '\u2014' : allottedAllTime}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Allotted</div>
+          </div>
+          <div style={{ paddingLeft: 16 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: '#16a34a', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loadingAll ? '\u2014' : usedAllTime}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Used</div>
+          </div>
+        </div>
+
+        {!loadingAll && allottedAllTime > 0 && (
+          <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ height: 8, borderRadius: 4, background: 'var(--bg)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 4, width: `${usedPct}%`, background: '#16a34a' }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>{usedAllTime} of {allottedAllTime} leads used ({usedPct}%)</div>
+          </div>
+        )}
+      </div>
+
+      <ActivitySection period="today" title="Today" subtitle={todayLabel} />
+
+      <ActivitySection
+        period={month === 'all' ? undefined : month}
+        title="Monthly"
+        subtitle={monthLabel}
+        headerRight={(
+          <select
+            value={month}
+            onChange={e => setMonth(e.target.value)}
+            style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <option value="all">All Time</option>
+            {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        )}
+      />
     </div>
   );
 }
