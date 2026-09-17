@@ -1394,11 +1394,15 @@ export default function Dashboard() {
 
   // FRO × hour groups for the hourly performance table — active (online/on-call/idle)
   // FROs only, sorted low-performer-first; future hours are excluded from totals today.
+  // FROs who were ABSENT on the selected date (no attendance punch-in) are excluded.
   const hourlyGroups = useMemo(() => {
     const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
     const dayIST = toIstDate();
     const isToday = hourlyDate === dayIST;
     const elapsedIdx = isToday ? Math.min(11, Math.max(-1, nowHourIST - 9)) : 12;
+    const presentIds = (dailyStats && dailyStats.length > 0)
+      ? new Set(dailyStats.filter(s => s.punched_in === true).map(s => String(s.fro_id)))
+      : null;
     const hourIdxOf = (r) => {
       const m = /^(\d{2}):/.exec(r.hour || '');
       return m ? parseInt(m[1], 10) - 9 : -1;
@@ -1422,10 +1426,10 @@ export default function Dashboard() {
       }
       g.connPct = g.connected + g.nonConnected > 0 ? Math.round((g.connected / (g.connected + g.nonConnected)) * 100) : null;
       return g;
-    });
+    }).filter(g => !presentIds || presentIds.has(String(g.id)));
     groups.sort((a, b) => (a.connected - b.connected) || a.name.localeCompare(b.name));
     return groups;
-  }, [hourlyFroRows, tlData, hourlyDate]);
+  }, [hourlyFroRows, tlData, hourlyDate, dailyStats]);
 
   const hourlyTotalsCalc = useMemo(() => {
     const totalConn = hourlyGroups.reduce((s, g) => s + g.connected, 0);
