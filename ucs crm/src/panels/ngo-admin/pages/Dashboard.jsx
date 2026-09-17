@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Download } from 'lucide-react';
+import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Circle, Users, Calendar, X } from 'lucide-react';
 import { apiGet, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
@@ -210,7 +210,7 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
               </span>
             ))}
           </div>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body">
           {groupData.length > 0 && (
@@ -393,7 +393,7 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
             <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 500 }}>
               {rows.length} FRO{rows.length !== 1 ? 's' : ''}
             </span>
-            <button className="btn btn-sm btn-outline" onClick={onClose} style={{ width: 28, height: 28, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            <button className="btn btn-sm btn-outline" onClick={onClose} style={{ width: 28, height: 28, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} /></button>
           </div>
         </div>
         <div className="modal-body" style={{ padding: '14px 18px' }}>
@@ -662,7 +662,7 @@ function FollowupDetailModal({ worker, label, onClose }) {
               </span>
             )}
           </div>
-          <button aria-label="Close" onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1 }}>✕</button>
+          <button aria-label="Close" onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14, color: 'var(--ink-soft)', lineHeight: 1 }}><X size={14} /></button>
         </div>
         <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
           {rows.length === 0 ? (
@@ -871,7 +871,7 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
             </span>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>of {allDonors.length} total</span>
           </div>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
           {loadingDonors ? (
@@ -1954,7 +1954,7 @@ export default function Dashboard() {
       {/* Idle Alert Banner */}
       {!meetingActive && tlData?.idle_alerts?.length > 0 && (
         <div style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 14 }}>⚠️</span>
+          <TriangleAlert size={16} color="#d97706" style={{ flexShrink: 0 }} />
           <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>Idle Alerts:</span>
           {tlData.idle_alerts.map(a => (
             <span key={a.fro_id} style={{ fontSize: 11, fontWeight: 500, color: '#78350f', background: '#fff', padding: '2px 6px 2px 10px', borderRadius: 12, border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1975,7 +1975,7 @@ export default function Dashboard() {
       {/* Meeting in-progress banner: live counters are frozen */}
       {meetingActive && (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 8, background: '#f5f3ff', border: '1px solid #ddd6fe', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 16 }}>📢</span>
+          <Megaphone size={20} color="#7c3aed" style={{ flexShrink: 0 }} />
           <span style={{ fontSize: 13, fontWeight: 700, color: '#6d28d9' }}>
             Meeting in progress{meeting && meeting.title !== 'Meeting' ? ` — ${meeting.title}` : ''}
             {meeting && meeting.teams && meeting.teams.length > 0 ? ` (Teams: ${meeting.teams.join(' · ')})` : ' (All teams)'}
@@ -2188,7 +2188,7 @@ export default function Dashboard() {
         <div className="performance-card">
           <div className="performance-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-              <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>🏆</span>
+              <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Trophy size={20} /></span>
               <div style={{ minWidth: 0 }}>
                 <h3 className="performance-title" style={{ color: '#14532D' }}>High Performance</h3>
               </div>
@@ -2199,7 +2199,7 @@ export default function Dashboard() {
                 : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
               <input
                 type="text"
-                placeholder="🔍 Search FRO name..."
+                placeholder="Search FRO name..."
                 value={highPerfSearch}
                 onChange={e => setHighPerfSearch(e.target.value)}
                 style={{ width: 190, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
@@ -2277,10 +2277,10 @@ export default function Dashboard() {
           <div style={{ padding: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #bbf7d0', borderRadius: 10, background: '#f0fdf4' }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>📈 Total High Performers: {topPresent.length} FROs</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 6 }}><TrendingUp size={14} /> Total High Performers: {topPresent.length} FROs</div>
                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs have achieved at least 100% of their daily collection target.</div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#14532D', whiteSpace: 'nowrap' }}>Keep it up! 🎉</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#14532D', whiteSpace: 'nowrap' }}>Keep it up!</span>
             </div>
           </div>
         </div>
@@ -2289,7 +2289,7 @@ export default function Dashboard() {
         <div className="performance-card">
           <div className="performance-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-              <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#FFF1F2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>⚠️</span>
+              <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#FFF1F2', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><TriangleAlert size={20} /></span>
               <div style={{ minWidth: 0 }}>
                 <h3 className="performance-title" style={{ color: '#991B1B' }}>Low Performance</h3>
               </div>
@@ -2300,7 +2300,7 @@ export default function Dashboard() {
                 : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
               <input
                 type="text"
-                placeholder="🔍 Search FRO name..."
+                placeholder="Search FRO name..."
                 value={lowPerfSearch}
                 onChange={e => setLowPerfSearch(e.target.value)}
                 style={{ width: 190, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
@@ -2326,7 +2326,7 @@ export default function Dashboard() {
             ) : lowRows.length === 0 ? (
               <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                 <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                  {lowPresent.length === 0 ? 'All FROs have reached the daily target. 🎉' : 'No FROs match your search.'}
+                  {lowPresent.length === 0 ? 'All FROs have reached the daily target.' : 'No FROs match your search.'}
                 </div>
               </div>
             ) : (
@@ -2378,10 +2378,10 @@ export default function Dashboard() {
           <div style={{ padding: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444' }}>👥 Total Low Performers: {lowPresent.length} FROs</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 6 }}><Users size={14} /> Total Low Performers: {lowPresent.length} FROs</div>
                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>These FROs are below 100% of their daily collection target.</div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them! 💪</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them!</span>
             </div>
           </div>
         </div>
@@ -2438,19 +2438,20 @@ export default function Dashboard() {
               <div className="performance-card" style={{ height: 460 }}>
               <div className="performance-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                  <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
+                  <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Phone size={20} /></span>
+                  <h3 className="performance-title" style={{ color: '#17233C', whiteSpace: 'nowrap' }}>Hourly Performance</h3>
                   <input
                     type="text"
-                    placeholder="🔍 Search FRO name..."
+                    placeholder="Search FRO name..."
                     value={hourlyFroSearch}
                     onChange={e => setHourlyFroSearch(e.target.value)}
-                    style={{ flex: 1, minWidth: 200, maxWidth: 340, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
+                    style={{ flex: 1, minWidth: 180, maxWidth: 300, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div style={{ position: 'relative' }}>
                   <button onClick={() => { setConnTargetDraft(String(connTarget)); setConnTargetMsg(''); setConnTargetOpen(o => !o); }}
-                    style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#17233C', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    🎯 Target: {connTarget}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#17233C', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    <Target size={12} /> Target: {connTarget}
                   </button>
                   {connTargetOpen && (
                     <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 240, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,.18)', padding: 14, zIndex: 30 }}>
@@ -2502,7 +2503,7 @@ export default function Dashboard() {
                 ) : lowGroups.length === 0 ? (
                   <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>✓</div>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}><CircleCheck size={16} /></div>
                       <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>All FROs are at or above the target pace.</div>
                     </div>
                   </div>
@@ -2550,11 +2551,11 @@ export default function Dashboard() {
               {/* Header */}
               <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: '#dc2626' }}>⚠️</span> Idle Hours
+                  <span style={{ color: '#dc2626', display: 'flex' }}><TriangleAlert size={18} /></span> Idle Hours
                 </h3>
                 <input
                   type="text"
-                  placeholder="🔍 Search FRO name..."
+                  placeholder="Search FRO name..."
                   value={idleSearch}
                   onChange={e => setIdleSearch(e.target.value)}
                   style={{ width: 220, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
@@ -2566,7 +2567,7 @@ export default function Dashboard() {
                 <div style={{ padding: '0 24px 16px' }}>
                   <div style={{ border: '1px solid #fecdd3', borderRadius: 12, background: '#fff5f6', padding: '14px 16px', minHeight: 72 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      🔴 ZERO CALLS {hourlyAlerts.isToday ? 'SO FAR TODAY' : 'THIS DAY'} — {hourlyAlerts.noCalls.length} FRO{hourlyAlerts.noCalls.length > 1 ? 's' : ''}
+                      <Circle size={10} fill="#dc2626" stroke="#dc2626" /> ZERO CALLS {hourlyAlerts.isToday ? 'SO FAR TODAY' : 'THIS DAY'} — {hourlyAlerts.noCalls.length} FRO{hourlyAlerts.noCalls.length > 1 ? 's' : ''}
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%' }}>
                       {hourlyAlerts.noCalls.map(f => (
@@ -2601,7 +2602,7 @@ export default function Dashboard() {
                 if (meetingActive) {
                   return (
                     <div style={{ padding: '28px 24px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 26 }}>📢</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Megaphone size={34} color="#7c3aed" /></div>
                       <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: '#7c3aed' }}>Counts paused — meeting in progress</div>
                       <div style={{ marginTop: 4, fontSize: 12, color: '#64748B' }}>Idle / zero-call alerts resume automatically when an admin ends the meeting.</div>
                     </div>
@@ -2633,7 +2634,7 @@ export default function Dashboard() {
                 if (hourlyAlerts.idle.length === 0 && hourlyAlerts.noCalls.length === 0) {
                   return (
                     <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>✓</div>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}><CircleCheck size={16} /></div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>No idle-hour alerts</div>
                       <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>All FROs have made calls during the elapsed working hours.</div>
                     </div>
@@ -2667,9 +2668,9 @@ export default function Dashboard() {
                                 {f.workAsName && (
                                   <div
                                     title={`${f.workAsName} work as ${f.name}`}
-                                    style={{ marginTop: 3, display: 'inline-flex', alignItems: 'center', maxWidth: 260, padding: '3px 8px', border: '1px solid #f6c453', borderRadius: 999, background: '#fff9e8', color: '#c77700', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                    style={{ marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 260, padding: '3px 8px', border: '1px solid #f6c453', borderRadius: 999, background: '#fff9e8', color: '#c77700', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                                   >
-                                    ⚡ {f.workAsName} work as {f.name}
+                                    <Zap size={11} style={{ flexShrink: 0 }} /> {f.workAsName} work as {f.name}
                                   </div>
                                 )}
                               </td>
@@ -2690,7 +2691,7 @@ export default function Dashboard() {
                                   title={`Send idle alert to ${f.name}`}
                                   style={{ height: 34, padding: '0 14px', border: '1px solid #f59e0b', borderRadius: 8, background: notifyingFroId === f.id ? '#fffbeb' : '#ffffff', color: '#d97706', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: notifyingFroId === f.id ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
                                 >
-                                  {notifyingFroId === f.id ? '…' : '🔔 Notify'}
+                                  {notifyingFroId === f.id ? '…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={13} color="#d97706" /> Notify</span>}
                                 </button>
                               </td>
                             </tr>
@@ -2854,7 +2855,7 @@ export default function Dashboard() {
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
-                  placeholder="🔍 Search FRO name..."
+                  placeholder="Search FRO name..."
                   value={froSearch}
                   onChange={e => setFroSearch(e.target.value)}
                   style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 180, background: '#f7fafc', color: '#17233C' }}
@@ -2865,7 +2866,7 @@ export default function Dashboard() {
                   title="Date filter"
                   style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C', cursor: 'pointer' }}
                 >
-                  {periodOptions.map(o => <option key={o.value} value={o.value}>{o.value === 'custom' ? `📅 ${o.label}` : `📅 ${o.label} ▾`}</option>)}
+                  {periodOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <button
                   onClick={handleTelecallerExport}
@@ -2954,11 +2955,11 @@ export default function Dashboard() {
                               )}
                               <span style={{ fontWeight: highlighted ? 700 : 600, color: live ? '#15803d' : (idle ? '#2F80D9' : (met ? '#6d28d9' : '#17233C')) }}>{p.fro_name}</span>
                               {met && (
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', whiteSpace: 'nowrap' }}>📢 Meeting</span>
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Megaphone size={10} /> Meeting</span>
                               )}
                             </div>
                             {p.work_as_operator_name && (
-                              <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-block', whiteSpace: 'nowrap' }}>⚡ {p.work_as_operator_name} work as {p.fro_name}</div>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}><Zap size={9} /> {p.work_as_operator_name} work as {p.fro_name}</div>
                             )}
                             {p.status === 'idle' && p.idleMinutes > 0 && (
                               <span
@@ -3055,7 +3056,7 @@ export default function Dashboard() {
                     boxShadow: followupMode === 'daywise' ? '0 2px 8px #5B6B4E2e' : 'none',
                     transition: 'all .18s ease',
                   }}>
-                    📅 Day-wise
+                    <Calendar size={13} /> Day-wise
                   </button>
                 </div>
                 {followupMode === 'daywise' ? (
