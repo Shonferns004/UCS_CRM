@@ -215,50 +215,86 @@ function TodayActivityStats() {
   const monthOptions = buildMonthOptions();
   const allotted = allotment?.allotted || 0;
   const byStatus = allotment?.by_status || [];
+  const actedOn = byStatus.reduce((sum, s) => s.status === 'pending' ? sum : sum + s.count, 0);
+  const periodLabel = month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>
-          {month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month)}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 9, background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Data Allotted</div>
+              <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{periodLabel}</div>
+            </div>
+          </div>
+          <select
+            value={month}
+            onChange={e => setMonth(e.target.value)}
+            style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <option value="all">All Time</option>
+            {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
         </div>
-        <select
-          value={month}
-          onChange={e => setMonth(e.target.value)}
-          style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer' }}
-        >
-          <option value="all">All Time</option>
-          {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </select>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
+          <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : allotted}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Total leads</div>
+          </div>
+          <div style={{ paddingLeft: 16 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: '#3b82f6', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : actedOn}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Acted on</div>
+          </div>
+        </div>
+
+        {!loading && allotted > 0 && (
+          <div style={{ display: 'flex', height: 8, background: 'var(--bg)' }}>
+            {byStatus.map(s => (
+              <div key={s.status} title={`${statusLabel(s.status)}: ${s.count}`} style={{ width: `${(s.count / allotted) * 100}%`, background: statusColor(s.status) }} />
+            ))}
+          </div>
+        )}
       </div>
 
-      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#3b82f6', lineHeight: 1.1 }}>{loading ? '\u2014' : allotted}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Data Allotted</div>
+      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Status Breakdown</div>
+          {!loading && byStatus.length > 0 && (
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{byStatus.length} statuses</div>
+          )}
         </div>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.8" opacity=".5"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
-      </div>
-
-      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 10 }}>Status Breakdown</div>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '16px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--line)' }} />
+                <div style={{ flex: 1, height: 10, borderRadius: 5, background: 'var(--bg)' }} />
+                <div style={{ width: 90, height: 6, borderRadius: 3, background: 'var(--bg)' }} />
+                <div style={{ width: 30, height: 10, borderRadius: 5, background: 'var(--bg)' }} />
+              </div>
+            ))}
+          </div>
         ) : byStatus.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '16px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No allotted data for this period</div>
+          <div style={{ textAlign: 'center', padding: '18px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No allotted data for this period</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
             {byStatus.map(s => {
               const rowPct = allotted > 0 ? (s.count / allotted) * 100 : 0;
+              const color = statusColor(s.status);
               return (
-                <div key={s.status}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-                    <span style={{ color: 'var(--ink)' }}>{statusLabel(s.status)}</span>
-                    <span style={{ fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{s.count}</span>
+                <div key={s.status} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{statusLabel(s.status)}</span>
+                  <div style={{ width: 84, height: 6, borderRadius: 3, background: 'var(--bg)', overflow: 'hidden', flexShrink: 0 }}>
+                    <div style={{ height: '100%', borderRadius: 3, width: `${Math.max(rowPct, 3)}%`, background: color }} />
                   </div>
-                  <div style={{ height: 5, borderRadius: 3, background: 'var(--bg)', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', borderRadius: 3, width: `${Math.max(rowPct, 2)}%`, background: statusColor(s.status) }} />
-                  </div>
+                  <span style={{ width: 32, textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{s.count}</span>
+                  <span style={{ width: 38, textAlign: 'right', fontSize: 10.5, color: 'var(--ink-soft)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(rowPct)}%</span>
                 </div>
               );
             })}
@@ -1128,7 +1164,7 @@ useEffect(() => onFroAction((action) => {
         )}
         {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
                 <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card-bg)' }}>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{showTarget ? 'Monthly Target' : 'My Activity'}</div>
@@ -1143,7 +1179,7 @@ useEffect(() => onFroAction((action) => {
                   </div>
                 </div>
 
-                <div style={{ padding: '20px 22px', background: 'var(--bg)' }}>
+                <div style={{ padding: '20px 22px', background: 'var(--bg)', maxHeight: '78vh', overflowY: 'auto' }}>
                   {!showTarget ? (
                     <TodayActivityStats />
                   ) : (
