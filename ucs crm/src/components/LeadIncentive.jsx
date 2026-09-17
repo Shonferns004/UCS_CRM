@@ -33,7 +33,7 @@ const fmtDate = (d) => {
   return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-const fmtSlabRange = (s) => `₹${fmt(s.min_amount)} – ₹${fmt(s.max_amount)}`
+const fmtSlabRange = (s) => `₹${fmt(s.min_amount)} ↔ ₹${fmt(s.max_amount)}`
 
 // A stale DB could hold duplicate rows for the same (min, max) range, which would
 // make the UI list every range twice. Keep a single row per range — preferring an
@@ -118,6 +118,8 @@ const LI_CSS = `
 .li-panel { background: ${C.panelBg}; border: 1px solid ${C.line}; border-radius: 12px; box-shadow: 0 2px 10px rgba(30,80,140,.05); overflow: hidden; max-width: 100%; }
 .li-table-scroll { overflow-x: auto; max-width: 100%; }
 .li-table { width: 100%; min-width: 460px; table-layout: fixed; border-collapse: collapse; }
+.li-noscroll { scrollbar-width: none; -ms-overflow-style: none; }
+.li-noscroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .li-table th { padding: 9px 10px; font-size: 11px; font-weight: 700; color: #52698A; background: #F8FAFD; border-bottom: 1px solid #E5EDF7; white-space: nowrap; }
 .li-table td { padding: 9px 10px; font-size: 13px; }
 .li-table tbody tr { border-bottom: 1px solid #F2F6FB; transition: background .15s ease; }
@@ -179,6 +181,23 @@ function MiniBar({ pct, color }) {
     <div style={{ height: 8, borderRadius: 999, background: '#EDF2F7', overflow: 'hidden' }}>
       <div style={{ width: `${Math.max(0, Math.min(100, pct || 0))}%`, height: '100%', borderRadius: 999, background: color || C.primary, transition: 'width .3s ease' }} />
     </div>
+  )
+}
+
+// ─── Range display: min ◀━━━━▶ max ────────────────────────
+function RangeArrow({ min, max }) {
+  const tri = (side) => side === 'left'
+    ? { borderTop: '4px solid transparent', borderBottom: '4px solid transparent', borderRight: `6px solid ${C.primary}` }
+    : { borderTop: '4px solid transparent', borderBottom: '4px solid transparent', borderLeft: '6px solid #9CC4F5' }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, maxWidth: '100%' }}>
+      <span style={{ fontWeight: 700, color: C.dark, whiteSpace: 'nowrap', fontSize: 13 }}>₹{fmt(min)}</span>
+      <span style={{ position: 'relative', flex: '1 1 28px', minWidth: 28, height: 2, borderRadius: 2, background: `linear-gradient(90deg, ${C.primary}, #9CC4F5)` }}>
+        <span style={{ position: 'absolute', left: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, ...tri('left') }} />
+        <span style={{ position: 'absolute', right: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, ...tri('right') }} />
+      </span>
+      <span style={{ fontWeight: 700, color: C.dark, whiteSpace: 'nowrap', fontSize: 13 }}>₹{fmt(max)}</span>
+    </span>
   )
 }
 
@@ -284,17 +303,16 @@ function RangeCard({ r, onViewAll, onSelectFro }) {
 function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
   return (
     <div className="li-panel">
-      <div className="li-panel-head" style={{ padding: 16, borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ width: 34, height: 34, borderRadius: 10, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Stack size={18} />
+      <div className="li-panel-head" style={{ padding: '10px 14px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Stack size={16} />
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>Incentive Ranges</div>
-          <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Start each range and track its live competition</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.dark, lineHeight: 1.2 }}>Incentive Ranges</div>
         </div>
         <button type="button" onClick={onTargetSlabs}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-          <FileText size={15} /> Target Slabs
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 30, padding: '0 12px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          <FileText size={14} /> Target Slabs
         </button>
       </div>
 
@@ -342,8 +360,8 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
               {ranges.map(r => (
                 <tr key={r.slab_id}>
                   <td style={{ color: C.muted, fontWeight: 600 }}>{r.idx}</td>
-                  <td>
-                    <span style={{ fontWeight: 600, color: C.dark, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.slab_label}</span>
+                  <td style={{ minWidth: 0 }}>
+                    <RangeArrow min={r.slab.min_amount} max={r.slab.max_amount} />
                   </td>
                   <td style={{ textAlign: 'center' }}><StatusPill status={r.status} /></td>
                   <td style={{ textAlign: 'center' }}>
@@ -615,12 +633,11 @@ function RangeFrosModal({ slabLabel, fros, onClose }) {
           </div>
           <button type="button" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><X size={14} weight="bold" /></button>
         </div>
-        <div style={{ overflowY: 'auto', padding: '8px 0' }}>
+        <div className="li-noscroll" style={{ overflowY: 'auto', padding: '8px 0' }}>
           {(fros || []).map(f => (
-            <div key={f.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 18px' }}>
+            <div key={f.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 18px' }}>
               <Avatar url={f.photo_url} name={f.fro_name} size={30} />
               <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.fro_name}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: C.green, whiteSpace: 'nowrap' }}>₹{fmt(f.total_amount)}</span>
             </div>
           ))}
           {(!fros || fros.length === 0) && (
@@ -669,10 +686,10 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
   const active = (slabs || []).filter(s => s.is_active)
 
   const moneyInput = (value, onChange, placeholder) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 38, padding: '0 12px', background: '#fff', border: '1px solid #DCE7F5', borderRadius: 10 }}>
-      <span style={{ fontSize: 14, fontWeight: 700, color: C.primary }}>₹</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 10px', background: '#fff', border: '1px solid #DCE7F5', borderRadius: 8 }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>₹</span>
       <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 13.5, fontWeight: 600, color: C.dark, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+        style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: C.dark, fontFamily: 'inherit', boxSizing: 'border-box' }} />
     </div>
   )
 
@@ -718,39 +735,44 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
         </div>
       )}
 
-      <div style={{ overflowX: 'auto', border: `1px solid #EEF2F8`, borderRadius: 10 }}>
-        <table style={{ width: '100%', minWidth: 440, borderCollapse: 'collapse', fontSize: 13 }}>
+      <div style={{ border: `1px solid #EEF2F8`, borderRadius: 10, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed' }}>
+          <colgroup>
+            <col />
+            <col style={{ width: 108 }} />
+            <col style={{ width: 96 }} />
+          </colgroup>
           <thead>
             <tr style={{ background: '#F8FAFD' }}>
-              <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Range (₹)</th>
-              <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>FROs</th>
-              <th style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap', width: 108 }}>Actions</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Range (₹)</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>FROs</th>
+              <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {active.map(slab => {
               const rangeFros = (slabFros || {})[slab.id] || []
-              const rangeLabel = `₹${fmt(slab.min_amount)} – ₹${fmt(slab.max_amount)}`
+              const rangeLabel = `₹${fmt(slab.min_amount)} ↔ ₹${fmt(slab.max_amount)}`
               return editing === slab.id ? (
                 <tr key={slab.id} style={{ background: '#F4F9FF' }}>
-                  <td style={{ padding: 8 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                  <td style={{ padding: 6 }}>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>{moneyInput(form.min_amount, v => setForm(p => ({ ...p, min_amount: v })), 'Min')}</div>
-                      <span style={{ color: C.muted, fontSize: 12, flexShrink: 0 }}>to</span>
+                      <span style={{ color: C.muted, fontSize: 11, flexShrink: 0 }}>to</span>
                       <div style={{ flex: 1, minWidth: 0 }}>{moneyInput(form.max_amount, v => setForm(p => ({ ...p, max_amount: v })), 'Max')}</div>
                     </div>
                   </td>
-                  <td style={{ padding: 8 }}>
+                  <td style={{ padding: 6 }}>
                     <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: rangeLabel, fros: rangeFros })} />
                   </td>
-                  <td style={{ padding: 8 }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                  <td style={{ padding: 6 }}>
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                       <button type="button" onClick={submit} disabled={saving}
-                        style={{ height: 32, padding: '0 12px', borderRadius: 8, border: 'none', background: C.primary, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                        style={{ height: 28, padding: '0 10px', borderRadius: 7, border: 'none', background: C.primary, color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
                         {saving ? '…' : 'Save'}
                       </button>
                       <button type="button" onClick={cancel} disabled={saving}
-                        style={{ height: 32, padding: '0 12px', borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        style={{ height: 28, padding: '0 10px', borderRadius: 7, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
                         Cancel
                       </button>
                     </div>
@@ -758,19 +780,19 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
                 </tr>
               ) : (
                 <tr key={slab.id} style={{ borderTop: '1px solid #F2F6FB' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap' }}>{rangeLabel}</td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>{rangeLabel}</td>
+                  <td style={{ padding: '8px 10px' }}>
                     <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: rangeLabel, fros: rangeFros })} />
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                  <td style={{ padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                       <button type="button" onClick={() => startEdit(slab)} title="Edit range"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                        <PencilSimple size={13} /> Edit
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 28, padding: '0 8px', borderRadius: 7, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        <PencilSimple size={12} /> Edit
                       </button>
                       <button type="button" onClick={() => onDelete(slab.id)} title="Delete range"
-                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', cursor: 'pointer' }}>
-                        <Trash size={14} />
+                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', cursor: 'pointer' }}>
+                        <Trash size={13} />
                       </button>
                     </div>
                   </td>
@@ -1399,37 +1421,6 @@ export default function LeadIncentive() {
   return (
     <div className="li-wrap">
       <style>{LI_CSS}</style>
-
-      {/* Breadcrumb */}
-      <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        Finance <span style={{ margin: '0 4px', color: '#B9C8DC' }}>›</span> Lead Incentive
-      </div>
-
-      {/* Page header */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <ChartBar size={22} weight="fill" />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: C.dark, letterSpacing: -0.2, lineHeight: 1.1 }}>Lead Incentive</h1>
-            <div style={{ marginTop: 3, fontSize: 13, color: '#6B7C93', lineHeight: 1.45 }}>
-              Manage incentive ranges and view top performers based on verified collections.
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" onClick={refresh}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px', borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-            <ArrowsClockwise size={15} className={refreshing ? 'li-spin' : ''} /> Refresh
-          </button>
-          <button type="button" onClick={() => setSlabsOpen(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px', borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.dark, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-            <FileText size={15} /> Target Slabs <CaretRight size={12} weight="bold" color="#B9C8DC" />
-          </button>
-        </div>
-      </div>
 
       {/* Two-column layout */}
       <div className="li-grid">
