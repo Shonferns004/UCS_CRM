@@ -130,7 +130,7 @@ function ConfirmDialog({ title, body, note, confirmLabel = 'Yes, do it', busy = 
         animation: 'toast-in .25s ease',
       }}>
         <div style={{
-          padding: '14px 18px', background: 'linear-gradient(135deg,#7f1d1d,#dc2626)',
+          padding: '14px 18px', background: '#7f1d1d',
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span style={{ fontSize: 18 }}>⏹</span>
@@ -151,7 +151,7 @@ function ConfirmDialog({ title, body, note, confirmLabel = 'Yes, do it', busy = 
             </button>
             <button onClick={onConfirm} disabled={busy} style={{
               flex: 1, padding: '11px 16px', borderRadius: 10, border: 'none',
-              background: 'linear-gradient(90deg,#b91c1c,#dc2626)', color: '#fff',
+              background: '#b91c1c', color: '#fff',
               fontWeight: 800, fontSize: 13.5, cursor: busy ? 'wait' : 'pointer',
             }}>
               {busy ? 'Working…' : confirmLabel}
@@ -227,14 +227,14 @@ function LiveCompetitionsStrip() {
 
   return (
     <div style={{ border: '2px solid #f59e0b', borderRadius: 16, overflow: 'hidden', background: 'var(--card-bg)', marginBottom: 16 }}>
-      <div style={{ padding: '12px 16px', background: 'linear-gradient(135deg,#451a03,#b45309,#f59e0b)', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '12px 16px', background: '#b45309', display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 18 }}>🏆</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 900, color: '#fff' }}>
             Lead Incentive · {liveCount} range{liveCount !== 1 ? 's' : ''} live
           </div>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.8)' }}>
-            First FRO to hit a range's Minimum Lead Amount (by verified time) wins that range
+            First FRO to collect the range's Win On amount wins the flat prize
           </div>
         </div>
         {liveCount > 0
@@ -272,22 +272,22 @@ function LiveCompetitionsStrip() {
             return (
               <div key={r.slab_id} style={{
                 borderRadius: 12, border: r.champion ? '2px solid #22c55e' : '1.5px solid var(--line)',
-                background: r.champion ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : 'var(--bg)', overflow: 'hidden',
+                background: r.champion ? '#f0fdf4' : 'var(--bg)', overflow: 'hidden',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', flex: '0 0 auto' }}>
                     {r.slab_label}
                   </span>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: '#fff7ed', border: '1px solid #fcd34d', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                    Min Lead ₹{fmt(r.min_lead_amount)}
+                    🎯 Win On ₹{fmt(r.amount_to_win ?? 1500)}
                   </span>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                    ₹{fmt(r.lead_rate)}/lead
+                    🏆 Prize ₹{fmt(r.incentive_amount ?? 0)}
                   </span>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: leader?.won ? 800 : 600, color: leader?.won ? '#166534' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.champion
                       ? `🏆 Winner: ${r.champion.fro_name}`
-                      : (leader ? `${leader.name} leading · ${r.fros[0].qualified_leads || 0} ✓` : '🏁 no lead yet')}
+                      : (leader ? `${leader.name} leading · ₹${fmt(r.fros[0].total_amount || 0)}` : '🏁 no lead yet')}
                   </span>
                   <button
                     onClick={() => setConfirmSlab({ slab_id: r.slab_id, slab_label: r.slab_label })}
@@ -307,9 +307,9 @@ function LiveCompetitionsStrip() {
                     <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 800, color: '#166534', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.champion.fro_name}
                     </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>₹{fmt(r.champion.hit_amount)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>₹{fmt(r.champion.crossing_amount ?? r.champion.hit_amount ?? r.champion.total_amount)}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#166534' }}>{r.champion.qualified_leads || 0} ✓</span>
-                    <span style={{ fontSize: 12, fontWeight: 900, color: '#166534' }}>🏆 Won +₹{fmt(r.champion.lead_incentive)}</span>
+                    <span style={{ fontSize: 12, fontWeight: 900, color: '#166534' }}>🏆 Won +₹{fmt(r.champion.slab_bonus || r.champion.total_incentive || 0)}</span>
                   </div>
                 )}
 
@@ -419,7 +419,7 @@ function HistoryList({ history, loading, busyId, onDelete }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 14,
-        background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', border: '2px solid #22c55e',
+        background: '#f0fdf4', border: '2px solid #22c55e',
       }}>
         <span style={{ fontSize: 16 }}>🔴</span>
         <div style={{ fontSize: 12.5, fontWeight: 700, color: '#166534' }}>
@@ -436,7 +436,7 @@ function HistoryList({ history, loading, busyId, onDelete }) {
         return (
         <div key={row.id} style={{
           border: isLive ? '2px solid #22c55e' : '1.5px solid var(--line)',
-          borderRadius: 16, padding: 18, background: isLive ? 'linear-gradient(135deg,#f0fdf4,#dcfce7)' : 'var(--card-bg)',
+          borderRadius: 16, padding: 18, background: isLive ? '#f0fdf4' : 'var(--card-bg)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -489,17 +489,14 @@ function HistoryList({ history, loading, busyId, onDelete }) {
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-            {stat('Qualified Leads', row.qualified_leads, '#16a34a')}
             {stat('Amount', `₹${fmt(row.total_amount)}`)}
-            {stat('Lead Inc.', `₹${fmt(row.lead_incentive)}`)}
-            {stat('Slab Bonus', `₹${fmt(row.slab_bonus)}`, '#b45309')}
-            {stat('Champion', `₹${fmt(row.champion_bonus)}`, '#f59e0b')}
-            {stat('Total', `₹${fmt(row.total_incentive)}`, '#b45309')}
+            {stat('Verified Leads', row.qualified_leads || 0, '#16a34a')}
+            {stat('Prize', `₹${fmt(row.slab_bonus || row.total_incentive || 0)}`, '#16a34a')}
           </div>
 
           {row.message ? (
             <div style={{
-              padding: '10px 14px', borderRadius: 10, background: 'linear-gradient(135deg,#fffdf5,#fef3c7)',
+              padding: '10px 14px', borderRadius: 10, background: '#fffdf5',
               border: '1.5px solid #fde68a', fontSize: 13, lineHeight: 1.55, color: '#92400e', fontWeight: 600,
             }}>
               💬 {row.message}
@@ -550,7 +547,7 @@ function Avatar({ url, name, size = 34 }) {
   return (
     <div style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      background: 'linear-gradient(135deg,#b45309,#f59e0b)', color: '#fff',
+      background: '#b45309', color: '#fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.38, fontWeight: 800, border: '2px solid #fbbf24',
     }}>{initialsOf(name)}</div>
@@ -602,13 +599,13 @@ function LeaderboardPanel({ date, rows, champIds }) {
 
   return (
     <div style={{ border: '1px dashed #fcd34d', borderRadius: 12, marginTop: 12, overflow: 'hidden', background: 'var(--bg)' }}>
-      <div style={{ padding: '8px 12px', background: 'linear-gradient(90deg,#fff3d6,#fef3c7)', borderBottom: '1px dashed #fcd34d', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ padding: '8px 12px', background: '#fff3d6', borderBottom: '1px dashed #fcd34d', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e' }}>📊 Top {visible.length} · {fmtDay(date)}</span>
         <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#b45309' }}>every person's verified leads · from competition start</span>
       </div>
 
       {champ && (
-        <div style={{ padding: '10px 14px', borderBottom: '1px dashed #fcd34d', background: 'linear-gradient(135deg,#dcfce7,#f0fdf4)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ padding: '10px 14px', borderBottom: '1px dashed #fcd34d', background: '#f0fdf4', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ position: 'relative' }}>
             <Avatar url={champ.photo_url} name={champ.fro_name} size={46} />
             <span style={{ position: 'absolute', bottom: -4, right: -6, fontSize: 18 }}>👑</span>
@@ -616,13 +613,13 @@ function LeaderboardPanel({ date, rows, champIds }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>🏆 Winner · {champ.fro_name}</div>
             <div style={{ fontSize: 11.5, color: '#15803d', marginTop: 2 }}>
-              First FRO to hit their range's target wins it! Won ₹{fmt(champ.lead_incentive)} ({champ.qualified_leads || 0} × per qualified lead)
+              First FRO to collect the range's Win On amount wins the flat prize! Won +₹{fmt(champ.slab_bonus || champ.incentive_amount || champ.total_incentive || 0)}
             </div>
           </div>
           {champ.photo_url && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-              <span style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>+₹{fmt(champ.lead_incentive)}</span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a' }}>{champ.qualified_leads} qualified ✓</span>
+              <span style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>+₹{fmt(champ.slab_bonus || champ.incentive_amount || champ.total_incentive || 0)}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a' }}>{champ.qualified_leads} collected ✓</span>
             </div>
           )}
         </div>
@@ -677,7 +674,7 @@ function LeaderboardRow({ f, rank, isChamp, open, loading, detail, onToggle }) {
         </span>
         <span style={{ width: 44, fontSize: 11.5, fontWeight: 700, color: '#16a34a', textAlign: 'center', flexShrink: 0 }}>{f.qualified_leads || 0} ✓</span>
         {isChamp ? (
-          <span style={{ width: 82, fontSize: 11.5, fontWeight: 800, color: '#166534', textAlign: 'right', flexShrink: 0 }}>🏆 Won +₹{fmt(f.lead_incentive)}</span>
+          <span style={{ width: 82, fontSize: 11.5, fontWeight: 800, color: '#166534', textAlign: 'right', flexShrink: 0 }}>🏆 Won +₹{fmt(f.slab_bonus || f.total_incentive || 0)}</span>
         ) : (
           <span style={{ width: 82, flexShrink: 0 }} />
         )}
@@ -690,11 +687,9 @@ function LeaderboardRow({ f, rank, isChamp, open, loading, detail, onToggle }) {
           ) : detail ? (
             <>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '10px 0' }}>
-                {stat('Qualified Leads', detail.qualified_leads || 0, '#16a34a')}
                 {stat('Amount', `₹${fmt(detail.total_amount)}`)}
-                {stat('Lead Inc.', `₹${fmt(detail.lead_incentive)}`)}
-                {stat('Slab Bonus', `₹${fmt(detail.slab_bonus)}`, '#b45309')}
-                {stat('Total', `₹${fmt(detail.total_incentive)}`, '#b45309')}
+                {stat('Win On', `🎯 ₹${fmt(detail.amount_to_win ?? 1500)}`, '#b45309')}
+                {stat('Prize', `₹${fmt(detail.slab_bonus || detail.incentive_amount || 0)}`, detail.slab_bonus > 0 ? '#16a34a' : '#b45309')}
               </div>
               {(detail.leads || []).length > 0 ? (
                 <div style={{ border: '1.5px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>

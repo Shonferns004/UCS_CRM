@@ -104,14 +104,13 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 
   // Per-range configure popup
   const [popupSlab, setPopupSlab] = useState(null)
-  const [popupForm, setPopupForm] = useState({ min_lead_amount: '', lead_rate: '', started_at: '', ended_at: '' })
+  const [popupForm, setPopupForm] = useState({ amount_to_win: '', started_at: '', ended_at: '' })
   const [popupError, setPopupError] = useState('')
 
   const openPopup = (slab) => {
     setPopupSlab(slab)
     setPopupForm({
-      min_lead_amount: slab.min_lead_amount ?? '',
-      lead_rate: slab.lead_rate ?? '',
+      amount_to_win: slab.amount_to_win ?? '',
       started_at: toLocalInput(slab.started_at),
       ended_at: toLocalInput(slab.ended_at),
     })
@@ -122,10 +121,9 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 
   const savePopup = async () => {
     setPopupError('')
-    const min_lead_amount = Number(popupForm.min_lead_amount)
-    const lead_rate = Number(popupForm.lead_rate)
-    if (!(min_lead_amount >= 0) || !(lead_rate >= 0)) {
-      setPopupError('Enter valid Minimum Lead Amount and ₹ per Qualified Lead')
+    const amount_to_win = Number(popupForm.amount_to_win)
+    if (!(amount_to_win > 0)) {
+      setPopupError('Enter a valid Win On amount (must be more than ₹0)')
       return
     }
     const started_at = popupForm.started_at
@@ -136,8 +134,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
     }
     try {
       await onUpdateSlab(popupSlab, {
-        min_lead_amount,
-        lead_rate,
+        amount_to_win,
         started_at: started_at || null,
         ended_at: ended_at || null,
       })
@@ -148,7 +145,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
   }
 
   // Apply common value to ALL ranges
-  const [commonForm, setCommonForm] = useState({ min_lead_amount: '', lead_rate: '' })
+  const [commonForm, setCommonForm] = useState({ amount_to_win: '' })
   const [commonError, setCommonError] = useState('')
   const [commonDone, setCommonDone] = useState('')
 
@@ -163,14 +160,13 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
   const applyCommon = async () => {
     setCommonError('')
     setCommonDone('')
-    const min_lead_amount = Number(commonForm.min_lead_amount)
-    const lead_rate = Number(commonForm.lead_rate)
-    if (!(min_lead_amount >= 0) || !(lead_rate >= 0)) {
-      setCommonError('Enter valid Minimum Lead Amount and ₹ per Qualified Lead')
+    const amount_to_win = Number(commonForm.amount_to_win)
+    if (!(amount_to_win > 0)) {
+      setCommonError('Enter a valid Win On amount (must be more than ₹0)')
       return
     }
     try {
-      const count = await onApplyAll({ min_lead_amount, lead_rate })
+      const count = await onApplyAll({ amount_to_win })
       setCommonDone(`Applied to ${count} range(s) ✓`)
     } catch (e) {
       setCommonError(e.message || 'Failed to apply')
@@ -209,37 +205,16 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
           <span style={{ fontSize: 18 }}>⚙️</span>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Lead Rules</div>
         </div>
-        {dirty && (
-          <button onClick={() => { onSave(local); setDirty(false) }} disabled={saving}
-            style={btnStyle('linear-gradient(90deg,#b45309,#f59e0b)')}>
-            {saving ? 'Saving…' : 'Save Rules'}
-          </button>
-        )}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>
-            Default ₹ per Qualified Lead
-          </label>
-          <input type="number" style={inputStyle} value={local.lead_rate}
-            onChange={e => update('lead_rate', e.target.value)} placeholder="20" />
-          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 4 }}>Fallback when a range has no value of its own</div>
-        </div>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>
-            Default Minimum Lead Amount (₹)
-          </label>
-          <input type="number" style={inputStyle} value={local.min_lead_amount}
-            onChange={e => update('min_lead_amount', e.target.value)} placeholder="300" />
-          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 4 }}>Fallback when a range has no value of its own</div>
-        </div>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 5 }}>
-            Champion Bonus (₹)
-          </label>
-          <input type="number" style={inputStyle} value={local.champion_bonus}
-            onChange={e => update('champion_bonus', e.target.value)} placeholder="250" />
-        </div>
+
+      {/* How the flat prize works */}
+      <div style={{
+        padding: '12px 14px', borderRadius: 12, background: '#fffdf5',
+        border: '1.5px solid #fde68a', fontSize: 12.5, color: '#92400e', lineHeight: 1.6,
+      }}>
+        🏆 <b>Flat prize:</b> every verified lead counts — there's no per-lead minimum or ₹/lead reward.
+        The first FRO in a range to reach <b>Win On (₹)</b> in <b>total verified day collection</b>
+        wins that range's flat <b>Prize (₹)</b>. Once someone wins, the range stops for everyone that day.
       </div>
 
       {/* Per-range configure list */}
@@ -248,36 +223,29 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
           Per Range Settings
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 10 }}>
-          Each range sets its own Minimum Lead Amount (₹), ₹ per Qualified Lead, and its own Start/End competition time — leads only qualify if the amount is ≥ the range's minimum and verified inside its time window.
+          Each range sets its own <b>Win On (₹)</b> target and its own Start/End competition time — the first FRO to collect that much in verified leads wins the range's flat Prize.
         </div>
 
         {/* Apply common value to ALL ranges */}
         <div style={{
           marginBottom: 10, padding: '12px 14px', borderRadius: 12,
-          background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)',
+          background: '#f0fdf4',
           border: '1.5px solid #bbf7d0',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontSize: 15 }}>📣</span>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#166534' }}>ALL RANGES — Apply common value</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#166534' }}>ALL RANGES — Apply common Win On</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 150px' }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
-                Min Lead Amount (₹)
+                Win On – Total collected (₹)
               </label>
-              <input type="number" style={slabInputStyle} value={commonForm.min_lead_amount}
-                onChange={e => setCommonForm(p => ({ ...p, min_lead_amount: e.target.value }))} placeholder="e.g. 300" />
-            </div>
-            <div style={{ flex: '1 1 150px' }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>
-                ₹ per Qualified Lead
-              </label>
-              <input type="number" style={slabInputStyle} value={commonForm.lead_rate}
-                onChange={e => setCommonForm(p => ({ ...p, lead_rate: e.target.value }))} placeholder="e.g. 20" />
+              <input type="number" style={slabInputStyle} value={commonForm.amount_to_win}
+                onChange={e => setCommonForm(p => ({ ...p, amount_to_win: e.target.value }))} placeholder="e.g. 1500" />
             </div>
             <button onClick={applyCommon} disabled={savingSlab}
-              style={{ ...btnStyle('linear-gradient(90deg,#15803d,#22c55e)'), padding: '8px 16px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+              style={{ ...btnStyle('#15803d'), padding: '8px 16px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
               {savingSlab ? 'Applying…' : '⬇️ Apply to All Ranges'}
             </button>
           </div>
@@ -288,14 +256,14 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
             <div style={{ fontSize: 11.5, fontWeight: 700, color: '#15803d', marginTop: 8 }}>{commonDone}</div>
           )}
           <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>
-            Fills every range with these values at once — you can still fine-tune each range individually below after.
+            Fills every range's Win On target with this value at once — the Prize stays per range; you can still fine-tune each range below after.
           </div>
         </div>
 
         {/* Apply Start/End window to ALL ranges */}
         <div style={{
           marginBottom: 10, padding: '12px 14px', borderRadius: 12,
-          background: 'linear-gradient(135deg,#fffdf5,#fef3c7)',
+          background: '#fffdf5',
           border: '1.5px solid #fde68a',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -318,7 +286,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                 onChange={e => setAllTimeForm(p => ({ ...p, ended_at: e.target.value }))} />
             </div>
             <button onClick={applyAllTime} disabled={savingSlab}
-              style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), padding: '8px 16px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+              style={{ ...btnStyle('#b45309'), padding: '8px 16px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
               {savingSlab ? 'Applying…' : '⏱ Start / End All Ranges'}
             </button>
           </div>
@@ -348,9 +316,9 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                   {chip.text}
                 </span>
                 <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-soft)' }}>
-                  Min lead ₹{fmt(slab.min_lead_amount ?? settings.min_lead_amount)} · ₹{fmt(slab.lead_rate ?? settings.lead_rate)}/lead
+                  🎯 Win on ₹{fmt(slab.amount_to_win ?? 1500)} collected · 🏆 Prize ₹{fmt(slab.incentive_amount)}
                 </span>
-                <button onClick={() => openPopup(slab)} style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), padding: '6px 12px', fontSize: 12, whiteSpace: 'nowrap' }}>
+                <button onClick={() => openPopup(slab)} style={{ ...btnStyle('#b45309'), padding: '6px 12px', fontSize: 12, whiteSpace: 'nowrap' }}>
                   ⚙️ Configure
                 </button>
               </div>
@@ -376,7 +344,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
             {/* Header */}
             <div style={{
               padding: '18px 20px',
-              background: 'linear-gradient(135deg,#451a03,#b45309,#f59e0b)',
+              background: '#b45309',
               position: 'relative',
             }}>
               <button onClick={closePopup} style={{
@@ -410,26 +378,26 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
               {/* How it works strip */}
               <div style={{
                 display: 'flex', gap: 8, alignItems: 'center', padding: '10px 12px',
-                borderRadius: 10, background: 'linear-gradient(135deg,#fffdf5,#fef3c7)',
+                borderRadius: 10, background: '#fffdf5',
                 border: '1.5px solid #fde68a', fontSize: 12, color: '#92400e', marginBottom: 14,
               }}>
                 <span style={{ fontSize: 15 }}>💡</span>
-                <div>A lead only qualifies for this range if the ₹ collected is ≥ its Minimum Lead Amount.</div>
+                <div>Every verified lead counts. The first FRO in this range to collect <b>Win On (₹)</b> in total today wins the flat <b>Prize (₹{fmt(popupSlab.incentive_amount)})</b>.</div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Min Lead Amount */}
+                {/* Win On amount */}
                 <div>
                   <label style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', display: 'block', marginBottom: 6 }}>
-                    Minimum Lead Amount <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>(₹)</span>
+                    Win On – Total collected <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>(₹)</span>
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg)', border: '1.5px solid var(--line)', borderRadius: 12, padding: '8px 12px' }}>
                     <span style={{ fontSize: 15, fontWeight: 900, color: '#b45309' }}>₹</span>
                     <input
                       type="number"
-                      value={popupForm.min_lead_amount}
-                      onChange={e => setPopupForm(p => ({ ...p, min_lead_amount: e.target.value }))}
-                      placeholder="300"
+                      value={popupForm.amount_to_win}
+                      onChange={e => setPopupForm(p => ({ ...p, amount_to_win: e.target.value }))}
+                      placeholder="1500"
                       style={{
                         flex: 1, border: 'none', outline: 'none', background: 'transparent',
                         fontSize: 17, fontWeight: 800, color: 'var(--ink)',
@@ -437,37 +405,30 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                     />
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>
-                    Lead must collect at least this amount to count as qualified
+                    When a FRO's total verified day collection reaches this, they win the Prize and the range stops for today.
                   </div>
                 </div>
 
-                {/* Per-lead reward */}
+                {/* Prize display */}
                 <div>
                   <label style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', display: 'block', marginBottom: 6 }}>
-                    ₹ per Qualified Lead
+                    Prize <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>(₹) — flat payout to the winner</span>
                   </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg)', border: '1.5px solid var(--line)', borderRadius: 12, padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg)', border: '1.5px solid #bbf7d0', borderRadius: 12, padding: '8px 12px' }}>
                     <span style={{ fontSize: 15, fontWeight: 900, color: '#16a34a' }}>₹</span>
-                    <input
-                      type="number"
-                      value={popupForm.lead_rate}
-                      onChange={e => setPopupForm(p => ({ ...p, lead_rate: e.target.value }))}
-                      placeholder="20"
-                      style={{
-                        flex: 1, border: 'none', outline: 'none', background: 'transparent',
-                        fontSize: 17, fontWeight: 800, color: 'var(--ink)',
-                      }}
-                    />
+                    <span style={{ flex: 1, fontSize: 17, fontWeight: 800, color: 'var(--ink)' }}>
+                      {fmt(popupSlab.incentive_amount)}
+                    </span>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>
-                    Reward paid for every verified qualified lead in this range
+                    Set in the 📋 Target Slabs table below — full amount goes to the range's champion, nothing to anyone else.
                   </div>
                 </div>
 
                 {/* Competition window (Start/End Time) */}
                 <div style={{
                   marginTop: 4, padding: '12px 14px', borderRadius: 12,
-                  background: 'linear-gradient(135deg,#fffdf5,#fef3c7)',
+                  background: '#fffdf5',
                   border: '1.5px solid #fde68a',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -510,7 +471,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                   Cancel
                 </button>
                 <button onClick={savePopup} disabled={savingSlab}
-                  style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), flex: 1.6, padding: '11px 16px', fontSize: 13.5 }}>
+                  style={{ ...btnStyle('#b45309'), flex: 1.6, padding: '11px 16px', fontSize: 13.5 }}>
                   {savingSlab ? 'Saving…' : '💾 Save Range'}
                 </button>
               </div>
@@ -526,7 +487,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
   const [editing, setEditing] = useState(null)
   const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState({ min_amount: '', max_amount: '', incentive_amount: '', min_lead_amount: '', lead_rate: '' })
+  const [form, setForm] = useState({ min_amount: '', max_amount: '', incentive_amount: '', amount_to_win: '' })
   const [error, setError] = useState('')
 
   const startEdit = (slab) => {
@@ -536,8 +497,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
       min_amount: slab.min_amount,
       max_amount: slab.max_amount,
       incentive_amount: slab.incentive_amount,
-      min_lead_amount: slab.min_lead_amount,
-      lead_rate: slab.lead_rate,
+      amount_to_win: slab.amount_to_win,
     })
     setError('')
   }
@@ -545,7 +505,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
   const startAdd = () => {
     setAdding(true)
     setEditing(null)
-    setForm({ min_amount: '', max_amount: '', incentive_amount: '', min_lead_amount: '', lead_rate: '' })
+    setForm({ min_amount: '', max_amount: '', incentive_amount: '', amount_to_win: '' })
     setError('')
   }
 
@@ -586,7 +546,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Target Slabs</div>
         </div>
         {!adding && !editing && (
-          <button onClick={startAdd} style={btnStyle('linear-gradient(90deg,#b45309,#f59e0b)')}>+ Add Slab</button>
+          <button onClick={startAdd} style={btnStyle('#b45309')}>+ Add Slab</button>
         )}
       </div>
 
@@ -598,7 +558,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
 
       {/* Add form */}
       {adding && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr auto', gap: 10, marginBottom: 16, padding: 14, borderRadius: 12, border: '1.5px dashed #f59e0b', background: '#fffdf5' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 10, marginBottom: 16, padding: 14, borderRadius: 12, border: '1.5px dashed #f59e0b', background: '#fffdf5' }}>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Min Amount (₹)</label>
             <input type="number" style={slabInputStyle} value={form.min_amount} onChange={e => setForm(p => ({ ...p, min_amount: e.target.value }))} placeholder="0" />
@@ -608,15 +568,11 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
             <input type="number" style={slabInputStyle} value={form.max_amount} onChange={e => setForm(p => ({ ...p, max_amount: e.target.value }))} placeholder="20000" />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Min Lead (₹)</label>
-            <input type="number" style={slabInputStyle} value={form.min_lead_amount} onChange={e => setForm(p => ({ ...p, min_lead_amount: e.target.value }))} placeholder="300" />
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Win On (₹)</label>
+            <input type="number" style={slabInputStyle} value={form.amount_to_win} onChange={e => setForm(p => ({ ...p, amount_to_win: e.target.value }))} placeholder="1500" />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>₹ / Qualified Lead</label>
-            <input type="number" style={slabInputStyle} value={form.lead_rate} onChange={e => setForm(p => ({ ...p, lead_rate: e.target.value }))} placeholder="20" />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Incentive (₹)</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Prize (₹)</label>
             <input type="number" style={slabInputStyle} value={form.incentive_amount} onChange={e => setForm(p => ({ ...p, incentive_amount: e.target.value }))} placeholder="0" />
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
@@ -632,9 +588,8 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
           <thead>
             <tr style={{ borderBottom: '2px solid var(--line)' }}>
               <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Range</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Min Lead</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>₹/Lead</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Incentive</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Win On</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Prize</th>
               <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12, width: 140 }}>Actions</th>
             </tr>
           </thead>
@@ -650,10 +605,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
                     </div>
                   </td>
                   <td style={{ padding: 6 }}>
-                    <input type="number" style={slabInputStyle} value={form.min_lead_amount} onChange={e => setForm(p => ({ ...p, min_lead_amount: e.target.value }))} />
-                  </td>
-                  <td style={{ padding: 6 }}>
-                    <input type="number" style={slabInputStyle} value={form.lead_rate} onChange={e => setForm(p => ({ ...p, lead_rate: e.target.value }))} />
+                    <input type="number" style={slabInputStyle} value={form.amount_to_win} onChange={e => setForm(p => ({ ...p, amount_to_win: e.target.value }))} />
                   </td>
                   <td style={{ padding: 6 }}>
                     <input type="number" style={slabInputStyle} value={form.incentive_amount} onChange={e => setForm(p => ({ ...p, incentive_amount: e.target.value }))} />
@@ -671,10 +623,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving }) {
                     {fmtSlab(slab.min_amount)} – {fmtSlab(slab.max_amount)}
                   </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)' }}>
-                    ₹{fmt(slab.min_lead_amount)}
-                  </td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--ink)' }}>
-                    ₹{fmt(slab.lead_rate)}
+                    ₹{fmt(slab.amount_to_win ?? 1500)}
                   </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#b45309' }}>
                     ₹{fmt(slab.incentive_amount)}
@@ -711,7 +660,7 @@ function FroLeadSummary({ fros, champions, settings, date, onSelectFro }) {
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>FRO Lead Summary</div>
         <div style={{ flex: 1 }} />
         <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-          Default ₹{settings.lead_rate}/lead · Min lead set per range
+          Flat prize · first to collect the Win On amount wins
         </div>
       </div>
 
@@ -723,12 +672,9 @@ function FroLeadSummary({ fros, champions, settings, date, onSelectFro }) {
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Target</th>
               <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Slab</th>
               <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Leads</th>
-              <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Qual.</th>
               <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Amount</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Lead Inc.</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Slab Bonus</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Champion</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Total</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Win On</th>
+              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Prize / Total</th>
             </tr>
           </thead>
           <tbody>
@@ -750,7 +696,7 @@ function FroLeadSummary({ fros, champions, settings, date, onSelectFro }) {
             })}
             {fros.length === 0 && (
               <tr>
-                <td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>
+                <td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>
                   No FROs found
                 </td>
               </tr>
@@ -785,22 +731,21 @@ function FroRow({ fro, isChampion, slabLabel, onSelect }) {
       <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)' }}>₹{fmt(fro.target)}</td>
       <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>
         {slabLabel}
-        {fro.slab && (
-          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', opacity: 0.75 }}>
-            min ₹{fmt(fro.slab.min_lead_amount)} · ₹{fmt(fro.slab.lead_rate)}/lead
+      </td>
+      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--ink)' }}>{fro.total_leads}</td>
+      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink)' }}>
+        ₹{fmt(fro.total_amount)}
+        {isChampion && (
+          <div style={{ fontSize: 10, color: '#16a34a', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            🏆 crossed win-on ✓
           </div>
         )}
       </td>
-      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--ink)' }}>{fro.total_leads}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{fro.qualified_leads}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--ink)' }}>₹{fmt(fro.total_amount)}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink)' }}>₹{fmt(fro.lead_incentive)}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'right', color: '#b45309' }}>₹{fmt(fro.slab_bonus)}</td>
-      <td style={{ padding: '10px 12px', textAlign: 'right', color: isChampion ? '#f59e0b' : 'var(--ink-soft)' }}>
-        {fro.champion_bonus > 0 ? `₹${fmt(fro.champion_bonus)}` : '—'}
+      <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+        🎯 ₹{fmt(fro.slab?.amount_to_win ?? 1500)}
       </td>
-      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, color: '#b45309', fontSize: 14 }}>
-        ₹{fmt(fro.total_incentive)}
+      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, fontSize: 14, color: isChampion ? '#16a34a' : 'var(--ink-soft)' }}>
+        {isChampion ? `🏆 ₹${fmt(fro.slab?.incentive_amount ?? 0)}` : '—'}
       </td>
     </tr>
   )
@@ -856,8 +801,10 @@ function FroDetailModal({ froId, date, champions, onClose }) {
 
   const isChampion = (champions || []).some(c => c.fro_id === detail.fro_id)
   const slabLabel = detail.slab
-    ? `₹${fmt(detail.slab.min_amount)} – ₹${fmt(detail.slab.max_amount)} · min ₹${fmt(detail.slab.min_lead_amount)}`
+    ? `₹${fmt(detail.slab.min_amount)} – ₹${fmt(detail.slab.max_amount)}`
     : '—'
+  const winOn = detail.amount_to_win ?? detail.slab?.amount_to_win ?? 1500
+  const prize = detail.incentive_amount ?? detail.slab?.incentive_amount ?? 0
 
   const stat = (label, value, color) => (
     <div style={{
@@ -873,7 +820,7 @@ function FroDetailModal({ froId, date, champions, onClose }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={{ ...modalCardStyle, width: 'min(760px, 100%)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
         {/* Modal header */}
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg,#fffdf5,#fef3c7)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', background: '#fffdf5', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 22 }}>🏆</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>
@@ -893,12 +840,10 @@ function FroDetailModal({ froId, date, champions, onClose }) {
             {stat('Target', `₹${fmt(detail.target)}`)}
             {stat('Slab', slabLabel)}
             {stat('Leads', detail.total_leads)}
-            {stat('Qualified', detail.qualified_leads, '#16a34a')}
             {stat('Amount', `₹${fmt(detail.total_amount)}`)}
-            {stat('Lead Inc.', `₹${fmt(detail.lead_incentive)}`)}
-            {stat('Slab Bonus', `₹${fmt(detail.slab_bonus)}`, '#b45309')}
-            {detail.champion_bonus > 0 && stat('Champion', `₹${fmt(detail.champion_bonus)}`, '#f59e0b')}
-            {stat('Total', `₹${fmt(detail.total_incentive)}`, '#b45309')}
+            {stat('Win On', `🎯 ₹${fmt(winOn)}`, '#b45309')}
+            {stat('Prize', `₹${fmt(prize)}`, '#16a34a')}
+            {isChampion && stat('Won', '✓ Champion', '#16a34a')}
           </div>
 
           {/* Leads list */}
@@ -1060,8 +1005,7 @@ export default function LeadIncentive() {
           min_amount: Number(form.min_amount),
           max_amount: Number(form.max_amount),
           incentive_amount: Number(form.incentive_amount) || 0,
-          min_lead_amount: Number(form.min_lead_amount) || 300,
-          lead_rate: Number(form.lead_rate) || 20,
+          amount_to_win: Number(form.amount_to_win) || 1500,
         }),
       })
       await loadSlabs()
@@ -1078,8 +1022,7 @@ export default function LeadIncentive() {
           min_amount: Number(form.min_amount),
           max_amount: Number(form.max_amount),
           incentive_amount: Number(form.incentive_amount) || 0,
-          min_lead_amount: Number(form.min_lead_amount) || 300,
-          lead_rate: Number(form.lead_rate) || 20,
+          amount_to_win: Number(form.amount_to_win) || 1500,
         }),
       })
       await loadSlabs()
@@ -1087,8 +1030,8 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
-  // Per-range popup save: touches this slab's min lead + per-lead reward + Start/End window
-  const updateSlabRates = async (slab, { min_lead_amount, lead_rate, started_at, ended_at }) => {
+  // Per-range popup save: touches this slab's Win On amount + Start/End window
+  const updateSlabRates = async (slab, { amount_to_win, started_at, ended_at }) => {
     setSavingSlab(true)
     try {
       await api(`/incentive/lead/slabs/${slab.id}`, {
@@ -1097,8 +1040,7 @@ export default function LeadIncentive() {
           min_amount: Number(slab.min_amount),
           max_amount: Number(slab.max_amount),
           incentive_amount: Number(slab.incentive_amount) || 0,
-          min_lead_amount,
-          lead_rate,
+          amount_to_win: Number(amount_to_win) || 1500,
           started_at: toIso(started_at),
           ended_at: toIso(ended_at),
         }),
@@ -1108,13 +1050,13 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
-  // Apply a single common value (min lead + per-lead reward) to all active ranges
-  const applyAllRates = async ({ min_lead_amount, lead_rate }) => {
+  // Apply a single common Win On value to all active ranges
+  const applyAllRates = async ({ amount_to_win }) => {
     setSavingSlab(true)
     try {
       const r = await api('/incentive/lead/slabs/apply-all', {
         method: 'PUT', _prefix: 'ucs',
-        body: JSON.stringify({ min_lead_amount, lead_rate }),
+        body: JSON.stringify({ amount_to_win: Number(amount_to_win) || 1500 }),
       })
       await loadSlabs()
       loadSummary()
@@ -1205,7 +1147,7 @@ export default function LeadIncentive() {
       {announced && announced.length > 0 ? (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
-          borderRadius: 14, background: 'linear-gradient(135deg,#dcfce7,#bbf7d0)',
+          borderRadius: 14, background: '#dcfce7',
           border: '2px solid #22c55e',
         }}>
           <span style={{ fontSize: 24 }}>🏆</span>
@@ -1215,7 +1157,7 @@ export default function LeadIncentive() {
             </div>
             {announced.map(a => (
               <div key={a.id} style={{ fontSize: 12.5, fontWeight: 700, color: '#15803d', marginTop: 2 }}>
-                {a.slab_label ? `🏆 ${a.slab_label} → ` : '🏆 '}{a.fro_name} · ₹{fmt(a.total_amount)} · {a.qualified_leads || 0} qualified leads · Total ₹{fmt(a.total_incentive)}
+                {a.slab_label ? `🏆 ${a.slab_label} → ` : '🏆 '}{a.fro_name} · ₹{fmt(a.total_amount)} collected · Prize ₹{fmt(a.incentive_amount || a.total_incentive || 0)}
               </div>
             ))}
           </div>
@@ -1226,8 +1168,8 @@ export default function LeadIncentive() {
       ) : (summary?.champions && summary.champions.length > 0) ? (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
-          borderRadius: 14, background: 'linear-gradient(135deg,#fef3c7,#fde68a)',
-          border: '2px solid #f59e0b', boxShadow: '0 4px 14px rgba(245,158,11,.2)',
+          borderRadius: 14, background: '#fef3c7',
+          border: '2px solid #f59e0b',
         }}>
           <span style={{ fontSize: 28 }}>🏆</span>
           <div style={{ flex: 1 }}>
@@ -1238,10 +1180,10 @@ export default function LeadIncentive() {
               {summary.champions.map(c => `🏆 ${c.fro_name} (${c.slab_label})`).join('  ·  ')}
             </div>
             <div style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>
-              First FRO to hit a range's Minimum Lead Amount (by verified_at) wins that range.
+              First FRO to collect the range's Win On amount in total today wins the flat prize.
             </div>
           </div>
-          <button onClick={() => setAnnounceOpen(true)} style={btnStyle('linear-gradient(90deg,#b45309,#f59e0b)')}>
+          <button onClick={() => setAnnounceOpen(true)} style={btnStyle('#b45309')}>
             🎉 Announce Range Winners
           </button>
         </div>
@@ -1284,7 +1226,7 @@ export default function LeadIncentive() {
                     🏆 {c.slab_label} → {c.fro_name}
                   </div>
                   <div style={{ fontSize: 11.5, marginTop: 2 }}>
-                    First qualified lead at ₹{fmt(c.hit_amount)} · Total incentive ₹{fmt(c.total_incentive)}
+                    Collected ₹{fmt(c.crossing_amount ?? c.hit_amount ?? c.total_amount)} · crossed 🎯 ₹{fmt(c.amount_to_win ?? 1500)} · Prize ₹{fmt(c.slab_bonus || c.total_incentive || 0)}
                   </div>
                 </div>
               ))}
@@ -1305,7 +1247,7 @@ export default function LeadIncentive() {
               <button onClick={() => setAnnounceOpen(false)} disabled={announcing} style={{ ...btnStyle('var(--line)', 'var(--ink)'), flex: 1 }}>
                 Cancel
               </button>
-              <button onClick={confirmAnnounce} disabled={announcing} style={{ ...btnStyle('linear-gradient(90deg,#b45309,#f59e0b)'), flex: 1 }}>
+              <button onClick={confirmAnnounce} disabled={announcing} style={{ ...btnStyle('#b45309'), flex: 1 }}>
                 {announcing ? 'Announcing…' : '🏆 Confirm Announce'}
               </button>
             </div>

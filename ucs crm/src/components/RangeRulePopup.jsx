@@ -23,13 +23,13 @@ const fmt = (n) => {
 };
 
 // Parse an apply-all body that lists every range on its own line:
-// "₹1 – ₹20,000: Minimum Lead ₹300 · ₹20 per qualified lead"
+// "₹1 – ₹20,000: Win on ₹1,500 collected · Prize ₹100"
 const parseCombined = (body) => {
-  const re = /₹([\d,]+)\s*–\s*₹([\d,]+): Minimum Lead ₹([\d,]+)\s*·\s*₹([\d,]+) per qualified lead/g;
+  const re = /₹([\d,]+)\s*–\s*₹([\d,]+): Win on ₹([\d,]+) collected · Prize ₹([\d,]+)/g;
   const rows = [];
   let m;
   while ((m = re.exec(String(body || ''))) !== null) {
-    rows.push({ min: m[1], max: m[2], minLead: m[3], rate: m[4] });
+    rows.push({ min: m[1], max: m[2], winOn: m[3], prize: m[4] });
   }
   return rows;
 };
@@ -101,14 +101,14 @@ export default function RangeRulePopup() {
   const combined = popup.reference_id === 'all-ranges';
   const combinedRows = combined ? parseCombined(popup.body) : [];
 
-  // Body shape: "₹20,000 – ₹50,000: Minimum Lead ₹400 · ₹30 per qualified lead"
+  // Body shape: "₹20,000 – ₹50,000: Win on ₹2,000 collected · Prize ₹150"
   const rangeMatch = String(popup.body || '').match(/₹([\d,]+)\s*–\s*₹([\d,]+):/);
-  const minMatch = String(popup.body || '').match(/Minimum Lead ₹([\d,]+)/);
-  const rateMatch = String(popup.body || '').match(/(?:·|,)\s*₹([\d,]+) per qualified lead/);
+  const winMatch = String(popup.body || '').match(/Win on ₹([\d,]+) collected/);
+  const prizeMatch = String(popup.body || '').match(/Prize ₹([\d,]+)/);
 
   const rangeLabel = rangeMatch ? `₹${rangeMatch[1]} – ₹${rangeMatch[2]}` : null;
-  const minLead = minMatch ? Number(minMatch[1].replace(/,/g, '')) : null;
-  const leadRate = rateMatch ? Number(rateMatch[1].replace(/,/g, '')) : null;
+  const winOn = winMatch ? Number(winMatch[1].replace(/,/g, '')) : null;
+  const prize = prizeMatch ? Number(prizeMatch[1].replace(/,/g, '')) : null;
 
   const title = (popup.title || 'Your Lead Range Updated').replace(/^📢\s*/, '');
 
@@ -122,7 +122,7 @@ export default function RangeRulePopup() {
       }}>
         {/* Header */}
         <div style={{
-          padding: '12px 14px', background: 'linear-gradient(135deg,#451a03,#b45309,#f59e0b)',
+          padding: '12px 14px', background: '#b45309',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <span style={{ fontSize: 16 }}>📢</span>
@@ -152,18 +152,18 @@ export default function RangeRulePopup() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Min Lead</div>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: '#b45309' }}>₹{fmt(r.minLead)}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Win On</div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#b45309' }}>₹{fmt(r.winOn)}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹ / Lead</div>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: '#16a34a' }}>₹{fmt(r.rate)}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Prize</div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#16a34a' }}>₹{fmt(r.prize)}</div>
                     </div>
                   </div>
                 ))}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 12 }}>
-                Your incentive still follows only the range your monthly target is assigned to.
+                Your incentive still follows only the range your monthly target is assigned to. Every verified lead counts — first to collect the Win On amount wins the flat prize.
               </div>
             </>
           ) : (
@@ -178,35 +178,35 @@ export default function RangeRulePopup() {
               </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
-                {minLead != null && (
+                {winOn != null && (
                   <div style={{
                     flex: 1, borderRadius: 12, padding: '10px 12px', background: 'var(--bg)',
                     border: '1.5px solid var(--line)', textAlign: 'center',
                   }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Min Lead (₹)</div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: '#b45309' }}>₹{fmt(minLead)}</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Win On — collect (₹)</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#b45309' }}>₹{fmt(winOn)}</div>
                   </div>
                 )}
-                {leadRate != null && (
+                {prize != null && (
                   <div style={{
                     flex: 1, borderRadius: 12, padding: '10px 12px', background: 'var(--bg)',
                     border: '1.5px solid var(--line)', textAlign: 'center',
                   }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>₹ / Qual. Lead</div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: '#16a34a' }}>₹{fmt(leadRate)}</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Flat Prize (₹)</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#16a34a' }}>₹{fmt(prize)}</div>
                   </div>
                 )}
               </div>
 
               <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', lineHeight: 1.5, marginTop: 12 }}>
-                A lead only counts as qualified for you if the ₹ collected is ≥ the Minimum Lead Amount.
+                Every verified lead counts toward your total. The first FRO in your range to collect the Win On amount wins the flat prize.
               </div>
             </>
           )}
 
           <button onClick={dismiss} style={{
             width: '100%', marginTop: 12, padding: '10px 16px', borderRadius: 10, border: 'none',
-            background: 'linear-gradient(90deg,#b45309,#f59e0b)', color: '#fff',
+            background: '#b45309', color: '#fff',
             fontWeight: 800, fontSize: 13.5, cursor: 'pointer',
           }}>
             Got it ✓

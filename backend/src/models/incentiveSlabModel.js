@@ -75,9 +75,8 @@ export const getSlabById = async (id) => {
   return data;
 };
 
-export const createSlab = async ({ min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate }) => {
-  const minLead = min_lead_amount ?? 300;
-  const rate = lead_rate ?? 20;
+export const createSlab = async ({ min_amount, max_amount, incentive_amount, amount_to_win }) => {
+  const winAt = amount_to_win ?? 1500;
 
   // A soft-deleted (is_active=false) row may still exist for this exact range,
   // and the unique index on (min_amount, max_amount) would reject a straight
@@ -96,8 +95,7 @@ export const createSlab = async ({ min_amount, max_amount, incentive_amount, min
         min_amount,
         max_amount,
         incentive_amount,
-        min_lead_amount: minLead,
-        lead_rate: rate,
+        amount_to_win: winAt,
         is_active: true,
         updated_at: new Date().toISOString(),
       })
@@ -114,8 +112,7 @@ export const createSlab = async ({ min_amount, max_amount, incentive_amount, min
       min_amount,
       max_amount,
       incentive_amount,
-      min_lead_amount: minLead,
-      lead_rate: rate,
+      amount_to_win: winAt,
       is_active: true,
     }])
     .select()
@@ -124,13 +121,12 @@ export const createSlab = async ({ min_amount, max_amount, incentive_amount, min
   return data;
 };
 
-export const updateSlab = async (id, { min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate, started_at, ended_at }) => {
+export const updateSlab = async (id, { min_amount, max_amount, incentive_amount, amount_to_win, started_at, ended_at }) => {
   const patch = {
     min_amount,
     max_amount,
     incentive_amount,
-    min_lead_amount: min_lead_amount ?? 300,
-    lead_rate: lead_rate ?? 20,
+    amount_to_win: amount_to_win ?? 1500,
     updated_at: new Date().toISOString(),
   };
   if (started_at !== undefined) patch.started_at = started_at;
@@ -156,10 +152,9 @@ export const deleteSlab = async (id) => {
   return data;
 };
 
-export const updateAllSlabs = async ({ min_lead_amount, lead_rate, started_at, ended_at }) => {
+export const updateAllSlabs = async ({ amount_to_win, started_at, ended_at }) => {
   const patch = { updated_at: new Date().toISOString() };
-  if (min_lead_amount !== undefined && min_lead_amount !== null) patch.min_lead_amount = min_lead_amount;
-  if (lead_rate !== undefined && lead_rate !== null) patch.lead_rate = lead_rate;
+  if (amount_to_win !== undefined && amount_to_win !== null) patch.amount_to_win = amount_to_win;
   if (started_at !== undefined) patch.started_at = started_at;
   if (ended_at !== undefined) patch.ended_at = ended_at;
   const { data, error } = await db
