@@ -22,6 +22,7 @@ import {
 } from '../models/froStationAssignmentModel.js';
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
 import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
+import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { notifyWorker } from '../services/fcmService.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
@@ -1105,29 +1106,12 @@ export const getFroPerformance = async (req, res) => {
     const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     const batchStats = await getBatchCollectionStats(workerIds, monthStartDate.toISOString(), monthEndDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
-    // Period-aware collection: verified receipts in the selected [from, to]
-    // range, so the High/Low panels move with the dashboard's global date
-    // filter instead of always showing today.
+    // Shared leaderboard: rank + period performance come from one service so the
+    // admin High/Low tables and the FRO My-Leads strip always agree.
     const rangeStartDay = localDateStr(startDate);
     const rangeEndDay = localDateStr(endDate);
-    const rangeCollection = await getRangeCollectionByWorker(workerIds, rangeStartDay, rangeEndDay);
-    const todayStrRange = localDateStr(now);
-    const isTodayOnly = rangeStartDay === todayStrRange && rangeEndDay === todayStrRange;
-    const monthStartDay = localDateStr(monthStartDate);
-    const isMonthRange = rangeStartDay === monthStartDay;
-    // Working days inside the range (Sundays are off, except the month's last Sunday).
-    const workingDaysInRange = (() => {
-      let count = 0;
-      const cursor = new Date(`${rangeStartDay}T00:00:00`);
-      const last = new Date(`${rangeEndDay}T00:00:00`);
-      while (cursor <= last) {
-        if (cursor.getDay() !== 0) { count++; cursor.setDate(cursor.getDate() + 1); continue; }
-        const nextWeek = new Date(cursor); nextWeek.setDate(cursor.getDate() + 7);
-        if (nextWeek.getMonth() !== cursor.getMonth()) count++;
-        cursor.setDate(cursor.getDate() + 1);
-      }
-      return count;
-    })();
+    const leaderboard = await buildFroLeaderboard({ startDay: rangeStartDay, endDay: rangeEndDay });
+    const lbById = new Map(leaderboard.map(p => [String(p.id), p]));
 
     const todayStr = localDateStr(now);
     const attendanceMap = {};
@@ -1170,101 +1154,35 @@ export const getFroPerformance = async (req, res) => {
       if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
     }
 
-    // Monthly target pacing: every Sunday except the last Sunday is paid leave.
-    // This makes a 30-day month with four Sundays contain 27 working days.
-    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const monthLastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    let lastSunday = 0;
-    for (let day = monthLastDay; day >= 1; day--) {
-      if (new Date(now.getFullYear(), now.getMonth(), day).getDay() === 0) {
-        lastSunday = day;
-        break;
-      }
-    }
-    let workingDays = 0;
-    for (let day = 1; day <= monthLastDay; day++) {
-      const sunday = new Date(now.getFullYear(), now.getMonth(), day).getDay() === 0;
-      if (!sunday || day === lastSunday) workingDays++;
-    }
-
-    const monthStartStr = `${monthStr}-01`;
-    const monthEndStr = `${monthStr}-${String(monthLastDay).padStart(2, '0')}`;
-    const { data: monthlyTargets } = await db
-      .from('fro_monthly_targets')
-      .select('fro_worker_id, ngo_id, target_amount, achieved_target')
-      .in('ngo_id', ngoIds)
-      .eq('month', monthStartStr);
-    const targetMap = {};
-    for (const target of monthlyTargets || []) {
-      const current = targetMap[target.fro_worker_id];
-      if (!current || Number(target.target_amount || 0) > current.target_amount) {
-        targetMap[target.fro_worker_id] = {
-          target_amount: Number(target.target_amount || 0),
-          achieved_target: target.achieved_target == null ? null : Number(target.achieved_target),
-        };
-      }
-    }
-
-    const { data: monthlyAttendance } = await db
-      .from('attendance')
-      .select('worker_id, date, status')
-      .gte('date', monthStartStr)
-      .lte('date', monthEndStr)
-      .in('worker_id', workerIds);
-    const workedDaysMap = {};
-    for (const row of monthlyAttendance || []) {
-      if (row.status !== 'present' && row.status !== 'late') continue;
-      if (!workedDaysMap[row.worker_id]) workedDaysMap[row.worker_id] = new Set();
-      workedDaysMap[row.worker_id].add(String(row.date).slice(0, 10));
-    }
-
     const performance = froWorkers.map(w => {
       const bs = batchStats;
-      const coll = bs.monthCollection[w.id] || 0;
+      const lb = lbById.get(String(w.id)) || {};
       const leads = (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0);
       const talkSec = includesToday ? (liveStatusMap[w.id] || 0) : 0;
       const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
       const attPct = attendanceMap[w.id] != null ? attendanceMap[w.id] : null;
-      const target = targetMap[w.id] || { target_amount: 0, achieved_target: null };
-      const monthlyTarget = target.target_amount;
-      const achievedTarget = (target.achieved_target != null && Number(target.achieved_target) > 0) ? Number(target.achieved_target) : coll;
-const workedDays = workedDaysMap[w.id]?.size || 0;
-      const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
-      const remainingDays = Math.max(workingDays - workedDays, 0);
-      const remainingTarget = Math.max(monthlyTarget - achievedTarget, 0);
-      const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
-      const todayCollection = Number(bs.todayCollection[w.id] || 0);
-      // Daily target updates to the remaining month: remaining monthly target
-      // divided by remaining working days. Today keeps this pace target; any
-      // other selected period is measured against the per-day target times the
-      // working days in that range (and a full month against the monthly target).
-      const paceTarget = remainingDays > 0 && averageCollection > 0 ? averageCollection : perDayCollection;
-      const periodCollection = Number(rangeCollection[w.id] || 0);
-      const periodTarget = isMonthRange
-        ? monthlyTarget
-        : (isTodayOnly ? paceTarget : perDayCollection * workingDaysInRange);
-      const performancePct = periodTarget > 0 ? (periodCollection / periodTarget) * 100 : 0;
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
-        collection_amount: coll,
-        today_collection: todayCollection,
-        period_collection: periodCollection,
-        period_target: periodTarget,
+        collection_amount: lb.collection_amount || 0,
+        today_collection: lb.today_collection || 0,
+        period_collection: lb.period_collection || 0,
+        period_target: lb.period_target || 0,
         lead_done_count: leads,
         avg_talk_seconds: talkSec,
         data_used: wa.connected,
         data_total: wa.total,
         attendance_pct: attPct,
-        monthly_target: monthlyTarget,
-        achieved_target: achievedTarget,
-        working_days: workingDays,
-        worked_days: workedDays,
-        remaining_working_days: remainingDays,
-        per_day_collection: perDayCollection,
-        remaining_target: remainingTarget,
-        average_collection: averageCollection,
-        performance_pct: Math.round(performancePct * 10) / 10,
+        monthly_target: lb.monthly_target || 0,
+        achieved_target: lb.achieved_target || 0,
+        working_days: lb.working_days || 0,
+        worked_days: lb.worked_days || 0,
+        remaining_working_days: lb.remaining_working_days || 0,
+        per_day_collection: lb.per_day_collection || 0,
+        remaining_target: lb.remaining_target || 0,
+        average_collection: lb.average_collection || 0,
+        performance_pct: lb.performance_pct || 0,
+        rank: lb.rank ?? null,
       };
     });
 
