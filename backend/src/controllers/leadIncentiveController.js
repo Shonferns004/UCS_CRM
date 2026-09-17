@@ -162,11 +162,15 @@ export async function updateSlabHandler(req, res) {
     // Configuring a range restarts its competition (clears any stopped marker).
     try { await clearSlabStop(req.params.id); } catch (e) { console.error('[lead rules clear stop]', e?.message); }
 
-    // Only ping the range's FROs when the win target or prize changed.
+    // Ping ONLY this range's FROs when the win target, prize or Start/End
+    // window changed — other ranges are never disturbed.
     if (oldSlab) {
       const winChanged = Number(oldSlab.amount_to_win) !== Number(slab.amount_to_win);
       const prizeChanged = Number(oldSlab.incentive_amount) !== Number(slab.incentive_amount);
-      if (winChanged || prizeChanged) {
+      const normT = (v) => v ? new Date(v).getTime() : null;
+      const windowChanged = normT(oldSlab.started_at) !== normT(slab.started_at)
+        || normT(oldSlab.ended_at) !== normT(slab.ended_at);
+      if (winChanged || prizeChanged || windowChanged) {
         try { await notifyRangeRuleChange({ slab }); } catch (e) { console.error('[lead rules notify]', e?.message); }
       }
     }

@@ -734,14 +734,53 @@ export const announceChampion = async ({ date, message, userId }) => {
   return { announcements: inserted };
 };
 
-// Broadcast lead rule (min qualify amount + per-lead reward) updates to every
-// active FRO as a notification_log row of type 'lead_rule_update', which the FRO
-// app surfaces as a side popup.
-// - Single range ({ slab }): every FRO gets a popup for that range. The popup is
-//   informational; the range a FRO competes in comes from the admin assignment
-//   (⚙️ Configure) or falls back to their monthly target bucketing.
-// - Apply-all ({ slabs }, no slab): every FRO gets ONE combined popup listing every
-//   active range with the new common value.
+// FRO ids competing in ONE slab: explicit admin assignments win, everyone else
+// falls in by monthly target bucket — the exact resolution the leaderboard
+// uses, so only that range's FROs ever get its popups.
+async function froIdsInSlab(slabId, activeSlabs) {
+  const { data: froRows } = await db
+    .from('workers')
+    .select('id')
+    .eq('is_active', true)
+    .ilike('department', 'fro');
+  if (!froRows || froRows.length === 0) return [];
+
+  const assignments = await getAllSlabAssignments();
+  const assignedSlab = {};
+  for (const a of assignments || {}) {
+    if (a && a.fro_worker_id) assignedSlab[a.fro_worker_id] = a.slab_id;
+  }
+
+  const month = monthStrOf(new Date().toISOString().slice(0, 10));
+  const [{ data: manual }, { data: auto }] = await Promise.all([
+    db.from('fro_monthly_targets').select('fro_worker_id, target_amount').eq('month', month),
+    db.from('incentive_targets').select('worker_id, target_amount').eq('month', month),
+  ]);
+  const manualMap = {};
+  for (const m of manual || {}) manualMap[m.fro_worker_id] = Number(m.target_amount) || 0;
+  const autoMap = {};
+  for (const m of auto || {}) autoMap[m.worker_id] = Number(m.target_amount) || 0;
+
+  const inSlab = [];
+  for (const f of froRows) {
+    const a = assignedSlab[f.id];
+    if (a) {
+      if (String(a) === String(slabId)) inSlab.push(f.id);
+      continue;
+    }
+    const t = manualMap[f.id] > 0 ? manualMap[f.id] : (autoMap[f.id] || 0);
+    const bucket = getSlabForTarget(t, activeSlabs);
+    if (bucket && String(bucket.id) === String(slabId)) inSlab.push(f.id);
+  }
+  return inSlab;
+}
+
+// Broadcast lead rule updates as notification_log rows of type
+// 'lead_rule_update', which the FRO app surfaces as a side popup.
+// - Single range ({ slab }): ONLY that range's FROs get the popup. Other
+//   ranges are never disturbed. (Winner announcements still go to everyone.)
+// - Apply-all ({ slabs }, no slab): every FRO gets ONE combined popup listing
+//   every active range with the new common value.
 export const notifyRangeRuleChange = async ({ slab, slabs }) => {
   const { data: froRows } = await db
     .from('workers')
@@ -758,7 +797,7 @@ export const notifyRangeRuleChange = async ({ slab, slabs }) => {
     const body = activeSlabs
       .map(s => `₹${fmtMoney(s.min_amount)} – ₹${fmtMoney(s.max_amount)}: Win on ₹${fmtMoney(s.amount_to_win)} collected · Prize ₹${fmtMoney(s.incentive_amount)}`)
       .join('\n');
-    const rows = fros.map(worker_id => ({
+    const rows = fros.map(({ id: worker_id }) => ({
       worker_id,
       type: 'lead_rule_update',
       title: '📢 All Lead Ranges Updated',
@@ -769,15 +808,15 @@ export const notifyRangeRuleChange = async ({ slab, slabs }) => {
     return rows.length;
   }
 
-  // Single range: tell every FRO, but only assigned/target-bucketed FROs
-  // actually compete under it.
+  // Single range: only the FROs competing in it are told.
   if (!slab || !slab.id) return 0;
   const rangeLabel = `₹${fmtMoney(slab.min_amount)} – ₹${fmtMoney(slab.max_amount)}`;
   const amountToWin = slab.amount_to_win != null ? Number(slab.amount_to_win) : 1500;
   const prize = Number(slab.incentive_amount) || 0;
   const body = `${rangeLabel}: Win on ₹${fmtMoney(amountToWin)} collected · Prize ₹${fmtMoney(prize)}\nEvery verified lead counts. First FRO to reach ₹${fmtMoney(amountToWin)} in total today wins this range's prize!`;
 
-  const rows = fros.map(worker_id => ({
+  const ids = await froIdsInSlab(slab.id, activeSlabs);
+  const rows = ids.map(worker_id => ({
     worker_id,
     type: 'lead_rule_update',
     title: '📢 Your Lead Range Updated',
