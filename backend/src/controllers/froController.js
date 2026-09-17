@@ -3114,6 +3114,39 @@ export const getMyStations = async (req, res) => {
   }
 };
 
+// Read-time self-heal: builds the set of (donor, NGO-project) pairs that already
+// have a confirmed receipt in the donor's CURRENT donation period. A donor who
+// has already paid must not keep surfacing in reminder work lists (scheduled,
+// callbacks, promises) — mirrors fetchScopedDonationEvidence. project_id = the
+// NGO name lowercased so money never leaks across NGOs.
+async function buildCollectedReceiptEvidence(donorIds, ngoIds) {
+  const pairs = new Set();
+  if ((donorIds || []).length === 0) return { hasCollected: () => false };
+  const [receiptsRes, donorTypesRes] = await Promise.all([
+    db.from('receipts').select('donor_id, project_id, receipt_date').in('donor_id', donorIds),
+    db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', donorIds),
+  ]);
+  const donorTypeMap = {};
+  for (const p of donorTypesRes.data || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
+  const now = new Date();
+  for (const r of receiptsRes.data || []) {
+    if (!r.receipt_date) continue;
+    const key = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
+    if (new Date(r.receipt_date) >= periodStartForType(donorTypeMap[r.donor_id] || '', now)) pairs.add(key);
+  }
+  const ngoProjectById = {};
+  if ((ngoIds || []).length > 0) {
+    const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', ngoIds);
+    for (const n of ngoRows || []) ngoProjectById[n.id] = (n.name || '').toLowerCase();
+  }
+  return {
+    hasCollected: (donorId, ngoId) => {
+      const project = ngoProjectById[ngoId];
+      return project ? pairs.has(`${donorId}|${project}`) : false;
+    },
+  };
+}
+
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -3135,11 +3168,14 @@ export const getFroScheduled = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const donorIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
       : { data: [] };
     const donorMap = {};
     for (const d of donors || []) donorMap[d.id] = d;
+
+    const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
 
     const seen = new Set();
     const result = [];
@@ -3147,6 +3183,7 @@ export const getFroScheduled = async (req, res) => {
       const a = c.fro_assignments;
       if (!a) continue;
       const d = donorMap[a.donor_id];
+      if (hasCollected(a.donor_id, a.ngo_id)) continue;
       const key = `${a.donor_id}-${a.ngo_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -3185,9 +3222,11 @@ export const getFroCallbacks = async (req, res) => {
     if (error) throw error;
 
     const assignmentIds = (assignments || []).map(a => a.id);
+    const donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
     const [donorsRes, schedulesRes] = await Promise.all([
       db.from('donor_profiles').select('id, name, mobile_number')
-        .in('id', [...new Set(assignments.map(a => a.donor_id).filter(Boolean))]),
+        .in('id', donorIds),
       assignmentIds.length > 0
         ? db.from('fro_scheduled_contacts').select('assignment_id, scheduled_at').in('assignment_id', assignmentIds).eq('is_completed', false)
         : { data: [] },
@@ -3200,11 +3239,14 @@ export const getFroCallbacks = async (req, res) => {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
     }
 
+    const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
+
     const seen = new Set();
     const result = [];
     for (const a of assignments || []) {
       const d = donorMap[a.donor_id];
       if (!d) continue;
+      if (hasCollected(a.donor_id, a.ngo_id)) continue;
       const key = `${a.donor_id}-${a.ngo_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -3249,23 +3291,16 @@ export const getFroPromises = async (req, res) => {
 
     const assignmentIds = (assignments || []).map(a => a.id);
     const donorIds = [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))];
-    const [donorsRes, schedulesRes, receiptsRes, donorTypesRes] = await Promise.all([
+    const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
+    const [donorsRes, schedulesRes] = await Promise.all([
       db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds),
       assignmentIds.length > 0
         ? db.from('fro_scheduled_contacts').select('assignment_id, scheduled_at').in('assignment_id', assignmentIds).eq('is_completed', false)
-        : { data: [] },
-      donorIds.length > 0
-        ? db.from('receipts').select('donor_id, project_id, receipt_date').in('donor_id', donorIds)
-        : { data: [] },
-      donorIds.length > 0
-        ? db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', donorIds)
         : { data: [] },
     ]);
 
     const donorMap = {};
     for (const d of donorsRes.data || []) donorMap[d.id] = d;
-    const donorTypeMap = {};
-    for (const p of donorTypesRes.data || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
     const scheduleMap = {};
     for (const s of schedulesRes.data || []) {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
@@ -3277,21 +3312,7 @@ export const getFroPromises = async (req, res) => {
     // donor who has ALREADY paid stops appearing. Mirrors the receipt/donation
     // evidence used by getMyDonors (fetchScopedDonationEvidence). Uses project_id
     // = the NGO name lowercased so money never leaks across NGOs.
-    const now = new Date();
-    const receiptPairsForPeriod = new Set();
-    for (const r of receiptsRes.data || []) {
-      if (!r.receipt_date) continue;
-      const key = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
-      if (new Date(r.receipt_date) >= periodStartForType(donorTypeMap[r.donor_id] || '', now)) receiptPairsForPeriod.add(key);
-    }
-    const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))]);
-    const ngoProjectById = {};
-    for (const n of ngoRows || []) ngoProjectById[n.id] = (n.name || '').toLowerCase();
-
-    const hasCollected = (a) => {
-      const project = ngoProjectById[a.ngo_id];
-      return project ? receiptPairsForPeriod.has(`${a.donor_id}|${project}`) : false;
-    };
+    const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
 
     const seen = new Set();
     const result = [];
@@ -3300,7 +3321,7 @@ export const getFroPromises = async (req, res) => {
       if (!d) continue;
       const key = `${a.donor_id}-${a.ngo_id}`;
       if (seen.has(key)) continue;
-      if (hasCollected(a)) continue;
+      if (hasCollected(a.donor_id, a.ngo_id)) continue;
       seen.add(key);
       result.push({
         id: a.donor_id,
@@ -3319,6 +3340,109 @@ export const getFroPromises = async (req, res) => {
       const ty = y.due_date ? new Date(y.due_date).getTime() : Infinity;
       return tx - ty;
     });
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Statuses that mean a lead is finished / not worth chasing — anything else
+// with a past next_follow_up counts as overdue (follow-up, callback, promise,
+// visit, etc.), no matter how far back the date goes.
+const FRO_OVERDUE_CLOSED_STATUSES = [
+  'done', 'lead_done', 'donation_collected', 'already_donated',
+  'rejected', 'payment_rejected', 'not_interested', 'not_interested_now',
+  'dnd', 'not_possible', 'wrong_number', 'wrong_person', 'invalid_number',
+  'reassigned', 'others', 'language_barrier', 'call_disconnected',
+];
+
+export const getFroOverdue = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
+    if (stationNames.length === 0) return res.json([]);
+
+    const today = istDateString(new Date());
+
+    const { data: assignments, error } = await withStationNgoPairs(
+      db
+        .from('fro_assignments')
+        .select('*')
+        .in('station', stationNames)
+        .lt('next_follow_up', today)
+        .not('status', 'in', FRO_OVERDUE_CLOSED_STATUSES),
+      myScope
+    );
+
+    if (error) throw error;
+
+    const donorIds = [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
+    const [donorsRes, receiptsRes, donorTypesRes, ngoRes] = await Promise.all([
+      donorIds.length > 0
+        ? db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
+        : { data: [] },
+      donorIds.length > 0
+        ? db.from('receipts').select('donor_id, project_id, receipt_date').in('donor_id', donorIds)
+        : { data: [] },
+      donorIds.length > 0
+        ? db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', donorIds)
+        : { data: [] },
+      ngoIds.length > 0
+        ? db.from('ngos').select('id, name').in('id', ngoIds)
+        : { data: [] },
+    ]);
+
+    const donorMap = {};
+    for (const d of donorsRes.data || []) donorMap[d.id] = d;
+    const donorTypeMap = {};
+    for (const p of donorTypesRes.data || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
+    const ngoProjectById = {};
+    for (const n of ngoRes.data || []) ngoProjectById[n.id] = (n.name || '').toLowerCase();
+
+    // Self-heal mirroring getFroPromises: a donor whose current-period follow-up
+    // has already converted to a donation/receipt should drop out of overdue.
+    const now = new Date();
+    const receiptPairsForPeriod = new Set();
+    for (const r of receiptsRes.data || []) {
+      if (!r.receipt_date) continue;
+      const key = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
+      if (new Date(r.receipt_date) >= periodStartForType(donorTypeMap[r.donor_id] || '', now)) receiptPairsForPeriod.add(key);
+    }
+    const hasCollected = (a) => {
+      const project = ngoProjectById[a.ngo_id];
+      return project ? receiptPairsForPeriod.has(`${a.donor_id}|${project}`) : false;
+    };
+
+    const typeFromStatus = (status) => {
+      if (['promise_to_pay', 'payment_pending', 'will_donate_online', 'visit_donate', 'whatsapp_sent'].includes(status)) return 'promise';
+      if (['scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled'].includes(status)) return 'scheduled';
+      return 'callback';
+    };
+
+    const seen = new Set();
+    const result = [];
+    for (const a of assignments || []) {
+      const d = donorMap[a.donor_id];
+      if (!d) continue;
+      const key = `${a.donor_id}-${a.ngo_id}`;
+      if (seen.has(key)) continue;
+      if (hasCollected(a)) continue;
+      seen.add(key);
+      result.push({
+        id: a.donor_id,
+        ngo_id: a.ngo_id,
+        donor_name: d.name || 'Unknown',
+        donor_mobile: d.mobile_number || '',
+        scheduled_at: a.next_follow_up || null,
+        due_date: a.next_follow_up || null,
+        station: a.station || null,
+        status: a.status,
+        type: typeFromStatus(a.status),
+        is_overdue: true,
+        assignment_id: a.id,
+      });
+    }
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -3434,16 +3558,20 @@ export const getFollowUps = async (req, res) => {
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
     const donorIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
       : { data: [] };
     const donorMap = {};
     for (const d of donors || []) donorMap[d.id] = d;
 
+    const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
+
     const now = new Date();
     const result = (scopedContacts || []).map(c => {
       const a = c.fro_assignments;
       const d = donorMap[a?.donor_id] || {};
+      if (!a || hasCollected(a.donor_id, a.ngo_id)) return null;
       return {
         id: c.id,
         donor_id: a?.donor_id,
@@ -3456,7 +3584,7 @@ export const getFollowUps = async (req, res) => {
         assignment_id: a?.id,
         is_overdue: new Date(c.scheduled_at) < now,
       };
-    });
+    }).filter(Boolean);
 
     return res.json(result);
   } catch (error) {

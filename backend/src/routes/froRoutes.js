@@ -21,6 +21,7 @@ import {
   getFroScheduled,
   getFroCallbacks,
   getFroPromises,
+  getFroOverdue,
   getMyHistory,
   requestData,
   getMyDataRequests,
@@ -107,6 +108,7 @@ router.post('/upload-payment-screenshot', uploadPaymentScreenshot);
 router.get('/scheduled', getFroScheduled);
 router.get('/callbacks', getFroCallbacks);
 router.get('/promises', getFroPromises);
+router.get('/overdue', getFroOverdue);
 router.put('/status', updateLiveStatus);
 router.get('/progress', getMyProgress);
 router.put('/progress', saveMyProgress);
