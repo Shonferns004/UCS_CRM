@@ -194,9 +194,9 @@ function FroStatusPill() {
   );
 }
 
-// FRO activity: how many leads the FRO dispositioned and the status each was
-// left in, all-time or filtered to the month the disposition was made.
-// Rendered inside <CallProvider>.
+// FRO activity: the all-time allotted-vs-used pool, plus how many leads the FRO
+// dispositioned in a period (all-time or the month the disposition was made) and
+// the status each was left in. Rendered inside <CallProvider>.
 function TodayActivityStats() {
   const [month, setMonth] = useState('all');
   const [allotment, setAllotment] = useState(null);
@@ -216,10 +216,45 @@ function TodayActivityStats() {
   const worked = allotment?.worked || 0;
   const byStatus = allotment?.by_status || [];
   const connected = byStatus.reduce((sum, s) => CONNECTED_IDS.has(s.status) ? sum + s.count : sum, 0);
+  const allottedAllTime = allotment?.allotted_all_time || 0;
+  const usedAllTime = allotment?.used_all_time || 0;
+  const usedPct = allottedAllTime > 0 ? Math.round((usedAllTime / allottedAllTime) * 100) : 0;
   const periodLabel = month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Data Allotted</div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>All Time &middot; unique leads</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
+          <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : allottedAllTime}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Allotted</div>
+          </div>
+          <div style={{ paddingLeft: 16 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: '#16a34a', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : usedAllTime}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Used</div>
+          </div>
+        </div>
+
+        {!loading && allottedAllTime > 0 && (
+          <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ height: 8, borderRadius: 4, background: 'var(--bg)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 4, width: `${usedPct}%`, background: '#16a34a' }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>{usedAllTime} of {allottedAllTime} leads used ({usedPct}%)</div>
+          </div>
+        )}
+      </div>
+
       <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -227,7 +262,7 @@ function TodayActivityStats() {
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Leads Worked</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Activity</div>
               <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{periodLabel}</div>
             </div>
           </div>

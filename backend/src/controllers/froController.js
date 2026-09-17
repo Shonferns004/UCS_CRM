@@ -3425,12 +3425,30 @@ export const getMyAllotmentSummary = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
-    if (stationNames.length === 0) return res.json({ worked: 0, by_status: [] });
+    if (stationNames.length === 0) return res.json({ worked: 0, by_status: [], allotted_all_time: 0, used_all_time: 0 });
+
+    // All-time allotment: every unique donor assigned to this FRO (reassigned
+    // rows excluded). This is the stable pool — monthly re-inclusion of the same
+    // leads does not inflate it.
+    const { data: allotRows, error: allotErr } = await withStationNgoPairs(
+      db
+        .from('fro_assignments')
+        .select('donor_id')
+        .eq('fro_worker_id', workerId)
+        .not('status', 'eq', 'reassigned'),
+      myScope
+    );
+    if (allotErr) throw allotErr;
+
+    const allottedIds = new Set();
+    for (const r of allotRows || []) if (r.donor_id) allottedIds.add(r.donor_id);
 
     // Activity is derived from disposition logs: a lead counts in the month the
     // disposition was MADE, not when the lead was allotted. fro_assignments.status
-    // only holds the current status, so it can't describe past months.
-    let query = withStationNgoPairs(
+    // only holds the current status, so it can't describe past months. Pull all
+    // of the FRO's dispositions once — the same rows drive the all-time "used"
+    // count and (filtered) the period breakdown.
+    const { data: rows, error } = await withStationNgoPairs(
       db
         .from('fro_donor_logs')
         .select('id, donor_id, disposition_detail, created_at, fro_assignments!inner(station, ngo_id)')
@@ -3441,23 +3459,29 @@ export const getMyAllotmentSummary = async (req, res) => {
       'fro_assignments.station',
       'fro_assignments.ngo_id'
     );
+    if (error) throw error;
 
+    // Used = allotted leads that have been worked at least once (any disposition,
+    // even if a later month reset their status back to pending).
+    const usedIds = new Set();
+    for (const r of rows || []) {
+      if (r.donor_id && r.disposition_detail && allottedIds.has(r.donor_id)) usedIds.add(r.donor_id);
+    }
+
+    let periodRows = rows || [];
     const { month } = req.query;
     if (month && /^\d{4}-\d{2}$/.test(month)) {
       const [y, m] = month.split('-').map(Number);
       // IST month boundaries (UTC+5:30) against the timestamptz column.
-      const start = new Date(Date.UTC(y, m - 1, 1) - 5.5 * 3600 * 1000);
-      const end = new Date(Date.UTC(y, m, 1) - 5.5 * 3600 * 1000);
-      query = query.gte('created_at', start.toISOString()).lt('created_at', end.toISOString());
+      const start = new Date(Date.UTC(y, m - 1, 1) - 5.5 * 3600 * 1000).toISOString();
+      const end = new Date(Date.UTC(y, m, 1) - 5.5 * 3600 * 1000).toISOString();
+      periodRows = periodRows.filter(r => r.created_at && r.created_at >= start && r.created_at < end);
     }
-
-    const { data: rows, error } = await query;
-    if (error) throw error;
 
     // One status per donor: keep each donor's latest disposition in the period so
     // the status counts always add up to the number of leads worked.
     const latestByDonor = new Map();
-    for (const r of rows || []) {
+    for (const r of periodRows) {
       if (!r.donor_id || !r.disposition_detail) continue;
       const key = `${r.created_at || ''}|${r.id ?? 0}`;
       const prev = latestByDonor.get(r.donor_id);
@@ -3475,7 +3499,12 @@ export const getMyAllotmentSummary = async (req, res) => {
       .map(([status, count]) => ({ status, count }))
       .sort((a, b) => b.count - a.count);
 
-    return res.json({ worked: latestByDonor.size, by_status });
+    return res.json({
+      worked: latestByDonor.size,
+      by_status,
+      allotted_all_time: allottedIds.size,
+      used_all_time: usedIds.size,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
