@@ -2720,7 +2720,7 @@ export default function Dashboard() {
         const METRICS = [
           { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
           { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', filterType: 'connected' },
-          { key: 'ld', param: 'LEAD DONE', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
+          { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
           { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', filterType: 'connected', status: 'scheduled' },
           { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, filterType: 'connected', status: 'callback' },
           { key: 'off', param: 'OFF/PROG VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, filterType: 'connected', status: 'office_program_visit' },
