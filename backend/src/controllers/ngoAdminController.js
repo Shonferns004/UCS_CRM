@@ -4885,8 +4885,21 @@ export const getTLDashboard = async (req, res) => {
     // as absent today: the covering operator carries the online/calling/idle state.
     const workAsCoveredIds = new Set((liveStatus || []).filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
     const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
+    const liveRowByWorker = new Map((liveStatus || []).map(s => [String(s.worker_id), s]));
+    // Online requires a FRESH heartbeat (panel emitting within the last 2 min)
+    // on top of an open login session — a machine that is asleep, shut down, or
+    // a tab that was closed stops heartbeating and drops to offline ~2 min later.
     const online = useLoginPresence
-      ? froWorkers.filter(w => !coveredOnly(String(w.id)) && (isPresent(w.id) || isOperatorActive(w.id)) && !callingRows.some(s => String(s.worker_id) === String(w.id)) && !idleRows.some(s => String(s.worker_id) === String(w.id)) && !meetingRows.some(s => String(s.worker_id) === String(w.id)) && !opCalling.some(o => String(o.id) === String(w.id)) && !opIdle.some(o => String(o.id) === String(w.id))).length
+      ? froWorkers.filter(w => {
+          const lrow = liveRowByWorker.get(String(w.id));
+          const liveHere = isOperatorActive(w.id) || (isPresent(w.id) && !!lrow && isLiveFresh(lrow));
+          return !coveredOnly(String(w.id)) && liveHere
+            && !callingRows.some(s => String(s.worker_id) === String(w.id))
+            && !idleRows.some(s => String(s.worker_id) === String(w.id))
+            && !meetingRows.some(s => String(s.worker_id) === String(w.id))
+            && !opCalling.some(o => String(o.id) === String(w.id))
+            && !opIdle.some(o => String(o.id) === String(w.id));
+        }).length
       : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
     const offline = Math.max(0, froWorkers.length - calling - idle - meeting - online);
 
@@ -5224,7 +5237,7 @@ export const getTLDashboard = async (req, res) => {
         } else {
           status = 'online';
         }
-      } else if (isPresent(w.id) && !workAsName) {
+      } else if (isPresent(w.id) && !workAsName && lsFresh) {
         if (ls.status === 'on_call' && lsFresh) {
           status = 'on_call';
         } else if (ls.status === 'idle' && lsFresh) {
