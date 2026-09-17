@@ -1261,10 +1261,11 @@ export default function Dashboard() {
             calls: hr ? hr.calls : (s.calls || 0),
             connected: hr ? hr.connected : 0,
             rank: s.rank || null,
+            punchedIn: s.punched_in === true,
             workAsName: workAsNameById.get(s.fro_id) || null,
           };
         })
-        .filter(f => f.idleMinutes > 0)
+        .filter(f => f.punchedIn && f.idleMinutes > 0)
         .sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
 
       const noCalls = dailyStats

@@ -1268,6 +1268,20 @@ export const getFroDailyStats = async (req, res) => {
     const statById = {};
     for (const r of rows || []) statById[r.worker_id] = r;
 
+    // Only FROs who actually punched in on this day should surface in the
+    // Productivity Alerts (idle) list, so carry the punch-in flag through.
+    const punchedInSet = new Set();
+    {
+      const { data: att } = await db
+        .from('attendance')
+        .select('worker_id, status, punch_in_time')
+        .eq('date', statDate)
+        .in('worker_id', workerIds);
+      for (const a of att || []) {
+        if ((a.status === 'present' || a.status === 'late') && a.punch_in_time) punchedInSet.add(a.worker_id);
+      }
+    }
+
     // Same working-day rule as getFroPerformance: every Sunday off except the month's last.
     const monthLastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     let lastSunday = 0;
@@ -1311,6 +1325,7 @@ export const getFroDailyStats = async (req, res) => {
       talk_seconds: statById[w.id]?.talk_seconds || 0,
       break_seconds: statById[w.id]?.break_seconds || 0,
       rank: rankMap[w.id] || null,
+      punched_in: punchedInSet.has(w.id),
       date: statDate,
     })));
   } catch (error) {
