@@ -219,7 +219,7 @@ function TodayActivityStats() {
   const allottedAllTime = allotment?.allotted_all_time || 0;
   const usedAllTime = allotment?.used_all_time || 0;
   const usedPct = allottedAllTime > 0 ? Math.round((usedAllTime / allottedAllTime) * 100) : 0;
-  const periodLabel = month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month);
+  const periodLabel = month === 'all' ? 'All Time' : month === 'today' ? 'Today' : (monthOptions.find(m => m.value === month)?.label || month);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -272,6 +272,7 @@ function TodayActivityStats() {
             style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer', flexShrink: 0 }}
           >
             <option value="all">All Time</option>
+            <option value="today">Today</option>
             {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </div>
