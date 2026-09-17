@@ -2789,14 +2789,14 @@ export default function Dashboard() {
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
         const METRICS = [
-          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, display: (v) => formatIdleDuration(Math.round((v || 0) / 60)) },
+          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, narrow: true, display: (v) => { const m = Math.round((v || 0) / 60); if (!m || m < 0) return '—'; const h = Math.floor(m / 60); const mm = m % 60; if (h === 0) return `${mm}m`; if (mm === 0) return `${h}h`; return `${h}h ${mm}m`; } },
           { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
-          { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', filterType: 'connected' },
+          { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
           { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
-          { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', filterType: 'connected', status: 'scheduled' },
-          { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, filterType: 'connected', status: 'callback' },
+          { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', narrow: true, filterType: 'connected', status: 'scheduled' },
+          { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, narrow: true, filterType: 'connected', status: 'callback' },
           { key: 'odc', param: 'CO/D', full: 'Overdue Callbacks', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2' },
-          { key: 'odf', param: 'FUP O/D', full: 'Overdue Follow-Ups', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7' },
+          { key: 'odf', param: 'FUP O/D', full: 'Overdue Follow-Ups', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7', narrow: true },
           { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, narrow: true, filterType: 'connected', status: 'office_program_visit' },
           { key: 'ppay', param: 'P', full: 'Promise To Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, filterType: 'connected', status: 'promise_pay_wa_email' },
           { key: 'ni', param: 'NI', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, narrow: true, filterType: 'connected', status: 'not_interested_np' },
