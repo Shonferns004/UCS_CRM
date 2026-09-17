@@ -247,11 +247,13 @@ function filterByScope(rows, scope, getPair) {
   return (rows || []).filter(r => pairs.has(getPair(r)));
 }
 
-// Follow-up lists are PERSONAL: a lead's scheduled / callback / promise / overdue
-// row shows only to the REAL operator who tagged it (fro_donor_logs.fro_worker_id
-// always holds the actual operator, even inside a "work as" session) or who owns
-// the assignment. This stops e.g. Reshama seeing Laxmi's tagged follow-ups just
-// because Reshama is working-as Laxmi and both share Laxmi's station scope.
+// Follow-up lists are attributed to the OWNER of the assignment
+// (fro_assignments.fro_worker_id). Work done inside a "work as" session belongs
+// to the impersonated owner: it shows in the owner's account only, and the real
+// operator never sees it again after they exit. While the operator is still
+// acting, they see only the items they personally tagged
+// (fro_donor_logs.fro_worker_id), so the impersonated owner's pre-existing
+// backlog stays out of that session too.
 function realOperatorId(user) {
   return user?.impersonation && user.imposter_id != null ? user.imposter_id : user.id;
 }
@@ -267,14 +269,29 @@ async function taggedAssignmentIds(assignmentIds, workerId) {
   return new Set((data || []).map(l => l.assignment_id));
 }
 
-// Returns a predicate keeping only assignments the real operator owns or tagged.
+// Returns a predicate keeping only the assignments the current account may work:
+//  - the FRO's OWN account: assignments they own (work-as items excluded);
+//  - a "work as" session: only assignments the acting operator tagged.
 async function buildFollowUpOwnerFilter(assignments, user) {
+  const isImpersonating = !!(user?.impersonation && user.imposter_id != null);
   const realId = realOperatorId(user);
-  const tagged = await taggedAssignmentIds(
-    (assignments || []).map(a => a.id),
-    realId
+  const tagged = isImpersonating
+    ? await taggedAssignmentIds((assignments || []).map(a => a.id), realId)
+    : new Set();
+  return (a) => a && (
+    (!isImpersonating && String(a.fro_worker_id) === String(user?.id))
+    || (isImpersonating && tagged.has(a.id))
   );
-  return (a) => a && (String(a.fro_worker_id) === String(realId) || tagged.has(a.id));
+}
+
+// Resolves worker ids to display names (used for the owner tile on rows).
+async function resolveWorkerNames(workerIds) {
+  const ids = [...new Set((workerIds || []).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const { data } = await db.from('workers').select('id, name').in('id', ids);
+  const map = {};
+  for (const w of data || []) map[w.id] = w.name;
+  return map;
 }
 
 async function chunkedInQuery(ids, queryFn, chunkSize = 1000) {
@@ -3207,6 +3224,7 @@ export const getFroScheduled = async (req, res) => {
       : { data: [] };
     const donorMap = {};
     for (const d of donors || []) donorMap[d.id] = d;
+    const ownerNameMap = await resolveWorkerNames(personalContacts.map(c => c.fro_assignments?.fro_worker_id));
 
     const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
 
@@ -3224,6 +3242,8 @@ export const getFroScheduled = async (req, res) => {
         id: a.donor_id,
         ngo_id: a.ngo_id,
         ngo_name: a.ngos?.name || '',
+        owner_id: a.fro_worker_id || null,
+        owner_name: ownerNameMap[a.fro_worker_id] || null,
         donor_name: d?.name || 'Unknown',
         donor_mobile: d?.mobile_number || '',
         scheduled_at: c.scheduled_at,
@@ -3274,6 +3294,7 @@ export const getFroCallbacks = async (req, res) => {
     for (const s of schedulesRes.data || []) {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
     }
+    const ownerNameMap = await resolveWorkerNames(personalAssignments.map(a => a.fro_worker_id));
 
     const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
 
@@ -3290,6 +3311,8 @@ export const getFroCallbacks = async (req, res) => {
         id: a.donor_id,
         ngo_id: a.ngo_id,
         ngo_name: a.ngos?.name || '',
+        owner_id: a.fro_worker_id || null,
+        owner_name: ownerNameMap[a.fro_worker_id] || null,
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
@@ -3345,6 +3368,7 @@ export const getFroPromises = async (req, res) => {
     for (const s of schedulesRes.data || []) {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s.scheduled_at;
     }
+    const ownerNameMap = await resolveWorkerNames(personalAssignments.map(a => a.fro_worker_id));
 
     // Read-time self-heal: a donor only belongs in "Promise to Pay" while their
     // promise is UNCOLLECTED. If they already have a confirmed donation/receipt
@@ -3367,6 +3391,8 @@ export const getFroPromises = async (req, res) => {
         id: a.donor_id,
         ngo_id: a.ngo_id,
         ngo_name: a.ngos?.name || '',
+        owner_id: a.fro_worker_id || null,
+        owner_name: ownerNameMap[a.fro_worker_id] || null,
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: scheduleMap[a.id] || null,
@@ -3485,6 +3511,7 @@ export const getFroOverdue = async (req, res) => {
     for (const p of donorTypesRes.data || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
     const ngoProjectById = {};
     for (const n of ngoRes.data || []) ngoProjectById[n.id] = (n.name || '').toLowerCase();
+    const ownerNameMap = await resolveWorkerNames(personalAssignments.map(a => a.fro_worker_id));
 
     // Self-heal mirroring getFroPromises: a donor whose current-period follow-up
     // has already converted to a donation/receipt should drop out of overdue.
@@ -3521,6 +3548,8 @@ export const getFroOverdue = async (req, res) => {
         id: a.donor_id,
         ngo_id: a.ngo_id,
         ngo_name: a.ngos?.name || '',
+        owner_id: a.fro_worker_id || null,
+        owner_name: ownerNameMap[a.fro_worker_id] || null,
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         scheduled_at: dueBy,
@@ -3541,13 +3570,14 @@ export const getFroOverdue = async (req, res) => {
 export const getMyHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
-    // Own-actions history: every log recorded by this FRO, regardless of which
-    // (station, ngo) assignment the donor belongs to — cross-FRO verifications
-    // reuse the original owner's assignment, so pair-scoping hid them here.
+    // History is attributed to the OWNER of the assignment: a "work as" session
+    // writes logs on the impersonated FRO's assignment, so those actions appear
+    // in the owner's history (and never come back to the real operator's own
+    // account after the session ends).
     const { data: logs, error } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
-      .eq('fro_worker_id', workerId)
+      .eq('fro_assignments.fro_worker_id', workerId)
       .order('created_at', { ascending: false })
       .limit(200);
 
@@ -3559,6 +3589,7 @@ export const getMyHistory = async (req, res) => {
       : { data: [] };
     const donorMap = {};
     for (const d of donors || []) donorMap[d.id] = d;
+    const ownerNameMap = await resolveWorkerNames((logs || []).map(l => l.fro_assignments?.fro_worker_id));
 
     const result = (logs || []).map(l => {
       const d = donorMap[l.donor_id] || {};
@@ -3577,6 +3608,8 @@ export const getMyHistory = async (req, res) => {
         accounts_status: l.accounts_status,
         ngo_id: l.fro_assignments?.ngo_id || null,
         ngo_name: l.fro_assignments?.ngos?.name || null,
+        owner_id: l.fro_assignments?.fro_worker_id || null,
+        owner_name: ownerNameMap[l.fro_assignments?.fro_worker_id] || null,
       };
     });
     return res.json(result.reverse());
