@@ -2845,7 +2845,7 @@ export default function Dashboard() {
           }
           return (
             <td key={m.key} style={{ padding: '12px 6px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-              {show ? <span onClick={click} style={{ fontSize: 13, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
+              {show ? <span onClick={click} style={{ fontSize: 13, fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1' }}>{m.display ? m.display(v) : 0}</span>}
             </td>
           );
         };
