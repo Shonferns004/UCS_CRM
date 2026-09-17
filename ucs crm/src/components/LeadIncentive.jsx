@@ -765,8 +765,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed' }}>
           <colgroup>
             <col />
-            <col style={{ width: 108 }} />
-            <col style={{ width: 96 }} />
+            <col style={{ width: 104 }} />
           </colgroup>
           <thead>
             <tr style={{ background: '#F8FAFD' }}>
@@ -1501,7 +1500,7 @@ export default function LeadIncentive() {
       {/* Target Slabs modal */}
       {slabsOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99990, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflow: 'auto' }} onClick={() => setSlabsOpen(false)}>
-          <div style={{ width: 'min(680px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: 14, background: '#fff', border: `1px solid ${C.line}`, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden', margin: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div style={{ width: 'min(480px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: 14, background: '#fff', border: `1px solid ${C.line}`, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden', margin: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
               <span style={{ width: 32, height: 32, borderRadius: 9, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><FileText size={16} /></span>
               <div style={{ flex: 1, minWidth: 0 }}>
