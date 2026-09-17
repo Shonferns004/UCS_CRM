@@ -5010,16 +5010,33 @@ export const getTLDashboard = async (req, res) => {
     const connectedBreakdown = Object.entries(connectedBreakdownMap).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count);
     const notConnectedBreakdown = Object.entries(notConnectedBreakdownMap).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count);
 
-    // 3. Follow-ups due
+    // 3. Follow-ups due (global KPI + per-FRO overdue split for the
+    // Telecaller Performance table: callback-type vs follow-up-type, by IST date)
+    const CALLBACK_OVERDUE_STATUSES = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate']);
+    const PROMISE_OVERDUE_STATUSES = new Set(['promise_to_pay', 'will_donate_online', 'payment_pending']);
     let followupsQuery = db
       .from('fro_assignments')
-      .select('id, next_follow_up')
+      .select('id, next_follow_up, fro_worker_id, status')
       .in('ngo_id', ngoIds)
       .not('status', 'in', '("reassigned", "donation_collected")')
       .not('next_follow_up', 'is', null);
     if (fro_id) followupsQuery = followupsQuery.eq('fro_worker_id', fro_id);
     const { data: followups } = await followupsQuery;
+    const istTodayStr = new Date(now.getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
     const followupsDue = (followups || []).filter(f => f.next_follow_up && new Date(f.next_follow_up) <= todayEnd).length;
+    // Per-FRO overdue keyed by worker id: past-due (next_follow_up strictly
+    // before IST today), split into callback-type vs follow-up-type so the
+    // performance table can show both columns. Mirrors the Follow-up
+    // Management convention (promise statuses are not counted as overdue).
+    const overdueByWorker = {};
+    for (const f of followups || []) {
+      const nd = f.next_follow_up ? String(f.next_follow_up).slice(0, 10) : null;
+      if (!nd || nd >= istTodayStr || !f.fro_worker_id) continue;
+      const wid = String(f.fro_worker_id);
+      if (!overdueByWorker[wid]) overdueByWorker[wid] = { calls: 0, followups: 0 };
+      if (CALLBACK_OVERDUE_STATUSES.has(f.status)) overdueByWorker[wid].calls++;
+      else if (!PROMISE_OVERDUE_STATUSES.has(f.status)) overdueByWorker[wid].followups++;
+    }
 
     // 4. Target achievement
     const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
@@ -5336,6 +5353,8 @@ export const getTLDashboard = async (req, res) => {
         work_as_operator_name: workAsLabel,
         idleMinutes: idleMinutes,
         today_idle_seconds: ls.today_idle_seconds || 0,
+        overdue_calls: (overdueByWorker[String(w.id)] || {}).calls || 0,
+        overdue_followups: (overdueByWorker[String(w.id)] || {}).followups || 0,
         logout_today: lc.today,
         logout_total: lc.total,
         claims_pending: claims.pending,
