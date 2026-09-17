@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Circle, Users, Calendar, X } from 'lucide-react';
+import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Circle, Users, Calendar, Clock, X } from 'lucide-react';
 import { apiGet, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
@@ -2224,8 +2224,11 @@ export default function Dashboard() {
               </div>
             ) : highRows.length === 0 ? (
               <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                  {topPresent.length === 0 ? 'No FROs are currently above the daily target.' : 'No FROs match your search.'}
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#fffbeb', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trophy size={16} /></div>
+                  <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                    {topPresent.length === 0 ? 'No FROs are currently above the daily target.' : 'No FROs match your search.'}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -2325,8 +2328,11 @@ export default function Dashboard() {
               </div>
             ) : lowRows.length === 0 ? (
               <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-                <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                  {lowPresent.length === 0 ? 'All FROs have reached the daily target.' : 'No FROs match your search.'}
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Target size={16} /></div>
+                  <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                    {lowPresent.length === 0 ? 'All FROs have reached the daily target.' : 'No FROs match your search.'}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -2494,7 +2500,10 @@ export default function Dashboard() {
                   </div>
                 ) : hourlyTotals.calls === 0 && elapsedIdx < 0 ? (
                   <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-                    <div style={{ textAlign: 'center', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
+                      <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                    </div>
                   </div>
                 ) : hourlyTotals.calls === 0 ? (
                   <div style={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -2628,7 +2637,10 @@ export default function Dashboard() {
                 }
                 if (hourlyAlerts.elapsed === 0) {
                   return (
-                    <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#64748B' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                    <div style={{ padding: 24, textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
+                      <div style={{ fontSize: 12, color: '#64748B' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                    </div>
                   );
                 }
                 if (hourlyAlerts.idle.length === 0 && hourlyAlerts.noCalls.length === 0) {
