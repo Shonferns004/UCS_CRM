@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download } from 'lucide-react';
-import { apiGet, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
+import { apiGet, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import RecentNotices from '../../../components/RecentNotices';
@@ -39,11 +39,12 @@ const CONNECTED_STATUS_COLUMNS = [
   { key: 'dnd', label: 'DND', color: '#16a34a' },
 ];
 
-// FRO hourly call target: 200 connected calls per FRO per day over a 12-hr
-// (09:00–21:00) working window => ~17 connected calls/hr.
+// FRO hourly call target default: 200 connected calls per FRO per day over a 12-hr
+// (09:00–21:00) working window. The daily figure is editable from the Connected vs
+// Target card (stored server-side in settings.connected_call_target) and only
+// connected calls count toward it.
 const HOURS_IN_WORKDAY = 12;
 const DAILY_CONNECTED_TARGET = 200;
-const HOURLY_CONNECTED_TARGET = Math.round(DAILY_CONNECTED_TARGET / HOURS_IN_WORKDAY);
 
 const MERGED_STATUS_GROUPS = {
   office_program_visit: ['office_visit_scheduled', 'program_visit_scheduled', 'office_program_visit'],
@@ -1029,6 +1030,11 @@ export default function Dashboard() {
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [idleSearch, setIdleSearch] = useState('');
   const [hourlyFroSearch, setHourlyFroSearch] = useState('');
+  const [connTarget, setConnTarget] = useState(DAILY_CONNECTED_TARGET);
+  const [connTargetOpen, setConnTargetOpen] = useState(false);
+  const [connTargetDraft, setConnTargetDraft] = useState('');
+  const [connTargetBusy, setConnTargetBusy] = useState(false);
+  const [connTargetMsg, setConnTargetMsg] = useState('');
   const [dailyStats, setDailyStats] = useState([]);
 
   // Global date range (derived from the header filter) used by the table & exports
@@ -1107,6 +1113,30 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setDailyStats([]); });
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
+
+  // Editable "connected calls per day" target — loaded once from server settings
+  // (shared by the whole team), falls back to the built-in default (200).
+  useEffect(() => {
+    let cancelled = false;
+    apiGet('/settings')
+      .then(s => { if (!cancelled && s && s.connected_call_target) setConnTarget(Number(s.connected_call_target) || DAILY_CONNECTED_TARGET); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveConnTarget = () => {
+    const n = Math.round(Number(connTargetDraft));
+    if (!Number.isFinite(n) || n <= 0 || n > 10000) {
+      setConnTargetMsg('Enter a number between 1 and 10000.');
+      return;
+    }
+    setConnTargetBusy(true);
+    setConnTargetMsg('');
+    apiPut('/settings', { connected_call_target: String(n) })
+      .then(() => { setConnTarget(n); setConnTargetOpen(false); setConnTargetMsg(''); })
+      .catch((e) => { setConnTargetMsg(e.message || 'Could not save target.'); })
+      .finally(() => setConnTargetBusy(false));
+  };
 
   // Derived: day totals + per-FRO productivity alerts for the selected hourly date
   const hourlyTotals = useMemo(() => {
@@ -2445,7 +2475,7 @@ export default function Dashboard() {
         const totalNon = hourlyTotalsCalc.totalNon;
         const overallConnPct = hourlyTotalsCalc.overallConnPct;
         const elapsedHrs = isToday ? Math.max(0, elapsedIdx + 1) : HOURS_IN_WORKDAY;
-        const targetPace = Math.round((DAILY_CONNECTED_TARGET * elapsedHrs) / HOURS_IN_WORKDAY);
+        const targetPace = Math.round((connTarget * elapsedHrs) / HOURS_IN_WORKDAY);
         const froPerf = (g) => (targetPace > 0 ? Math.round((g.connected / targetPace) * 1000) / 10 : null);
         const q = hourlyFroSearch.trim().toLowerCase();
         const lowGroups = (q ? froGroups.filter(g => (g.name || '').toLowerCase().includes(q)) : froGroups)
@@ -2527,8 +2557,35 @@ export default function Dashboard() {
                   <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#E0F2FE', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📞</span>
                   <div style={{ minWidth: 0 }}>
                     <h3 className="performance-title" style={{ color: '#17233C' }}>FRO Hourly Performance — Connected vs Target</h3>
-                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({DAILY_CONNECTED_TARGET}/day ≈ {HOURLY_CONNECTED_TARGET}/hr)</p>
+                    <p style={{ fontSize: 12, color: '#64748B', margin: '4px 0 0', lineHeight: 1.4 }}>FROs below the connected target pace ({connTarget}/day ≈ {Math.round(connTarget / HOURS_IN_WORKDAY)}/hr — connected calls only)</p>
                   </div>
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => { setConnTargetDraft(String(connTarget)); setConnTargetMsg(''); setConnTargetOpen(o => !o); }}
+                    style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#17233C', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    🎯 Target: {connTarget}
+                  </button>
+                  {connTargetOpen && (
+                    <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 240, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,.18)', padding: 14, zIndex: 30 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#17233C', marginBottom: 2 }}>Connected calls / day target</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 8 }}>Only connected calls count toward this target. All FRO pace % recalculates on save.</div>
+                      <input type="number" min="1" value={connTargetDraft} onChange={e => setConnTargetDraft(e.target.value)}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 8, border: '1px solid #dbe5f1', fontSize: 13, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                      />
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 5 }}>Hourly pace: {Math.round((Number(connTargetDraft) || 0) / HOURS_IN_WORKDAY)}/hr over 12 working hours</div>
+                      {connTargetMsg && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 6 }}>{connTargetMsg}</div>}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button onClick={saveConnTarget} disabled={connTargetBusy}
+                          style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: connTargetBusy ? 'default' : 'pointer' }}>
+                          {connTargetBusy ? 'Saving…' : 'Save'}
+                        </button>
+                        <button onClick={() => setConnTargetOpen(false)}
+                          style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748B', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
