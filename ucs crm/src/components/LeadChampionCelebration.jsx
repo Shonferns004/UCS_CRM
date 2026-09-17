@@ -94,6 +94,11 @@ function ChampionSidePopup({ announcement, isYou, onClose, stackIndex = 0 }) {
             <div style={{ fontSize: 11.5, color: 'var(--ink-soft)', marginTop: 3 }}>
               {announcement.announcement_date ? new Date(announcement.announcement_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }) : 'Today'} · Best quality lead generator 🚀
             </div>
+            {announcement.message && (
+              <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 7, lineHeight: 1.5 }}>
+                {announcement.message}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 14, marginTop: 9 }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)' }}>Collection</div>
@@ -161,8 +166,12 @@ export function useLeadChampion() {
       const today = todayLocal();
       const r = await api('/incentive/lead/champion/current?date=' + today, { _prefix: 'ucs' });
       const anns = Array.isArray(r?.champions) ? r.champions : [];
-      // Only the current day's announcements may ever celebrate.
-      const todays = anns.filter(a => String(a.announcement_date || '').slice(0, 10) === today);
+      // Only published celebrations (Super Admin hit Send in History) may ever
+      // pop up — and each one shows exactly once per user (seen-set below), so
+      // it never returns on reload or login.
+      const todays = anns.filter(a =>
+        String(a.announcement_date || '').slice(0, 10) === today && a.celebrated_at
+      );
       setCurrent(todays);
       // Auto-celebrate once per announcement id.
       const fresh = todays.filter(
@@ -201,11 +210,9 @@ export function useLeadChampion() {
     },
   });
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 20000);
-    return () => clearInterval(t);
-  }, [load]);
+  // Realtime only (no polling): inserts/updates/deletes on
+  // lead_champion_announcements refresh the celebration feed instantly.
+  useEffect(() => { load(); }, [load]);
 
   // Auto-dismiss all open celebration popups after 9s.
   useEffect(() => {

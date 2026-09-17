@@ -17,6 +17,8 @@ import {
   leaderboardHandler,
   announceChampionHandler,
   championHistoryHandler,
+  generateChampionCongratsHandler,
+  celebrateChampionHandler,
   deleteChampionHandler,
   getSlabFrosHandler,
   setSlabFrosHandler,
@@ -58,6 +60,8 @@ router.get('/leaderboard', popupLevel, leaderboardHandler);
 router.get('/champion/current', popupLevel, currentChampionHandler);
 router.get('/champion/history', sirLevel, championHistoryHandler);
 router.post('/champion/announce', sirLevel, announceChampionHandler);
+router.post('/champion/:id/congrats', sirLevel, generateChampionCongratsHandler);
+router.post('/champion/:id/celebrate', sirLevel, celebrateChampionHandler);
 router.delete('/champion/:id', sirLevel, deleteChampionHandler);
 
 export default router;

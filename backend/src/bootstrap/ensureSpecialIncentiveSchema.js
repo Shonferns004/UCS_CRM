@@ -195,6 +195,10 @@ CREATE TABLE IF NOT EXISTS lead_champion_announcements (
 -- date can hold one winner PER RANGE (each range runs its own competition).
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_id UUID;
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_label TEXT;
+-- Winner celebration: uploaded winner photo + published congrats popup
+-- (celebrated_at set once when Super Admin hits Send; never rewritten).
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS winner_photo_url TEXT;
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS celebrated_at TIMESTAMPTZ;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint

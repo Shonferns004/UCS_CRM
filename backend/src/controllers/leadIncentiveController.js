@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import groq from '../config/groq.js';
 import {
   getSettings,
   updateSettings,
@@ -28,6 +29,8 @@ import {
 } from '../services/leadIncentiveService.js';
 import {
   getAnnouncements,
+  getAnnouncementById,
+  updateAnnouncementCelebration,
   deleteAnnouncement,
 } from '../models/leadChampionModel.js';
 import { ensureLowLeadRangeActive } from '../bootstrap/ensureSpecialIncentiveSchema.js';
@@ -384,7 +387,9 @@ export async function currentChampionHandler(req, res) {
           console.error('[lead champion] fetch photo:', e?.message);
         }
       }
-      withPhotos.push({ ...champion, winner_photo_url });
+      // Prefer the celebration photo uploaded by Super Admin at Send time,
+      // falling back to the winner's profile photo.
+      withPhotos.push({ ...champion, winner_photo_url: champion.winner_photo_url || winner_photo_url });
     }
     return res.json({ champions: withPhotos });
   } catch (e) {
@@ -459,6 +464,88 @@ export async function deleteChampionHandler(req, res) {
     }
 
     return res.json({ ok: true, id: row.id });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// AI-written congratulation for a range winner (Super Admin composer in the
+// History section). Falls back to a template so the button never hard-fails.
+export async function generateChampionCongratsHandler(req, res) {
+  try {
+    const row = await getAnnouncementById(req.params.id);
+    if (!row) return res.status(404).json({ message: 'Announcement not found' });
+    const prize = Number(row.slab_bonus || row.total_incentive || 0);
+    try {
+      const model = process.env.GROQ_CONGRATS_MODEL || process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
+      const completion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You write warm, short congratulations (2-3 sentences) for FRO fundraising officers who won a collection incentive at a donation NGO. Mention the winner by name, the range and the prize. Cheerful, proud, inspiring. Use at most one emoji. Plain text only, no quotes, no markdown.',
+          },
+          { role: 'user', content: `Winner: ${row.fro_name || 'The winner'}\nRange: ${row.slab_label || 'the incentive range'}\nPrize: ₹${prize}` },
+        ],
+        model,
+        max_tokens: 160,
+        temperature: 0.85,
+      });
+      const text = (completion.choices?.[0]?.message?.content || '').trim();
+      if (text) return res.json({ message: text });
+    } catch (e) {
+      console.error('[lead champion] ai congrats:', e.message);
+    }
+    return res.json({
+      message: `Heartiest congratulations to ${row.fro_name || 'our champion'} for winning the ${row.slab_label || 'incentive range'} with a prize of ₹${prize.toLocaleString('en-IN')}! Your hard work inspires the whole team. 🎉`,
+    });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Super Admin publishes a winner celebration (photo + message) exactly once.
+// The stored row pops up on every panel via realtime; each user sees it once
+// (client-side seen-set) and it never returns on reload/login.
+export async function celebrateChampionHandler(req, res) {
+  try {
+    const row = await getAnnouncementById(req.params.id);
+    if (!row) return res.status(404).json({ message: 'Announcement not found' });
+    if (row.celebrated_at) return res.status(400).json({ message: 'Celebration already sent' });
+
+    const { file_base64, mime_type, message } = req.body || {};
+    let photoUrl = row.winner_photo_url || null;
+
+    if (file_base64) {
+      const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+      const contentType = mime_type || 'image/jpeg';
+      if (!ALLOWED.includes(contentType)) {
+        return res.status(400).json({ message: `Invalid file type. Allowed: ${ALLOWED.join(', ')}` });
+      }
+      const buffer = Buffer.from(file_base64, 'base64');
+      const ext = contentType.split('/')[1] || 'jpg';
+      const fileName = `lead_champion_winners/${req.params.id}_${Date.now()}.${ext}`;
+
+      const bucket = 'worker-documents';
+      const { error: uploadError } = await db.storage.from(bucket).upload(fileName, buffer, { contentType, upsert: true });
+      if (uploadError) {
+        if (uploadError.message?.includes('bucket')) {
+          const { error: bucketError } = await db.storage.createBucket(bucket, { public: true });
+          if (bucketError) return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
+          const { error: retryError } = await db.storage.from(bucket).upload(fileName, buffer, { contentType, upsert: true });
+          if (retryError) return res.status(500).json({ message: 'Upload failed: ' + retryError.message });
+        } else {
+          return res.status(500).json({ message: 'Upload failed: ' + uploadError.message });
+        }
+      }
+      const { data: urlData } = db.storage.from(bucket).getPublicUrl(fileName);
+      photoUrl = urlData?.publicUrl;
+      if (!photoUrl) return res.status(500).json({ message: 'Failed to get file URL' });
+    }
+
+    const celebrated = await updateAnnouncementCelebration(req.params.id, { photoUrl, message });
+    if (!celebrated) return res.status(400).json({ message: 'Celebration already sent' });
+    return res.json({ announcement: celebrated });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

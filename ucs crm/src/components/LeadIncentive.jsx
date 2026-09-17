@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../api/auth'
-import { ChartBar, ArrowsClockwise, GearSix, Stack, CaretRight, Plus, X, Trophy, Users, CalendarBlank, FileText } from '@phosphor-icons/react'
+import { useRealtime } from '../hooks/useRealtime'
+import { ChartBar, ArrowsClockwise, GearSix, Stack, CaretRight, Plus, X, Trophy, Users, CalendarBlank, FileText, PencilSimple, Trash, Play, ClockCounterClockwise, Sparkle, Camera, PaperPlaneTilt, CheckCircle } from '@phosphor-icons/react'
 
 const fmt = (n) => {
   const v = Number(n)
@@ -111,7 +112,9 @@ const LI_CSS = `
 .li-col { min-width: 0; max-width: 100%; }
 .li-panel { background: ${C.panelBg}; border: 1px solid ${C.line}; border-radius: 12px; box-shadow: 0 2px 10px rgba(30,80,140,.05); overflow: hidden; max-width: 100%; }
 .li-table-scroll { overflow-x: auto; max-width: 100%; }
-.li-table { width: 100%; min-width: 720px; table-layout: fixed; border-collapse: collapse; }
+.li-table { width: 100%; min-width: 460px; table-layout: fixed; border-collapse: collapse; }
+@keyframes li-live-blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.li-live-blink { animation: li-live-blink 1.2s ease-in-out infinite; }
 .li-table th { padding: 9px 10px; font-size: 11px; font-weight: 700; color: #52698A; background: #F8FAFD; border-bottom: 1px solid #E5EDF7; white-space: nowrap; }
 .li-table td { padding: 9px 10px; font-size: 13px; }
 .li-table tbody tr { border-bottom: 1px solid #F2F6FB; transition: background .15s ease; }
@@ -237,9 +240,8 @@ function LeaderboardEmpty({ status }) {
 
 // ─── Right panel: per-range compact leaderboard card ──────
 function RangeCard({ r, onViewAll, onSelectFro }) {
-  const meta = STATUS_META[r.status] || STATUS_META.not_started
   return (
-    <div style={{ border: `1px solid ${C.line}`, borderLeft: `3px solid ${meta.accent}`, borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
       <div style={{ padding: '10px 12px', borderBottom: '1px solid #F2F6FB' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -300,10 +302,7 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
               <div className="li-shimmer" style={{ width: 24, height: 12, flexShrink: 0 }} />
               <div className="li-shimmer" style={{ flex: 1, height: 12 }} />
               <div className="li-shimmer" style={{ width: 92, height: 20, borderRadius: 999, flexShrink: 0 }} />
-              <div className="li-shimmer" style={{ width: 64, height: 12, flexShrink: 0 }} />
-              <div className="li-shimmer" style={{ width: 56, height: 12, flexShrink: 0 }} />
-              <div className="li-shimmer" style={{ width: 100, height: 8, flexShrink: 0 }} />
-              <div className="li-shimmer" style={{ width: 82, height: 28, borderRadius: 8, flexShrink: 0 }} />
+              <div className="li-shimmer" style={{ width: 76, height: 28, borderRadius: 8, flexShrink: 0 }} />
             </div>
           ))}
         </div>
@@ -326,19 +325,13 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
               <col style={{ width: 34 }} />
               <col />
               <col style={{ width: 110 }} />
-              <col style={{ width: 90 }} />
-              <col style={{ width: 75 }} />
-              <col style={{ width: 125 }} />
-              <col style={{ width: 105 }} />
+              <col style={{ width: 100 }} />
             </colgroup>
             <thead>
               <tr>
                 <th style={{ textAlign: 'left' }}>#</th>
                 <th style={{ textAlign: 'left' }}>Range (₹)</th>
                 <th style={{ textAlign: 'center' }}>Status</th>
-                <th style={{ textAlign: 'right' }}>Win On (₹)</th>
-                <th style={{ textAlign: 'right' }}>Prize (₹)</th>
-                <th style={{ textAlign: 'center' }}>Progress</th>
                 <th style={{ textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
@@ -350,19 +343,9 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
                     <span style={{ fontWeight: 600, color: C.dark, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.slab_label}</span>
                   </td>
                   <td style={{ textAlign: 'center' }}><StatusPill status={r.status} /></td>
-                  <td style={{ textAlign: 'right', color: C.muted }}>₹{fmt(r.winOn)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: C.dark }}>₹{fmt(r.prize)}</td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                      <div style={{ flex: 1, minWidth: 40 }}>
-                        <MiniBar pct={r.progressPct} color={r.status === 'ended' ? C.end : C.primary} />
-                      </div>
-                      <span style={{ width: 38, flexShrink: 0, textAlign: 'right', fontSize: 11.5, fontWeight: 600, color: C.dark }}>{r.progressPct}%</span>
-                    </div>
-                  </td>
                   <td style={{ textAlign: 'center' }}>
                     <button type="button" className="li-configure" onClick={() => onConfigure(r.slab)}>
-                      <GearSix size={13} /> Configure
+                      <Play size={12} weight="fill" /> Start
                     </button>
                   </td>
                 </tr>
@@ -375,8 +358,8 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onAdd }) {
   )
 }
 
-// ─── Right panel: Live Leaderboard ────────────────────────
-function LiveLeaderboardPanel({ ranges, loading, error, onRefresh, onViewAll, onSelectFro }) {
+// ─── Right panel: Live Leaderboard (live/running ranges only) ──
+function LiveLeaderboardPanel({ ranges, totalRanges, loading, error, onRefresh, onViewAll, onSelectFro }) {
   return (
     <div className="li-panel">
       <div className="li-panel-head" style={{ padding: 16, borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -387,7 +370,7 @@ function LiveLeaderboardPanel({ ranges, loading, error, onRefresh, onViewAll, on
           <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>Live Leaderboard</div>
           <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Top performers based on verified collections</div>
         </div>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, background: C.greenBg, color: C.green, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+        <span className="li-live-blink" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, background: C.greenBg, color: C.green, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green, display: 'inline-block' }} /> Live
         </span>
       </div>
@@ -411,8 +394,12 @@ function LiveLeaderboardPanel({ ranges, loading, error, onRefresh, onViewAll, on
       ) : ranges.length === 0 ? (
         <div style={{ padding: '54px 20px', textAlign: 'center' }}>
           <div style={{ width: 40, height: 40, margin: '0 auto 12px', borderRadius: '50%', background: C.nsBg, color: C.ns, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Users size={18} /></div>
-          <div style={{ fontSize: 13.5, fontWeight: 600, color: C.dark }}>No incentive ranges configured yet</div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>Configure a range to start the competition.</div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: C.dark }}>
+            {(totalRanges || 0) === 0 ? 'No incentive ranges configured yet' : 'No live ranges right now'}
+          </div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>
+            {(totalRanges || 0) === 0 ? 'Create a range to start the competition.' : 'Start a range to begin the competition.'}
+          </div>
         </div>
       ) : (
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -702,101 +689,127 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
     } catch (e) { setError(e.message || 'Failed') }
   }
 
-  const fmtSlab = (n) => {
-    const v = Number(n)
-    if (v >= 100000) return `₹${(v / 100000).toFixed(v % 100000 === 0 ? 0 : 1)}L`
-    if (v >= 1000) return `₹${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}K`
-    return `₹${v}`
-  }
+  const active = (slabs || []).filter(s => s.is_active)
+
+  const moneyInput = (value, onChange, placeholder) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 38, padding: '0 12px', background: '#fff', border: '1px solid #DCE7F5', borderRadius: 10 }}>
+      <span style={{ fontSize: 14, fontWeight: 700, color: C.primary }}>₹</span>
+      <input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 13.5, fontWeight: 600, color: C.dark, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+    </div>
+  )
+
+  const fldLabel = (text) => (
+    <label style={{ fontSize: 11.5, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>{text}</label>
+  )
+
+  const rowBtn = (kind) => kind === 'save'
+    ? { flex: 1, height: 36, borderRadius: 9, border: 'none', background: C.primary, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }
+    : { flex: 1, height: 36, borderRadius: 9, border: '1px solid #DCE7F5', background: '#fff', color: '#52698A', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }
 
   return (
-    <div style={embedded ? { display: 'flex', flexDirection: 'column', gap: 12 } : { border: '1.5px solid var(--line)', borderRadius: 16, padding: 20, background: 'var(--card-bg)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: embedded ? 4 : 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>📋</span>
-          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Target Slabs</div>
+    <div style={embedded
+      ? { display: 'flex', flexDirection: 'column' }
+      : { border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, background: '#fff', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.muted }}>
+          {active.length} range{active.length !== 1 ? 's' : ''} configured
         </div>
-        {!adding && !editing && <button onClick={startAdd} style={btnStyle('#1677E8')}>+ Add Slab</button>}
+        {!adding && !editing && (
+          <button type="button" onClick={startAdd}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: C.primary, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            <Plus size={15} weight="bold" /> Add Range
+          </button>
+        )}
       </div>
 
-      {error && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 600, marginBottom: 12 }}>{error}</div>}
+      {error && <div style={{ padding: '9px 12px', borderRadius: 8, background: '#FEF2F2', color: '#C0392B', fontSize: 12, fontWeight: 600, marginBottom: 12 }}>{error}</div>}
 
       {adding && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 10, marginBottom: 16, padding: 14, borderRadius: 12, border: '1.5px dashed #93c5fd', background: '#f0f7ff' }}>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Min Amount (₹)</label>
-            <input type="number" style={slabInputStyle} value={form.min_amount} onChange={e => setForm(p => ({ ...p, min_amount: e.target.value }))} placeholder="0" />
+        <div style={{ marginBottom: 12, padding: 14, borderRadius: 12, border: `1px solid ${C.line}`, background: '#F8FAFD' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.dark, marginBottom: 12 }}>New incentive range</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>{fldLabel('Min Amount')}{moneyInput(form.min_amount, v => setForm(p => ({ ...p, min_amount: v })), '0')}</div>
+            <div>{fldLabel('Max Amount')}{moneyInput(form.max_amount, v => setForm(p => ({ ...p, max_amount: v })), '50000')}</div>
+            <div>{fldLabel('Win On Target')}{moneyInput(form.amount_to_win, v => setForm(p => ({ ...p, amount_to_win: v })), '1500')}</div>
+            <div>{fldLabel('Prize')}{moneyInput(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), '0')}</div>
           </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Max Amount (₹)</label>
-            <input type="number" style={slabInputStyle} value={form.max_amount} onChange={e => setForm(p => ({ ...p, max_amount: e.target.value }))} placeholder="20000" />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Win On (₹)</label>
-            <input type="number" style={slabInputStyle} value={form.amount_to_win} onChange={e => setForm(p => ({ ...p, amount_to_win: e.target.value }))} placeholder="1500" />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', display: 'block', marginBottom: 4 }}>Prize (₹)</label>
-            <input type="number" style={slabInputStyle} value={form.incentive_amount} onChange={e => setForm(p => ({ ...p, incentive_amount: e.target.value }))} placeholder="0" />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
-            <button onClick={submit} disabled={saving} style={btnStyle('#16a34a')}>{saving ? '…' : 'Save'}</button>
-            <button onClick={cancel} style={btnStyle('var(--line)', 'var(--ink)')}>Cancel</button>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <button type="button" onClick={cancel} disabled={saving} style={rowBtn()}>Cancel</button>
+            <button type="button" onClick={submit} disabled={saving} style={rowBtn('save')}>{saving ? 'Adding…' : 'Add Range'}</button>
           </div>
         </div>
       )}
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <div style={{ overflowX: 'auto', border: `1px solid #EEF2F8`, borderRadius: 10 }}>
+        <table style={{ width: '100%', minWidth: 480, borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: '2px solid var(--line)' }}>
-              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Range</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Win On</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12 }}>Prize</th>
-              <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--ink-soft)', fontSize: 12, width: 140 }}>Actions</th>
+            <tr style={{ background: '#F8FAFD' }}>
+              <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Range (₹)</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Win On (₹)</th>
+              <th style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Prize (₹)</th>
+              <th style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap', width: 108 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {slabs.filter(s => s.is_active).map(slab => (
+            {active.map(slab => (
               editing === slab.id ? (
-                <tr key={slab.id} style={{ borderBottom: '1px solid var(--line)', background: '#f0f7ff' }}>
-                  <td style={{ padding: 6 }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <input type="number" style={{ ...slabInputStyle, width: 100 }} value={form.min_amount} onChange={e => setForm(p => ({ ...p, min_amount: e.target.value }))} />
-                      <span style={{ color: 'var(--ink-soft)', fontSize: 12 }}>to</span>
-                      <input type="number" style={{ ...slabInputStyle, width: 100 }} value={form.max_amount} onChange={e => setForm(p => ({ ...p, max_amount: e.target.value }))} />
+                <tr key={slab.id} style={{ background: '#F4F9FF' }}>
+                  <td style={{ padding: 8 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>{moneyInput(form.min_amount, v => setForm(p => ({ ...p, min_amount: v })), 'Min')}</div>
+                      <span style={{ color: C.muted, fontSize: 12, flexShrink: 0 }}>to</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>{moneyInput(form.max_amount, v => setForm(p => ({ ...p, max_amount: v })), 'Max')}</div>
                     </div>
                   </td>
-                  <td style={{ padding: 6 }}><input type="number" style={slabInputStyle} value={form.amount_to_win} onChange={e => setForm(p => ({ ...p, amount_to_win: e.target.value }))} /></td>
-                  <td style={{ padding: 6 }}><input type="number" style={slabInputStyle} value={form.incentive_amount} onChange={e => setForm(p => ({ ...p, incentive_amount: e.target.value }))} /></td>
-                  <td style={{ padding: 6, textAlign: 'center' }}>
+                  <td style={{ padding: 8, minWidth: 96 }}>{moneyInput(form.amount_to_win, v => setForm(p => ({ ...p, amount_to_win: v })), '1500')}</td>
+                  <td style={{ padding: 8, minWidth: 88 }}>{moneyInput(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), '0')}</td>
+                  <td style={{ padding: 8 }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                      <button onClick={submit} disabled={saving} style={{ ...btnStyle('#16a34a'), padding: '6px 12px', fontSize: 12 }}>{saving ? '…' : 'Save'}</button>
-                      <button onClick={cancel} style={{ ...btnStyle('var(--line)', 'var(--ink)'), padding: '6px 12px', fontSize: 12 }}>Cancel</button>
+                      <button type="button" onClick={submit} disabled={saving}
+                        style={{ height: 32, padding: '0 12px', borderRadius: 8, border: 'none', background: C.primary, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                        {saving ? '…' : 'Save'}
+                      </button>
+                      <button type="button" onClick={cancel} disabled={saving}
+                        style={{ height: 32, padding: '0 12px', borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        Cancel
+                      </button>
                     </div>
                   </td>
                 </tr>
               ) : (
-                <tr key={slab.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--ink)' }}>{fmtSlab(slab.min_amount)} – {fmtSlab(slab.max_amount)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--ink-soft)' }}>₹{fmt(slab.amount_to_win ?? 1500)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#1677E8' }}>₹{fmt(slab.incentive_amount)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                <tr key={slab.id} style={{ borderTop: '1px solid #F2F6FB' }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap' }}>₹{fmt(slab.min_amount)} – ₹{fmt(slab.max_amount)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: C.muted, whiteSpace: 'nowrap' }}>₹{fmt(slab.amount_to_win ?? 1500)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap' }}>₹{fmt(slab.incentive_amount)}</td>
+                  <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                      <button onClick={() => startEdit(slab)} style={{ ...btnStyle('var(--card-bg)', 'var(--ink)'), padding: '5px 10px', fontSize: 11, border: '1px solid var(--line)' }}>Edit</button>
-                      <button onClick={() => onDelete(slab.id)} style={{ ...btnStyle('#fee2e2', '#b91c1c'), padding: '5px 10px', fontSize: 11, border: '1px solid #fecaca' }}>Delete</button>
+                      <button type="button" onClick={() => startEdit(slab)} title="Edit range"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        <PencilSimple size={13} /> Edit
+                      </button>
+                      <button type="button" onClick={() => onDelete(slab.id)} title="Delete range"
+                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', cursor: 'pointer' }}>
+                        <Trash size={14} />
+                      </button>
                     </div>
                   </td>
                 </tr>
               )
             ))}
-            {slabs.filter(s => s.is_active).length === 0 && (
+            {active.length === 0 && !adding && (
               <tr>
-                <td colSpan={3} style={{ padding: 24, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13 }}>No slabs configured — add the first one!</td>
+                <td colSpan={4} style={{ padding: '28px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>No incentive ranges yet</div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Click Add Range to create the first one.</div>
+                </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+      <div style={{ fontSize: 11, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
+        Use <b style={{ fontWeight: 600 }}>Configure</b> on the main table to set each range's Win On target, prize and Start/End window.
       </div>
     </div>
   )
@@ -933,6 +946,226 @@ function FroDetailModal({ froId, date, champions, onClose }) {
   )
 }
 
+// ─── History: winner celebration composer ─────────────────
+// Per announced winner: optional photo upload, AI-written congratulation,
+// one-time Send to every panel (backend enforces single publish; each panel
+// shows the popup once and never again on reload/login).
+function WinnerComposer({ row, onSent }) {
+  const [photo, setPhoto] = useState(null)
+  const [message, setMessage] = useState(row.message || '')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
+
+  const pickPhoto = (file) => {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setError('Photo must be JPG, PNG or WEBP'); return }
+    if (file.size > 5 * 1024 * 1024) { setError('Photo must be under 5MB'); return }
+    setError('')
+    const reader = new FileReader()
+    reader.onload = () => setPhoto({ dataUrl: reader.result, mime: file.type })
+    reader.readAsDataURL(file)
+  }
+
+  const aiWrite = async () => {
+    setAiBusy(true)
+    setError('')
+    try {
+      const r = await api(`/incentive/lead/champion/${row.id}/congrats`, { method: 'POST', _prefix: 'ucs' })
+      if (r?.message) setMessage(r.message)
+    } catch (e) { setError(e.message || 'AI write failed') }
+    finally { setAiBusy(false) }
+  }
+
+  const send = async () => {
+    setSending(true)
+    setError('')
+    try {
+      let file_base64 = null
+      let mime_type = null
+      if (photo) {
+        const parts = String(photo.dataUrl).split(',')
+        file_base64 = parts[1] || null
+        mime_type = photo.mime
+      }
+      await api(`/incentive/lead/champion/${row.id}/celebrate`, {
+        method: 'POST', _prefix: 'ucs',
+        body: JSON.stringify({ file_base64, mime_type, message: message.trim() || null }),
+      })
+      onSent()
+    } catch (e) { setError(e.message || 'Send failed') }
+    finally { setSending(false) }
+  }
+
+  return (
+    <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: `1px solid ${C.line}`, background: '#F8FAFD' }}>
+      {error && (
+        <div style={{ padding: '8px 10px', borderRadius: 8, background: '#FEF2F2', color: '#C0392B', fontSize: 11.5, fontWeight: 600, marginBottom: 10 }}>{error}</div>
+      )}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <button type="button" onClick={() => fileRef.current && fileRef.current.click()} disabled={sending}
+          style={{ width: 56, height: 56, borderRadius: 10, border: photo ? 'none' : '1.5px dashed #B9C8DC', background: photo ? 'transparent' : '#fff', color: C.ns, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, overflow: 'hidden', padding: 0 }}>
+          {photo ? (
+            <img src={photo.dataUrl} alt="Winner" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          ) : (
+            <Camera size={20} />
+          )}
+        </button>
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+          onChange={e => { pickPhoto(e.target.files && e.target.files[0]); e.target.value = '' }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <textarea value={message} onChange={e => setMessage(e.target.value)} disabled={sending} rows={2}
+            placeholder="Write a congratulation… or let AI write it"
+            style={{ width: '100%', minHeight: 56, padding: '8px 10px', border: '1px solid #DCE7F5', borderRadius: 10, background: '#fff', fontSize: 12.5, color: C.dark, fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button type="button" onClick={aiWrite} disabled={aiBusy || sending}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.primary, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          <Sparkle size={14} /> {aiBusy ? 'Writing…' : 'AI Write'}
+        </button>
+        <button type="button" onClick={send} disabled={sending}
+          style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 32, padding: '0 12px', borderRadius: 8, border: 'none', background: C.primary, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          <PaperPlaneTilt size={14} /> {sending ? 'Sending…' : 'Send to all panels'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── History: winners + celebrations ──────────────────────
+function HistoryPanel({ date, champions, announcements, announcing, announceError, onAnnounce, onSent }) {
+  const announcedSlabIds = useMemo(
+    () => new Set((announcements || []).map(a => String(a.slab_id))),
+    [announcements]
+  )
+  const dayKey = String(date).slice(0, 10)
+  const pending = useMemo(
+    () => (champions || []).filter(c => !announcedSlabIds.has(String(c.slab_id))),
+    [champions, announcedSlabIds]
+  )
+  const dayRows = useMemo(
+    () => (announcements || [])
+      .filter(a => String(a.announcement_date).slice(0, 10) === dayKey)
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))),
+    [announcements, dayKey]
+  )
+  const earlier = useMemo(
+    () => (announcements || [])
+      .filter(a => String(a.announcement_date).slice(0, 10) !== dayKey)
+      .sort((a, b) => String(b.announcement_date).localeCompare(String(a.announcement_date)))
+      .slice(0, 10),
+    [announcements, dayKey]
+  )
+
+  return (
+    <div className="li-panel">
+      <div className="li-panel-head" style={{ padding: 16, borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ width: 34, height: 34, borderRadius: 10, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <ClockCounterClockwise size={18} />
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>History</div>
+          <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Winners, photos and celebrations</div>
+        </div>
+        {pending.length > 0 && (
+          <button type="button" onClick={onAnnounce} disabled={announcing}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: C.primary, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+            <Trophy size={14} /> {announcing ? 'Announcing…' : `Announce (${pending.length})`}
+          </button>
+        )}
+      </div>
+
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {announceError && (
+          <div style={{ padding: '9px 12px', borderRadius: 8, background: '#FEF2F2', color: '#C0392B', fontSize: 12, fontWeight: 600 }}>{announceError}</div>
+        )}
+
+        {pending.length === 0 && dayRows.length === 0 && (
+          <div style={{ padding: '26px 16px', textAlign: 'center' }}>
+            <div style={{ width: 40, height: 40, margin: '0 auto 10px', borderRadius: '50%', background: C.nsBg, color: C.ns, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Trophy size={18} />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>No winners yet for this date</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Winners appear here the moment someone hits a range target.</div>
+          </div>
+        )}
+
+        {pending.map(c => (
+          <div key={`pending-${c.slab_id}-${c.fro_id}`} style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: '#fff', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Avatar url={c.photo_url} name={c.fro_name} size={32} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.fro_name}</div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.slab_label} · ₹{fmt(c.total_amount)} collected
+              </div>
+            </div>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: '#FFF5DF', color: '#B7791F', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#F2A23A', display: 'inline-block' }} /> Won — not announced
+            </span>
+          </div>
+        ))}
+
+        {dayRows.map(a => (
+          <div key={a.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, background: '#fff', padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Avatar url={a.winner_photo_url} name={a.fro_name} size={32} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.fro_name}
+                </div>
+                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.slab_label} · ₹{fmt(a.total_amount)} · Prize ₹{fmt(a.slab_bonus || a.total_incentive)}
+                </div>
+              </div>
+              {a.celebrated_at ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: C.greenBg, color: C.green, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  <CheckCircle size={13} /> Sent
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: C.nsBg, color: C.ns, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  Announced
+                </span>
+              )}
+            </div>
+            {a.celebrated_at ? (
+              <div style={{ marginTop: 10, padding: 12, borderRadius: 10, background: '#F8FAFD', border: '1px solid #EEF2F8', display: 'flex', gap: 10 }}>
+                {a.winner_photo_url && (
+                  <img src={a.winner_photo_url} alt={a.fro_name} style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover', flexShrink: 0, display: 'block' }} />
+                )}
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.dark, lineHeight: 1.55 }}>{a.message || 'Celebration sent to all panels.'}</div>
+              </div>
+            ) : (
+              <WinnerComposer key={a.id} row={a} onSent={onSent} />
+            )}
+          </div>
+        ))}
+
+        {earlier.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, margin: '2px 0 8px' }}>Earlier</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {earlier.map(a => (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #EEF2F8', borderRadius: 10, background: '#fff' }}>
+                  <Avatar url={a.winner_photo_url} name={a.fro_name} size={28} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fro_name}</div>
+                    <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {a.slab_label} · {String(a.announcement_date).slice(0, 10)}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#B7791F', whiteSpace: 'nowrap' }}>₹{fmt(a.slab_bonus || a.total_incentive)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────
 export default function LeadIncentive() {
   const [slabs, setSlabs] = useState([])
@@ -943,6 +1176,9 @@ export default function LeadIncentive() {
   const [summaryError, setSummaryError] = useState(null)
   const [savingSlab, setSavingSlab] = useState(false)
   const [announced, setAnnounced] = useState([])
+  const [history, setHistory] = useState([])
+  const [announcing, setAnnouncing] = useState(false)
+  const [historyError, setHistoryError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [detailFroId, setDetailFroId] = useState(null)
   const [slabsOpen, setSlabsOpen] = useState(false)
@@ -1028,19 +1264,53 @@ export default function LeadIncentive() {
     } catch { /* ignore */ }
   }, [date])
 
-  useEffect(() => { loadSlabs() }, [loadSlabs])
-  useEffect(() => { loadSummary(); loadAnnouncement() }, [loadSummary, loadAnnouncement])
+  const loadHistory = useCallback(async () => {
+    try {
+      const h = await api('/incentive/lead/champion/history', { _prefix: 'ucs' })
+      setHistory(Array.isArray(h) ? h : [])
+    } catch { /* ignore */ }
+  }, [])
 
-  // Keep the leaderboard fresh while the page is open.
-  useEffect(() => {
-    const t = setInterval(() => { loadSummary(); loadAnnouncement() }, 20000)
-    return () => clearInterval(t)
-  }, [loadSummary, loadAnnouncement])
+  useEffect(() => { loadSlabs() }, [loadSlabs])
+  useEffect(() => { loadSummary(); loadAnnouncement(); loadHistory() }, [loadSummary, loadAnnouncement, loadHistory])
+
+  // Live updates via realtime (no polling): slabs, verified collections,
+  // champion announcements and celebrations all refresh this page instantly.
+  const reloadTimer = useRef(null)
+  const reloadAll = useCallback(() => {
+    loadSlabs()
+    loadSummary()
+    loadAnnouncement()
+    loadHistory()
+  }, [loadSlabs, loadSummary, loadAnnouncement, loadHistory])
+  const reloadSoon = useCallback(() => {
+    clearTimeout(reloadTimer.current)
+    reloadTimer.current = setTimeout(reloadAll, 1200)
+  }, [reloadAll])
+  useEffect(() => () => clearTimeout(reloadTimer.current), [])
+  useRealtime('incentive_slabs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon })
+  useRealtime('fro_donor_logs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon })
+  useRealtime('lead_champion_announcements', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon })
+
+  const announceWinners = async () => {
+    if (announcing) return
+    setAnnouncing(true)
+    setHistoryError(null)
+    try {
+      await api('/incentive/lead/champion/announce', {
+        method: 'POST', _prefix: 'ucs',
+        body: JSON.stringify({ date }),
+      })
+      await Promise.all([loadAnnouncement(), loadHistory(), loadSummary()])
+    } catch (e) {
+      setHistoryError(e.message || 'Failed to announce winners')
+    } finally { setAnnouncing(false) }
+  }
 
   const refresh = async () => {
     setRefreshing(true)
     try {
-      await Promise.all([loadSlabs(), loadSummary(), loadAnnouncement()])
+      await Promise.all([loadSlabs(), loadSummary(), loadAnnouncement(), loadHistory()])
     } finally { setRefreshing(false) }
   }
 
@@ -1161,10 +1431,21 @@ export default function LeadIncentive() {
             onConfigure={setConfigureSlab}
             onAdd={() => setAddOpen(true)}
           />
+          <div style={{ height: 16 }} />
+          <HistoryPanel
+            date={date}
+            champions={summary?.champions || []}
+            announcements={history}
+            announcing={announcing}
+            announceError={historyError}
+            onAnnounce={announceWinners}
+            onSent={() => { loadHistory(); loadAnnouncement() }}
+          />
         </div>
         <div className="li-col">
           <LiveLeaderboardPanel
-            ranges={rangeRows}
+            ranges={rangeRows.filter(r => r.status === 'running')}
+            totalRanges={rangeRows.length}
             loading={loading}
             error={summaryError}
             onRefresh={refresh}
@@ -1206,14 +1487,17 @@ export default function LeadIncentive() {
 
       {/* Target Slabs modal */}
       {slabsOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 99990, background: 'rgba(18,35,63,.5)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px 16px', overflow: 'auto' }} onClick={() => setSlabsOpen(false)}>
-          <div style={{ width: 'min(700px,100%)', borderRadius: 14, background: '#fff', border: `1px solid ${C.line}`, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: '#1677E8' }}>
-              <FileText size={17} color="#fff" />
-              <div style={{ flex: 1, color: '#fff', fontSize: 14, fontWeight: 800 }}>Target Slabs</div>
-              <button onClick={() => setSlabsOpen(false)} style={{ width: 30, height: 30, borderRadius: 50, background: 'rgba(255,255,255,.22)', border: 'none', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99990, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflow: 'auto' }} onClick={() => setSlabsOpen(false)}>
+          <div style={{ width: 'min(680px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: 14, background: '#fff', border: `1px solid ${C.line}`, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden', margin: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              <span style={{ width: 32, height: 32, borderRadius: 9, background: '#E8F3FF', color: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><FileText size={16} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.dark }}>Target Slabs</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>Add, edit or remove incentive ranges</div>
+              </div>
+              <button type="button" onClick={() => setSlabsOpen(false)} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><X size={14} weight="bold" /></button>
             </div>
-            <div style={{ padding: 16, maxHeight: '78vh', overflowY: 'auto' }}>
+            <div style={{ padding: 16, overflowY: 'auto' }}>
               <SlabConfig slabs={uniqueSlabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} embedded />
             </div>
           </div>
