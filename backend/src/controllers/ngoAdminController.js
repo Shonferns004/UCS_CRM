@@ -58,7 +58,7 @@ export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
 
 // Stations per NGO with live activity: a station is "active" when its assigned FRO
 // has a fresh (<= 2 min old) live status of online / idle / on_call / break.
-async function getStationActivityByNgo(ngoIds, ngoIdToName, now) {
+async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) {
   const result = { per_ngo: {}, summary: { total: 0, active: 0 } };
   if (!ngoIds || ngoIds.length === 0) return result;
 
@@ -67,19 +67,34 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now) {
     .select('station, ngo_id, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(is_test)')
     .in('ngo_id', ngoIds);
 
-  const liveCutoff = new Date(now.getTime() - 2 * 60 * 1000);
-  const onlineFroIds = new Set();
   const assignedFroIds = [...new Set((stationAssigns || [])
     .filter(a => a.fro_worker_id && a.workers?.is_test !== true)
     .map(a => a.fro_worker_id))];
-  if (assignedFroIds.length > 0) {
-    const { data: liveRows } = await db
-      .from('fro_live_status')
-      .select('worker_id, status, updated_at')
-      .in('worker_id', assignedFroIds)
-      .in('status', ['online', 'idle', 'on_call', 'break']);
-    for (const r of liveRows || []) {
-      if (r.updated_at && new Date(r.updated_at) >= liveCutoff) onlineFroIds.add(r.worker_id);
+
+  // Historical date: a station was "active" that day if its assigned FRO has a
+  // fro_daily_stats heartbeat row (they were on the panel). Live "Active Now"
+  // (default / today) uses a fresh live-status that is <= 2 minutes old.
+  let dailyActives = new Set();
+  if (activeDateStr) {
+    if (assignedFroIds.length > 0) {
+      const { data: dailyRows } = await db
+        .from('fro_daily_stats')
+        .select('worker_id')
+        .eq('stat_date', activeDateStr)
+        .in('worker_id', assignedFroIds);
+      dailyActives = new Set((dailyRows || []).map(r => r.worker_id));
+    }
+  } else {
+    const liveCutoff = new Date(now.getTime() - 2 * 60 * 1000);
+    if (assignedFroIds.length > 0) {
+      const { data: liveRows } = await db
+        .from('fro_live_status')
+        .select('worker_id, status, updated_at')
+        .in('worker_id', assignedFroIds)
+        .in('status', ['online', 'idle', 'on_call', 'break']);
+      for (const r of liveRows || []) {
+        if (r.updated_at && new Date(r.updated_at) >= liveCutoff) dailyActives.add(r.worker_id);
+      }
     }
   }
 
@@ -99,7 +114,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now) {
       seenOverall.add(stationName);
       result.summary.total++;
     }
-    if (sa.fro_worker_id && onlineFroIds.has(sa.fro_worker_id)) {
+    if (sa.fro_worker_id && dailyActives.has(sa.fro_worker_id)) {
       result.per_ngo[ngoName].active++;
       activeStationNames.add(stationName);
     }
@@ -874,14 +889,20 @@ export const getDashboard = async (req, res) => {
     const reactivatedToday = [...todayDonorSet].filter(id => !fyBeforeTodayDonors.has(id)).length;
     const reactivatedMonthly = [...monthDonorSet].filter(id => !fyBeforeMonthDonors.has(id)).length;
 
-    // Attendance metrics
+    // Attendance metrics — follow the selected dashboard date range
+    // (from/to), defaulting to today. A plain YYYY-MM-DD (IST) is matched against
+    // the attendance.date column which is written as an IST calendar date.
+    const istToday = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const attendanceDate = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : istToday;
+    const isAttendanceToday = attendanceDate === istToday;
+
     const activeFroIds = froWorkers.filter(w => w.is_active !== false).map(w => w.id);
     let workersPresent = 0, workersAbsent = 0, workersLate = 0;
     if (activeFroIds.length > 0) {
       const { data: attendanceData } = await db
         .from('attendance')
         .select('status')
-        .eq('date', todayStr)
+        .eq('date', attendanceDate)
         .in('worker_id', activeFroIds);
       workersPresent = (attendanceData || []).filter(a => a.status === 'present').length;
       workersLate = (attendanceData || []).filter(a => a.status === 'late').length;
@@ -902,7 +923,7 @@ export const getDashboard = async (req, res) => {
       if (ngo) ngoIdToName[req.user.ngo_id] = ngo.name;
     }
 
-    const stationActivity = await getStationActivityByNgo(ngoIds, ngoIdToName, now);
+    const stationActivity = await getStationActivityByNgo(ngoIds, ngoIdToName, now, isAttendanceToday ? null : attendanceDate);
     const stationsPerNgo = stationActivity.per_ngo;
 
     let daily_target = 0;
