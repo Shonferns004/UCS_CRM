@@ -2644,16 +2644,18 @@ export default function Dashboard() {
                           const tone = idleTone(f.idleMinutes);
                           return (
                             <tr key={f.id} style={{ borderBottom: '1px solid #edf1f5', height: 48 }}>
-                              <td style={{ padding: '8px 16px', whiteSpace: 'nowrap' }}>
-                                <div style={{ fontWeight: 600, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
-                                {f.workAsName && (
-                                  <div
-                                    title={`${f.workAsName} work as ${f.name}`}
-                                    style={{ marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 260, padding: '3px 8px', border: '1px solid #f6c453', borderRadius: 999, background: '#fff9e8', color: '#c77700', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                  >
-                                    <Zap size={11} style={{ flexShrink: 0 }} /> {f.workAsName} work as {f.name}
-                                  </div>
-                                )}
+                              <td style={{ padding: '8px 16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                  <span style={{ fontWeight: 600, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                                  {f.workAsName && (
+                                    <span
+                                      title={`${f.workAsName} work as ${f.name}`}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 160, padding: '3px 8px', border: '1px solid #f6c453', borderRadius: 999, background: '#fff9e8', color: '#c77700', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}
+                                    >
+                                      <Zap size={11} style={{ flexShrink: 0 }} /> {f.workAsName}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
                                 {f.rank ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#eef2ff', color: '#4338ca', fontSize: 11, fontWeight: 700 }}>#{f.rank}</span> : <span style={{ color: '#94a3b8' }}>—</span>}
@@ -2938,10 +2940,10 @@ export default function Dashboard() {
                               {met && (
                                 <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Megaphone size={10} /> Meeting</span>
                               )}
+                              {p.work_as_operator_name && (
+                                <span title={`${p.work_as_operator_name} work as ${p.fro_name}`} style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', flexShrink: 0 }}><Zap size={9} /> {p.work_as_operator_name}</span>
+                              )}
                             </div>
-                            {p.work_as_operator_name && (
-                              <div style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}><Zap size={9} /> {p.work_as_operator_name} work as {p.fro_name}</div>
-                            )}
                             {p.status === 'idle' && p.idleMinutes > 0 && (
                               <span
                                 title={`No call activity for ${p.idleMinutes} min — click Notify to alert`}
