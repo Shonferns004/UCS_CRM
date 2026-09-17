@@ -3850,12 +3850,18 @@ export const updateLiveStatus = async (req, res) => {
       // Non-fatal: fro_daily_stats may be absent until migration 126 is applied.
     }
 
-    // CRM presence heartbeat: any live-status write means the user is active
-    // on the CRM — keep their login session fresh for Telecaller Performance.
+    // CRM presence heartbeat: any live-status write means the user is active on
+    // the CRM — keep their login session fresh for Telecaller Performance. If
+    // the session row is missing (e.g. a panel resumed from a saved token never
+    // re-POSTs /auth/login) it is created here so presence self-heals. An
+    // explicit logout is NOT auto-cleared: online is derived from the fresh
+    // heartbeat too, so a logged-out session must stay auditable.
     try {
       await db._pool.query(
-        `UPDATE auth_sessions SET last_active_at = now() WHERE user_id = $1 AND logged_out_at IS NULL`,
-        [String(workerId)]
+        `INSERT INTO auth_sessions (user_id, client, name, role, logged_in_at, last_active_at, logged_out_at)
+         VALUES ($1, 'crm', $2, $3, now(), now(), NULL)
+         ON CONFLICT (user_id) DO UPDATE SET last_active_at = now()`,
+        [String(workerId), req.user?.name || null, req.user?.role || null]
       );
     } catch (e) {
       // Non-fatal: auth_sessions may be absent until migration 125 is applied.
