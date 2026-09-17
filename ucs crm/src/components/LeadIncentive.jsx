@@ -108,16 +108,15 @@ const stoppedToday = (slab) => !!(
 )
 
 const LI_CSS = `
-.li-wrap { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; color: ${C.dark}; background: ${C.pageBg}; max-width: 100%; margin: -24px; padding: 16px 20px; }
-@media (max-width: 820px) { .li-wrap { margin: -12px -16px -40px; padding: 12px 16px 40px; } }
-@media (max-width: 480px) { .li-wrap { margin: -8px -12px -40px; padding: 8px 12px 40px; } }
-.li-wrap *, .li-wrap *:before, .li-wrap *:after { box-sizing: border-box; }
-.li-wrap img { max-width: 100%; }
+.li-grid, .li-col, .li-panel, .li-table-scroll { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-sizing: border-box; color: ${C.dark}; }
+.li-col *, .li-panel *, .li-table-scroll *, .li-col *:before, .li-panel *:before, .li-col *:after, .li-panel *:after { box-sizing: border-box; }
+.li-col img, .li-panel img { max-width: 100%; }
 .li-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr); gap: 16px; align-items: start; max-width: 100%; }
 .li-col { min-width: 0; max-width: 100%; }
 .li-panel { background: ${C.panelBg}; border: 1px solid ${C.line}; border-radius: 12px; box-shadow: 0 2px 10px rgba(30,80,140,.05); overflow: hidden; max-width: 100%; }
 .li-table-scroll { overflow-x: auto; max-width: 100%; }
 .li-table { width: 100%; min-width: 460px; table-layout: fixed; border-collapse: collapse; }
+.li-ranges-table { min-width: 560px; }
 .li-noscroll { scrollbar-width: none; -ms-overflow-style: none; }
 .li-noscroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .li-table th { padding: 9px 10px; font-size: 11px; font-weight: 700; color: #52698A; background: #F8FAFD; border-bottom: 1px solid #E5EDF7; white-space: nowrap; }
@@ -184,19 +183,22 @@ function MiniBar({ pct, color }) {
   )
 }
 
-// ─── Range display: min ◀━━━━▶ max ────────────────────────
-function RangeArrow({ min, max }) {
+// ─── Range display: min ◀━━━━▶ max, column-aligned ────────
+// minW/maxW are fixed ch widths (longest labels across rows) so every row's
+// minimums end at the same x and every maximum starts at the same x.
+function RangeArrow({ min, max, minW, maxW }) {
   const tri = (side) => side === 'left'
     ? { borderTop: '4px solid transparent', borderBottom: '4px solid transparent', borderRight: `6px solid ${C.primary}` }
     : { borderTop: '4px solid transparent', borderBottom: '4px solid transparent', borderLeft: '6px solid #9CC4F5' }
+  const num = { fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 700, color: C.dark }
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, maxWidth: '100%' }}>
-      <span style={{ fontWeight: 700, color: C.dark, whiteSpace: 'nowrap', fontSize: 13 }}>₹{fmt(min)}</span>
+      <span style={{ ...num, width: minW ? `${minW}ch` : 'auto', textAlign: 'right', flexShrink: 0 }}>₹{fmt(min)}</span>
       <span style={{ position: 'relative', flex: '1 1 28px', minWidth: 28, height: 2, borderRadius: 2, background: `linear-gradient(90deg, ${C.primary}, #9CC4F5)` }}>
         <span style={{ position: 'absolute', left: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, ...tri('left') }} />
         <span style={{ position: 'absolute', right: -1, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, ...tri('right') }} />
       </span>
-      <span style={{ fontWeight: 700, color: C.dark, whiteSpace: 'nowrap', fontSize: 13 }}>₹{fmt(max)}</span>
+      <span style={{ ...num, width: maxW ? `${maxW}ch` : 'auto', textAlign: 'left', flexShrink: 0 }}>₹{fmt(max)}</span>
     </span>
   )
 }
@@ -300,7 +302,19 @@ function RangeCard({ r, onViewAll, onSelectFro }) {
 }
 
 // ─── Left panel: Incentive Ranges ─────────────────────────
-function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
+function IncentiveRangesPanel({ ranges, loading, slabFros, onConfigure, onTargetSlabs }) {
+  // Fixed label widths (longest min/max across rows) so every row's arrow
+  // starts and ends at the same distance — nothing looks crooked.
+  const arrowW = useMemo(() => {
+    let minW = 0
+    let maxW = 0
+    for (const r of ranges || []) {
+      minW = Math.max(minW, (`₹${fmt(r.slab.min_amount)}`).length)
+      maxW = Math.max(maxW, (`₹${fmt(r.slab.max_amount)}`).length)
+    }
+    return { minW, maxW }
+  }, [ranges])
+  const [viewFros, setViewFros] = useState(null)
   return (
     <div className="li-panel">
       <div className="li-panel-head" style={{ padding: '10px 14px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -323,6 +337,7 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
               <div className="li-shimmer" style={{ width: 24, height: 12, flexShrink: 0 }} />
               <div className="li-shimmer" style={{ flex: 1, height: 12 }} />
               <div className="li-shimmer" style={{ width: 92, height: 20, borderRadius: 999, flexShrink: 0 }} />
+              <div className="li-shimmer" style={{ width: 72, height: 26, borderRadius: 999, flexShrink: 0 }} />
               <div className="li-shimmer" style={{ width: 76, height: 28, borderRadius: 8, flexShrink: 0 }} />
             </div>
           ))}
@@ -341,11 +356,12 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
         </div>
       ) : (
         <div className="li-table-scroll">
-          <table className="li-table">
+          <table className="li-table li-ranges-table">
             <colgroup>
               <col style={{ width: 34 }} />
               <col />
               <col style={{ width: 110 }} />
+              <col style={{ width: 120 }} />
               <col style={{ width: 100 }} />
             </colgroup>
             <thead>
@@ -353,27 +369,38 @@ function IncentiveRangesPanel({ ranges, loading, onConfigure, onTargetSlabs }) {
                 <th style={{ textAlign: 'left' }}>#</th>
                 <th style={{ textAlign: 'left' }}>Range (₹)</th>
                 <th style={{ textAlign: 'center' }}>Status</th>
+                <th style={{ textAlign: 'left' }}>FROs</th>
                 <th style={{ textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {ranges.map(r => (
-                <tr key={r.slab_id}>
-                  <td style={{ color: C.muted, fontWeight: 600 }}>{r.idx}</td>
-                  <td style={{ minWidth: 0 }}>
-                    <RangeArrow min={r.slab.min_amount} max={r.slab.max_amount} />
-                  </td>
-                  <td style={{ textAlign: 'center' }}><StatusPill status={r.status} /></td>
-                  <td style={{ textAlign: 'center' }}>
-                    <button type="button" className="li-configure" onClick={() => onConfigure(r.slab)}>
-                      <Play size={12} weight="fill" /> Start
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {ranges.map(r => {
+                const rangeFros = (slabFros || {})[r.slab_id] || []
+                return (
+                  <tr key={r.slab_id}>
+                    <td style={{ color: C.muted, fontWeight: 600 }}>{r.idx}</td>
+                    <td style={{ minWidth: 0 }}>
+                      <RangeArrow min={r.slab.min_amount} max={r.slab.max_amount} minW={arrowW.minW} maxW={arrowW.maxW} />
+                    </td>
+                    <td style={{ textAlign: 'center' }}><StatusPill status={r.status} /></td>
+                    <td>
+                      <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: r.slab_label, fros: rangeFros })} />
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button type="button" className="li-configure" onClick={() => onConfigure(r.slab)}>
+                        <Play size={12} weight="fill" /> Start
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
+      )}
+
+      {viewFros && (
+        <RangeFrosModal slabLabel={viewFros.label} fros={viewFros.fros} onClose={() => setViewFros(null)} />
       )}
     </div>
   )
@@ -650,12 +677,11 @@ function RangeFrosModal({ slabLabel, fros, onClose }) {
 }
 
 // ─── Slab Config (Target Slabs modal) ─────────────────────
-function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedded = false }) {
+function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false }) {
   const [editing, setEditing] = useState(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ min_amount: '', max_amount: '', incentive_amount: '', amount_to_win: '' })
   const [error, setError] = useState('')
-  const [viewFros, setViewFros] = useState(null)
 
   const startEdit = (slab) => {
     setEditing(slab.id)
@@ -745,13 +771,11 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
           <thead>
             <tr style={{ background: '#F8FAFD' }}>
               <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Range (₹)</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>FROs</th>
               <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#52698A', fontSize: 11, borderBottom: '1px solid #E5EDF7', whiteSpace: 'nowrap' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {active.map(slab => {
-              const rangeFros = (slabFros || {})[slab.id] || []
               const rangeLabel = `₹${fmt(slab.min_amount)} ↔ ₹${fmt(slab.max_amount)}`
               return editing === slab.id ? (
                 <tr key={slab.id} style={{ background: '#F4F9FF' }}>
@@ -761,9 +785,6 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
                       <span style={{ color: C.muted, fontSize: 11, flexShrink: 0 }}>to</span>
                       <div style={{ flex: 1, minWidth: 0 }}>{moneyInput(form.max_amount, v => setForm(p => ({ ...p, max_amount: v })), 'Max')}</div>
                     </div>
-                  </td>
-                  <td style={{ padding: 6 }}>
-                    <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: rangeLabel, fros: rangeFros })} />
                   </td>
                   <td style={{ padding: 6 }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
@@ -782,13 +803,10 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
                 <tr key={slab.id} style={{ borderTop: '1px solid #F2F6FB' }}>
                   <td style={{ padding: '8px 10px', fontWeight: 600, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>{rangeLabel}</td>
                   <td style={{ padding: '8px 10px' }}>
-                    <FroStack fros={rangeFros} onViewAll={() => setViewFros({ label: rangeLabel, fros: rangeFros })} />
-                  </td>
-                  <td style={{ padding: '8px 10px' }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                       <button type="button" onClick={() => startEdit(slab)} title="Edit range"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 28, padding: '0 8px', borderRadius: 7, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                        <PencilSimple size={12} /> Edit
+                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, border: '1px solid #E2EAF5', background: '#fff', color: '#52698A', cursor: 'pointer' }}>
+                        <PencilSimple size={13} />
                       </button>
                       <button type="button" onClick={() => onDelete(slab.id)} title="Delete range"
                         style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', cursor: 'pointer' }}>
@@ -801,7 +819,7 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
             })}
             {active.length === 0 && !adding && (
               <tr>
-                <td colSpan={3} style={{ padding: '28px 16px', textAlign: 'center' }}>
+                <td colSpan={2} style={{ padding: '28px 16px', textAlign: 'center' }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.dark }}>No incentive ranges yet</div>
                   <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>Click Add Range to create the first one.</div>
                 </td>
@@ -813,10 +831,6 @@ function SlabConfig({ slabs, slabFros, onAdd, onUpdate, onDelete, saving, embedd
       <div style={{ fontSize: 11, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
         Edit a range's Min/Max here. Use <b style={{ fontWeight: 600 }}>Start</b> on the main table to set its Win On target, prize and Start/End window.
       </div>
-
-      {viewFros && (
-        <RangeFrosModal slabLabel={viewFros.label} fros={viewFros.fros} onClose={() => setViewFros(null)} />
-      )}
     </div>
   )
 }
@@ -1067,13 +1081,12 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
 
   return (
     <div className="li-panel">
-      <div className="li-panel-head" style={{ padding: 16, borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ width: 34, height: 34, borderRadius: 10, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <ClockCounterClockwise size={18} />
+      <div className="li-panel-head" style={{ padding: '10px 14px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <ClockCounterClockwise size={16} />
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 700, color: C.dark }}>History</div>
-          <div style={{ fontSize: 12.5, color: '#6B7C93', marginTop: 1 }}>Winners, photos and celebrations</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.dark, lineHeight: 1.2 }}>History</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 34, padding: '0 10px', border: `1px solid ${C.line}`, borderRadius: 9, background: '#fff', color: '#52698A' }}>
           <CalendarBlank size={15} />
@@ -1419,7 +1432,7 @@ export default function LeadIncentive() {
   }
 
   return (
-    <div className="li-wrap">
+    <>
       <style>{LI_CSS}</style>
 
       {/* Two-column layout */}
@@ -1428,6 +1441,7 @@ export default function LeadIncentive() {
           <IncentiveRangesPanel
             ranges={rangeRows}
             loading={slabsLoading}
+            slabFros={frosBySlab}
             onConfigure={setConfigureSlab}
             onTargetSlabs={() => setSlabsOpen(true)}
           />
@@ -1497,11 +1511,11 @@ export default function LeadIncentive() {
               <button type="button" onClick={() => setSlabsOpen(false)} style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #E2EAF5', background: '#fff', color: C.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><X size={14} weight="bold" /></button>
             </div>
             <div style={{ padding: 16, overflowY: 'auto' }}>
-              <SlabConfig slabs={uniqueSlabs} slabFros={frosBySlab} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} embedded />
+              <SlabConfig slabs={uniqueSlabs} onAdd={addSlab} onUpdate={updateSlab} onDelete={deleteSlab} saving={savingSlab} embedded />
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
