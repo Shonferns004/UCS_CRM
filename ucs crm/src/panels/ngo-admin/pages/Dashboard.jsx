@@ -2076,6 +2076,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Workforce & Attendance</span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
               <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{total_workers}</span>
             </div>
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
@@ -2147,6 +2148,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
               <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Stations</span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', background: 'var(--bg)', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{PERIOD_LABELS[dashPeriod] || 'Today'} · {activeRange.to}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, textAlign: 'center' }}>
               <div style={{ background: 'var(--bg)', borderRadius: 6, padding: '8px 6px' }}>

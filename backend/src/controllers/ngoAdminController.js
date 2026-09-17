@@ -723,7 +723,11 @@ export const getDailyTarget = async (req, res) => {
 
 export const getDashboard = async (req, res) => {
   try {
-    const dashCacheKey = `dash:${req.user.id}:${req.query.ngo_id || 'all'}`;
+    // Cache is keyed by NGO AND the queried date range so switching the period
+    // (Today / Yesterday / etc.) never returns a stale payload for another day.
+    const istToday = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const attRange = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : istToday;
+    const dashCacheKey = `dash:${req.user.id}:${req.query.ngo_id || 'all'}:${req.query.from || attRange}:${attRange}`;
     if (req.query.fresh !== '1') {
       const cached = cacheGet(dashCacheKey, 60000);
       if (cached) return res.json(cached);
@@ -892,7 +896,6 @@ export const getDashboard = async (req, res) => {
     // Attendance metrics — follow the selected dashboard date range
     // (from/to), defaulting to today. A plain YYYY-MM-DD (IST) is matched against
     // the attendance.date column which is written as an IST calendar date.
-    const istToday = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
     const attendanceDate = (req.query.to && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to)) ? req.query.to : istToday;
     const isAttendanceToday = attendanceDate === istToday;
 
