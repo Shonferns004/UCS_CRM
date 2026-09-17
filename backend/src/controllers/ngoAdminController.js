@@ -4795,7 +4795,7 @@ export const getTLDashboard = async (req, res) => {
     }
 
     if (ngoIds.length === 0) return res.json({ 
-      kpis: { total_fros: 0, calling: 0, idle: 0, meeting: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0 },
+      kpis: { total_fros: 0, calling: 0, idle: 0, meeting: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0, suspenses: 0 },
       collections_per_ngo: [],
       funnel: [],
       hourly: [],
@@ -5417,7 +5417,17 @@ export const getTLDashboard = async (req, res) => {
     }
     const stationActivity = await getStationActivityByNgo(ngoIds, tlNgoIdToName, now);
 
-const tlPayload = {
+// Suspense count: bank-audit entries awaiting NGO-admin resolution (all NGOs,
+    // matching the admin Suspense page list so the KPI card is consistent).
+    const { count: suspenseCount, error: suspenseErr } = await db
+      .from('bank_audit_entries')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_to_ngo_admin', true)
+      .is('donor_id', null)
+      .neq('status', 'verified');
+    if (suspenseErr) throw suspenseErr;
+
+    const tlPayload = {
       kpis: {
         total_fros: froWorkers.length,
         calling,
@@ -5437,6 +5447,7 @@ const tlPayload = {
         received_amount: receivedAmount,
         followups_due: followupsDue,
         target_pct: targetPct,
+        suspenses: suspenseCount || 0,
       },
       connected_breakdown: connectedBreakdown,
       not_connected_breakdown: notConnectedBreakdown,
