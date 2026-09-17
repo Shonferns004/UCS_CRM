@@ -2419,7 +2419,7 @@ export default function Dashboard() {
               <td style={{ padding: '7px 4px', textAlign: 'center' }}>
                 <div style={{ fontWeight: 700, color: perf == null ? '#64748b' : '#ef4444', fontSize: 11, marginBottom: 3 }}>{perf == null ? '—' : perf + '%'}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ width: 34, height: 3, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                  <div style={{ width: 56, height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
                     <div style={{ width: `${perf == null ? 0 : Math.min(perf, 100)}%`, height: '100%', borderRadius: 'inherit', background: '#ef4444' }} />
                   </div>
                 </div>
