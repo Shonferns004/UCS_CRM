@@ -933,7 +933,7 @@ export default function LeadIncentive() {
     return map
   }, [announced, summary])
 
-  // Leader board panel data — grouped from the summary, top 10 per active range.
+  // Leader board panel data — grouped from the summary, top 3 per active range.
   const lbData = useMemo(() => {
     const champs = summary?.champions || []
     const ranges = (uniqueSlabs || [])
@@ -941,7 +941,7 @@ export default function LeadIncentive() {
         const members = (summary?.fros || [])
           .filter(f => f.slab && String(f.slab.id) === String(slab.id))
           .sort((a, b) => (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0))
-          .slice(0, 10)
+          .slice(0, 3)
           .map(f => ({ ...f, is_winner: champs.some(c => String(c.fro_id) === String(f.fro_id)) }))
         const champion = champs.find(c => String(c.slab_id) === String(slab.id)) || null
         return {
@@ -1173,13 +1173,13 @@ export default function LeadIncentive() {
           />
         </div>
 
-        {/* Right — Leader Board */}
-        <div style={{ border: '1.5px solid var(--line)', borderRadius: 16, padding: 16, background: 'var(--card-bg)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, padding: '0 2px' }}>
+        {/* Right — Leader Board (directly on the page, no wrapper card) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 0' }}>
             <span style={{ width: 9, height: 9, borderRadius: 50, background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,.22)', flex: '0 0 auto' }} />
             <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Leader Board</div>
             <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>live · top 10 per range</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>top 3 · live</span>
           </div>
           {loading ? (
             <div style={{ padding: 28, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12.5 }}>Loading leaderboard…</div>
