@@ -2447,22 +2447,6 @@ export default function Dashboard() {
           background: active ? 'var(--sage)' : '#fff',
           color: active ? '#fff' : 'var(--ink)',
         });
-        const dayChips = [
-          { key: 'calls', label: 'Calls', value: hourlyTotals.calls, color: '#2563eb', bg: '#eff6ff' },
-          { key: 'connected', label: 'Connected', value: hourlyTotals.connected, color: '#16a34a', bg: '#f0fdf4' },
-          { key: 'nonConnected', label: 'Non-Connected', value: hourlyTotals.nonConnected, color: '#dc2626', bg: '#fef2f2' },
-          { key: 'interested', label: 'Interested', value: hourlyTotals.interested, color: '#ec4899', bg: '#fdf2f8' },
-          { key: 'donations', label: 'Donations', value: hourlyTotals.donations, color: '#8b5cf6', bg: '#f5f3ff' },
-        ];
-        const chipBadge = (color) => ({
-          background: color, color: '#fff', borderRadius: 999, minWidth: 18, height: 16,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, padding: '0 5px',
-          animation: 'countPop .3s ease-out',
-        });
-        const chipWrap = (c) => ({
-          display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700,
-          padding: '3px 10px', borderRadius: 999, background: c.bg, color: c.color, border: `1px solid ${c.color}22`,
-        });
 
         const dayIST = toIstDate();
         const isToday = hourlyDate === dayIST;
@@ -2508,46 +2492,6 @@ export default function Dashboard() {
 
         return (
           <>
-            {/* Header card: date controls + day summary chips */}
-            <div className="card" style={{ marginBottom: 16 }}>
-              <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  Hourly Call Performance
-                </h3>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
-                  <button onClick={() => setHourlyDate(hourlyToday)} style={dateBtn(hourlyDate === hourlyToday)}>Today</button>
-                  <button onClick={() => setHourlyDate(hourlyYesterday)} style={dateBtn(hourlyDate === hourlyYesterday)}>Yesterday</button>
-                  <input
-                    type="date"
-                    value={hourlyDate}
-                    onChange={e => setHourlyDate(e.target.value)}
-                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', background: 'var(--bg)', color: 'var(--ink)' }}
-                  />
-                  <button
-                    onClick={handleHourlyExport}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', cursor: 'pointer' }}
-                  >
-                    <Download width="12" height="12" />
-                    Export Hourly (XLSX)
-                  </button>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>
-                {dayChips.map(c => (
-                  <span key={c.key} style={chipWrap(c)}>
-                    {c.label}
-                    <span style={chipBadge(c.color)}><AnimatedNumber value={c.value} /></span>
-                  </span>
-                ))}
-                <span style={chipWrap({ bg: '#f0fdf4', color: '#15803d' })}>
-                  ₹ Amount
-                  <span style={chipBadge('#15803d')}><AnimatedNumber value={hourlyTotals.amount} /></span>
-                </span>
-                {hourlyLoading && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>updating…</span>}
-              </div>
-            </div>
-
             {/* FRO Hourly Performance + Productivity Alerts — side by side */}
             <div className="performance-sections">
               <div className="performance-card">
