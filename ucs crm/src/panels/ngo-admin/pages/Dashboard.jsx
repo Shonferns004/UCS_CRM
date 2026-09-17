@@ -1537,7 +1537,6 @@ export default function Dashboard() {
   const workers_present = Number(att.present) || 0;
   const workers_late = Number(att.late) || 0;
   const workers_absent = Number(att.absent) || 0;
-  const workers_no_mark = Number(att.no_mark) || 0;
   const attendance_pct = Number(att.pct) || 0;
   const data_used = Number(a.data_connected) || 0;
   const data_unused = Number(a.data_unconnected) || 0;
@@ -2087,7 +2086,6 @@ export default function Dashboard() {
                       { name: 'Present', value: Math.max(0, workers_present), color: '#22c55e' },
                       { name: 'Late', value: Math.max(0, workers_late), color: '#f59e0b' },
                       { name: 'Absent', value: Math.max(0, workers_absent), color: '#ef4444' },
-                      { name: 'No Show', value: Math.max(0, workers_no_mark), color: '#d1d5db' },
                     ].filter(d => d.value > 0)} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" startAngle={90} endAngle={-270}>
                       <Cell fill="#22c55e" />
                       <Cell fill="#f59e0b" />
@@ -2127,10 +2125,6 @@ export default function Dashboard() {
               <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{workers_absent}</div>
                 <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>Absent</div>
-              </div>
-              <div style={{ flex: 1, background: '#f3f4f6', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#6b7280' }}>{workers_no_mark}</div>
-                <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>No Show</div>
               </div>
             </div>
             {total_workers > 0 && (
