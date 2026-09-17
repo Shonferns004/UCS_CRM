@@ -266,15 +266,29 @@ function TodayActivityStats() {
               <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{periodLabel}</div>
             </div>
           </div>
-          <select
-            value={month}
-            onChange={e => setMonth(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer', flexShrink: 0 }}
-          >
-            <option value="all">All Time</option>
-            <option value="today">Today</option>
-            {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setMonth('today')}
+              style={{
+                padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                border: month === 'today' ? '1.5px solid #3b82f6' : '1.5px solid var(--line)',
+                background: month === 'today' ? '#eff6ff' : 'var(--bg)',
+                color: month === 'today' ? '#2563eb' : 'var(--ink-soft)',
+              }}
+            >
+              Today
+            </button>
+            <select
+              value={month === 'today' ? '' : month}
+              onChange={e => setMonth(e.target.value)}
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer', flexShrink: 0 }}
+            >
+              <option value="" disabled>Month</option>
+              <option value="all">All Time</option>
+              {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
