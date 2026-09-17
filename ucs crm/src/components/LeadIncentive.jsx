@@ -107,13 +107,14 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
 
   // Per-range configure popup
   const [popupSlab, setPopupSlab] = useState(null)
-  const [popupForm, setPopupForm] = useState({ amount_to_win: '', started_at: '', ended_at: '' })
+  const [popupForm, setPopupForm] = useState({ amount_to_win: '', incentive_amount: '', started_at: '', ended_at: '' })
   const [popupError, setPopupError] = useState('')
 
   const openPopup = (slab) => {
     setPopupSlab(slab)
     setPopupForm({
       amount_to_win: slab.amount_to_win ?? '',
+      incentive_amount: slab.incentive_amount ?? '',
       started_at: toLocalInput(slab.started_at),
       ended_at: toLocalInput(slab.ended_at),
     })
@@ -129,6 +130,11 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
       setPopupError('Enter a valid Win On amount (must be more than ₹0)')
       return
     }
+    const incentive_amount = Number(popupForm.incentive_amount)
+    if (!(incentive_amount > 0)) {
+      setPopupError('Enter a valid Prize amount (must be more than ₹0)')
+      return
+    }
     const started_at = popupForm.started_at
     const ended_at = popupForm.ended_at
     if (started_at && ended_at && !(new Date(ended_at).getTime() > new Date(started_at).getTime())) {
@@ -138,6 +144,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
     try {
       await onUpdateSlab(popupSlab, {
         amount_to_win,
+        incentive_amount,
         started_at: started_at || null,
         ended_at: ended_at || null,
       })
@@ -367,7 +374,7 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                 border: '1.5px solid #fde68a', fontSize: 12, color: '#92400e', marginBottom: 14,
               }}>
                 <span style={{ fontSize: 15 }}>💡</span>
-                <div>Every verified lead counts. The first FRO in this range to collect <b>Win On (₹)</b> in total today wins the flat <b>Prize (₹{fmt(popupSlab.incentive_amount)})</b>.</div>
+                <div>Every verified lead counts. The first FRO in this range to collect <b>Win On (₹)</b> in total today wins the flat <b>Prize (₹{fmt(popupForm.incentive_amount || popupSlab.incentive_amount)})</b>.</div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -401,12 +408,19 @@ function LeadRulesSettings({ settings, slabs, onSave, onUpdateSlab, onApplyAll, 
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg)', border: '1.5px solid #bbf7d0', borderRadius: 12, padding: '8px 12px' }}>
                     <span style={{ fontSize: 15, fontWeight: 900, color: '#16a34a' }}>₹</span>
-                    <span style={{ flex: 1, fontSize: 17, fontWeight: 800, color: 'var(--ink)' }}>
-                      {fmt(popupSlab.incentive_amount)}
-                    </span>
+                    <input
+                      type="number"
+                      value={popupForm.incentive_amount}
+                      onChange={e => setPopupForm(p => ({ ...p, incentive_amount: e.target.value }))}
+                      placeholder="0"
+                      style={{
+                        flex: 1, border: 'none', outline: 'none', background: 'transparent',
+                        fontSize: 17, fontWeight: 800, color: 'var(--ink)',
+                      }}
+                    />
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>
-                    Set in the 📋 Target Slabs table — full amount goes to the range's champion, nothing to anyone else.
+                    Full amount goes to the range's champion, nothing to anyone else.
                   </div>
                 </div>
 
@@ -1042,8 +1056,8 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
-  // Per-range popup save: touches this slab's Win On amount + Start/End window
-  const updateSlabRates = async (slab, { amount_to_win, started_at, ended_at }) => {
+  // Per-range popup save: touches this slab's Prize + Win On amount + Start/End window
+  const updateSlabRates = async (slab, { amount_to_win, incentive_amount, started_at, ended_at }) => {
     setSavingSlab(true)
     try {
       await api(`/incentive/lead/slabs/${slab.id}`, {
@@ -1051,7 +1065,7 @@ export default function LeadIncentive() {
         body: JSON.stringify({
           min_amount: Number(slab.min_amount),
           max_amount: Number(slab.max_amount),
-          incentive_amount: Number(slab.incentive_amount) || 0,
+          incentive_amount: Number(incentive_amount) || 0,
           amount_to_win: Number(amount_to_win) || 1500,
           started_at: toIso(started_at),
           ended_at: toIso(ended_at),
