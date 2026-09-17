@@ -138,10 +138,17 @@ const INBOX_SHORT = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
-function callFmt(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+// Month options for the activity filter — current month back 11 months.
+function buildMonthOptions() {
+  const opts = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+    opts.push({ value, label });
+  }
+  return opts;
 }
 
 // fro_assignments.status -> human label. Disposition ids reuse the shared
@@ -187,41 +194,59 @@ function FroStatusPill() {
   );
 }
 
-// Today's stats: all-time allotted data broken down by current assignment
-// status, plus the live calling counters from CallContext (server-backed, no
-// localStorage). Rendered inside <CallProvider> so useCall() is available.
-function TodayActivityStats({ isMobile }) {
-  const { todayStats } = useCall();
-  const ts = todayStats;
+// FRO activity: how much data was allotted to them and the current status of
+// each lead, all-time or filtered to a single month. Rendered inside
+// <CallProvider>.
+function TodayActivityStats() {
+  const [month, setMonth] = useState('all');
   const [allotment, setAllotment] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    getMyAllotmentSummary()
+    setLoading(true);
+    getMyAllotmentSummary(month === 'all' ? undefined : month)
       .then(d => { if (!cancelled) setAllotment(d || { allotted: 0, by_status: [] }); })
-      .catch(() => { if (!cancelled) setAllotment({ allotted: 0, by_status: [] }); });
+      .catch(() => { if (!cancelled) setAllotment({ allotted: 0, by_status: [] }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [month]);
 
-  const totalProd = (ts?.totalSeconds || 0) + (ts?.idleSeconds || 0);
-  const hasActivity = !!ts && !(ts.calls === 0 && ts.skippedDonors === 0 && ts.breakSeconds === 0 && ts.idleSeconds === 0);
-  const pct = Math.round(((ts?.totalSeconds || 0) / (totalProd || 1)) * 100);
+  const monthOptions = buildMonthOptions();
   const allotted = allotment?.allotted || 0;
   const byStatus = allotment?.by_status || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)' }}>
+          {month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month)}
+        </div>
+        <select
+          value={month}
+          onChange={e => setMonth(e.target.value)}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+        >
+          <option value="all">All Time</option>
+          {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
+      </div>
+
       <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#3b82f6', lineHeight: 1.1 }}>{allotment ? allotted : '\u2014'}</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#3b82f6', lineHeight: 1.1 }}>{loading ? '\u2014' : allotted}</div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Data Allotted</div>
         </div>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.8" opacity=".5"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
       </div>
 
-      {allotment && byStatus.length > 0 && (
-        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 10 }}>Status Breakdown</div>
+      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 10 }}>Status Breakdown</div>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '16px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>
+        ) : byStatus.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '16px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No allotted data for this period</div>
+        ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {byStatus.map(s => {
               const rowPct = allotted > 0 ? (s.count / allotted) * 100 : 0;
@@ -238,63 +263,8 @@ function TodayActivityStats({ isMobile }) {
               );
             })}
           </div>
-        </div>
-      )}
-
-      {hasActivity ? (
-        <>
-          <div className="fro-stat-grid-3" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
-            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1 }}>{ts.calls}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Calls</div>
-            </div>
-            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Talk Time</div>
-            </div>
-            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / (ts.calls || 1)))}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Avg Call</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#d97706' }}>{ts.skippedDonors}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Skipped</div>
-              </div>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Idle</div>
-              </div>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-          </div>
-
-          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontSize: 18 }}>☕</div>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{ts.breakCount || 0} breaks</div>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: pct > 50 ? '#16a34a' : '#d97706' }}>{pct}%</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Productivity</div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div style={{ textAlign: 'center', padding: '24px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" opacity=".4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 10 }}>No calling activity yet today</div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -1161,8 +1131,8 @@ useEffect(() => onFroAction((action) => {
               <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
                 <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card-bg)' }}>
                   <div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{showTarget ? 'Monthly Target' : "Today's Activity"}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{showTarget ? 'Your collection progress' : 'Your calling stats for today'}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{showTarget ? 'Monthly Target' : 'My Activity'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{showTarget ? 'Your collection progress' : 'Your allotted data by status'}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{ fontSize: 11, padding: '4px 10px' }}>← Stats</button>}
@@ -1175,7 +1145,7 @@ useEffect(() => onFroAction((action) => {
 
                 <div style={{ padding: '20px 22px', background: 'var(--bg)' }}>
                   {!showTarget ? (
-                    <TodayActivityStats isMobile={isMobile} />
+                    <TodayActivityStats />
                   ) : (
                     statsLoading ? (
                       <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
