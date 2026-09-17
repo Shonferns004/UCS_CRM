@@ -100,7 +100,7 @@ export function useLeadIncentiveLeaderboard() {
 // Reusable block: every live range rendered as a TOP-10 vertical bar chart.
 // Bars are leader-relative (tallest = range leader), animate with live updates
 // (CSS height transition on each realtime refresh) and use flat solid colors.
-export function RangeLeaderboard({ data, you }) {
+export function RangeLeaderboard({ data, you, spread = false }) {
   const ranges = data.ranges || [];
   const BAR_MAX = 140;   // bar region height (px)
   const FOOT_H = 54;     // avatar + name + leads zone below the bars
@@ -146,7 +146,7 @@ export function RangeLeaderboard({ data, you }) {
 
             {/* Bar chart */}
             <div style={{ padding: '14px 10px 8px' }}>
-              <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'stretch', gap: 6, minHeight: BAR_MAX + FOOT_H }}>
+              <div style={{ position: 'relative', display: 'flex', justifyContent: spread ? 'stretch' : 'center', alignItems: 'stretch', gap: 6, minHeight: BAR_MAX + FOOT_H }}>
                 {/* Win-on target line (absolute across the bar region) */}
                 <div style={{
                   position: 'absolute', left: 8, right: 8, bottom: lineBottom,
@@ -163,7 +163,7 @@ export function RangeLeaderboard({ data, you }) {
                   const pct = Math.min(100, Math.max(0, (Number(f.total_amount) || 0) / leaderAmount * 100));
                   const barColor = f.is_winner ? '#16a34a' : (isMe ? '#b45309' : '#f59e0b');
                   return (
-                    <div key={f.fro_id} style={{ flex: '1 1 0', maxWidth: 64, minWidth: 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div key={f.fro_id} style={{ flex: '1 1 0', maxWidth: spread ? 'none' : 64, minWidth: spread ? 0 : 44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       {/* Bar region (bottom-aligned) */}
                       <div style={{ flex: 1, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 3, overflow: 'hidden' }}>
                         <span style={{ fontSize: 10, fontWeight: 800, color: isMe ? '#b45309' : '#92400e', whiteSpace: 'nowrap', lineHeight: 1 }}>
