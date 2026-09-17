@@ -247,6 +247,36 @@ function filterByScope(rows, scope, getPair) {
   return (rows || []).filter(r => pairs.has(getPair(r)));
 }
 
+// Follow-up lists are PERSONAL: a lead's scheduled / callback / promise / overdue
+// row shows only to the REAL operator who tagged it (fro_donor_logs.fro_worker_id
+// always holds the actual operator, even inside a "work as" session) or who owns
+// the assignment. This stops e.g. Reshama seeing Laxmi's tagged follow-ups just
+// because Reshama is working-as Laxmi and both share Laxmi's station scope.
+function realOperatorId(user) {
+  return user?.impersonation && user.imposter_id != null ? user.imposter_id : user.id;
+}
+
+async function taggedAssignmentIds(assignmentIds, workerId) {
+  if (!workerId || !Array.isArray(assignmentIds) || assignmentIds.length === 0) return new Set();
+  const { data, error } = await db
+    .from('fro_donor_logs')
+    .select('assignment_id')
+    .in('assignment_id', assignmentIds)
+    .eq('fro_worker_id', workerId);
+  if (error) throw error;
+  return new Set((data || []).map(l => l.assignment_id));
+}
+
+// Returns a predicate keeping only assignments the real operator owns or tagged.
+async function buildFollowUpOwnerFilter(assignments, user) {
+  const realId = realOperatorId(user);
+  const tagged = await taggedAssignmentIds(
+    (assignments || []).map(a => a.id),
+    realId
+  );
+  return (a) => a && (String(a.fro_worker_id) === String(realId) || tagged.has(a.id));
+}
+
 async function chunkedInQuery(ids, queryFn, chunkSize = 1000) {
   const allData = [];
   for (let i = 0; i < ids.length; i += chunkSize) {
@@ -3156,7 +3186,7 @@ export const getFroScheduled = async (req, res) => {
     const { data: contacts, error } = await withStationNgoPairs(
       db
         .from('fro_scheduled_contacts')
-        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, ngos(name))')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, ngos(name))')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames)
         .order('scheduled_at', { ascending: true }),
@@ -3167,7 +3197,10 @@ export const getFroScheduled = async (req, res) => {
 
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
-    const donorIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
+
+    const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
@@ -3179,7 +3212,7 @@ export const getFroScheduled = async (req, res) => {
 
     const seen = new Set();
     const result = [];
-    for (const c of scopedContacts || []) {
+    for (const c of personalContacts || []) {
       const a = c.fro_assignments;
       if (!a) continue;
       const d = donorMap[a.donor_id];
@@ -3221,9 +3254,11 @@ export const getFroCallbacks = async (req, res) => {
 
     if (error) throw error;
 
-    const assignmentIds = (assignments || []).map(a => a.id);
-    const donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
-    const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
+    const keep = await buildFollowUpOwnerFilter(assignments || [], req.user);
+    const personalAssignments = (assignments || []).filter(a => keep(a));
+    const assignmentIds = personalAssignments.map(a => a.id);
+    const donorIds = [...new Set(personalAssignments.map(a => a.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set(personalAssignments.map(a => a.ngo_id).filter(Boolean))];
     const [donorsRes, schedulesRes] = await Promise.all([
       db.from('donor_profiles').select('id, name, mobile_number')
         .in('id', donorIds),
@@ -3243,7 +3278,7 @@ export const getFroCallbacks = async (req, res) => {
 
     const seen = new Set();
     const result = [];
-    for (const a of assignments || []) {
+    for (const a of personalAssignments) {
       const d = donorMap[a.donor_id];
       if (!d) continue;
       if (hasCollected(a.donor_id, a.ngo_id)) continue;
@@ -3289,9 +3324,12 @@ export const getFroPromises = async (req, res) => {
 
     if (error) throw error;
 
-    const assignmentIds = (assignments || []).map(a => a.id);
-    const donorIds = [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))];
-    const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
+    const keep = await buildFollowUpOwnerFilter(assignments || [], req.user);
+    const personalAssignments = (assignments || []).filter(a => keep(a));
+
+    const assignmentIds = personalAssignments.map(a => a.id);
+    const donorIds = [...new Set(personalAssignments.map(a => a.donor_id).filter(Boolean))];
+    const ngoIds = [...new Set(personalAssignments.map(a => a.ngo_id).filter(Boolean))];
     const [donorsRes, schedulesRes] = await Promise.all([
       db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds),
       assignmentIds.length > 0
@@ -3316,7 +3354,7 @@ export const getFroPromises = async (req, res) => {
 
     const seen = new Set();
     const result = [];
-    for (const a of assignments || []) {
+    for (const a of personalAssignments) {
       const d = donorMap[a.donor_id];
       if (!d) continue;
       const key = `${a.donor_id}-${a.ngo_id}`;
@@ -3387,7 +3425,7 @@ export const getFroOverdue = async (req, res) => {
     const { data: schedules, error: sErr } = await withStationNgoPairs(
       db
         .from('fro_scheduled_contacts')
-        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, next_follow_up)')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, fro_worker_id, next_follow_up)')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames),
       myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
@@ -3418,7 +3456,10 @@ export const getFroOverdue = async (req, res) => {
     }
     const assignments = Object.values(assignmentById);
 
-    const donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+    const keep = await buildFollowUpOwnerFilter(assignments, req.user);
+    const personalAssignments = assignments.filter(a => keep(a));
+
+    const donorIds = [...new Set(personalAssignments.map(a => a.donor_id).filter(Boolean))];
     const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
     const [donorsRes, receiptsRes, donorTypesRes, ngoRes] = await Promise.all([
       donorIds.length > 0
@@ -3464,7 +3505,7 @@ export const getFroOverdue = async (req, res) => {
 
     const seen = new Set();
     const result = [];
-    for (const a of assignments) {
+    for (const a of personalAssignments) {
       if (freshScheduleAt.has(a.id)) continue; // freshly re-logged as a follow-up -> Follow Up tab, not overdue
       const d = donorMap[a.donor_id];
       if (!d) continue;
@@ -3588,7 +3629,7 @@ export const getFollowUps = async (req, res) => {
     const { data: contacts, error } = await withStationNgoPairs(
       db
         .from('fro_scheduled_contacts')
-        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station,  ngos(name))')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, fro_worker_id, ngos(name))')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames)
         .gte('scheduled_at', todayStart.toISOString())
@@ -3601,7 +3642,10 @@ export const getFollowUps = async (req, res) => {
 
     const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
 
-    const donorIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const keepContact = await buildFollowUpOwnerFilter(scopedContacts.map(c => c.fro_assignments).filter(Boolean), req.user);
+    const personalContacts = (scopedContacts || []).filter(c => keepContact(c.fro_assignments));
+
+    const donorIds = [...new Set((personalContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const ngoIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.ngo_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
@@ -3612,7 +3656,7 @@ export const getFollowUps = async (req, res) => {
     const { hasCollected } = await buildCollectedReceiptEvidence(donorIds, ngoIds);
 
     const now = new Date();
-    const result = (scopedContacts || []).map(c => {
+    const result = (personalContacts || []).map(c => {
       const a = c.fro_assignments;
       const d = donorMap[a?.donor_id] || {};
       if (!a || hasCollected(a.donor_id, a.ngo_id)) return null;
