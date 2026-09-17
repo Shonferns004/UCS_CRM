@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Circle, Users, Calendar, Clock, X } from 'lucide-react';
+import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Users, Calendar, Clock, X } from 'lucide-react';
 import { apiGet, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
@@ -2566,33 +2566,6 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Zero Calls section (inside the same container) */}
-              {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && !(hourlyAlerts.isToday && hourlyAlerts.elapsed === 0) && (
-                <div style={{ padding: '0 24px 16px', flexShrink: 0 }}>
-                  <div style={{ border: '1px solid #fecdd3', borderRadius: 12, background: '#fff5f6', padding: '14px 16px', minHeight: 72 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      <Circle size={10} fill="#dc2626" stroke="#dc2626" /> ZERO CALLS {hourlyAlerts.isToday ? 'SO FAR TODAY' : 'THIS DAY'} — {hourlyAlerts.noCalls.length} FRO{hourlyAlerts.noCalls.length > 1 ? 's' : ''}
-                    </div>
-                    <div className="zero-calls-scroll" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', maxHeight: 112, overflowY: 'auto', paddingRight: 4 }}>
-                      {hourlyAlerts.noCalls.map(f => (
-                        <span
-                          key={f.id}
-                          title={f.workAsName ? `${f.workAsName} work as ${f.name}` : f.name}
-                          style={{ display: 'inline-flex', alignItems: 'center', height: 32, padding: '0 12px', border: '1px solid #fecdd3', borderRadius: 8, background: '#fff5f6', color: '#dc2626', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
-                        >
-                          {f.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Divider between zero-call section and body */}
-              {!meetingActive && !hourlyLoading && hourlyAlerts.noCalls.length > 0 && hourlyAlerts.idle.length > 0 && (
-                <div style={{ borderBottom: '1px solid #e5eaf1' }} />
-              )}
-
               {/* Body: loading / empty states / table */}
               {(() => {
                 const colSep = { borderLeft: '1px solid #eef2f6' };
@@ -2638,7 +2611,7 @@ export default function Dashboard() {
                     </div>
                   );
                 }
-                if (hourlyAlerts.idle.length === 0 && hourlyAlerts.noCalls.length === 0) {
+                if (hourlyAlerts.idle.length === 0) {
                   return (
                     <div style={{ padding: '32px 16px', textAlign: 'center' }}>
                       <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}><CircleCheck size={16} /></div>
@@ -2715,10 +2688,6 @@ export default function Dashboard() {
                 .productivity-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
                 .productivity-table-wrap::-webkit-scrollbar-thumb { background: #d3dae4; border-radius: 999px; }
                 .productivity-table-wrap::-webkit-scrollbar-track { background: transparent; }
-                .zero-calls-scroll { scrollbar-width: thin; scrollbar-color: #f3b7c0 transparent; }
-                .zero-calls-scroll::-webkit-scrollbar { width: 8px; }
-                .zero-calls-scroll::-webkit-scrollbar-thumb { background: #f3b7c0; border-radius: 999px; }
-                .zero-calls-scroll::-webkit-scrollbar-track { background: transparent; }
                 .productivity-alerts tbody tr:hover { background: #f8fbff; }
                 @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
               `}</style>
