@@ -3425,16 +3425,22 @@ export const getMyAllotmentSummary = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
-    if (stationNames.length === 0) return res.json({ allotted: 0, by_status: [] });
+    if (stationNames.length === 0) return res.json({ worked: 0, by_status: [] });
 
+    // Activity is derived from disposition logs: a lead counts in the month the
+    // disposition was MADE, not when the lead was allotted. fro_assignments.status
+    // only holds the current status, so it can't describe past months.
     let query = withStationNgoPairs(
       db
-        .from('fro_assignments')
-        .select('donor_id, status, assigned_at'),
-      myScope
-    )
-      .eq('fro_worker_id', workerId)
-      .not('status', 'eq', 'reassigned');
+        .from('fro_donor_logs')
+        .select('id, donor_id, disposition_detail, created_at, fro_assignments!inner(station, ngo_id)')
+        .eq('fro_worker_id', workerId)
+        .eq('action', 'disposition')
+        .in('fro_assignments.station', stationNames),
+      myScope,
+      'fro_assignments.station',
+      'fro_assignments.ngo_id'
+    );
 
     const { month } = req.query;
     if (month && /^\d{4}-\d{2}$/.test(month)) {
@@ -3442,34 +3448,34 @@ export const getMyAllotmentSummary = async (req, res) => {
       // IST month boundaries (UTC+5:30) against the timestamptz column.
       const start = new Date(Date.UTC(y, m - 1, 1) - 5.5 * 3600 * 1000);
       const end = new Date(Date.UTC(y, m, 1) - 5.5 * 3600 * 1000);
-      query = query.gte('assigned_at', start.toISOString()).lt('assigned_at', end.toISOString());
+      query = query.gte('created_at', start.toISOString()).lt('created_at', end.toISOString());
     }
 
     const { data: rows, error } = await query;
     if (error) throw error;
 
-    // One status per donor: keep each donor's most recent non-reassigned row so
-    // the status counts always add up to the allotted total.
+    // One status per donor: keep each donor's latest disposition in the period so
+    // the status counts always add up to the number of leads worked.
     const latestByDonor = new Map();
     for (const r of rows || []) {
-      if (!r.donor_id) continue;
+      if (!r.donor_id || !r.disposition_detail) continue;
+      const key = `${r.created_at || ''}|${r.id ?? 0}`;
       const prev = latestByDonor.get(r.donor_id);
-      if (!prev || String(r.assigned_at || '') > String(prev.assigned_at || '')) {
-        latestByDonor.set(r.donor_id, r);
-      }
+      if (!prev) { latestByDonor.set(r.donor_id, r); continue; }
+      const prevKey = `${prev.created_at || ''}|${prev.id ?? 0}`;
+      if (key > prevKey) latestByDonor.set(r.donor_id, r);
     }
 
     const counts = new Map();
     for (const r of latestByDonor.values()) {
-      const status = r.status || 'pending';
-      counts.set(status, (counts.get(status) || 0) + 1);
+      counts.set(r.disposition_detail, (counts.get(r.disposition_detail) || 0) + 1);
     }
 
     const by_status = [...counts.entries()]
       .map(([status, count]) => ({ status, count }))
       .sort((a, b) => b.count - a.count);
 
-    return res.json({ allotted: latestByDonor.size, by_status });
+    return res.json({ worked: latestByDonor.size, by_status });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

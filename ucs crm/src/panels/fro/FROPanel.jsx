@@ -6,7 +6,7 @@ import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard, getMyAllotmentSummary } from './api/donors'
 import { getMyTarget } from './api/target'
-import { findDisp } from './dispositions'
+import { findDisp, CONNECTED_IDS } from './dispositions'
 import { useRealtime } from '../../hooks/useRealtime'
 import { onFroAction, onFroBroadcast, onFroTeamBroadcast } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
@@ -172,7 +172,7 @@ function statusColor(status) {
   if (['dnd', 'not_interested', 'not_interested_now', 'rejected', 'wrong_number'].includes(s)) return '#ef4444';
   if (['scheduled', 'follow_up', 'callback'].includes(s)) return '#8b5cf6';
   if (s === 'pending') return '#94a3b8';
-  if (['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'voicemail', 'temporary_network_issue', 'incoming_out', 'invalid_number'].includes(s)) return '#f59e0b';
+  if (['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'voicemail', 'temporary_network_issue', 'incoming_out', 'invalid', 'invalid_number'].includes(s)) return '#f59e0b';
   return '#3b82f6';
 }
 
@@ -194,9 +194,9 @@ function FroStatusPill() {
   );
 }
 
-// FRO activity: how much data was allotted to them and the current status of
-// each lead, all-time or filtered to a single month. Rendered inside
-// <CallProvider>.
+// FRO activity: how many leads the FRO dispositioned and the status each was
+// left in, all-time or filtered to the month the disposition was made.
+// Rendered inside <CallProvider>.
 function TodayActivityStats() {
   const [month, setMonth] = useState('all');
   const [allotment, setAllotment] = useState(null);
@@ -206,16 +206,16 @@ function TodayActivityStats() {
     let cancelled = false;
     setLoading(true);
     getMyAllotmentSummary(month === 'all' ? undefined : month)
-      .then(d => { if (!cancelled) setAllotment(d || { allotted: 0, by_status: [] }); })
-      .catch(() => { if (!cancelled) setAllotment({ allotted: 0, by_status: [] }); })
+      .then(d => { if (!cancelled) setAllotment(d || { worked: 0, by_status: [] }); })
+      .catch(() => { if (!cancelled) setAllotment({ worked: 0, by_status: [] }); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [month]);
 
   const monthOptions = buildMonthOptions();
-  const allotted = allotment?.allotted || 0;
+  const worked = allotment?.worked || 0;
   const byStatus = allotment?.by_status || [];
-  const actedOn = byStatus.reduce((sum, s) => s.status === 'pending' ? sum : sum + s.count, 0);
+  const connected = byStatus.reduce((sum, s) => CONNECTED_IDS.has(s.status) ? sum + s.count : sum, 0);
   const periodLabel = month === 'all' ? 'All Time' : (monthOptions.find(m => m.value === month)?.label || month);
 
   return (
@@ -227,7 +227,7 @@ function TodayActivityStats() {
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Data Allotted</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Leads Worked</div>
               <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{periodLabel}</div>
             </div>
           </div>
@@ -243,19 +243,19 @@ function TodayActivityStats() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '16px' }}>
           <div style={{ borderRight: '1px solid var(--line)', paddingRight: 16 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : allotted}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Total leads</div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : worked}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Leads worked</div>
           </div>
           <div style={{ paddingLeft: 16 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: '#3b82f6', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : actedOn}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Acted on</div>
+            <div style={{ fontSize: 30, fontWeight: 800, color: '#3b82f6', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{loading ? '\u2014' : connected}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 5 }}>Connected</div>
           </div>
         </div>
 
-        {!loading && allotted > 0 && (
+        {!loading && worked > 0 && (
           <div style={{ display: 'flex', height: 8, background: 'var(--bg)' }}>
             {byStatus.map(s => (
-              <div key={s.status} title={`${statusLabel(s.status)}: ${s.count}`} style={{ width: `${(s.count / allotted) * 100}%`, background: statusColor(s.status) }} />
+              <div key={s.status} title={`${statusLabel(s.status)}: ${s.count}`} style={{ width: `${(s.count / worked) * 100}%`, background: statusColor(s.status) }} />
             ))}
           </div>
         )}
@@ -280,11 +280,11 @@ function TodayActivityStats() {
             ))}
           </div>
         ) : byStatus.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '18px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No allotted data for this period</div>
+          <div style={{ textAlign: 'center', padding: '18px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No activity for this period</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
             {byStatus.map(s => {
-              const rowPct = allotted > 0 ? (s.count / allotted) * 100 : 0;
+              const rowPct = worked > 0 ? (s.count / worked) * 100 : 0;
               const color = statusColor(s.status);
               return (
                 <div key={s.status} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1168,7 +1168,7 @@ useEffect(() => onFroAction((action) => {
                 <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card-bg)' }}>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{showTarget ? 'Monthly Target' : 'My Activity'}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{showTarget ? 'Your collection progress' : 'Your allotted data by status'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{showTarget ? 'Your collection progress' : 'Your dispositions by status'}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{ fontSize: 11, padding: '4px 10px' }}>← Stats</button>}
