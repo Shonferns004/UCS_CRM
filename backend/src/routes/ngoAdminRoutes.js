@@ -63,6 +63,7 @@ import {
   getIncentives,
   getVerificationFroWise,
   getFroPerformance,
+  getFroDailyStats,
   masterSearch,
   getCallAnalytics,
   getFroSummary,
@@ -150,6 +151,7 @@ router.get('/assignments', getAssignments);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
 router.get('/fro-performance', getFroPerformance);
+router.get('/fro-daily-stats', getFroDailyStats);
 router.get('/fro/:id/summary', getFroSummary);
 router.post('/achieved-target', setAchievedTarget);
 router.get('/incentives', getIncentives);

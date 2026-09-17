@@ -15,6 +15,7 @@ import { reverseTransfer } from '../models/froAssignmentModel.js';
 import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
+import { checkAndResetFroIdleDaily } from './froIdleResetService.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
@@ -432,6 +433,11 @@ function start() {
   }
   cronJobs.push(cron.schedule('*/20 * * * * *', () => runSpecialIncentiveRefresh()));
   console.log('Scheduled: every 20s - special incentive ("Sir ka Incentive") live tracking');
+
+  // Clears every FRO's idle counter at the first tick of a new IST day (and once
+  // after a deploy, so the currently inflated counts are reset immediately).
+  cronJobs.push(cron.schedule('* * * * *', () => checkAndResetFroIdleDaily()));
+  console.log('Scheduled: every-minute IST-day idle reset for all FROs');
   console.log('Scheduled: every-minute check for expired lead transfers');
 
   // Email imports and Razorpay synchronization are manual-only. Do not schedule

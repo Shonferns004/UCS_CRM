@@ -21,7 +21,7 @@ import {
   getStationAssignmentByNgoAndStation,
 } from '../models/froStationAssignmentModel.js';
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
-import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats } from '../models/froDonorLogModel.js';
+import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { notifyWorker } from '../services/fcmService.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
@@ -1105,6 +1105,30 @@ export const getFroPerformance = async (req, res) => {
     const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     const batchStats = await getBatchCollectionStats(workerIds, monthStartDate.toISOString(), monthEndDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
+    // Period-aware collection: verified receipts in the selected [from, to]
+    // range, so the High/Low panels move with the dashboard's global date
+    // filter instead of always showing today.
+    const rangeStartDay = localDateStr(startDate);
+    const rangeEndDay = localDateStr(endDate);
+    const rangeCollection = await getRangeCollectionByWorker(workerIds, rangeStartDay, rangeEndDay);
+    const todayStrRange = localDateStr(now);
+    const isTodayOnly = rangeStartDay === todayStrRange && rangeEndDay === todayStrRange;
+    const monthStartDay = localDateStr(monthStartDate);
+    const isMonthRange = rangeStartDay === monthStartDay;
+    // Working days inside the range (Sundays are off, except the month's last Sunday).
+    const workingDaysInRange = (() => {
+      let count = 0;
+      const cursor = new Date(`${rangeStartDay}T00:00:00`);
+      const last = new Date(`${rangeEndDay}T00:00:00`);
+      while (cursor <= last) {
+        if (cursor.getDay() !== 0) { count++; cursor.setDate(cursor.getDate() + 1); continue; }
+        const nextWeek = new Date(cursor); nextWeek.setDate(cursor.getDate() + 7);
+        if (nextWeek.getMonth() !== cursor.getMonth()) count++;
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return count;
+    })();
+
     const todayStr = localDateStr(now);
     const attendanceMap = {};
     if (workerIds.length > 0) {
@@ -1211,14 +1235,22 @@ const workedDays = workedDaysMap[w.id]?.size || 0;
       const averageCollection = remainingDays > 0 ? remainingTarget / remainingDays : 0;
       const todayCollection = Number(bs.todayCollection[w.id] || 0);
       // Daily target updates to the remaining month: remaining monthly target
-      // divided by remaining working days. Performance is paced against this.
+      // divided by remaining working days. Today keeps this pace target; any
+      // other selected period is measured against the per-day target times the
+      // working days in that range (and a full month against the monthly target).
       const paceTarget = remainingDays > 0 && averageCollection > 0 ? averageCollection : perDayCollection;
-      const performancePct = paceTarget > 0 ? (todayCollection / paceTarget) * 100 : 0;
+      const periodCollection = Number(rangeCollection[w.id] || 0);
+      const periodTarget = isMonthRange
+        ? monthlyTarget
+        : (isTodayOnly ? paceTarget : perDayCollection * workingDaysInRange);
+      const performancePct = periodTarget > 0 ? (periodCollection / periodTarget) * 100 : 0;
       return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
         collection_amount: coll,
         today_collection: todayCollection,
+        period_collection: periodCollection,
+        period_target: periodTarget,
         lead_done_count: leads,
         avg_talk_seconds: talkSec,
         data_used: wa.connected,
@@ -1238,6 +1270,95 @@ const workedDays = workedDaysMap[w.id]?.size || 0;
 
     performance.sort((a, b) => a.performance_pct - b.performance_pct);
     return res.json(performance);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Per-FRO activity for one IST day, from the fro_daily_stats snapshot written on
+// every heartbeat. Powers the Productivity Alerts (Idle) view for a past date and
+// includes that day's rank (verified collection that day vs the per-day target).
+export const getFroDailyStats = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId, date } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) ngoIds = [ngoIds[idx]];
+    }
+    if (ngoIds.length === 0) return res.json([]);
+
+    const now = new Date();
+    const statDate = date || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers
+      .filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; })
+      .filter(w => w.is_active !== false);
+    const workerIds = froWorkers.map(w => w.id);
+    if (workerIds.length === 0) return res.json([]);
+
+    const { data: rows } = await db
+      .from('fro_daily_stats')
+      .select('worker_id, stat_date, idle_seconds, calls, talk_seconds, break_seconds')
+      .eq('stat_date', statDate)
+      .in('worker_id', workerIds);
+    const statById = {};
+    for (const r of rows || []) statById[r.worker_id] = r;
+
+    // Same working-day rule as getFroPerformance: every Sunday off except the month's last.
+    const monthLastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    let lastSunday = 0;
+    for (let day = monthLastDay; day >= 1; day--) {
+      if (new Date(now.getFullYear(), now.getMonth(), day).getDay() === 0) { lastSunday = day; break; }
+    }
+    let workingDays = 0;
+    for (let day = 1; day <= monthLastDay; day++) {
+      const sunday = new Date(now.getFullYear(), now.getMonth(), day).getDay() === 0;
+      if (!sunday || day === lastSunday) workingDays++;
+    }
+    const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const { data: monthlyTargets } = await db
+      .from('fro_monthly_targets')
+      .select('fro_worker_id, target_amount')
+      .in('ngo_id', ngoIds)
+      .eq('month', monthStartStr);
+    const targetMap = {};
+    for (const t of monthlyTargets || []) {
+      const cur = targetMap[t.fro_worker_id];
+      const amount = Number(t.target_amount || 0);
+      if (cur == null || amount > cur) targetMap[t.fro_worker_id] = amount;
+    }
+
+    const dayCollection = await getRangeCollectionByWorker(workerIds, statDate, statDate);
+    const ranked = workerIds
+      .filter(id => (targetMap[id] || 0) > 0)
+      .map(id => {
+        const perDay = workingDays > 0 ? targetMap[id] / workingDays : 0;
+        return { id, pct: perDay > 0 ? (Number(dayCollection[id] || 0) / perDay) * 100 : 0 };
+      })
+      .sort((a, b) => b.pct - a.pct || String(a.id).localeCompare(String(b.id)));
+    const rankMap = {};
+    ranked.forEach((r, i) => { rankMap[r.id] = i + 1; });
+
+    return res.json(froWorkers.map(w => ({
+      fro_id: w.id,
+      fro_name: w.name || w.login_id || 'Unknown',
+      idle_seconds: statById[w.id]?.idle_seconds || 0,
+      calls: statById[w.id]?.calls || 0,
+      talk_seconds: statById[w.id]?.talk_seconds || 0,
+      break_seconds: statById[w.id]?.break_seconds || 0,
+      rank: rankMap[w.id] || null,
+      date: statDate,
+    })));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

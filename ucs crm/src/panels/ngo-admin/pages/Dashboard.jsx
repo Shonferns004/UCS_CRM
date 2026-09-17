@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download } from 'lucide-react';
-import { apiGet, getFroHourlyPerformance, notifyFro } from '../api/auth';
+import { apiGet, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import RecentNotices from '../../../components/RecentNotices';
@@ -1029,6 +1029,7 @@ export default function Dashboard() {
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [idleSearch, setIdleSearch] = useState('');
   const [hourlyFroSearch, setHourlyFroSearch] = useState('');
+  const [dailyStats, setDailyStats] = useState([]);
 
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
@@ -1097,6 +1098,16 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
 
+  // Saved per-day activity for the selected date (idle + calls + rank) — powers
+  // the Idle Hours alerts for any past day, not just today.
+  useEffect(() => {
+    let cancelled = false;
+    getFroDailyStats({ date: hourlyDate, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
+      .then(data => { if (!cancelled) setDailyStats(data || []); })
+      .catch(() => { if (!cancelled) setDailyStats([]); });
+    return () => { cancelled = true; };
+  }, [hourlyDate, selectedNgoId]);
+
   // Derived: day totals + per-FRO productivity alerts for the selected hourly date
   const hourlyTotals = useMemo(() => {
     const t = { calls: 0, connected: 0, nonConnected: 0, interested: 0, donations: 0, amount: 0 };
@@ -1151,21 +1162,22 @@ export default function Dashboard() {
   const meeting = useMeeting();
   const meetingActive = !!meeting;
 
-  // Live presence set — offline (absent) FROs are excluded from High/Low panels
-  const presentFroIds = useMemo(() => {
-    if (!tlData?.performance) return null;
-    return new Set(tlData.performance.filter(p => p.status && p.status !== 'offline').map(p => p.fro_id));
-  }, [tlData]);
+  // Full roster (search-independent) — every FRO with a monthly target competes,
+  // online or not, so the numbering matches the FRO My Leads strip.
+  const topPresent = topPerformers;
+  const lowPresent = lowPerformers;
 
-  // Present-only base lists (search-independent counts for footers / empty states)
-  const topPresent = useMemo(() => {
-    if (!presentFroIds) return topPerformers;
-    return topPerformers.filter(p => presentFroIds.has(p.fro_id));
-  }, [topPerformers, presentFroIds]);
-  const lowPresent = useMemo(() => {
-    if (!presentFroIds) return lowPerformers;
-    return lowPerformers.filter(p => presentFroIds.has(p.fro_id));
-  }, [lowPerformers, presentFroIds]);
+  // Global rank 1..N across both panels: best performer is #1, and the Low panel
+  // continues the numbering (least-bad low starts right after the last High).
+  const perfRankMap = useMemo(() => {
+    const m = new Map();
+    const highCount = topPerformers.length;
+    const lowCount = lowPerformers.length;
+    topPerformers.forEach((p, i) => m.set(p.fro_id, i + 1));
+    // lowPerformers is sorted worst-first, so the last item is the highest rank.
+    lowPerformers.forEach((p, i) => m.set(p.fro_id, highCount + (lowCount - i)));
+    return m;
+  }, [topPerformers, lowPerformers]);
 
   // Independent per-panel search (High / Low)
   const highRows = useMemo(
@@ -1211,7 +1223,33 @@ export default function Dashboard() {
     const perfById = new Map();
     for (const p of (tlData?.performance || [])) perfById.set(p.fro_id, p);
 
-    // Only FROs present right now (online / on-call / idle) — offline ones are left out.
+    // Saved daily snapshot (fro_daily_stats) for the selected date: gives every
+    // FRO's idle for PAST days and their rank, not just today's live streak.
+    if (dailyStats && dailyStats.length > 0) {
+      const idle = dailyStats
+        .map(s => {
+          const hr = byFro[s.fro_id];
+          return {
+            id: s.fro_id,
+            name: s.fro_name,
+            idleMinutes: Math.round((s.idle_seconds || 0) / 60),
+            calls: hr ? hr.calls : (s.calls || 0),
+            connected: hr ? hr.connected : 0,
+            rank: s.rank || null,
+            workAsName: workAsNameById.get(s.fro_id) || null,
+          };
+        })
+        .filter(f => f.idleMinutes > 0)
+        .sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
+
+      const noCalls = dailyStats
+        .filter(s => ((byFro[s.fro_id]?.calls ?? s.calls ?? 0) === 0))
+        .map(s => ({ id: s.fro_id, name: s.fro_name, workAsName: workAsNameById.get(s.fro_id) || null }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { idle, noCalls, elapsed, isToday };
+    }
+
+    // Fallback when no snapshot rows exist yet (today, before any heartbeat).
     const idle = Object.values(byFro)
       .filter(f => {
         const st = perfById.get(f.id)?.status;
@@ -1225,6 +1263,7 @@ export default function Dashboard() {
           idleMinutes: totalIdleMins,
           calls: f.calls,
           connected: f.connected,
+          rank: perfById.get(f.id)?.rank ?? null,
           workAsName: workAsNameById.get(f.id) || perfById.get(f.id)?.work_as_operator_name || null,
         };
       }).sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
@@ -1236,7 +1275,7 @@ export default function Dashboard() {
     });
     noCalls.sort((a, b) => a.name.localeCompare(b.name));
     return { idle, noCalls, elapsed, isToday };
-  }, [hourlyFroRows, hourlyDate, tlData]);
+  }, [hourlyFroRows, hourlyDate, tlData, dailyStats]);
 
   // Search-filtered idle list for the productivity alerts table
   const idleFiltered = useMemo(() => {
@@ -2218,7 +2257,7 @@ export default function Dashboard() {
                   </colgroup>
                   <thead>
                     <tr>
-                      {['#'].concat(['FRO','Today\'s','Collected','Monthly Tgt','Daily Tgt','Worked','Perf']).map((h, ci) => (
+                      {['#'].concat(['FRO','Period','Collected','Monthly Tgt','Period Tgt','Worked','Perf']).map((h, ci) => (
                         <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'center' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 7 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -2227,13 +2266,13 @@ export default function Dashboard() {
                     {highRows.map((p, i) => (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#16a34a', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{i + 1}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#16a34a', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{perfRankMap.get(p.fro_id) ?? (i + 1)}</span>
                         </td>
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.period_collection ?? p.today_collection ?? 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.collection_amount || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.period_target ?? p.average_collection ?? 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                           <div style={{ fontWeight: 700, color: '#16a34a', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
@@ -2331,7 +2370,7 @@ export default function Dashboard() {
                   </colgroup>
                   <thead>
                     <tr>
-                      {['#'].concat(['FRO','Today\'s','Collected','Monthly Tgt','Daily Tgt','Worked','Perf']).map((h, ci) => (
+                      {['#'].concat(['FRO','Period','Collected','Monthly Tgt','Period Tgt','Worked','Perf']).map((h, ci) => (
                         <th key={ci} style={{ padding: '6px 8px', fontSize: 10, fontWeight: 700, color: '#52698a', background: '#f8fafc', position: 'sticky', top: 0, zIndex: 5, textAlign: ci === 0 ? 'center' : ci === 1 ? 'left' : ci === 6 ? 'center' : ci === 7 ? 'center' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -2340,13 +2379,13 @@ export default function Dashboard() {
                     {lowRows.map((p, i) => (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#EF4444', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{lowRows.length - i}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#EF4444', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{perfRankMap.get(p.fro_id) ?? (lowRows.length - i)}</span>
                         </td>
                         <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.today_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.period_collection ?? p.today_collection ?? 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.collection_amount || 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.average_collection || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.period_target ?? p.average_collection ?? 0).toLocaleString('en-IN')}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                           <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
@@ -2711,6 +2750,7 @@ export default function Dashboard() {
                       <thead>
                         <tr>
                           <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>FRO Name</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Rank</th>
                           <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Idle Hrs</th>
                           <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Calls</th>
                           <th style={{ padding: '12px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Connected</th>
@@ -2732,6 +2772,9 @@ export default function Dashboard() {
                                     ⚡ {f.workAsName} work as {f.name}
                                   </div>
                                 )}
+                              </td>
+                              <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
+                                {f.rank ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#eef2ff', color: '#4338ca', fontSize: 11, fontWeight: 700 }}>#{f.rank}</span> : <span style={{ color: '#94a3b8' }}>—</span>}
                               </td>
                               <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
                                 <span style={{ minWidth: 42, height: 28, padding: '0 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', background: tone.bg, color: tone.color, animation: 'countPop .3s ease-out' }}>

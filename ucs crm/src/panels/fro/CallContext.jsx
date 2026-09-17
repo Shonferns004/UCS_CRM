@@ -324,6 +324,25 @@ export function CallProvider({ children, userId }) {
     })
   }, [syncAllStats])
 
+  // New IST day while the panel is open: roll today's counters back to 0 so the
+  // heartbeat never carries yesterday's totals into the new day's fro_daily_stats
+  // row (which is upserted with GREATEST and would otherwise keep them forever).
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    let day = istDateString()
+    const timer = setInterval(() => {
+      const now = istDateString()
+      if (now === day) return
+      day = now
+      callIdleSinceRef.current = null
+      const next = { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
+      todayStatsRef.current = next
+      setTodayStats(next)
+      syncAllStats({ idle_since: null }, next)
+    }, 30 * 1000)
+    return () => clearInterval(timer)
+  }, [syncAllStats])
+
   // Push status whenever it changes (call started/ended, break toggled)
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return

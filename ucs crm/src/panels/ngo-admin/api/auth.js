@@ -20,6 +20,11 @@ export async function getFroHourlyPerformance(params = {}) {
   return apiGet(`/ngo-admin/fro-hourly-performance${qs ? '?' + qs : ''}`)
 }
 
+export async function getFroDailyStats(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/fro-daily-stats${qs ? '?' + qs : ''}`)
+}
+
 export function notifyFro(workerId) {
   return apiPost('/ngo-admin/notify-fro', { workerId })
 }
