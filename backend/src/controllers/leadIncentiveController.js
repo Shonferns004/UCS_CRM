@@ -76,7 +76,7 @@ const numOr = (v, dflt) => {
 
 export async function createSlabHandler(req, res) {
   try {
-    const { min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate } = req.body || {};
+    const { min_amount, max_amount, incentive_amount, amount_to_win } = req.body || {};
     if (min_amount === undefined || max_amount === undefined) {
       return res.status(400).json({ message: 'min_amount and max_amount are required' });
     }
@@ -97,16 +97,11 @@ export async function createSlabHandler(req, res) {
       });
     }
 
-    // Fall back to global defaults when per-slab values omitted
-    let defaults = { min_lead_amount: 300, lead_rate: 20 };
-    try { defaults = { ...defaults, ...(await getSettings()) }; } catch { /* keep defaults */ }
-
     const slab = await createSlab({
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
-      min_lead_amount: numOr(req.body.min_lead_amount, 300),
-      lead_rate: numOr(req.body.lead_rate, 20),
+      amount_to_win: numOr(req.body.amount_to_win, 1500),
     });
     // A new range may re-bucket FROs — tell the ones landing in it.
     try { await notifyRangeRuleChange({ slab }); } catch (e) { console.error('[lead rules notify]', e?.message); }
@@ -118,7 +113,7 @@ export async function createSlabHandler(req, res) {
 
 export async function updateSlabHandler(req, res) {
   try {
-    const { min_amount, max_amount, incentive_amount, min_lead_amount, lead_rate } = req.body || {};
+    const { min_amount, max_amount, incentive_amount, amount_to_win } = req.body || {};
     if (min_amount === undefined || max_amount === undefined) {
       return res.status(400).json({ message: 'min_amount and max_amount are required' });
     }
@@ -142,9 +137,6 @@ export async function updateSlabHandler(req, res) {
 
     const oldSlab = await getSlabById(req.params.id);
 
-    let defaults = { min_lead_amount: 300, lead_rate: 20 };
-    try { defaults = { ...defaults, ...(await getSettings()) }; } catch { /* keep defaults */ }
-
     // Optional competition window (⏱ Start/End Time control): a value sets the
     // start/end instant, null or '' clears it back to "not scheduled/ended".
     const startedAt = req.body.started_at !== undefined
@@ -158,8 +150,7 @@ export async function updateSlabHandler(req, res) {
       min_amount: Number(min_amount),
       max_amount: Number(max_amount),
       incentive_amount: Number(incentive_amount) || 0,
-      min_lead_amount: numOr(req.body.min_lead_amount, 300),
-      lead_rate: numOr(req.body.lead_rate, 20),
+      amount_to_win: numOr(req.body.amount_to_win, 1500),
       started_at: startedAt,
       ended_at: endedAt,
     });
@@ -168,11 +159,11 @@ export async function updateSlabHandler(req, res) {
     // Configuring a range restarts its competition (clears any stopped marker).
     try { await clearSlabStop(req.params.id); } catch (e) { console.error('[lead rules clear stop]', e?.message); }
 
-    // Only ping the range's FROs when the qualify amount or per-lead reward changed.
+    // Only ping the range's FROs when the win target or prize changed.
     if (oldSlab) {
-      const minLeadChanged = Number(oldSlab.min_lead_amount) !== Number(slab.min_lead_amount);
-      const rateChanged = Number(oldSlab.lead_rate) !== Number(slab.lead_rate);
-      if (minLeadChanged || rateChanged) {
+      const winChanged = Number(oldSlab.amount_to_win) !== Number(slab.amount_to_win);
+      const prizeChanged = Number(oldSlab.incentive_amount) !== Number(slab.incentive_amount);
+      if (winChanged || prizeChanged) {
         try { await notifyRangeRuleChange({ slab }); } catch (e) { console.error('[lead rules notify]', e?.message); }
       }
     }
@@ -194,17 +185,16 @@ export async function deleteSlabHandler(req, res) {
 
 export async function applyAllSlabsHandler(req, res) {
   try {
-    const { min_lead_amount, lead_rate, started_at, ended_at } = req.body || {};
-    const hasRates = min_lead_amount !== undefined && min_lead_amount !== '' && lead_rate !== undefined && lead_rate !== '';
+    const { amount_to_win, started_at, ended_at } = req.body || {};
+    const hasWinAt = amount_to_win !== undefined && amount_to_win !== '';
     const hasTimes = started_at !== undefined;
-    if (!hasRates && !hasTimes) {
-      return res.status(400).json({ message: 'Provide min_lead_amount + lead_rate, or started_at/ended_at' });
+    if (!hasWinAt && !hasTimes) {
+      return res.status(400).json({ message: 'Provide amount_to_win, or started_at/ended_at' });
     }
-    if (hasRates) {
-      const minLead = Number(min_lead_amount);
-      const rate = Number(lead_rate);
-      if (!(minLead >= 0) || !(rate >= 0)) {
-        return res.status(400).json({ message: 'Minimum Lead Amount and ₹ per Qualified Lead must be 0 or more' });
+    if (hasWinAt) {
+      const winAt = Number(amount_to_win);
+      if (!(winAt > 0)) {
+        return res.status(400).json({ message: 'Win On (₹) must be more than 0' });
       }
     }
     const startedAtVal = started_at !== undefined
@@ -215,8 +205,7 @@ export async function applyAllSlabsHandler(req, res) {
       : undefined;
 
     const slabs = await updateAllSlabs({
-      min_lead_amount: hasRates ? Number(min_lead_amount) : undefined,
-      lead_rate: hasRates ? Number(lead_rate) : undefined,
+      amount_to_win: hasWinAt ? Number(amount_to_win) : undefined,
       started_at: startedAtVal,
       ended_at: endedAtVal,
     });
@@ -225,8 +214,8 @@ export async function applyAllSlabsHandler(req, res) {
     if (hasTimes) {
       try { await clearAllSlabStops(); } catch (e) { console.error('[lead rules clear stops]', e?.message); }
     }
-    // Every FRO gets one combined popup listing all ranges with the new common value.
-    if (hasRates) {
+    // Every FRO gets one combined popup listing all ranges with the new value.
+    if (hasWinAt) {
       try { await notifyRangeRuleChange({ slabs }); }
       catch (e) { console.error('[lead rules notify]', e?.message); }
     }
@@ -316,15 +305,14 @@ export async function myLeadSummaryHandler(req, res) {
     const detail = await getFroDetail(froId, date);
     if (!detail) return res.status(404).json({ message: 'FRO not found' });
 
-    // Same daily computation used everywhere → consistent champion/bonus figures.
+    // Same daily computation used everywhere → consistent champion/prize figures.
     const summary = await getDailySummary(date);
     const champ = (summary.champions || []).find(c => String(c.fro_id) === String(froId));
 
     const isChampion = !!champ;
-    const championBonus = champ ? Number(champ.champion_bonus || 0) : 0;
-    const totalIncentive = (Number(detail.lead_incentive) || 0)
-      + (Number(detail.slab_bonus) || 0)
-      + championBonus;
+    // Flat model: only the range's flat prize (incentive_amount) is paid, and only
+    // to the range's champion. lead_incentive / champion_bonus are always 0.
+    const totalIncentive = isChampion ? Number(champ.total_incentive || 0) : 0;
 
     // Is this FRO's range competition live right now? Mirrors getFroRanks logic:
     // needs a started_at in the past, an ended_at (if set) still in the future,
@@ -354,7 +342,10 @@ export async function myLeadSummaryHandler(req, res) {
       ...detail,
       is_live: isLive,
       is_champion: isChampion,
-      champion_bonus: championBonus,
+      lead_incentive: isChampion ? Number(champ.lead_incentive || 0) : 0,
+      slab_bonus: isChampion ? Number(champ.slab_bonus || 0) : 0,
+      champion_bonus: isChampion ? Number(champ.champion_bonus || 0) : 0,
+      amount_to_win: detail.slab?.amount_to_win != null ? Number(detail.slab.amount_to_win) : 1500,
       total_incentive: totalIncentive,
     });
   } catch (e) {

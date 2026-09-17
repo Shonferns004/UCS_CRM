@@ -33,7 +33,7 @@ function Avatar({ url, name, size = 44 }) {
     );
   }
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, background: 'linear-gradient(135deg,#166534,#22c55e)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.4, fontWeight: 900, border: '3px solid #4ade80' }}>
+    <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, background: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.4, fontWeight: 900, border: '3px solid #4ade80' }}>
       {initials}
     </div>
   );
@@ -45,7 +45,7 @@ function WinnerPopup({ champion, onClose }) {
   if (!champion) return null;
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', background: 'rgba(15,23,42,.66)', backdropFilter: 'blur(3px)', animation: 'lp-rise .2s ease' }}>
-      <div style={{ width: '100%', maxWidth: 360, borderRadius: 20, overflow: 'hidden', background: 'linear-gradient(165deg,#fefce8,#fef3c7,#fde68a)', border: '3px solid #f59e0b', boxShadow: '0 24px 60px rgba(180,83,9,.45)', animation: 'lp-pop-in .45s cubic-bezier(.2,1.4,.4,1)' }}>
+      <div style={{ width: '100%', maxWidth: 360, borderRadius: 20, overflow: 'hidden', background: '#fefce8', border: '3px solid #f59e0b', boxShadow: '0 24px 60px rgba(180,83,9,.45)', animation: 'lp-pop-in .45s cubic-bezier(.2,1.4,.4,1)' }}>
         <div style={{ padding: '18px 20px', textAlign: 'center', position: 'relative' }}>
           <button onClick={onClose} style={{ position: 'absolute', top: 10, right: 12, border: 'none', background: 'rgba(146,64,14,.12)', color: '#92400e', width: 28, height: 28, borderRadius: '50%', fontSize: 15, fontWeight: 900, cursor: 'pointer', lineHeight: 1 }}>✕</button>
           <div style={{ fontSize: 15, fontWeight: 900, color: '#92400e', letterSpacing: 1 }}>🏆 LEAD INCENTIVE WINNER 🏆</div>
@@ -60,12 +60,12 @@ function WinnerPopup({ champion, onClose }) {
               : `Won the ${champion.slab_label || 'range'}!`}
           </div>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#78350f', marginTop: 8 }}>
-            Hit ₹{fmt(champion.hit_amount)} — reward <span style={{ color: '#16a34a' }}>+₹{fmt(champion.lead_incentive)}</span>
+            Crossed <span style={{ color: '#b45309' }}>₹{fmt(champion.crossing_amount ?? champion.hit_amount ?? champion.total_amount)}</span> — flat prize <span style={{ color: '#16a34a' }}>+₹{fmt(champion.slab_bonus ?? champion.total_incentive ?? 0)}</span>
           </div>
           <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <span style={{ padding: '4px 10px', borderRadius: 999, background: '#dcfce7', border: '1px solid #86efac', fontSize: 11, fontWeight: 800, color: '#166534' }}>{champion.qualified_leads} qualified ✓</span>
+            <span style={{ padding: '4px 10px', borderRadius: 999, background: '#dcfce7', border: '1px solid #86efac', fontSize: 11, fontWeight: 800, color: '#166534' }}>{champion.qualified_leads} verified leads ✓</span>
           </div>
-          <button onClick={onClose} style={{ marginTop: 14, width: '100%', padding: '10px 0', borderRadius: 11, border: 'none', background: 'linear-gradient(90deg,#f59e0b,#d97706)', color: '#fff', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ marginTop: 14, width: '100%', padding: '10px 0', borderRadius: 11, border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
             Awesome, got it! 🥳
           </button>
         </div>
@@ -100,11 +100,12 @@ function HeroLive({ summary }) {
   const rangeLabel = slab
     ? `₹${fmt(slab.min_amount)} – ₹${fmt(slab.max_amount)}`
     : 'your range';
-  const target = Number(summary?.target) || 0;
+  const winOn = Number(summary?.amount_to_win) || 1500;
+  const prize = Number(summary?.slab?.incentive_amount) || Number(summary?.incentive_amount) || 0;
   const collected = Number(summary?.total_amount) || 0;
-  const pct = target > 0 ? Math.min(100, Math.max(0, collected / target * 100)) : 0;
+  const pct = winOn > 0 ? Math.min(100, Math.max(0, collected / winOn * 100)) : 0;
   return (
-    <div style={{ borderRadius: 16, overflow: 'hidden', border: '2px solid #f59e0b', background: 'linear-gradient(135deg,#451a03,#b45309,#f59e0b)', boxShadow: '0 14px 34px rgba(180,83,9,.28)', animation: 'lp-rise .35s ease' }}>
+    <div style={{ borderRadius: 16, overflow: 'hidden', border: '2px solid #f59e0b', background: '#b45309', boxShadow: '0 14px 34px rgba(180,83,9,.28)', animation: 'lp-rise .35s ease' }}>
       <div style={{ padding: '16px 18px', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999, background: '#dc2626', color: '#fff', fontSize: 10.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase' }}>
@@ -119,19 +120,19 @@ function HeroLive({ summary }) {
           🚨🔥 SIR KA LEAD INCENTIVE – LIMITED TIME ONLY! 🔥🚨
         </div>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: '#ffe4b8', lineHeight: 1.6 }}>
-          First FRO to hit their range's target wins that range! Start collecting now — every rupee counts. Let's go!
+          First FRO to collect the 🎯 Win On amount wins the flat prize! Every verified rupee counts. Let's go!
         </div>
         <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 220px', minWidth: 180 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
-              <span style={{ color: '#ffe4b8' }}>My collection</span>
-              <span style={{ color: '#fff' }}>₹{fmt(collected)} <span style={{ opacity: .75, fontWeight: 600 }}>/ ₹{fmt(target)}</span></span>
+              <span style={{ color: '#ffe4b8' }}>My collection · win at</span>
+              <span style={{ color: '#fff' }}>₹{fmt(collected)} <span style={{ opacity: .75, fontWeight: 600 }}>/ ₹{fmt(winOn)}</span></span>
             </div>
             <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.22)', overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg,#fbbf24,#fde047)', borderRadius: 6, transition: 'width .5s ease' }} />
+              <div style={{ width: `${pct}%`, height: '100%', background: '#fde047', borderRadius: 6, transition: 'width .5s ease' }} />
             </div>
           </div>
-          <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,255,255,.16)', fontSize: 12, fontWeight: 800 }}>{summary.qualified_leads || 0} qualified ✓</span>
+          <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,255,255,.16)', fontSize: 12, fontWeight: 800 }}>🎯 Win On ₹{fmt(winOn)} · 🏆 Prize ₹{fmt(prize)}</span>
         </div>
       </div>
     </div>
@@ -208,7 +209,7 @@ export default function LeadIncentive() {
       <div>
         <h3 style={{ margin: 0 }}>🏆 Lead Incentive</h3>
         <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
-          First FRO to hit their range's target (by verified time) wins that range + the bonus.
+          First FRO to collect the range's Win On amount (by verified time) wins the flat prize.
         </p>
       </div>
 
@@ -227,21 +228,20 @@ export default function LeadIncentive() {
           <StatCard label="My Range" icon="🎯" value={summary.slab ? `₹${fmt(summary.slab.min_amount)} – ₹${fmt(summary.slab.max_amount)}` : '—'} />
           <StatCard label="Target" icon="📈" value={summary.target} unit="₹" />
           <StatCard label="Collected" icon="💰" value={summary.total_amount} unit="₹" color="#16a34a" />
-          <StatCard label="Qualified Leads" icon="✅" value={summary.qualified_leads} />
-          <StatCard label="Lead Incentive" icon="🔢" value={summary.lead_incentive} unit="₹" />
-          <StatCard label="Slab Bonus" icon="🎁" value={summary.slab_bonus} unit="₹" color="#b45309" />
-          <StatCard label="Champion Bonus" icon="🏆" value={summary.champion_bonus} unit="₹" color={isChampion ? '#d97706' : undefined} />
+          <StatCard label="Verified Leads" icon="✅" value={summary.qualified_leads} />
+          <StatCard label="Win On" icon="🎯" value={summary.amount_to_win ?? 1500} unit="₹" color="#b45309" />
+          <StatCard label="Prize" icon="🏆" value={summary.slab_bonus} unit="₹" color={isChampion ? '#16a34a' : '#b45309'} />
           <StatCard label="Total Incentive" icon="💵" value={summary.total_incentive} unit="₹" color="#b45309" />
         </div>
       )}
 
       {isChampion && (
-        <div style={{ borderRadius: 14, padding: '12px 16px', background: 'linear-gradient(135deg,#dcfce7,#bbf7d0)', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', gap: 10, animation: 'lp-rise .35s ease' }}>
+        <div style={{ borderRadius: 14, padding: '12px 16px', background: '#dcfce7', border: '2px solid #22c55e', display: 'flex', alignItems: 'center', gap: 10, animation: 'lp-rise .35s ease' }}>
           <span style={{ fontSize: 26 }}>🏆</span>
           <div>
             <div style={{ fontSize: 14, fontWeight: 900, color: '#166534' }}>You are today's range champion!</div>
             <div style={{ fontSize: 12, color: '#15803d' }}>
-              First to hit the range's target — ₹{fmt(summary.champion_bonus)} champion bonus added.
+              First to collect the range's Win On amount — flat prize ₹{fmt(summary.slab_bonus)} added.
             </div>
           </div>
         </div>
@@ -251,7 +251,7 @@ export default function LeadIncentive() {
         <div style={{ padding: '14px 16px 0', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--ink)' }}>🏆 Live Ranges</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Range-wise leaderboard — first to hit the range's target wins</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Range-wise leaderboard — first to collect the Win On amount wins</div>
           </div>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999, background: live ? '#dc2626' : 'var(--line)', color: live ? '#fff' : 'var(--ink-soft)', fontSize: 10.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase' }}>
             {live ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'lp-pulse 1s linear infinite' }} /> : null}
