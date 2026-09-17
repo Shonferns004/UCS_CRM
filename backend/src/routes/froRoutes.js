@@ -5,6 +5,7 @@ import {
 } from '../controllers/bankAuditController.js';
 import {
   getDashboard,
+  getMyAllotmentSummary,
   getMyPerformance,
   getMyCollections,
   getMyDonors,
@@ -62,6 +63,7 @@ router.use(requireFro);
 
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
+router.get('/allotment-summary', getMyAllotmentSummary);
 router.get('/my-performance', getMyPerformance);
 router.get('/dashboard/collections', getMyCollections);
 router.get('/dashboard/suspense', getSuspenseReceipts);

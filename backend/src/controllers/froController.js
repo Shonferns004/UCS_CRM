@@ -3417,6 +3417,52 @@ export const getFollowUps = async (req, res) => {
   }
 };
 
+// All-time allotment summary for the logged-in FRO: every donor ever allotted to
+// them (one row per donor, latest assignment, excluding reassigned data) counted
+// by its current fro_assignments.status. Powers the "Today's Activity" modal.
+export const getMyAllotmentSummary = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+    if (stationNames.length === 0) return res.json({ allotted: 0, by_status: [] });
+
+    const { data: rows, error } = await withStationNgoPairs(
+      db
+        .from('fro_assignments')
+        .select('donor_id, status, assigned_at'),
+      myScope
+    )
+      .eq('fro_worker_id', workerId)
+      .not('status', 'eq', 'reassigned');
+    if (error) throw error;
+
+    // One status per donor: keep each donor's most recent non-reassigned row so
+    // the status counts always add up to the allotted total.
+    const latestByDonor = new Map();
+    for (const r of rows || []) {
+      if (!r.donor_id) continue;
+      const prev = latestByDonor.get(r.donor_id);
+      if (!prev || String(r.assigned_at || '') > String(prev.assigned_at || '')) {
+        latestByDonor.set(r.donor_id, r);
+      }
+    }
+
+    const counts = new Map();
+    for (const r of latestByDonor.values()) {
+      const status = r.status || 'pending';
+      counts.set(status, (counts.get(status) || 0) + 1);
+    }
+
+    const by_status = [...counts.entries()]
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return res.json({ allotted: latestByDonor.size, by_status });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getLeadStats = async (req, res) => {
   try {
     const workerId = req.user.id;

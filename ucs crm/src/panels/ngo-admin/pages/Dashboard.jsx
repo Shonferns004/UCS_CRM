@@ -1181,8 +1181,8 @@ export default function Dashboard() {
   }, [selectedNgoId, activeRange]);
 
   // Top performers = same global-filtered dataset, best score first
-  const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
-  const lowPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.performance_pct < 100).sort((a, b) => a.performance_pct - b.performance_pct), [weakPerformers]);
+  const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.punched_in === true && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
+  const lowPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.punched_in === true && p.performance_pct < 100).sort((a, b) => a.performance_pct - b.performance_pct), [weakPerformers]);
 
   // NGO filter pills from the admin's accessible NGOs
   const ngoFilterPills = useMemo(() => (accessibleNgos || []).filter(n => n && n.id).map(n => ({

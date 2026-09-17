@@ -1140,20 +1140,29 @@ export const getFroPerformance = async (req, res) => {
     const lbById = new Map(leaderboard.map(p => [String(p.id), p]));
 
     const todayStr = localDateStr(now);
+    const isSingleDay = isTodayRange || (!!from && !!to && from === to);
     const attendanceMap = {};
+    const punchedInSet = new Set();
     if (workerIds.length > 0) {
-      if (isTodayRange) {
-        const { data: att } = await db.from('attendance').select('worker_id, status').eq('date', todayStr).in('worker_id', workerIds);
-        for (const a of att || []) attendanceMap[a.worker_id] = a.status === 'present' || a.status === 'late' ? 100 : a.status === 'absent' ? 0 : null;
+      if (isSingleDay) {
+        const dayStr = isTodayRange ? todayStr : from;
+        const { data: att } = await db.from('attendance').select('worker_id, status, punch_in_time').eq('date', dayStr).in('worker_id', workerIds);
+        for (const a of att || []) {
+          attendanceMap[a.worker_id] = a.status === 'present' || a.status === 'late' ? 100 : a.status === 'absent' ? 0 : null;
+          if ((a.status === 'present' || a.status === 'late') && a.punch_in_time) punchedInSet.add(a.worker_id);
+        }
       } else {
         const startStr = localDateStr(startDate);
         const endStr = localDateStr(endDate);
-        const { data: att } = await db.from('attendance').select('worker_id, status').gte('date', startStr).lte('date', endStr).in('worker_id', workerIds);
+        const { data: att } = await db.from('attendance').select('worker_id, status, punch_in_time').gte('date', startStr).lte('date', endStr).in('worker_id', workerIds);
         const counts = {};
         for (const a of att || []) {
           if (!counts[a.worker_id]) counts[a.worker_id] = { present: 0, total: 0 };
           counts[a.worker_id].total++;
-          if (a.status === 'present' || a.status === 'late') counts[a.worker_id].present++;
+          if (a.status === 'present' || a.status === 'late') {
+            counts[a.worker_id].present++;
+            if (a.punch_in_time) punchedInSet.add(a.worker_id);
+          }
         }
         for (const [wid, c] of Object.entries(counts)) {
           attendanceMap[wid] = c.total > 0 ? Math.round((c.present / c.total) * 1000) / 10 : null;
@@ -1199,6 +1208,7 @@ export const getFroPerformance = async (req, res) => {
         data_used: wa.connected,
         data_total: wa.total,
         attendance_pct: attPct,
+        punched_in: punchedInSet.has(w.id),
         monthly_target: lb.monthly_target || 0,
         achieved_target: lb.achieved_target || 0,
         working_days: lb.working_days || 0,
