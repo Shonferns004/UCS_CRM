@@ -294,6 +294,51 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   return { monthCollection, todayCollection, weekCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
 };
 
+// Verified collection credited to each worker (by receipts.agent_name) within an
+// arbitrary inclusive day range. Mirrors the month/today receipt matching used by
+// getBatchCollectionStats but lets the dashboard compute period performance
+// (yesterday / this week / this month / a custom range) instead of only today.
+export const getRangeCollectionByWorker = async (workerIds, startDay, endDay) => {
+  const result = {};
+  for (const id of workerIds) result[id] = 0;
+  if (workerIds.length === 0) return result;
+
+  const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
+  const byName = {};
+  for (const w of workers || []) {
+    if (!w.name) continue;
+    const k = w.name.trim().toLowerCase();
+    (byName[k] = byName[k] || []).push(w.id);
+  }
+  if (Object.keys(byName).length === 0) return result;
+
+  const receipts = await sql(
+    `SELECT amount, receipt_date, receipt_no, donor_id, payment_id, agent_name
+     FROM receipts
+     WHERE receipt_date >= $1 AND receipt_date <= $2
+       AND lower(btrim(agent_name)) = ANY($3)`,
+    [startDay, endDay, Object.keys(byName)]
+  );
+
+  const dedup = {};
+  for (const id of workerIds) dedup[id] = new Set();
+  for (const r of receipts) {
+    const matched = byName[String(r.agent_name || '').trim().toLowerCase()];
+    if (!matched) continue;
+    const amount = parseFloat(r.amount || 0);
+    if (amount <= 0) continue;
+    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
+    if (!day) continue;
+    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
+    for (const id of matched) {
+      if (dedup[id].has(dedupKey)) continue;
+      dedup[id].add(dedupKey);
+      result[id] += amount;
+    }
+  }
+  return result;
+};
+
 export const findLogsByDonorAndWorker = async (donorId, workerId) => {
   const { data, error } = await db
     .from('fro_donor_logs')
