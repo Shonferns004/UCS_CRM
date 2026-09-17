@@ -155,6 +155,7 @@ export function CallProvider({ children, userId }) {
   const [onBreak, setOnBreak] = useState(false)
   const [breakElapsed, setBreakElapsed] = useState(0)
   const breakTimerRef = useRef(null)
+  const [liveStatus, setLiveStatus] = useState('online')
 
   // Company-wide meeting mode: freezes every live counter while active.
   const meeting = useMeeting()
@@ -189,6 +190,7 @@ export function CallProvider({ children, userId }) {
       : (onBreakRef.current ? 'break'
         : (activeCallRef.current ? 'on_call'
           : (callIdleSinceRef.current ? 'idle' : 'online')))
+    setLiveStatus(status)
     api('/fro/status', {
       method: 'PUT',
       body: JSON.stringify({
@@ -452,7 +454,7 @@ export function CallProvider({ children, userId }) {
       activeCall, elapsed, todayStats, startCall, endCall, isOnCall: !!activeCall,
       startDonorView, endDonorView, syncAllStats, fmt,
       onBreak, breakElapsed, toggleBreak, isBreakOvertime, BREAK_LIMIT,
-      isCallIdle, resetCallActivity, sendHeartbeat,
+      isCallIdle, resetCallActivity, sendHeartbeat, status: liveStatus,
     }}>
       {children}
       {isCallIdle && !meetingActive && (

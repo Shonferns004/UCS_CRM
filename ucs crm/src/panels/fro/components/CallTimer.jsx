@@ -10,7 +10,7 @@ function fmt(seconds) {
 }
 
 export default function CallTimer() {
-  const { isOnCall, elapsed, todayStats, activeCall, endCall } = useCall()
+  const { isOnCall, elapsed, activeCall, endCall } = useCall()
 
   if (isOnCall) {
     return (
@@ -31,13 +31,5 @@ export default function CallTimer() {
     )
   }
 
-  return (
-    <>
-      {todayStats.skippedDonors > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 10px', borderRadius: 6, background: '#fefce8', border: '1px solid #fde68a', fontSize: 11, color: '#92400e', whiteSpace: 'nowrap' }}>
-          <span style={{ fontWeight: 600 }}>{'\u23F3'}{todayStats.skippedDonors} skip · {fmt(todayStats.idleSeconds)}</span>
-        </div>
-      )}
-    </>
-  )
+  return null
 }

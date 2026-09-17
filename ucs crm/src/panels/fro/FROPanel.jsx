@@ -143,6 +143,24 @@ function callFmt(seconds) {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
+// Live status pill for the top bar — mirrors the backend fro_live_status value.
+// Rendered inside <CallProvider> so useCall() is available.
+function FroStatusPill() {
+  const { status } = useCall();
+  const key = status === 'offline' ? 'offline' : status === 'idle' ? 'idle' : 'active';
+  const cfg = {
+    active: { label: 'Active', bg: '#e7f3ec', border: '#bce5cd', color: '#15803d', dot: '#16a34a' },
+    idle: { label: 'Idle', bg: '#fffbeb', border: '#fde68a', color: '#b45309', dot: '#f59e0b' },
+    offline: { label: 'Offline', bg: '#f3f4f6', border: '#e5e7eb', color: '#6b7280', dot: '#9ca3af' },
+  }[key];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: cfg.bg, border: `1px solid ${cfg.border}`, marginTop: 10 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.dot, display: 'inline-block', ...(key === 'active' ? { boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' } : {}) }} />
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: .4 }}>{cfg.label}</span>
+    </div>
+  );
+}
+
 // Today's calling stats — reads the live counters from CallContext (server-backed,
 // no localStorage). Rendered inside <CallProvider> so useCall() is available.
 function TodayActivityStats({ isMobile }) {
@@ -874,10 +892,7 @@ useEffect(() => onFroAction((action) => {
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: '#e7f3ec', border: '1px solid #bce5cd', marginTop: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', display: 'inline-block', boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' }} />
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: .4 }}>Active</span>
-            </div>
+            <FroStatusPill />
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
