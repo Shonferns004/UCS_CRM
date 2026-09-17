@@ -3390,7 +3390,7 @@ export const getFroOverdue = async (req, res) => {
         .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, next_follow_up)')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames),
-      myScope
+      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
     );
 
     if (sErr) throw sErr;
