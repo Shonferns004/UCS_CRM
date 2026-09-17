@@ -4,8 +4,9 @@ import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, Coins, Trophy } fr
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
-import { getMyDashboard } from './api/donors'
+import { getMyDashboard, getMyAllotmentSummary } from './api/donors'
 import { getMyTarget } from './api/target'
+import { findDisp } from './dispositions'
 import { useRealtime } from '../../hooks/useRealtime'
 import { onFroAction, onFroBroadcast, onFroTeamBroadcast } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
@@ -143,6 +144,31 @@ function callFmt(seconds) {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
+// fro_assignments.status -> human label. Disposition ids reuse the shared
+// dispositions taxonomy; a few assignment-only statuses need their own label.
+const ASSIGNMENT_STATUS_LABELS = {
+  pending: 'Pending',
+  contacted: 'Contacted',
+  donation_collected: 'Donation Collected',
+  lead_done: 'Lead Done',
+  done: 'Done',
+};
+function statusLabel(status) {
+  if (!status) return 'Unknown';
+  return ASSIGNMENT_STATUS_LABELS[status]
+    || findDisp(status)?.label
+    || String(status).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+function statusColor(status) {
+  const s = String(status || '');
+  if (['lead_done', 'done', 'donation_collected', 'visit_donate'].includes(s)) return '#16a34a';
+  if (['dnd', 'not_interested', 'not_interested_now', 'rejected', 'wrong_number'].includes(s)) return '#ef4444';
+  if (['scheduled', 'follow_up', 'callback'].includes(s)) return '#8b5cf6';
+  if (s === 'pending') return '#94a3b8';
+  if (['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'voicemail', 'temporary_network_issue', 'incoming_out', 'invalid_number'].includes(s)) return '#f59e0b';
+  return '#3b82f6';
+}
+
 // Live status pill for the top bar — mirrors the backend fro_live_status value.
 // Rendered inside <CallProvider> so useCall() is available.
 function FroStatusPill() {
@@ -161,69 +187,114 @@ function FroStatusPill() {
   );
 }
 
-// Today's calling stats — reads the live counters from CallContext (server-backed,
-// no localStorage). Rendered inside <CallProvider> so useCall() is available.
+// Today's stats: all-time allotted data broken down by current assignment
+// status, plus the live calling counters from CallContext (server-backed, no
+// localStorage). Rendered inside <CallProvider> so useCall() is available.
 function TodayActivityStats({ isMobile }) {
   const { todayStats } = useCall();
   const ts = todayStats;
+  const [allotment, setAllotment] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMyAllotmentSummary()
+      .then(d => { if (!cancelled) setAllotment(d || { allotted: 0, by_status: [] }); })
+      .catch(() => { if (!cancelled) setAllotment({ allotted: 0, by_status: [] }); });
+    return () => { cancelled = true; };
+  }, []);
+
   const totalProd = (ts?.totalSeconds || 0) + (ts?.idleSeconds || 0);
-  if (!ts || (ts.calls === 0 && ts.skippedDonors === 0 && ts.breakSeconds === 0 && ts.idleSeconds === 0)) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" opacity=".4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 12 }}>No activity yet today</div>
-        <div style={{ fontSize: 12, color: 'var(--ink-soft)', opacity: .6, marginTop: 4 }}>Start calling to see your stats here</div>
-      </div>
-    );
-  }
-  const pct = Math.round((ts.totalSeconds / (totalProd || 1)) * 100);
+  const hasActivity = !!ts && !(ts.calls === 0 && ts.skippedDonors === 0 && ts.breakSeconds === 0 && ts.idleSeconds === 0);
+  const pct = Math.round(((ts?.totalSeconds || 0) / (totalProd || 1)) * 100);
+  const allotted = allotment?.allotted || 0;
+  const byStatus = allotment?.by_status || [];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div className="fro-stat-grid-3" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
-        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1 }}>{ts.calls}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Calls</div>
+      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#3b82f6', lineHeight: 1.1 }}>{allotment ? allotted : '\u2014'}</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Data Allotted</div>
         </div>
-        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Talk Time</div>
-        </div>
-        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / (ts.calls || 1)))}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Avg Call</div>
-        </div>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.8" opacity=".5"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#d97706' }}>{ts.skippedDonors}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Skipped</div>
+      {allotment && byStatus.length > 0 && (
+        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 10 }}>Status Breakdown</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {byStatus.map(s => {
+              const rowPct = allotted > 0 ? (s.count / allotted) * 100 : 0;
+              return (
+                <div key={s.status}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ color: 'var(--ink)' }}>{statusLabel(s.status)}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{s.count}</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 3, background: 'var(--bg)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: 3, width: `${Math.max(rowPct, 2)}%`, background: statusColor(s.status) }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
-        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Idle</div>
-          </div>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-      </div>
+      )}
 
-      <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontSize: 18 }}>☕</div>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{ts.breakCount || 0} breaks</div>
+      {hasActivity ? (
+        <>
+          <div className="fro-stat-grid-3" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1 }}>{ts.calls}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Calls</div>
+            </div>
+            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Talk Time</div>
+            </div>
+            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / (ts.calls || 1)))}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Avg Call</div>
+            </div>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#d97706' }}>{ts.skippedDonors}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Skipped</div>
+              </div>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Idle</div>
+              </div>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+          </div>
+
+          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontSize: 18 }}>☕</div>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{ts.breakCount || 0} breaks</div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: pct > 50 ? '#16a34a' : '#d97706' }}>{pct}%</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Productivity</div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '24px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" opacity=".4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 10 }}>No calling activity yet today</div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: pct > 50 ? '#16a34a' : '#d97706' }}>{pct}%</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Productivity</div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

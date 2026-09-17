@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { X } from 'lucide-react';
 import { apiGet, apiPost, apiPut } from '../api/auth';
 import { toast } from '../../../components/Toast';
 
@@ -25,7 +26,7 @@ function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-head">
           <h3>Assign {donors.length} Donor(s)</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body">
           <div className="field">
@@ -90,7 +91,7 @@ function TransferCreditModal({ donor, froWorkers, onClose, onTransferred }) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-head">
           <h3>Transfer Collected Credit — {donor.name || 'Donor'}</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>

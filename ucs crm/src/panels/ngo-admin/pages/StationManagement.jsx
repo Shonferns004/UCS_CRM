@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { X, Check, TriangleAlert, Trash2, Settings, ChevronDown } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
@@ -125,7 +126,7 @@ function OldDataUploadModal({ station, ngoId, onClose, onUploaded }) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
         <div className="modal-head">
           <h3>Upload Old Data — {station}</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body">
           <div style={{ fontSize: 12, color: '#6b7280', background: '#f9fafb', padding: '10px 12px', borderRadius: 6, marginBottom: 12 }}>
@@ -160,7 +161,7 @@ function OldDataUploadModal({ station, ngoId, onClose, onUploaded }) {
 
           {result && (
             <div style={{ padding: '12px 14px', marginTop: 12, borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
-              <strong style={{ fontSize: 14 }}>✓ {result.message}</strong><br />
+              <strong style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Check size={14} /> {result.message}</strong><br />
               <div style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                 <span><strong>{result.total_rows}</strong> rows</span>
                 <span><strong>{result.created_profiles}</strong> new profiles</span>
@@ -366,7 +367,7 @@ function StationPicker({ stations, value, queuedKeys, onSelect }) {
                       onMouseLeave={e => { e.currentTarget.style.background = selected ? '#f0fdf4' : 'transparent'; }}>
                       <span style={{ fontWeight: 600 }}>{it.station}</span>
                       {queued
-                        ? <span className="pill" style={{ background: '#f3f4f6', color: 'var(--ink-soft)', fontSize: 9 }}>✓ Queued</span>
+                        ? <span className="pill" style={{ background: '#f3f4f6', color: 'var(--ink-soft)', fontSize: 9, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={9} /> Queued</span>
                         : <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {it.donorCount > 0 && <>{it.donorCount.toLocaleString('en-IN')} donor{it.donorCount === 1 ? '' : 's'}</>}
                             {it.fro && <span> · {it.fro}</span>}
@@ -570,7 +571,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
         <div className="modal-head">
           <h3>{title}</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body">
 
@@ -620,7 +621,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                       style={suggestion && mNew === suggestion ? { borderColor: '#86efac', background: '#f0fdf4', color: '#166534', fontWeight: 600 } : undefined} />
                     {suggestion && (
                       mNew === suggestion ? (
-                        <span style={{ fontSize: 10, color: '#15803d', marginTop: 3 }}>✓ Planned code — {mOld} → {suggestion} for {ngoNameById(mNgoId)}</span>
+                        <span style={{ fontSize: 10, color: '#15803d', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={11} /> Planned code — {mOld} → {suggestion} for {ngoNameById(mNgoId)}</span>
                       ) : (
                         <button type="button" onClick={() => setMNew(suggestion)}
                           style={{ marginTop: 3, width: 'fit-content', fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -659,7 +660,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                     </span>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       {rows.length > 10 && (
-                        <input value={rowFilter} onChange={e => setRowFilter(e.target.value)} placeholder="🔍 Filter station…"
+                        <input value={rowFilter} onChange={e => setRowFilter(e.target.value)} placeholder="Filter station…"
                           style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', width: 150 }} />
                       )}
                       <button className="btn btn-sm btn-outline" onClick={() => { setRows([]); setRowFilter(''); }}
@@ -683,10 +684,10 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                                 <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>→</span>
                                 <strong style={{ color: 'var(--sage)' }}>{r.new_station}</strong>
                                 {STATION_RENAME_MAP[r.old_station]?.[r.ngo_name] === r.new_station && (
-                                  <span className="pill" style={{ background: '#f0fdf4', color: '#15803d', fontSize: 9, marginLeft: 6 }}>✓ planned</span>
+                                  <span className="pill" style={{ background: '#f0fdf4', color: '#15803d', fontSize: 9, marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={9} /> planned</span>
                                 )}
                               </span>
-                              <button className="btn btn-sm btn-outline" onClick={() => removeRow(r)} style={{ fontSize: 10, padding: '2px 8px' }}>✕</button>
+                              <button className="btn btn-sm btn-outline" onClick={() => removeRow(r)} style={{ fontSize: 10, padding: '2px 8px' }}><X size={12} /></button>
                             </div>
                           ))}
                         </div>
@@ -817,7 +818,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                 {previewBad.length > 0 && (
                   <div style={{ border: '1px solid #fde68a', borderRadius: 8, overflow: 'hidden', background: '#fffbeb' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#fef3c7', borderBottom: '1px solid #fde68a' }}>
-                      <span style={{ fontSize: 12 }}>⚠</span>
+                      <span style={{ display: 'inline-flex' }}><TriangleAlert size={14} color="#d97706" /></span>
                       <strong style={{ fontSize: 12, color: '#92400e' }}>Needs attention — remove these rows to apply</strong>
                     </div>
                     {previewBad.map((r, i) => (
@@ -834,7 +835,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                         </div>
                         <button className="btn btn-sm btn-outline" onClick={() => removeFlagged(r)}
                           disabled={busy} style={{ fontSize: 10, padding: '2px 8px', color: '#b45309', borderColor: '#fdba74', whiteSpace: 'nowrap' }}>
-                          {busy ? '…' : '✕ Remove'}
+                          {busy ? '…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Remove</span>}
                         </button>
                       </div>
                     ))}
@@ -865,7 +866,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
           {step === 'confirm' && (
             <>
               <div style={{ padding: '12px 14px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', fontSize: 13, color: '#991b1b' }}>
-                <strong>⚠ You are about to rename {rows.length} station{rows.length > 1 ? 's' : ''} on live data.</strong><br />
+                <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><TriangleAlert size={14} /> You are about to rename {rows.length} station{rows.length > 1 ? 's' : ''} on live data.</strong><br />
                 This rewrites station codes across 6 tables ({totalDonors.toLocaleString('en-IN')} donor assignments).
                 Old codes will no longer exist anywhere — the mapping is preserved in station_rename_log.
                 Everything runs in one transaction: if any check fails, nothing changes.
@@ -888,7 +889,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
           {step === 'result' && result && (
             <>
               <div style={{ padding: '12px 14px', borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
-                <strong style={{ fontSize: 14 }}>✓ {result.applied} station{result.applied > 1 ? 's' : ''} renamed · old codes remaining: {result.post_verify?.old_codes_remaining ?? 0}</strong><br />
+                <strong style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Check size={14} /> {result.applied} station{result.applied > 1 ? 's' : ''} renamed · old codes remaining: {result.post_verify?.old_codes_remaining ?? 0}</strong><br />
                 <div style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                   <span><strong>{result.totals?.fro_assignments ?? 0}</strong> donor assignments</span>
                   <span><strong>{result.totals?.fro_transfers ?? 0}</strong> transfers</span>
@@ -909,7 +910,7 @@ function BulkRenameModal({ ngos, stations, defaultNgoId, onClose, onRenamed }) {
                       <div key={`${r.old_station}-${r.new_station}-${i}`}
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 10px', borderTop: i > 0 ? '1px solid var(--line)' : 'none', fontSize: 12, flexWrap: 'wrap' }}>
                         <span>
-                          <span style={{ color: '#16a34a', fontWeight: 700 }}>✓</span>{' '}
+                          <Check size={13} color="#16a34a" />{' '}
                           <strong>{r.old_station}</strong>
                           <span style={{ color: 'var(--ink-soft)', margin: '0 6px' }}>→</span>
                           <strong style={{ color: 'var(--sage)' }}>{r.new_station}</strong>
@@ -1056,7 +1057,7 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onTarge
           <button onClick={run(onUpload)} style={itemStyle}>⇧ Upload old data</button>
           <button onClick={run(onTarget)} style={itemStyle}>◎ Set/Edit target</button>
           <div style={{ borderTop: '1px solid var(--line, #e5e7eb)', margin: '4px 0' }} />
-          <button onClick={run(onDelete)} style={{ ...itemStyle, color: 'var(--danger)' }}>🗑 Delete station</button>
+          <button onClick={run(onDelete)} style={{ ...itemStyle, color: 'var(--danger)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Trash2 size={14} /> Delete station</span></button>
         </div>
       )}
     </div>
@@ -1070,7 +1071,7 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
         <div className="modal-head">
           <h3>Add Station</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label className="field">
@@ -1227,7 +1228,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 960 }}>
         <div className="modal-head">
           <h3>Manage Non-Connected Fresh Data</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+          <button className="btn btn-sm btn-outline" onClick={onClose}><X size={14} /></button>
         </div>
         <div className="modal-body" style={{ fontSize: 13 }}>
 
@@ -1362,7 +1363,7 @@ function NonConnectedFreshModal({ ngoId, onClose }) {
 
           {deleteResult && (
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12.5, color: '#166534' }}>
-              ✓ {deleteResult.message} {deleteResult.per_category && Object.keys(deleteResult.per_category).length > 0 && (
+              <Check size={13} /> {deleteResult.message} {deleteResult.per_category && Object.keys(deleteResult.per_category).length > 0 && (
                 <span>({Object.entries(deleteResult.per_category).map(([k, v]) => `${k}: ${v}`).join(', ')})</span>
               )}
             </div>
@@ -1752,7 +1753,7 @@ export default function StationManagement() {
 
       {msg && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#166534', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>✓</span>
+          <span style={{ display: 'inline-flex' }}><Check size={14} color="#16a34a" /></span>
           <span>{msg}</span>
         </div>
       )}
@@ -1782,7 +1783,7 @@ export default function StationManagement() {
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <div ref={toolsRef} style={{ position: 'relative' }}>
                 <button className="btn btn-sm btn-outline" onClick={() => setToolsOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                  ⚙ Tools <span style={{ fontSize: 10 }}>▾</span>
+                  <Settings size={14} /> Tools <ChevronDown size={12} />
                 </button>
                 {toolsOpen && (
                   <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, marginTop: 4, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.14)', overflow: 'hidden', minWidth: 200 }}>
@@ -1804,7 +1805,7 @@ export default function StationManagement() {
                     </button>
                     <button onClick={() => { setToolsOpen(false); setNcfOpen(true); }}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12.5, cursor: 'pointer', background: 'transparent', border: 'none', width: '100%', textAlign: 'left', color: '#b91c1c', fontFamily: 'inherit' }}>
-                      ⚠ Manage Non-Connected (Fresh)
+                      <TriangleAlert size={14} /> Manage Non-Connected (Fresh)
                     </button>
                   </div>
                 )}
@@ -1956,7 +1957,7 @@ export default function StationManagement() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Set Target — {editTarget.name}</h3>
-              <button className="btn btn-sm btn-outline" onClick={() => setEditTarget(null)}>✕</button>
+              <button className="btn btn-sm btn-outline" onClick={() => setEditTarget(null)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <div className="field">
@@ -1990,7 +1991,7 @@ export default function StationManagement() {
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <h3>Edit Station — {editNgoStation}</h3>
-              <button className="btn btn-sm btn-outline" onClick={() => setEditNgoStation(null)}>✕</button>
+              <button className="btn btn-sm btn-outline" onClick={() => setEditNgoStation(null)}><X size={14} /></button>
             </div>
             <div className="modal-body">
               <label className="field">

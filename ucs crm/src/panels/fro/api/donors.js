@@ -76,6 +76,10 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
+export async function getMyAllotmentSummary() {
+  return api('/fro/allotment-summary', { _prefix: 'ucs' })
+}
+
 export async function getMyPerformance() {
   return api('/fro/my-performance', { _prefix: 'ucs' })
 }
