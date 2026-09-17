@@ -21,6 +21,15 @@ export function getUser(prefix) {
   catch { return null }
 }
 
+// A 401 means the session is gone (expired token, or "No token provided" because
+// local storage was cleared). Clear it and bounce to the login screen so the
+// user is never left staring at a dead panel.
+function redirectToLogin() {
+  try {
+    if (window.location.pathname !== '/login') window.location.assign('/login')
+  } catch { /* not running in a browser */ }
+}
+
 export async function api(path, options = {}) {
   const token = getToken(options._prefix || 'ucs')
   const isFormData = options.body instanceof FormData
@@ -46,9 +55,8 @@ export async function api(path, options = {}) {
     const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: combinedSignal })
     if (res.status === 401) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
-      if (token) {
-        clearSession(options._prefix || 'ucs')
-      }
+      clearSession(options._prefix || 'ucs')
+      redirectToLogin()
       throw new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))
     }
     if (!res.ok) {
