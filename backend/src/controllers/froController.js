@@ -3417,16 +3417,17 @@ export const getFollowUps = async (req, res) => {
   }
 };
 
-// All-time allotment summary for the logged-in FRO: every donor ever allotted to
-// them (one row per donor, latest assignment, excluding reassigned data) counted
-// by its current fro_assignments.status. Powers the "Today's Activity" modal.
+// Allotment summary for the logged-in FRO: every donor allotted to them (one
+// row per donor, latest assignment, excluding reassigned) counted by its current
+// fro_assignments.status. Optional ?month=YYYY-MM narrows to assignments made in
+// that IST calendar month; otherwise it is all-time. Powers the FRO activity modal.
 export const getMyAllotmentSummary = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ allotted: 0, by_status: [] });
 
-    const { data: rows, error } = await withStationNgoPairs(
+    let query = withStationNgoPairs(
       db
         .from('fro_assignments')
         .select('donor_id, status, assigned_at'),
@@ -3434,6 +3435,17 @@ export const getMyAllotmentSummary = async (req, res) => {
     )
       .eq('fro_worker_id', workerId)
       .not('status', 'eq', 'reassigned');
+
+    const { month } = req.query;
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      const [y, m] = month.split('-').map(Number);
+      // IST month boundaries (UTC+5:30) against the timestamptz column.
+      const start = new Date(Date.UTC(y, m - 1, 1) - 5.5 * 3600 * 1000);
+      const end = new Date(Date.UTC(y, m, 1) - 5.5 * 3600 * 1000);
+      query = query.gte('assigned_at', start.toISOString()).lt('assigned_at', end.toISOString());
+    }
+
+    const { data: rows, error } = await query;
     if (error) throw error;
 
     // One status per donor: keep each donor's most recent non-reassigned row so

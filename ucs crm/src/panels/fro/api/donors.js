@@ -76,8 +76,9 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
-export async function getMyAllotmentSummary() {
-  return api('/fro/allotment-summary', { _prefix: 'ucs' })
+export async function getMyAllotmentSummary(month) {
+  const params = month ? `?month=${month}` : ''
+  return api(`/fro/allotment-summary${params}`, { _prefix: 'ucs' })
 }
 
 export async function getMyPerformance() {
