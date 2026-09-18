@@ -22,7 +22,7 @@ export default function LiveFroStatus() {
   }
 
   const resetAllIdle = async () => {
-    if (!window.confirm('Clear today\\'s idle time for ALL FROs? This resets every FRO\\'s current idle counter to zero.')) return
+    if (!window.confirm("Clear today's idle time for ALL FROs? This resets every FRO's current idle counter to zero.")) return
     setResetting(true)
     try {
       await api('/fro/status/reset-idle', { method: 'PUT', body: JSON.stringify({}), _prefix: 'ucs' })
