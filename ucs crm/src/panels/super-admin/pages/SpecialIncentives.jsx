@@ -663,10 +663,7 @@ export default function SpecialIncentives() {
     <div className="si-scope">
       <style>{SI_CSS}</style>
 
-      {/* Breadcrumb + header */}
-      <div style={{ fontSize: 12, color: C.muted, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        Finance <span style={{ margin: '0 4px', color: '#B9C8DC' }}>›</span> Sir ka Incentive
-      </div>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <span style={{ width: 40, height: 40, borderRadius: 12, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Trophy size={20} weight="fill" />
@@ -687,28 +684,6 @@ export default function SpecialIncentives() {
 
       {tab === 'dashboard' ? (
         <>
-          {/* NGO selectors */}
-          <div className="si-selectors" style={{ marginBottom: 16 }}>
-            {buckets.map((b) => {
-              const active = selected === b.key
-              return (
-                <button key={b.key} type="button" onClick={() => setSelected(b.key)}
-                  style={{
-                    height: 62, borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit',
-                    background: b.bg, border: `1.5px solid ${active ? b.accent : b.border}`,
-                    boxShadow: active ? `0 0 0 1px ${b.accent}` : 'none',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    padding: '0 12px', minWidth: 0,
-                  }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: b.accent, flexShrink: 0 }} />
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {b.label}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-
           {/* Main grid */}
           <div className="si-grid">
             <div className="si-col">
