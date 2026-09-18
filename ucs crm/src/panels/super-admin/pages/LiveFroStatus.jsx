@@ -132,14 +132,33 @@ export default function LiveFroStatus() {
 
   useEffect(() => { loadStatuses(false) }, [])
 
+  // db:change fires on every FRO heartbeat (each open panel pushes ~every
+  // 30s), so reloads are coalesced to at most one per 10s. The list stays
+  // live without refetching the status aggregation N times per heartbeat wave.
   useEffect(() => {
-    return onDbChange({
+    let timer = null
+    let last = 0
+    const queue = () => {
+      if (!aliveRef.current || timer) return
+      const wait = Math.max(0, 10000 - (Date.now() - last))
+      timer = setTimeout(() => {
+        timer = null
+        if (!aliveRef.current) return
+        last = Date.now()
+        loadStatuses(false)
+      }, wait)
+    }
+    const off = onDbChange({
       table: 'fro_live_status',
       event: '*',
-      onInsert: () => loadStatuses(false),
-      onUpdate: () => loadStatuses(false),
-      onDelete: () => loadStatuses(false),
+      onInsert: queue,
+      onUpdate: queue,
+      onDelete: queue,
     })
+    return () => {
+      if (timer) clearTimeout(timer)
+      if (typeof off === 'function') off()
+    }
   }, [])
 
   // One shared ticker for call/break durations — no per-card intervals.

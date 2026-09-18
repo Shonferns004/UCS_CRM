@@ -266,12 +266,19 @@ export const refreshSpecialIncentive = async (incentiveId) => {
   const rows = await sql(WINDOW_COLLECTION_SQL, [inc.start_at, inc.end_at, inc.ngo_id]);
   const nowIso = new Date().toISOString();
 
+  // One batched read instead of a SELECT per worker (N+1 on every refresh).
+  const { data: existingRows } = await db
+    .from('special_incentive_progress')
+    .select('id, worker_id, hit_target_at')
+    .eq('special_incentive_id', inc.id);
+  const existingByWorker = new Map((existingRows || []).map((p) => [String(p.worker_id), p]));
+
   for (const r of rows || []) {
     const raw = Number(r.amount) || 0;
     const amount = Math.min(raw, target);
     const hit = raw >= target ? nowIso : null;
     try {
-      const existing = await getProgressForWorker(inc.id, r.worker_id);
+      const existing = existingByWorker.get(String(r.worker_id));
       if (existing) {
         await db
           .from('special_incentive_progress')
@@ -343,7 +350,13 @@ export const endWithoutWinner = async (incentiveId) => {
 };
 
 // Cheap existence check + refresh. Safe to call after any donor-log write.
+// In-flight guard: refreshes are triggered both by the scheduler poll and by
+// every donor-log write, so overlapping runs would stack window aggregations
+// and per-worker upserts on the t3.micro.
+let refreshRunning = false;
 export const maybeRefreshSpecialIncentives = async () => {
+  if (refreshRunning) return;
+  refreshRunning = true;
   try {
     const active = await getActiveIncentives();
     if (active.length === 0) return;
@@ -352,6 +365,8 @@ export const maybeRefreshSpecialIncentives = async () => {
     );
   } catch (e) {
     console.error('[special incentive] maybeRefresh:', e.message);
+  } finally {
+    refreshRunning = false;
   }
 };
 

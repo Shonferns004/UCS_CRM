@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import db from '../config/db.js';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import {
   listFroSuspense, resolveSuspenseEntry, searchFroDispositions,
