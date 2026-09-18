@@ -1203,6 +1203,14 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         reloadDonors();
       }
       setExternalDonor(null);
+      // Overdue view: drop the just-worked lead right away so a changed
+      // disposition never lingers in Overdue (backend also excludes
+      // same-day-worked assignments on refetch).
+      if (listView === 'overdue') {
+        getOverdue()
+          .then((list) => setOverdueLeads(list || []))
+          .catch(() => {});
+      }
       clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
