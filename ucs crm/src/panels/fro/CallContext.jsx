@@ -174,6 +174,11 @@ export function CallProvider({ children, userId }) {
   const todayStatsRef = useRef(todayStats); todayStatsRef.current = todayStats
   // Start of the current idle streak (ISO), set by the call-idle engine
   const callIdleSinceRef = useRef(null)
+  // True once today's counters have been seeded from the server on panel load.
+  // Until then the in-memory counters are ZERO_STATS — pushing them would
+  // overwrite the day's real totals (now guarded server-side too, but a fresh
+  // tab must never even send zeros).
+  const hydratedRef = useRef(false)
 
   const clearTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null } }
   const clearBreakTimer = () => { if (breakTimerRef.current) { clearInterval(breakTimerRef.current); breakTimerRef.current = null } }
@@ -191,17 +196,23 @@ export function CallProvider({ children, userId }) {
         : (activeCallRef.current ? 'on_call'
           : (callIdleSinceRef.current ? 'idle' : 'online')))
     setLiveStatus(status)
+    // Pre-hydration (or explicit stats): never send unseeded in-memory
+    // counters — status-only announce keeps presence fresh without risking
+    // the day's totals. Explicit statsOverride values are always safe to send.
+    const countersReady = hydratedRef.current || statsOverride != null
     api('/fro/status', {
       method: 'PUT',
       body: JSON.stringify({
         status,
         current_donor_name: activeCallRef.current?.donorName || null,
         current_donor_id: activeCallRef.current?.donorId || null,
-        today_calls: stats.calls,
-        today_talk_seconds: stats.totalSeconds,
-        today_skipped: stats.skippedDonors,
-        today_idle_seconds: stats.idleSeconds,
-        today_break_seconds: stats.breakSeconds,
+        ...(countersReady ? {
+          today_calls: stats.calls,
+          today_talk_seconds: stats.totalSeconds,
+          today_skipped: stats.skippedDonors,
+          today_idle_seconds: stats.idleSeconds,
+          today_break_seconds: stats.breakSeconds,
+        } : {}),
         on_break: onBreakRef.current,
         ...extra,
       }),
@@ -220,6 +231,7 @@ export function CallProvider({ children, userId }) {
   const hydrateTodayStats = useCallback((next) => {
     todayStatsRef.current = next
     setTodayStats(next)
+    hydratedRef.current = true
   }, [])
 
 // ---------- Combined mouse/call idle engine (5 min) ----------
@@ -303,6 +315,10 @@ export function CallProvider({ children, userId }) {
       } catch (e) {
         console.error('Error:', e.message)
       } finally {
+        // Mark hydrated even on failure / new-day (zeros are then deliberate
+        // for the new day) so later syncs carry counters; the pre-hydration
+        // sync above stays status-only and can never push unseeded zeros.
+        hydratedRef.current = true
         if (!cancelled) syncAllStats()
       }
     })()
