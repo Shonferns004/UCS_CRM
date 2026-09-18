@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { emitRealtime } from '../socket.js';
+import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
@@ -1877,7 +1877,11 @@ export const getMyDonors = async (req, res) => {
 
     let effectiveScope = myScope;
     let effectiveStations = stationNames;
-    if (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) {
+    if (req.query.ngo_id) {
+      // A requested NGO outside this FRO's scope must yield an empty queue —
+      // never fall back to the full scope (that would leak other NGOs' leads
+      // into a stale saved filter, the classic "wrong data" complaint).
+      if (!allowedNgoIds.includes(req.query.ngo_id)) return res.json({ donors: [], total: 0 });
       effectiveScope = myScope.filter(s => s.ngo_id === req.query.ngo_id);
       effectiveStations = effectiveScope.map(s => s.station);
     }
@@ -2209,18 +2213,19 @@ export const getMyDonors = async (req, res) => {
     const now = new Date();
     const nowISO = now.toISOString();
 
-    // Latest disposition per donor via a single DISTINCT ON query instead of
-    // pulling unbounded full disposition histories (no LIMIT) and deduping in
-    // JS. Identical semantics: first row per donor in created_at DESC order.
+    // Latest disposition per donor for THIS worker via a single DISTINCT ON
+    // query. Must be scoped to fro_worker_id — donor_ids are global and the
+    // same donor can be allotted to several FROs/stations, so another FRO's
+    // wrong_number/terminal disposition must never hide this FRO's lead.
     const notConnectedForeverIds = new Set();
     const terminalForeverIds = new Set();
     if (donorIds.length > 0) {
       const { rows: latestDisps } = await db._pool.query(
         `SELECT DISTINCT ON (donor_id) donor_id, disposition_detail
          FROM fro_donor_logs
-         WHERE donor_id = ANY($1) AND action = 'disposition'
+         WHERE donor_id = ANY($1) AND action = 'disposition' AND fro_worker_id = $2
          ORDER BY donor_id, created_at DESC`,
-        [donorIds]
+        [donorIds, workerId]
       );
       for (const log of latestDisps || []) {
         if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
@@ -2244,6 +2249,7 @@ export const getMyDonors = async (req, res) => {
       const { rows: todayRows } = await db._pool.query(
         `SELECT DISTINCT donor_id FROM fro_donor_logs
          WHERE donor_id = ANY($1) AND fro_worker_id = $2
+           AND action = 'disposition'
            AND created_at >= $3 AND created_at < $4`,
         [donorIds, workerId, start.toISOString(), end.toISOString()]
       );
@@ -4502,6 +4508,10 @@ export const getLiveStatuses = async (req, res) => {
         id: ls.id,
         worker_id: ls.worker_id,
         status: ls.status,
+        // Live-socket presence (panel open right now). Admins can prefer this
+        // over updated_at age for "offline?" decisions — rows only move on
+        // real events now that timer heartbeats are gone.
+        socket_online: isWorkerOnline(ls.worker_id),
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,
         paused_at: ls.paused_at || null,

@@ -3,6 +3,43 @@ import jwt from 'jsonwebtoken';
 
 let io = null;
 
+// Live-socket presence: worker ids holding at least one authenticated socket
+// right now. This is the source of truth for "panel open", replacing timer
+// heartbeats. Same-process only (single PM2 fork) — do NOT rely on this if
+// the backend ever moves to multi-process cluster mode (would need redis).
+const workerSockets = new Map(); // workerId (string) -> Set<socket.id>
+
+export function isWorkerOnline(workerId) {
+  if (workerId == null) return false;
+  const set = workerSockets.get(String(workerId));
+  return !!set && set.size > 0;
+}
+
+export function getOnlineWorkerIds() {
+  const out = [];
+  for (const [wid, set] of workerSockets) if (set.size > 0) out.push(wid);
+  return out;
+}
+
+function trackPresence(socket) {
+  const wid = socket.user && (socket.user.workerId || socket.user.id);
+  if (wid == null) return null;
+  const key = String(wid);
+  let set = workerSockets.get(key);
+  if (!set) {
+    set = new Set();
+    workerSockets.set(key, set);
+  }
+  set.add(socket.id);
+  socket.on('disconnect', () => {
+    const s = workerSockets.get(key);
+    if (!s) return;
+    s.delete(socket.id);
+    if (s.size === 0) workerSockets.delete(key);
+  });
+  return key;
+}
+
 export function initRealtime(server) {
   if (io) return io;
   io = new Server(server, {
@@ -31,6 +68,9 @@ export function initRealtime(server) {
     // Without this, pause/resume emits silently go nowhere.
     const wid = socket.user && (socket.user.workerId || socket.user.id);
     if (wid) socket.join(`worker:${wid}`);
+    // Presence: an open authenticated socket means the panel is open, no
+    // heartbeat timer needed. Multi-tab = multiple socket ids, one entry.
+    trackPresence(socket);
   });
 
   return io;

@@ -1,17 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { api } from '../api/auth';
 
 export function useActivityTracking(userId, options = {}) {
   const {
     idleThreshold = 6 * 60 * 1000, // 6 minutes without mouse activity
-    // 60s, not 30s: each heartbeat is a live-status UPSERT + auth touch +
-    // global broadcast. All freshness gates (2-min idle detector, 3-min
-    // pause/offline checks) still pass comfortably at 60s, and the
-    // visibility-change handler pushes immediately when a tab refocuses.
-    heartbeatInterval = 60 * 1000, // 60 seconds
     onIdle,
     onActive,
-    onHeartbeat,
     callIdleThreshold = 6 * 60 * 1000, // 6 minutes without call activity
     onCallIdle,
     onCallResume,
@@ -19,7 +12,6 @@ export function useActivityTracking(userId, options = {}) {
   } = options;
 
   const idleTimerRef = useRef(null);
-  const heartbeatTimerRef = useRef(null);
   const lastActivityRef = useRef(Date.now());
   const isIdleRef = useRef(false);
   const userIdRef = useRef(userId);
@@ -28,7 +20,7 @@ export function useActivityTracking(userId, options = {}) {
 
   // Callbacks live in a ref so timers stay stable and always call fresh closures
   const cbsRef = useRef({});
-  cbsRef.current = { onIdle, onActive, onHeartbeat, onCallIdle, onCallResume, isExempt };
+  cbsRef.current = { onIdle, onActive, onCallIdle, onCallResume, isExempt };
 
   // ---------- Mouse-idle timer ----------
   // Mouse inactivity is one side of the OR-based idle rule.
@@ -116,28 +108,6 @@ export function useActivityTracking(userId, options = {}) {
     return () => clearInterval(interval);
   }, [userId, checkCallIdle]);
 
-  // ---------- Heartbeat (liveness only) ----------
-  // Status + idle_since are owned by CallContext.syncAllStats so the heartbeat
-  // can never flip an on_call/break/idle status mid-flight. It only refreshes
-  // updated_at/last_activity_at so the NGO admin freshness check passes.
-  const sendHeartbeat = useCallback(async () => {
-    if (!userIdRef.current) return;
-
-    try {
-      await api('/fro/status', {
-        method: 'PUT',
-        body: JSON.stringify({
-          last_activity_at: new Date().toISOString(),
-        }),
-        _prefix: 'ucs',
-      });
-
-      cbsRef.current.onHeartbeat?.();
-    } catch (err) {
-      console.error('Heartbeat failed:', err.message);
-    }
-  }, []);
-
   // ---------- Mouse activity listeners ----------
   useEffect(() => {
     const events = ['mousemove'];
@@ -160,39 +130,22 @@ export function useActivityTracking(userId, options = {}) {
     };
   }, [resetIdleTimer]);
 
-  // Heartbeat timer
-  useEffect(() => {
-    if (!userId) return;
-    sendHeartbeat();
-
-    heartbeatTimerRef.current = setInterval(sendHeartbeat, heartbeatInterval);
-
-    return () => {
-      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
-    };
-  }, [userId, heartbeatInterval, sendHeartbeat]);
-
-  // Handle page visibility change
+  // Presence is socket-based now (server tracks the open connection) — no
+  // timer pings. Refocusing a tab only resets the local idle timer; real
+  // state changes still push to the server via CallContext.syncAllStats.
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Page hidden - heartbeat interval keeps running
-      } else {
-        // Page visible - refresh liveness immediately
-        resetIdleTimer();
-        sendHeartbeat();
-      }
+      if (!document.hidden) resetIdleTimer();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [resetIdleTimer, sendHeartbeat]);
+  }, [resetIdleTimer]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
     };
   }, []);
 
@@ -204,7 +157,6 @@ export function useActivityTracking(userId, options = {}) {
     lastCallActivity: lastCallActivityRef.current,
     resetIdleTimer,
     resetCallActivity,
-    sendHeartbeat,
   };
 }
 

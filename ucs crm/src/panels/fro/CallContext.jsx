@@ -261,7 +261,7 @@ export function CallProvider({ children, userId, operatorId }) {
   }, [])
 
 // ---------- Combined mouse/call idle engine (6 min) ----------
-  const { isCallIdle, callIdleSince, resetCallActivity, sendHeartbeat } = useActivityTracking(userId, {
+  const { isCallIdle, callIdleSince, resetCallActivity } = useActivityTracking(userId, {
     callIdleThreshold: 6 * 60 * 1000,
     // Breaks, live calls, open donor views, meeting mode and admin pause are exempt from idle detection
     isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
@@ -634,7 +634,7 @@ export function CallProvider({ children, userId, operatorId }) {
       activeCall, elapsed, todayStats, startCall, endCall, isOnCall: !!activeCall,
       startDonorView, endDonorView, syncAllStats, fmt,
       onBreak, breakElapsed, toggleBreak, isBreakOvertime, BREAK_LIMIT,
-      isCallIdle, resetCallActivity, sendHeartbeat, status: liveStatus,
+      isCallIdle, resetCallActivity, status: liveStatus,
       paused, pausedBy, resumeSelf,
     }}>
       {children}
