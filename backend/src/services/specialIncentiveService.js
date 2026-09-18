@@ -329,15 +329,16 @@ export const claimWinnerIfReady = async (incentiveId) => {
 };
 
 export const endWithoutWinner = async (incentiveId) => {
+  // No one won: end it AND auto-archive so it leaves the live views at once.
   const { data, error } = await db
     .from('special_incentives')
-    .update({ status: 'ended' })
+    .update({ status: 'ended', archived_at: new Date().toISOString(), archived_by: null })
     .eq('id', incentiveId)
     .eq('status', 'active')
     .select();
   if (error) throw error;
   if (data && data.length > 0) {
-    console.log(`[special incentive] ${incentiveId} ended without a winner`);
+    console.log(`[special incentive] ${incentiveId} ended without a winner (auto-archived)`);
   }
 };
 
