@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
   createHandler,
+  updateHandler,
   activeHandler,
   historyHandler,
   cancelHandler,
@@ -10,6 +11,7 @@ import {
   leaderboardHandler,
   claimsHandler,
   verifyClaimHandler,
+  congratsHandler,
   celebrateHandler,
   archiveHandler,
   deleteHandler,
@@ -24,6 +26,8 @@ const popupLevel = authenticateRole('super_admin', 'admin', 'accounts', 'hr', 'w
 const claimLevel = authenticateRole('super_admin', 'admin', 'accounts', 'hr');
 
 router.post('/', sirLevel, createHandler);
+router.put('/:id', sirLevel, updateHandler);
+router.post('/:id/congrats', sirLevel, congratsHandler);
 router.get('/active', popupLevel, activeHandler);
 router.get('/', sirLevel, historyHandler);
 router.get('/claims', claimLevel, claimsHandler);

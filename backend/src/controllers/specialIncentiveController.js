@@ -6,6 +6,7 @@ import {
   getLeaderboard,
   getProgressForWorker,
   createSpecialIncentive,
+  updateSpecialIncentive,
   cancelSpecialIncentive,
   getHistory,
   refreshSpecialIncentive,
@@ -201,14 +202,91 @@ export async function historyHandler(req, res) {
   try {
     const list = await getHistory(Number(req.query.limit) || 60);
     const enriched = [];
+    const ids = new Set();
     for (const inc of list) {
       const base = pretty(inc);
-      enriched.push({
-        ...base,
-        leaderboard: await getLeaderboard(inc.id),
-      });
+      const board = await getLeaderboard(inc.id);
+      for (const p of board || []) if (p.worker_id) ids.add(p.worker_id);
+      enriched.push({ ...base, leaderboard: board });
     }
-    return res.json(enriched);
+    // Attach profile photos so leaderboard cards can show faces.
+    let photoMap = {};
+    if (ids.size > 0) {
+      try {
+        const { data: ws } = await db.from('workers').select('id, photo_url').in('id', [...ids]);
+        photoMap = Object.fromEntries((ws || []).map((w) => [w.id, w.photo_url || null]));
+      } catch (e) {
+        console.error('[special incentive] leaderboard photos:', e.message);
+      }
+    }
+    return res.json(enriched.map((e) => ({
+      ...e,
+      leaderboard: (e.leaderboard || []).map((p) => ({ ...p, photo_url: photoMap[p.worker_id] || null })),
+    })));
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function updateHandler(req, res) {
+  try {
+    const inc = await getIncentiveById(req.params.id);
+    if (!inc) return res.status(404).json({ message: 'Incentive not found' });
+    if (inc.status !== 'active') {
+      return res.status(400).json({ message: 'Only live incentives can be edited' });
+    }
+    const { title, message, target_amount, incentive_amount, start_at, end_at, ngo_id } = req.body || {};
+    if (title !== undefined && !String(title).trim()) {
+      return res.status(400).json({ message: 'Title is required' });
+    }
+    if (target_amount !== undefined && !(Number(target_amount) > 0)) {
+      return res.status(400).json({ message: 'Target must be more than zero' });
+    }
+    if (incentive_amount !== undefined && !(Number(incentive_amount) > 0)) {
+      return res.status(400).json({ message: 'Reward must be more than zero' });
+    }
+    if ((start_at !== undefined || end_at !== undefined)) {
+      const s = start_at !== undefined ? start_at : inc.start_at;
+      const e = end_at !== undefined ? end_at : inc.end_at;
+      if (!s || !e || new Date(s).getTime() >= new Date(e).getTime()) {
+        return res.status(400).json({ message: 'End date-time must be after start date-time' });
+      }
+    }
+    const updated = await updateSpecialIncentive(req.params.id, {
+      ...(title !== undefined ? { title: String(title).trim() } : {}),
+      ...(message !== undefined ? { message: String(message || '') } : {}),
+      ...(target_amount !== undefined ? { target_amount: Number(target_amount) } : {}),
+      ...(incentive_amount !== undefined ? { incentive_amount: Number(incentive_amount) } : {}),
+      ...(start_at !== undefined ? { start_at: new Date(start_at).toISOString() } : {}),
+      ...(end_at !== undefined ? { end_at: new Date(end_at).toISOString() } : {}),
+      ...(ngo_id !== undefined ? { ngo_id: ngo_id || null } : {}),
+    });
+    if (!updated) return res.status(400).json({ message: 'Unable to update this incentive' });
+    return res.json({ incentive: pretty(updated) });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// AI-written congratulation preview for a won incentive (History composer).
+// Falls back to a template so the button never hard-fails.
+export async function congratsHandler(req, res) {
+  try {
+    const inc = await getIncentiveById(req.params.id);
+    if (!inc) return res.status(404).json({ message: 'Incentive not found' });
+    try {
+      const text = await generateCongratsMessage({
+        winnerName: inc.winner_name,
+        title: inc.title,
+        amount: inc.incentive_amount,
+      });
+      if (text) return res.json({ message: text });
+    } catch (e) {
+      console.error('[special incentive] ai congrats:', e.message);
+    }
+    return res.json({
+      message: `Heartiest congratulations to ${inc.winner_name || 'our champion'} for winning "${inc.title || 'the incentive'}" with a reward of ₹${Number(inc.incentive_amount || 0).toLocaleString('en-IN')}! Your hard work inspires the whole team. 🎉`,
+    });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
