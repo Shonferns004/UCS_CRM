@@ -343,16 +343,19 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
                 <div className="du-today-title">{panelTitle}</div>
                 <div className="du-today-value">{loadingPeriod ? '—' : `${worked.toLocaleString('en-IN')} leads`}</div>
               </div>
-              <select
-                className="du-filter"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                aria-label="Filter breakdown"
-              >
-                <option value="all">Filter: All</option>
-                <option value="connects">Connects</option>
-                <option value="non">Non Connects</option>
-              </select>
+              <div className="du-batch-seg" role="group" aria-label="Filter breakdown">
+                {['all', 'connects', 'non'].map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={`du-batch-btn${filter === f ? ' active' : ''}`}
+                    aria-pressed={filter === f}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'all' ? 'All' : f === 'connects' ? 'Connects' : 'Non Connects'}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="du-today-body">
@@ -434,8 +437,6 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
           .du-today-text { min-width: 0; }
           .du-today-title { font-size: 14px; font-weight: 700; color: #10213D; }
           .du-today-value { font-size: 20px; font-weight: 750; color: #10213D; margin-top: 1px; font-variant-numeric: tabular-nums; line-height: 1.1; }
-          .du-filter { height: 36px; background: #fff; border: 1px solid #C9DAEE; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 600; padding: 0 10px; outline: none; cursor: pointer; font-family: inherit; flex-shrink: 0; max-width: 100%; }
-          .du-filter:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
           .du-today-body { padding: 10px 12px 12px; min-width: 0; }
           .du-breakdown-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; min-width: 0; }
           .du-breakdown-grid > * { min-width: 0; }
