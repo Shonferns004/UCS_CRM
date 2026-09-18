@@ -4,7 +4,11 @@ import { api } from '../api/auth';
 export function useActivityTracking(userId, options = {}) {
   const {
     idleThreshold = 6 * 60 * 1000, // 6 minutes without mouse activity
-    heartbeatInterval = 30 * 1000,  // 30 seconds
+    // 60s, not 30s: each heartbeat is a live-status UPSERT + auth touch +
+    // global broadcast. All freshness gates (2-min idle detector, 3-min
+    // pause/offline checks) still pass comfortably at 60s, and the
+    // visibility-change handler pushes immediately when a tab refocuses.
+    heartbeatInterval = 60 * 1000, // 60 seconds
     onIdle,
     onActive,
     onHeartbeat,
