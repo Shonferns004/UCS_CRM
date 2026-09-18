@@ -1307,8 +1307,9 @@ export default function Dashboard() {
   };
 
   // Derived: day totals + per-FRO productivity alerts for the selected hourly date.
-  // Idle duration comes from the live idle streak (fro_live_status.idle_since),
-  // the same source that powers the Telecaller Performance "Idle Xm" pill.
+  // For TODAY the idle comes from the live effective counter — the exact same
+  // value as the Telecaller Performance IDLE HR column. Past dates use the
+  // fro_daily_stats snapshot (history).
   const hourlyAlerts = useMemo(() => {
     const workAsNameById = new Map();
     for (const pf of (tlData?.performance || [])) {
@@ -1329,10 +1330,22 @@ export default function Dashboard() {
 
     const perfById = new Map();
     for (const p of (tlData?.performance || [])) perfById.set(p.fro_id, p);
+    const perfOf = (id) => perfById.get(id) ?? perfById.get(String(id)) ?? perfById.get(Number(id));
+    const hrOf = (id) => byFro[id] ?? byFro[String(id)];
+    // Attendance snapshot (fro_daily_stats): used ONLY for past dates and for
+    // the punched-in filter + rank. For TODAY the idle MUST come from the live
+    // effective value (same as Telecaller Performance IDLE HR) — the snapshot
+    // is max-keep, never resets intraday, and ignores Clear Idle Time.
+    const punchedInById = new Map();
+    const rankById = new Map();
+    for (const s of (dailyStats || [])) {
+      punchedInById.set(String(s.fro_id), s.punched_in === true);
+      if (s.rank) rankById.set(String(s.fro_id), s.rank);
+    }
+    const hasAttendance = dailyStats && dailyStats.length > 0;
+    const effIdleMins = (id) => Math.round(((perfOf(id)?.today_idle_seconds) || 0) / 60);
 
-    // Saved daily snapshot (fro_daily_stats) for the selected date: gives every
-    // FRO's idle for PAST days and their rank, not just today's live streak.
-    if (dailyStats && dailyStats.length > 0) {
+    if (!isToday && hasAttendance) {
       const idle = dailyStats
         .map(s => {
           const hr = byFro[s.fro_id];
@@ -1357,31 +1370,32 @@ export default function Dashboard() {
       return { idle, noCalls, elapsed, isToday };
     }
 
-    // Fallback when no snapshot rows exist yet (today, before any heartbeat).
-    const idle = Object.values(byFro)
-      .filter(f => {
-        const st = perfById.get(f.id)?.status;
-        return st && st !== 'offline';
-      })
-      .map(f => {
-        const totalIdleMins = Math.round(((perfById.get(f.id)?.today_idle_seconds) || 0) / 60);
-        return {
-          id: f.id,
-          name: f.name,
-          idleMinutes: totalIdleMins,
-          calls: f.calls,
-          connected: f.connected,
-          rank: perfById.get(f.id)?.rank ?? null,
-          workAsName: workAsNameById.get(f.id) || perfById.get(f.id)?.work_as_operator_name || null,
-        };
-      }).sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
+    // TODAY: idle from the live effective counter — identical to the
+    // Telecaller Performance IDLE HR column (committed + running streak).
+    const candMap = new Map();
+    for (const p of (tlData?.performance || [])) candMap.set(String(p.fro_id), { id: p.fro_id, name: p.fro_name || 'Unknown' });
+    for (const k of Object.keys(byFro)) {
+      if (!candMap.has(String(k))) candMap.set(String(k), { id: byFro[k].id, name: byFro[k].name });
+    }
+    const presentNow = (id) => { const st = perfOf(id)?.status; return st && st !== 'offline'; };
+    const idle = [...candMap.values()]
+      .map(({ id, name }) => ({
+        id,
+        name,
+        idleMinutes: effIdleMins(id),
+        calls: hrOf(id)?.calls || 0,
+        connected: hrOf(id)?.connected || 0,
+        rank: rankById.get(String(id)) ?? perfOf(id)?.rank ?? null,
+        punchedIn: hasAttendance ? punchedInById.get(String(id)) === true : undefined,
+        workAsName: workAsNameById.get(id) ?? workAsNameById.get(String(id)) ?? perfOf(id)?.work_as_operator_name ?? null,
+      }))
+      .filter(f => f.idleMinutes > 0 && (hasAttendance ? f.punchedIn : presentNow(f.id)))
+      .sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
 
-    const noCalls = Object.values(byFro).filter(f => {
-      // Zero calls AND present right now — absent (offline) FROs are not shown.
-      const st = perfById.get(f.id)?.status;
-      return f.calls === 0 && st && st !== 'offline';
-    });
-    noCalls.sort((a, b) => a.name.localeCompare(b.name));
+    const noCalls = [...candMap.values()]
+      .filter(({ id }) => (hrOf(id)?.calls || 0) === 0 && (hasAttendance || presentNow(id)))
+      .map(({ id, name }) => ({ id, name, workAsName: workAsNameById.get(id) ?? workAsNameById.get(String(id)) ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     return { idle, noCalls, elapsed, isToday };
   }, [hourlyFroRows, hourlyDate, tlData, dailyStats]);
 
