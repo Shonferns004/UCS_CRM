@@ -39,14 +39,19 @@ const isCollectionLog = (log) =>
 const RETRYABLE_NOT_CONNECTED = new Set([
   'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
 ]);
+// Mirrors the backend baseFiltered hidden-by-status sets exactly (money-done +
+// schedule/callback + hard-terminal). Connected-terminal dispositions
+// (email_sent, whatsapp_sent, query_complaint, …) are NOT hidden here — the
+// backend only hides them once this worker logs them (terminalForeverIds), so
+// hiding by status alone made the list shorter than the backend total.
 const HIDDEN_STATUSES = new Set([
-  'lead_done', 'donation_collected', 'done',
+  'lead_done', 'donation_collected', 'done', 'visit_donate',
+  'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
   'scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
-  'wrong_number', 'invalid_number', 'rejected',
+  'wrong_number', 'invalid_number', 'invalid', 'rejected',
   'temporary_network_issue', 'incoming_out',
   'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'not_possible', 'language_barrier',
-  'call_disconnected', 'email_sent', 'whatsapp_sent', 'transferred_senior',
-  'query_complaint', 'receipt_request', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
+  'call_disconnected',
   'others',
 ]);
 // Status-group buckets for the MY LEADS list filter. Grouped so the FRO can scan
@@ -71,7 +76,11 @@ function isNewDonor(d) {
   return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
 }
 function filterDonors(list) {
-  return list.filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month);
+  // Backend is authoritative for workability — only drop rows it guarantees
+  // hidden by status. Current-month donations stay in the list here and are
+  // hidden by the listHideDonated toggle in the visible filter so the
+  // "Showing X of Y" count stays explainable.
+  return list.filter(d => !HIDDEN_STATUSES.has(d.status));
 }
 
 function dedupeDonors(list) {
@@ -1443,6 +1452,12 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
               <option value="all" style={{ color: 'var(--ink)' }}>All stations</option>
               {stationList.map(s => <option key={s} value={s} style={{ color: 'var(--ink)' }}>{s}</option>)}
             </select>
+            {listView === 'leads' && (
+              <button onClick={() => setListHideDonated(v => !v)} title={listHideDonated ? 'Show this-month donated leads' : 'Hide this-month donated leads'}
+                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listHideDonated ? 'var(--bg)' : 'var(--sage)', color: listHideDonated ? 'var(--ink-soft)' : '#fff', outline: 'none' }}>
+                {listHideDonated ? 'Donated: hidden' : 'Donated: shown'}
+              </button>
+            )}
             {isHistory && (
               <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
                 style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listStatusFilter !== 'all' ? 'var(--sage)' : 'var(--bg)', color: listStatusFilter !== 'all' ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
