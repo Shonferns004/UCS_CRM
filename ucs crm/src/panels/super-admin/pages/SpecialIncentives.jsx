@@ -814,16 +814,9 @@ export default function SpecialIncentives() {
       {/* Header (sticky — stays visible while scrolling) */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
-        padding: '12px 0', marginBottom: 14,
-        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        padding: '8px 0', marginBottom: 14,
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
       }}>
-        <span style={{ width: 40, height: 40, borderRadius: 12, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Trophy size={20} weight="fill" />
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 27, fontWeight: 700, color: C.text, letterSpacing: -0.2, lineHeight: 1.15 }}>Sir ka Incentive</h1>
-          <div style={{ marginTop: 2, fontSize: 13, color: C.muted, lineHeight: 1.4 }}>Track and reward top performers for each NGO.</div>
-        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {tabBtn('dashboard', 'Dashboard')}
           {tabBtn('gallery', `Photo Gallery${celebrated.length ? ` (${celebrated.length})` : ''}`)}
