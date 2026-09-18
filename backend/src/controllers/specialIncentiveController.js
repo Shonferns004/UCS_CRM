@@ -268,6 +268,50 @@ export async function updateHandler(req, res) {
   }
 }
 
+// AI-drafted title + message for a NEW incentive, looking at the target and
+// reward. Falls back to a template so the button never hard-fails.
+export async function aiDraftHandler(req, res) {
+  try {
+    const target = Number(req.body?.target_amount) || 0;
+    const reward = Number(req.body?.incentive_amount) || 0;
+    const ngoName = String(req.body?.ngo_name || 'All NGOs');
+    const fallback = () => ({
+      title: `${ngoName} Collection Race`,
+      message: `First FRO to collect ₹${target.toLocaleString('en-IN')} wins ₹${reward.toLocaleString('en-IN')}! Every verified rupee counts — let's go!`,
+    });
+    try {
+      const model = process.env.GROQ_CONGRATS_MODEL || process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
+      const completion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You write short incentive announcements for FRO fundraising officers at a donation NGO. Reply in EXACTLY two lines: line 1 is the incentive title (max 8 words, plain text, no quotes), line 2 is the announcement message (1-2 sentences, cheerful and motivating, mention the target and reward amounts with ₹). Plain text only, no markdown, no numbering.',
+          },
+          { role: 'user', content: `NGO: ${ngoName}\nTarget: ₹${target}\nReward: ₹${reward}` },
+        ],
+        model,
+        max_tokens: 200,
+        temperature: 0.85,
+      });
+      const text = (completion.choices?.[0]?.message?.content || '').trim();
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length >= 2) {
+        return res.json({ title: lines[0].replace(/^["“”']+|["“”']+$/g, ''), message: lines.slice(1).join(' ') });
+      }
+      if (lines.length === 1) {
+        const fb = fallback();
+        return res.json({ title: lines[0], message: fb.message });
+      }
+    } catch (e) {
+      console.error('[special incentive] ai draft:', e.message);
+    }
+    return res.json(fallback());
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
 // AI-written congratulation preview for a won incentive (History composer).
 // Falls back to a template so the button never hard-fails.
 export async function congratsHandler(req, res) {

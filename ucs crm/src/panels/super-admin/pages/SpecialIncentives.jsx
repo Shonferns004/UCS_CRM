@@ -339,6 +339,54 @@ function HistoryRow({ inc, busyId, onEdit, onCancel, onArchive, onDelete, onSent
   )
 }
 
+// ─── Date + 12-hour time picker ───────────────────────────
+function DateTime12({ value, onChange }) {
+  const parse = (v) => {
+    const m = String(v || '').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/)
+    if (!m) return { d: '', h12: '10', mm: '00', ap: 'AM' }
+    const h = Number(m[2])
+    const ap = h >= 12 ? 'PM' : 'AM'
+    let h12 = h % 12
+    if (h12 === 0) h12 = 12
+    return { d: m[1], h12: String(h12), mm: m[3], ap }
+  }
+  const p = parse(value)
+  const emit = (np) => {
+    if (!np.d) { onChange(''); return }
+    let h = Number(np.h12) % 12
+    if (np.ap === 'PM') h += 12
+    onChange(`${np.d}T${String(h).padStart(2, '0')}:${np.mm}`)
+  }
+  const mins = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
+  if (!mins.includes(p.mm)) mins.push(p.mm)
+  mins.sort()
+  const sel = {
+    height: 38, borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff',
+    color: C.text, fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit',
+    padding: '0 6px', flexShrink: 0,
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <input type="date" value={p.d} onChange={(e) => emit({ ...p, d: e.target.value })}
+        style={{ flex: '1 1 140px', minWidth: 0, height: 38, borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.text, fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit', padding: '0 10px', boxSizing: 'border-box' }} />
+      <select value={p.h12} onChange={(e) => emit({ ...p, h12: e.target.value })} aria-label="Hour" style={sel}>
+        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((h) => (
+          <option key={h} value={h}>{h}</option>
+        ))}
+      </select>
+      <select value={p.mm} onChange={(e) => emit({ ...p, mm: e.target.value })} aria-label="Minute" style={sel}>
+        {mins.map((m) => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
+      <select value={p.ap} onChange={(e) => emit({ ...p, ap: e.target.value })} aria-label="AM or PM" style={sel}>
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  )
+}
+
 // ─── Create / Edit incentive modal ────────────────────────
 function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose }) {
   const [form, setForm] = useState(() => ({
@@ -350,6 +398,8 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
     start_at: toLocalInput(initial?.start_at || new Date(Date.now() + 5 * 60000)),
     end_at: toLocalInput(initial?.end_at || new Date(Date.now() + 24 * 3600 * 1000)),
   }))
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState('')
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
   useEffect(() => {
@@ -357,6 +407,43 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Lock the page behind the modal so it never scrolls underneath.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  const aiWrite = async () => {
+    const target = Number(form.target_amount) || 0
+    const reward = Number(form.incentive_amount) || 0
+    if (!(target > 0) || !(reward > 0)) {
+      setAiError('Enter Target and Reward first, then AI writes the title and message.')
+      return
+    }
+    setAiBusy(true)
+    setAiError('')
+    try {
+      const ngoName = form.ngo_id
+        ? (ngoOptions.find((n) => String(n.id) === String(form.ngo_id))?.name || 'NGO')
+        : 'All NGOs'
+      const r = await api('/incentive/special/ai-draft', {
+        method: 'POST', _prefix: 'ucs',
+        body: JSON.stringify({ target_amount: target, incentive_amount: reward, ngo_name: ngoName }),
+      })
+      if (r?.title) set('title', r.title)
+      if (r?.message) set('message', r.message)
+    } catch (e) {
+      setAiError(e.message || 'AI write failed')
+    }
+    finally { setAiBusy(false) }
+  }
+
+  const pillFor = (name) => {
+    const meta = NGO_META.find((m) => m.key !== 'all' && String(name || '').toUpperCase().includes(m.label))
+    return meta || null
+  }
 
   const label = (t) => (
     <label style={{ fontSize: 11.5, fontWeight: 700, color: C.text, display: 'block', marginBottom: 6 }}>{t}</label>
@@ -367,9 +454,11 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
     color: C.text, fontSize: 13, outline: 'none', fontFamily: 'inherit',
   }
 
+  const pills = [{ id: '', name: 'All NGOs' }, ...(ngoOptions || [])]
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99992, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflow: 'auto' }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(520px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 24px)', overflowY: 'auto', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(520px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 24px)', overflowY: 'auto', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)', margin: 'auto' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEF2F8', display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 0, background: '#fff' }}>
           <span style={{ width: 32, height: 32, borderRadius: 9, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Trophy size={16} weight="fill" />
@@ -389,21 +478,24 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
           )}
           <div>
             {label('NGO')}
-            <select value={form.ngo_id} onChange={(e) => set('ngo_id', e.target.value)} style={box}>
-              <option value="">All NGOs</option>
-              {ngoOptions.map((n) => (
-                <option key={n.id} value={n.id}>{n.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            {label('Title')}
-            <input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. BSCT Collection Race" style={box} />
-          </div>
-          <div>
-            {label('Message')}
-            <textarea value={form.message} onChange={(e) => set('message', e.target.value)} placeholder="Whoever collects the fastest…" rows={2}
-              style={{ ...box, height: 'auto', minHeight: 56, padding: '8px 12px', resize: 'vertical' }} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {pills.map((n) => {
+                const isActive = String(form.ngo_id || '') === String(n.id || '')
+                const meta = n.id ? pillFor(n.name) : NGO_META.find((m) => m.key === 'all')
+                return (
+                  <button key={n.id || 'all'} type="button" onClick={() => set('ngo_id', n.id || '')}
+                    style={{
+                      padding: '8px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
+                      fontSize: 12.5, fontWeight: 700, color: C.text, whiteSpace: 'nowrap',
+                      background: meta ? meta.bg : '#F8FAFD',
+                      border: `1.5px solid ${isActive ? (meta ? meta.accent : C.blue) : (meta ? meta.border : C.line)}`,
+                      boxShadow: isActive ? `0 0 0 1px ${meta ? meta.accent : C.blue}` : 'none',
+                    }}>
+                    {n.name}
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
@@ -416,12 +508,30 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
             </div>
           </div>
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 700, color: C.text, display: 'block', flex: 1 }}>Title</label>
+              <button type="button" onClick={aiWrite} disabled={aiBusy || saving}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 28, padding: '0 10px', borderRadius: 7, border: '1px solid #E2EAF5', background: '#fff', color: C.blue, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                <Sparkle size={13} /> {aiBusy ? 'Writing…' : 'AI Write'}
+              </button>
+            </div>
+            <input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. BSCT Collection Race" style={box} />
+            {aiError && (
+              <div style={{ fontSize: 11.5, color: '#C0392B', marginTop: 6 }}>{aiError}</div>
+            )}
+          </div>
+          <div>
+            {label('Message')}
+            <textarea value={form.message} onChange={(e) => set('message', e.target.value)} placeholder="Whoever collects the fastest…" rows={2}
+              style={{ ...box, height: 'auto', minHeight: 56, padding: '8px 12px', resize: 'vertical' }} />
+          </div>
+          <div>
             {label('Start Date/Time')}
-            <input type="datetime-local" value={form.start_at} onChange={(e) => set('start_at', e.target.value)} style={box} />
+            <DateTime12 value={form.start_at} onChange={(v) => set('start_at', v)} />
           </div>
           <div>
             {label('End Date/Time')}
-            <input type="datetime-local" value={form.end_at} onChange={(e) => set('end_at', e.target.value)} style={box} />
+            <DateTime12 value={form.end_at} onChange={(v) => set('end_at', v)} />
           </div>
         </div>
 
@@ -432,7 +542,7 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
           </button>
           <button type="button" onClick={() => onSave(form)} disabled={saving}
             style={{ flex: 1, height: 38, borderRadius: 8, border: 'none', background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : (initial ? 'Save' : 'Start')}
           </button>
         </div>
       </div>
@@ -448,6 +558,12 @@ function ViewAllModal({ meta, rows, onClose }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+  // Lock the page behind the modal so it never scrolls underneath.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99991, background: 'rgba(18,35,63,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(480px, 100%)', maxHeight: '84vh', display: 'flex', flexDirection: 'column', background: '#fff', border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 24px 60px rgba(18,35,63,.18)', overflow: 'hidden' }}>
@@ -569,6 +685,16 @@ export default function SpecialIncentives() {
     [history]
   )
 
+  // Ended (closed with no winner, not archived) and Archived tabs.
+  const endedList = useMemo(
+    () => (history || []).filter((i) => (i.status === 'ended' || i.status === 'cancelled') && !i.archived_at),
+    [history]
+  )
+  const archivedList = useMemo(
+    () => (history || []).filter((i) => !!i.archived_at),
+    [history]
+  )
+
   // Nothing live anywhere → leaderboard shows nothing at all.
   const hasLive = buckets.some((b) => (boards[b.key] || []).length > 0)
 
@@ -681,6 +807,8 @@ export default function SpecialIncentives() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {tabBtn('dashboard', 'Dashboard')}
+          {tabBtn('ended', `Ended${endedList.length ? ` (${endedList.length})` : ''}`)}
+          {tabBtn('archived', `Archived${archivedList.length ? ` (${archivedList.length})` : ''}`)}
           {tabBtn('gallery', `Photo Gallery${celebrated.length ? ` (${celebrated.length})` : ''}`)}
           <button type="button" onClick={() => { setModalError(''); setModal({ mode: 'create' }) }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 14px', borderRadius: 8, border: 'none', background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
@@ -743,10 +871,6 @@ export default function SpecialIncentives() {
                     <div style={{ fontSize: 18, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>History</div>
                     <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>All incentives across NGOs</div>
                   </div>
-                  <button type="button" onClick={() => { setModalError(''); setModal({ mode: 'create' }) }}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', borderRadius: 8, border: 'none', background: C.blue, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-                    <Plus size={14} weight="bold" /> New
-                  </button>
                 </div>
 
                 {loading ? (
@@ -794,7 +918,7 @@ export default function SpecialIncentives() {
             </div>
           </div>
         </>
-      ) : (
+      ) : tab === 'gallery' ? (
         <div className="si-panel">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <span style={{ width: 32, height: 32, borderRadius: 9, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -842,6 +966,59 @@ export default function SpecialIncentives() {
               ))}
             </div>
           )}
+        </div>
+      ) : (
+        <div className="si-panel">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <span style={{ width: 32, height: 32, borderRadius: 9, background: '#F1F6FC', color: '#6C8EBF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <ClockCounterClockwise size={16} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>{tab === 'ended' ? 'Ended' : 'Archived'}</div>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>
+                {tab === 'ended' ? 'Closed incentives with no winner' : 'Auto-archived and manually archived incentives'}
+              </div>
+            </div>
+          </div>
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="si-shimmer" style={{ height: 64, borderRadius: 10 }} />
+              ))}
+            </div>
+          ) : (() => {
+            const list = tab === 'ended' ? endedList : archivedList
+            if (list.length === 0) {
+              return (
+                <div style={{ padding: '48px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                    {tab === 'ended' ? 'No ended incentives' : 'No archived incentives'}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>
+                    {tab === 'ended'
+                      ? 'Incentives that close with no winner will appear here.'
+                      : 'Incentives with no winner auto-archive here.'}
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {list.map((inc) => (
+                  <HistoryRow
+                    key={inc.id}
+                    inc={inc}
+                    busyId={busyId}
+                    onEdit={(row) => { setModalError(''); setModal({ mode: 'edit', inc: row }) }}
+                    onCancel={cancelInc}
+                    onArchive={archiveInc}
+                    onDelete={removeInc}
+                    onSent={() => loadHistory()}
+                  />
+                ))}
+              </div>
+            )
+          })()}
         </div>
       )}
 
