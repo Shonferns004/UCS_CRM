@@ -24,6 +24,7 @@ import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
 import Notices from './pages/Notices'
+import LiveFroStatus from './pages/LiveFroStatus'
 import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
 
@@ -41,6 +42,7 @@ const NAV = [
   { id: 'admin-attendance', path: '/sa/admin-attendance', label: 'Attendance', eyebrow: 'People', icon: Clock },
   { id: 'recruiter', path: '/sa/recruiter', label: 'Recruiter', eyebrow: 'Recruitment', icon: MagnifyingGlass },
   { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
+  { id: 'live-fro', path: '/sa/live-fro', label: 'Live FRO Status', eyebrow: 'Operations', icon: Radio },
   { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
   { id: 'special-incentive', path: '/sa/special-incentive', label: 'Sir ka Incentive', eyebrow: 'Finance', icon: Trophy },
   { id: 'lead-incentive', path: '/sa/lead-incentive', label: 'Lead Incentive', eyebrow: 'Finance', icon: Trophy },
@@ -54,7 +56,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'assets', 'special-incentive', 'lead-incentive', 'notices']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'special-incentive', 'lead-incentive', 'notices']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -325,6 +327,7 @@ export default function SuperAdminPanel() {
         <Route path="events" element={<Events />} />
         <Route path="accounts" element={<PanelFrame src="/accounts" />} />
         <Route path="fro" element={<PanelFrame src="/fro" />} />
+        <Route path="live-fro" element={<LiveFroStatus />} />
         <Route path="ngo-admin" element={<PanelFrame src="/ngo-admin" />} />
         <Route path="hr" element={<PanelFrame src="/hr" />} />
         <Route path="admin-attendance" element={<AdminAttendance />} />
