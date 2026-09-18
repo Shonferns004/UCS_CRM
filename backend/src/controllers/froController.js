@@ -4102,8 +4102,13 @@ export const updateLiveStatus = async (req, res) => {
     // show 52m" split. Within the same IST day keep the larger value; a new
     // IST day (or explicit midnight/admin reset, which bypasses this endpoint)
     // starts from the client's number.
+    // force_counters (sent ONLY by the client's own midnight rollover and the
+    // admin-clear handler) bypasses max-keep so the daily reset actually
+    // sticks — otherwise the zero-push would lose to yesterday's max and the
+    // idle count would never reset.
     const counterFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
     const incomingCounters = Object.entries(counterFields).filter(([, v]) => v !== undefined);
+    const forceCounters = req.body.force_counters === true;
     if (incomingCounters.length > 0) {
       try {
         const { data: existing } = await db
@@ -4118,8 +4123,12 @@ export const updateLiveStatus = async (req, res) => {
         };
         const sameDay = existing?.updated_at && istDayOf(existing.updated_at) === istDayOf(Date.now());
         for (const [key, val] of incomingCounters) {
-          const prev = sameDay ? Number(existing?.[key] || 0) : 0;
-          payload[key] = Math.max(prev, val);
+          if (forceCounters || !sameDay) {
+            payload[key] = val;
+          } else {
+            const prev = Number(existing?.[key] || 0);
+            payload[key] = Math.max(prev, val);
+          }
         }
       } catch {
         for (const [key, val] of incomingCounters) payload[key] = val;
