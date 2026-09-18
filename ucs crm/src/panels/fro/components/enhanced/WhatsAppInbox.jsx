@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts } from '../../api/whatsappEnhanced'
-import { useRealtime } from '../../../../hooks/useRealtime'
+import { parseFilter } from '../../../../hooks/useRealtime'
+import { onDbChange } from '../../../../lib/socket'
 import { useIsMobile } from '../../../../hooks/useIsMobile'
 import ConversationList from './ConversationList'
 import { MessageList } from './MessageBubble'
@@ -166,9 +167,10 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   useEffect(() => {
     if (!activeConv?.id) return
-    return useRealtime('messages', {
+    return onDbChange({
+      table: 'messages',
       event: 'INSERT',
-      filter: `conversation_id=eq.${activeConv.id}`,
+      filter: parseFilter(`conversation_id=eq.${activeConv.id}`),
       onInsert: () => {
         queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
       },
@@ -176,7 +178,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [activeConv?.id, queryClient])
 
   useEffect(() => {
-    return useRealtime('conversations', {
+    return onDbChange({
+      table: 'conversations',
       event: '*',
       onInsert: () => queryClient.invalidateQueries({ queryKey: ['wa-conversations'] }),
       onUpdate: () => queryClient.invalidateQueries({ queryKey: ['wa-conversations'] }),
@@ -185,7 +188,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [queryClient])
 
   useEffect(() => {
-    return useRealtime('messages', {
+    return onDbChange({
+      table: 'messages',
       event: 'INSERT',
       onInsert: (payload) => {
         if (payload.new?.conversation_id && payload.new?.conversation_id !== activeConv?.id) {

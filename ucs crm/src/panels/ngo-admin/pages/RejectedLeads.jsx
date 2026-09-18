@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 import { toast } from '../../../components/Toast';
-import { useRealtime } from '../../../hooks/useRealtime';
+import { onDbChange } from '../../../lib/socket';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
@@ -26,7 +26,7 @@ export default function RejectedLeads() {
 
   useEffect(() => {
     load(true);
-    return useRealtime('rejected_lead_tickets', {
+    return onDbChange({ table: 'rejected_lead_tickets',
       event: '*',
       onInsert: () => load(false),
       onUpdate: () => load(false),
