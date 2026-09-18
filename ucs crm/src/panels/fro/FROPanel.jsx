@@ -1074,7 +1074,7 @@ useEffect(() => onFroAction((action) => {
   };
 
   return (
-    <CallProvider userId={user?.id}>
+    <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
