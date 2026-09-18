@@ -27,6 +27,25 @@ const DISPOSITION_LABELS = {
   ooc_unreachable_network: 'OOC / Unreachable / Network',
   ringing_voicemail: 'Ringing / Voicemail',
   resolved_suspense: 'Resolved Suspense', others: 'Others',
+  overdue_followup: 'Follow-Up Overdue', overdue_callback: 'Callback Overdue',
+};
+
+// Overdue buckets mirror the backend Telecaller split (past-due assignments):
+// callback-type statuses vs everything else except promise-type statuses.
+const OD_CALL_KEYS = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate', 'office_program_visit']);
+const OD_PROMISE_KEYS = new Set(['promise_to_pay', 'will_donate_online', 'payment_pending', 'promise_pay_wa_email']);
+const overdueKindOf = (key) => {
+  if (!key) return null;
+  if (OD_CALL_KEYS.has(key)) return 'callback';
+  if (OD_PROMISE_KEYS.has(key)) return null;
+  return 'followup';
+};
+const isPastDueRow = (d) => {
+  const nd = d && d.next_follow_up ? String(d.next_follow_up).slice(0, 10) : null;
+  if (!nd) return false;
+  const t = new Date();
+  const todayStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  return nd < todayStr;
 };
 
 const CONNECTED_STATUS_COLUMNS = [
@@ -860,6 +879,10 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
       if (d.donor_id) seenDonors.add(d.donor_id);
       deduped.push(d);
     }
+    if (status === 'overdue_callback' || status === 'overdue_followup') {
+      const want = status === 'overdue_callback' ? 'callback' : 'followup';
+      return deduped.filter(d => overdueKindOf(getKey(d)) === want && isPastDueRow(d));
+    }
     if (status) return deduped.filter(d => statusMatches(getKey(d), status));
     const sideOf = (d) => {
       const k = getKey(d);
@@ -899,7 +922,9 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
       const params = new URLSearchParams({ fro_worker_id: froId });
       if (rangeFrom) params.set('from', rangeFrom);
       if (rangeTo) params.set('to', rangeTo);
-      if (status) params.set('status', status);
+      // Overdue pseudo-statuses filter client-side (past-due dates), so the
+      // server must return the full list unfiltered.
+      if (status && !status.startsWith('overdue_')) params.set('status', status);
       const data = await apiGet(`/ngo-admin/donors-by-fro?${params}`, { signal: controller.signal, timeout: 30000 });
       if (!controller.signal.aborted) setAllDonors(data || []);
     } catch {
@@ -912,6 +937,10 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
     if (statusFilter) {
       list = list.filter(d => {
         const key = hasPeriodData && d.call_status ? d.call_status : d.status;
+        if (statusFilter === 'overdue_callback' || statusFilter === 'overdue_followup') {
+          const want = statusFilter === 'overdue_callback' ? 'callback' : 'followup';
+          return overdueKindOf(key) === want && isPastDueRow(d);
+        }
         if (statusFilter === 'others') {
           const mk = mergedKeyOf(key);
           return !mk || !stack.some(c => c.key === mk);
@@ -2808,9 +2837,9 @@ export default function Dashboard() {
           { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
           { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
           { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', narrow: true, filterType: 'connected', status: 'scheduled' },
-          { key: 'cb', param: 'C/B', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, narrow: true, filterType: 'connected', status: 'callback' },
-          { key: 'odc', param: 'CO/D', full: 'Overdue Callbacks', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2' },
-          { key: 'odf', param: 'FUP O/D', full: 'Overdue Follow-Ups', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7', narrow: true },
+          { key: 'odf', param: 'FU O/D', full: 'Follow-Up Overdue', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7', narrow: true, filterType: 'connected', status: 'overdue_followup' },
+          { key: 'cb', param: 'CB', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, narrow: true, filterType: 'connected', status: 'callback' },
+          { key: 'odc', param: 'CB O/D', full: 'Callback Overdue', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2', narrow: true, filterType: 'connected', status: 'overdue_callback' },
           { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, narrow: true, filterType: 'connected', status: 'office_program_visit' },
           { key: 'ppay', param: 'P', full: 'Promise To Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, filterType: 'connected', status: 'promise_pay_wa_email' },
           { key: 'ni', param: 'NI', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, narrow: true, filterType: 'connected', status: 'not_interested_np' },
@@ -2978,7 +3007,7 @@ export default function Dashboard() {
                       {groupTh('IDLE', '#475569', '#F1F5F9', 1)}
                       {groupTh('CALL ACTIVITY', '#be123c', '#FFF1F3', 3)}
                       {groupTh('FOLLOW-UP', '#1d4ed8', '#EFF6FF', 2)}
-                      {groupTh('OVERDUE', '#dc2626', '#FEF2F2', 2)}
+                      {groupTh('CALLBACKS', '#dc2626', '#FEF2F2', 2)}
                       {groupTh('FIELD', '#0e7490', '#ECFEFF', 2)}
                       {groupTh('OTHER', '#047857', '#ECFDF5', 2)}
                       {groupTh('RECEIPTS', '#b45309', '#FFF8E7', 1)}
