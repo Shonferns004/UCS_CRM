@@ -34,8 +34,10 @@ const DISPOSITION_LABELS = {
 // callback-type statuses vs everything else except promise-type statuses.
 const OD_CALL_KEYS = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate', 'office_program_visit']);
 const OD_PROMISE_KEYS = new Set(['promise_to_pay', 'will_donate_online', 'payment_pending', 'promise_pay_wa_email']);
+// Backend excludes these from overdue counting entirely.
+const OD_EXCLUDED_KEYS = new Set(['reassigned', 'donation_collected']);
 const overdueKindOf = (key) => {
-  if (!key) return null;
+  if (!key || OD_EXCLUDED_KEYS.has(key)) return null;
   if (OD_CALL_KEYS.has(key)) return 'callback';
   if (OD_PROMISE_KEYS.has(key)) return null;
   return 'followup';
@@ -852,10 +854,19 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
     return () => { document.body.style.overflow = ''; };
   }, []);
 
+  // Overdue views fetch the FRO's FULL assignment list (no date range): the
+  // count covers every past-due assignment, including ones with no recent
+  // logs — a ranged fetch would silently drop those and disagree with it.
+  const isOverdueView = status === 'overdue_callback' || status === 'overdue_followup';
   useEffect(() => {
     if (!froId) return;
     setLoadingDonors(true);
-    apiGet(`/ngo-admin/donors-by-fro?fro_worker_id=${froId}&from=${rangeFrom || ''}&to=${rangeTo || ''}`)
+    const params = new URLSearchParams({ fro_worker_id: froId });
+    if (!isOverdueView) {
+      if (rangeFrom) params.set('from', rangeFrom);
+      if (rangeTo) params.set('to', rangeTo);
+    }
+    apiGet(`/ngo-admin/donors-by-fro?${params}`)
       .then(data => setAllDonors(data || []))
       .catch(() => setAllDonors([]))
       .finally(() => setLoadingDonors(false));
@@ -920,11 +931,14 @@ function FroDetailModal({ froId, froName, filterType, rangeFrom, rangeTo, status
     setPage(1);
     try {
       const params = new URLSearchParams({ fro_worker_id: froId });
-      if (rangeFrom) params.set('from', rangeFrom);
-      if (rangeTo) params.set('to', rangeTo);
+      const overdueChip = status && status.startsWith('overdue_');
+      if (!overdueChip) {
+        if (rangeFrom) params.set('from', rangeFrom);
+        if (rangeTo) params.set('to', rangeTo);
+      }
       // Overdue pseudo-statuses filter client-side (past-due dates), so the
       // server must return the full list unfiltered.
-      if (status && !status.startsWith('overdue_')) params.set('status', status);
+      if (status && !overdueChip) params.set('status', status);
       const data = await apiGet(`/ngo-admin/donors-by-fro?${params}`, { signal: controller.signal, timeout: 30000 });
       if (!controller.signal.aborted) setAllDonors(data || []);
     } catch {
