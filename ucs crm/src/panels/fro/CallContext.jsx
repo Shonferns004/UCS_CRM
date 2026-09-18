@@ -3,7 +3,7 @@ import { api } from './api/auth'
 import { useActivityTracking } from './hooks/useActivityTracking'
 import { istDateString } from './utils/time'
 import { useMeeting } from '../../meetingStore'
-import { onFroResetIdle } from '../../lib/socket'
+import { onFroResetIdle, onSocketConnect } from '../../lib/socket'
 
 const CallContext = createContext()
 
@@ -179,6 +179,10 @@ export function CallProvider({ children, userId }) {
   // overwrite the day's real totals (now guarded server-side too, but a fresh
   // tab must never even send zeros).
   const hydratedRef = useRef(false)
+  // Timestamp of our last successful heartbeat push. Used after a socket
+  // reconnect to detect a server-side reset (Clear Idle / midnight) that we
+  // missed while disconnected.
+  const lastPushAtRef = useRef(0)
 
   const clearTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null } }
   const clearBreakTimer = () => { if (breakTimerRef.current) { clearInterval(breakTimerRef.current); breakTimerRef.current = null } }
@@ -216,7 +220,9 @@ export function CallProvider({ children, userId }) {
         on_break: onBreakRef.current,
         ...extra,
       }),
-    }).catch((err) => { console.error('Error:', err.message); })
+    })
+      .then(() => { lastPushAtRef.current = Date.now() })
+      .catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   // Update todayStats in memory (merge or replace) + push it to the server.
@@ -342,6 +348,34 @@ export function CallProvider({ children, userId }) {
     })
   }, [syncAllStats])
 
+  // Socket reconnect convergence: if the server row was authoritatively
+  // zeroed (Clear Idle Time / midnight reset) while we were disconnected, our
+  // in-memory counters are stale — adopting them via max-keep would resurrect
+  // the wiped totals on the next push. Adopt the server zeros instead (and
+  // drop any phantom streak). Non-zero server rows are left alone: max-keep
+  // already converges those correctly.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    return onSocketConnect(() => {
+      if (!hydratedRef.current || !lastPushAtRef.current) return
+      api('/fro/status/me', { _prefix: 'ucs' })
+        .then((live) => {
+          if (!live || !live.updated_at) return
+          if (new Date(live.updated_at).getTime() <= lastPushAtRef.current) return
+          const serverZero = ['today_calls', 'today_talk_seconds', 'today_skipped', 'today_idle_seconds', 'today_break_seconds']
+            .every((k) => Number(live[k] || 0) === 0)
+          if (!serverZero) return
+          const mem = todayStatsRef.current
+          const memDirty = (mem.calls || mem.totalSeconds || mem.skippedDonors || mem.idleSeconds || mem.breakSeconds) > 0
+          if (!memDirty && !callIdleSinceRef.current) return
+          callIdleSinceRef.current = null
+          const next = { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
+          todayStatsRef.current = next
+          setTodayStats(next)
+        })
+        .catch(() => {})
+    })
+  }, [])
   // New IST day while the panel is open: roll today's counters back to 0 so the
   // heartbeat never carries yesterday's totals into the new day's fro_daily_stats
   // row (which is upserted with GREATEST and would otherwise keep them forever).
