@@ -2685,7 +2685,6 @@ export default function Dashboard() {
             {[
               { key: 'today', label: 'Today' },
               { key: '7d', label: 'Weekly' },
-              { key: '30d', label: 'Monthly' },
               { key: '1y', label: 'Yearly' },
               { key: 'all', label: 'All Time' },
             ].map(opt => (
