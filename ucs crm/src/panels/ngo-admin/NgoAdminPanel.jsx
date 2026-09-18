@@ -22,10 +22,12 @@ const SuspensePage = lazy(() => import('./pages/Suspense'))
 const DonorCRM = lazy(() => import('./pages/DonorCRM'))
 const SearchResults = lazy(() => import('./pages/SearchResults'))
 const Codes = lazy(() => import('./pages/Codes'))
+const FroStatus = lazy(() => import('./pages/FroStatus'))
 const TechnicalTickets = lazy(() => import('../../components/TechnicalTickets'))
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
   { id: 'donor-crm', path: '/ngo-admin/donor-crm', label: 'Donor CRM', icon: 'donorCrm' },
   { id: 'suspense', path: '/ngo-admin/suspense', label: 'Suspense', icon: 'suspense' },
@@ -514,6 +516,7 @@ export default function NgoAdminPanel() {
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="fro-status" element={<FroStatus />} />
             <Route path="donor-crm" element={<DonorCRM />} />
             <Route path="donors" element={<DonorsPage />} />
             <Route path="donors/:id" element={<DonorDetailPage />} />
