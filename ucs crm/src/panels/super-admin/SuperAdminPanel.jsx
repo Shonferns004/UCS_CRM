@@ -23,6 +23,7 @@ import Events from './pages/Events'
 import AssetOverview from './pages/AssetOverview'
 import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
+import IncentivesPage from './pages/IncentivesPage'
 import Notices from './pages/Notices'
 import LiveFroStatus from './pages/LiveFroStatus'
 import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock } from '@phosphor-icons/react'
@@ -44,8 +45,7 @@ const NAV = [
   { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
   { id: 'live-fro', path: '/sa/live-fro', label: 'Live FRO Status', eyebrow: 'Operations', icon: Radio },
   { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
-  { id: 'special-incentive', path: '/sa/special-incentive', label: 'Sir ka Incentive', eyebrow: 'Finance', icon: Trophy },
-  { id: 'lead-incentive', path: '/sa/lead-incentive', label: 'Lead Incentive', eyebrow: 'Finance', icon: Trophy },
+  { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
 ]
 
@@ -56,7 +56,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'special-incentive', 'lead-incentive', 'notices']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'incentives', 'notices']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -80,6 +80,7 @@ function Sidebar({ mobileOpen }) {
     if (path.endsWith('/hr')) return location.pathname.startsWith('/sa/hr')
     if (path.endsWith('/event-head')) return location.pathname.startsWith('/sa/event-head')
     if (path.endsWith('/recruiter')) return location.pathname.startsWith('/sa/recruiter')
+    if (path.endsWith('/incentives')) return location.pathname.startsWith('/sa/incentives')
     return location.pathname === path
   }
 
@@ -334,8 +335,13 @@ export default function SuperAdminPanel() {
         <Route path="event-head" element={<PanelFrame src="/event-head" />} />
         <Route path="recruiter" element={<PanelFrame src="/recruiter" />} />
         <Route path="assets" element={<AssetOverview />} />
-        <Route path="special-incentive" element={<SpecialIncentives />} />
-        <Route path="lead-incentive" element={<LeadIncentivePage />} />
+        <Route path="incentives" element={<IncentivesPage />}>
+          <Route index element={<Navigate to="sir" replace />} />
+          <Route path="sir" element={<SpecialIncentives />} />
+          <Route path="lead" element={<LeadIncentivePage />} />
+        </Route>
+        <Route path="special-incentive" element={<Navigate to="../incentives/sir" replace />} />
+        <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
         <Route path="notices" element={<Notices />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
