@@ -25,7 +25,7 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { notifyWorker } from '../services/fcmService.js';
-import { emitRealtime } from '../socket.js';
+import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
@@ -4830,7 +4830,8 @@ export const getTLDashboard = async (req, res) => {
 
     // 1. Live status counts — driven by LOGIN PRESENCE (auth_sessions) plus the
     //    current call state. An FRO is present while they hold an open CRM login
-    //    session (logged_out_at NULL) OR are emitting a fresh heartbeat.
+    //    session (logged_out_at NULL), a recently-written live row, or an open
+    //    panel socket (socket presence replaced timer heartbeats).
     const LIVE_FRESH_MS = 3 * 60 * 1000;
     const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
     const { data: liveStatus } = await db.from('fro_live_status').select(liveCols).in('worker_id', workerIds);
@@ -4843,7 +4844,13 @@ export const getTLDashboard = async (req, res) => {
       : { data: [] };
     const allLive = [...(liveStatus || []), ...(opLiveStatus || [])];
     const liveFreshCutoff = new Date(now.getTime() - LIVE_FRESH_MS);
-    const isLiveFresh = (s) => s.updated_at && new Date(s.updated_at) >= liveFreshCutoff;
+    // Fresh = recently-written row OR an open panel socket. The socket check
+    // covers both the row's own worker and (for work-as rows) the operator —
+    // whichever side holds the open panel counts as live.
+    const isLiveFresh = (s) =>
+      (s.updated_at && new Date(s.updated_at) >= liveFreshCutoff) ||
+      isWorkerOnline(s.worker_id) ||
+      (s.work_as_operator_id && isWorkerOnline(s.work_as_operator_id));
     const liveRowByWorker = new Map((liveStatus || []).map(s => [String(s.worker_id), s]));
     // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
     // NOT present, so it never counts as calling/idle/online (it counts offline).
@@ -4925,9 +4932,9 @@ export const getTLDashboard = async (req, res) => {
     // as absent today: the covering operator carries the online/calling/idle state.
     const workAsCoveredIds = new Set(allLive.filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
     const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
-    // Online requires a FRESH heartbeat (panel emitting within the window) on
+    // Online requires freshness (recent row write or open panel socket) on
     // top of presence — a machine that is asleep, shut down, or a tab that was
-    // closed stops heartbeating and drops to offline after the window.
+    // closed drops its socket and goes offline within seconds.
     const online = useLoginPresence
       ? froWorkers.filter(w => {
           const lrow = liveRowByWorker.get(String(w.id));
@@ -5262,7 +5269,9 @@ export const getTLDashboard = async (req, res) => {
 
       const ls = liveStatusMap[w.id] || {};
       const claims = claimStatusMap[w.id] || { pending: 0, verified: 0, rejected: 0 };
-      const lsFresh = ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS;
+      const lsFresh = (ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS) ||
+        isWorkerOnline(w.id) ||
+        (ls.work_as_operator_id && isWorkerOnline(ls.work_as_operator_id));
       // Work-as: the row's heartbeat belongs to another operator (abc) covering
       // this FRO. The listed FRO (cbd) is not present — show offline, but let the
       // UI annotate "abc work as cbd" via work_as_operator_name.
@@ -5415,9 +5424,11 @@ export const getTLDashboard = async (req, res) => {
     const callIdleAlerts = (idleFros || [])
       .filter(f => {
         if (f.work_as_operator_id) return false;
-        const lsFresh = f.updated_at && (now - new Date(f.updated_at)) <= LIVE_FRESH_MS;
+        const lsFresh = (f.updated_at && (now - new Date(f.updated_at)) <= LIVE_FRESH_MS) ||
+          isWorkerOnline(f.worker_id);
         const hasIdleSince = f.idle_since != null;
-        // New detector: status idle + idle_since set + heartbeat fresh (<=2 min)
+        // Detector: status idle + idle_since set + panel live (fresh row or
+        // open socket)
         return f.status === 'idle' && hasIdleSince && lsFresh;
       })
       .map(f => {
