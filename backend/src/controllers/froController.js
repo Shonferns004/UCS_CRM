@@ -4354,6 +4354,9 @@ export const resumeOwnPause = async (req, res) => {
 
 // FRO's own live status row — used to restore today's counters in memory on panel
 // load (the client no longer mirrors these into localStorage).
+// Acting ("work as") session: the panel identifies as the impersonated target,
+// so a pause on the real operator's own row would be invisible. Merge it in —
+// paused if EITHER row is paused (counters stay the target's).
 export const getMyLiveStatus = async (req, res) => {
   try {
     const { data } = await db
@@ -4361,8 +4364,19 @@ export const getMyLiveStatus = async (req, res) => {
       .select('*')
       .eq('worker_id', req.user.id)
       .maybeSingle();
-    if (!data) return res.json(null);
-    return res.json({ ...data, idle_epoch: await getIdleEpoch() });
+    let row = data || null;
+    if (req.user.impersonation && req.user.imposter_id) {
+      const { data: opRow } = await db
+        .from('fro_live_status')
+        .select('is_paused, paused_by, paused_at')
+        .eq('worker_id', req.user.imposter_id)
+        .maybeSingle();
+      if (opRow?.is_paused && !row?.is_paused) {
+        row = { ...(row || {}), is_paused: true, paused_by: opRow.paused_by || null, paused_at: opRow.paused_at || null };
+      }
+    }
+    if (!row) return res.json(null);
+    return res.json({ ...row, idle_epoch: await getIdleEpoch() });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

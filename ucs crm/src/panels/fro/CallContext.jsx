@@ -145,7 +145,7 @@ const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
   )
 }
 
-export function CallProvider({ children, userId }) {
+export function CallProvider({ children, userId, operatorId }) {
   const [activeCall, setActiveCall] = useState(null)
   const [elapsed, setElapsed] = useState(0)
   const timerRef = useRef(null)
@@ -439,17 +439,31 @@ export function CallProvider({ children, userId }) {
   // is missed, the panel converges the moment any heartbeat lands. This is
   // what makes pause work for panels that reconnected, missed events, or run
   // older code paths — no room targeting involved.
+  // Acting ("work as") session: also watch the real operator's row — a pause
+  // on the operator never touches the impersonated target's row, so watching
+  // only userId would miss it. Unpause converges via /fro/status/me (which
+  // merges both rows) so resuming one side can't lift the other's pause.
   useEffect(() => {
     if (!localStorage.getItem('ucs_token') || !userId) return undefined
+    const watched = new Set([String(userId)])
+    if (operatorId) watched.add(String(operatorId))
+    const converge = () => {
+      api('/fro/status/me', { _prefix: 'ucs' })
+        .then((live) => {
+          if (live?.is_paused) applyPause(live.paused_by)
+          else clearPause()
+        })
+        .catch(() => {})
+    }
     return onDbChange({
       table: 'fro_live_status',
       event: '*',
-      filter: (p) => String((p.new || p.old || {}).worker_id) === String(userId),
+      filter: (p) => watched.has(String((p.new || p.old || {}).worker_id)),
       onInsert: (row) => { if (row?.is_paused) applyPause(row.paused_by); },
-      onUpdate: (row) => { if (row?.is_paused) applyPause(row?.paused_by); else clearPause(); },
+      onUpdate: (row) => { if (row?.is_paused) applyPause(row?.paused_by); else converge(); },
       onDelete: () => {},
     })
-  }, [userId, applyPause, clearPause])
+  }, [userId, operatorId, applyPause, clearPause])
 
   // Socket reconnect convergence: if the server row was authoritatively
   // zeroed (Clear Idle Time / midnight reset) while we were disconnected, our
