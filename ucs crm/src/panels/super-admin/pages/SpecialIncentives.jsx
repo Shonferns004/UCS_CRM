@@ -590,7 +590,6 @@ function ViewAllModal({ meta, rows, onClose }) {
 
 // ─── Main page ──────────────────────────────────────────
 export default function SpecialIncentives() {
-  const [tab, setTab] = useState('dashboard')
   const [history, setHistory] = useState([])
   const [ngos, setNgos] = useState([])
   const [selected, setSelected] = useState('all')
@@ -679,11 +678,6 @@ export default function SpecialIncentives() {
     if (!b || !b.ngo_id) return []
     return (history || []).filter((i) => String(i.ngo_id) === String(b.ngo_id))
   }, [history, selected, buckets])
-
-  const celebrated = useMemo(
-    () => (history || []).filter((i) => i.celebrated_at),
-    [history]
-  )
 
   // History section filter tabs: All | Ended | Archived.
   const [histFilter, setHistFilter] = useState('all')
@@ -794,42 +788,11 @@ export default function SpecialIncentives() {
     [ngos]
   )
 
-  const tabBtn = (key, label) => {
-    const isActive = tab === key
-    return (
-      <button key={key} type="button" onClick={() => setTab(key)}
-        style={{
-          padding: '7px 16px', borderRadius: 999, border: `1px solid ${C.line}`,
-          background: isActive ? C.blue : '#fff',
-          color: isActive ? '#fff' : C.text,
-          fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
-        }}>{label}</button>
-    )
-  }
-
   return (
     <div className="si-scope">
       <style>{SI_CSS}</style>
 
-      {/* Header (sticky — stays visible while scrolling) */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 50,
-        padding: '8px 0', marginBottom: 14,
-        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {tabBtn('dashboard', 'Dashboard')}
-          {tabBtn('gallery', `Photo Gallery${celebrated.length ? ` (${celebrated.length})` : ''}`)}
-          <button type="button" onClick={() => { setModalError(''); setModal({ mode: 'create' }) }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 14px', borderRadius: 8, border: 'none', background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-            <Plus size={15} weight="bold" /> Create New
-          </button>
-        </div>
-      </div>
-
-      {tab === 'dashboard' ? (
-        <>
-          {/* Main grid */}
+      {/* Main grid */}
           <div className="si-grid">
             <div className="si-col">
               <div className="si-panel">
@@ -841,6 +804,10 @@ export default function SpecialIncentives() {
                     <div style={{ fontSize: 18, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>Leaderboard</div>
                     <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>Top 3 performers for each NGO</div>
                   </div>
+                  <button type="button" onClick={() => { setModalError(''); setModal({ mode: 'create' }) }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', borderRadius: 8, border: 'none', background: C.blue, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                    <Plus size={14} weight="bold" /> Create New
+                  </button>
                 </div>
 
                 {loading ? (
@@ -932,58 +899,6 @@ export default function SpecialIncentives() {
               </div>
             </div>
           </div>
-        </>
-      ) : tab === 'gallery' ? (
-        <div className="si-panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ width: 32, height: 32, borderRadius: 9, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Camera size={16} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>Photo Gallery</div>
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>Posted winner celebrations</div>
-            </div>
-          </div>
-          {loading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="si-shimmer" style={{ height: 190, borderRadius: 10 }} />
-              ))}
-            </div>
-          ) : celebrated.length === 0 ? (
-            <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ width: 60, height: 60, borderRadius: '50%', background: '#E8F3FF', color: '#6C8EBF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Camera size={28} />
-              </span>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 12 }}>No celebrations posted yet</div>
-              <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>Winner photos will appear here once posted from History.</div>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-              {celebrated.map((inc) => (
-                <div key={inc.id} style={{ border: '1px solid #E5EDF7', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
-                  {inc.winner_photo_url ? (
-                    <img src={inc.winner_photo_url} alt={inc.winner_name} style={{ width: '100%', height: 150, objectFit: 'cover', display: 'block' }} />
-                  ) : (
-                    <div style={{ width: '100%', height: 150, background: '#F1F6FC', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6C8EBF', fontSize: 13, fontWeight: 700 }}>
-                      {initialsOf(inc.winner_name)}
-                    </div>
-                  )}
-                  <div style={{ padding: '8px 10px' }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {inc.winner_name || 'Winner'}
-                    </div>
-                    <div style={{ fontSize: 11, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {inc.title}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
-
       {modal && (
         <IncentiveModal
           initial={modal.mode === 'edit' ? modal.inc : null}
