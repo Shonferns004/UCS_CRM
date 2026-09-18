@@ -3547,8 +3547,29 @@ export const getFroOverdue = async (req, res) => {
     }
     const assignments = Object.values(assignmentById);
 
-    const keep = await buildFollowUpOwnerFilter(assignments, req.user);
-    const personalAssignments = assignments.filter(a => keep(a));
+    // Same-day rework rule: an assignment already dispositioned today was
+    // worked — it leaves Overdue immediately instead of lingering on its old
+    // past follow-up date until tomorrow.
+    let workedToday = new Set();
+    {
+      const ids = [...new Set(assignments.map(a => a.id).filter(Boolean))];
+      if (ids.length > 0) {
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        try {
+          const { data: logs } = await db.from('fro_donor_logs')
+            .select('assignment_id')
+            .in('assignment_id', ids)
+            .eq('action', 'disposition')
+            .gte('created_at', dayStart.toISOString());
+          workedToday = new Set((logs || []).map(l => l.assignment_id));
+        } catch (e) { console.error('[fro overdue] worked-today filter:', e.message); }
+      }
+    }
+    const openAssignments = assignments.filter(a => !workedToday.has(a.id));
+
+    const keep = await buildFollowUpOwnerFilter(openAssignments, req.user);
+    const personalAssignments = openAssignments.filter(a => keep(a));
 
     const donorIds = [...new Set(personalAssignments.map(a => a.donor_id).filter(Boolean))];
     const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
