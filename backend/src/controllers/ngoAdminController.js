@@ -5404,7 +5404,7 @@ export const getTLDashboard = async (req, res) => {
         };
       });
 
-    // 8b. Combined activity alerts (5 min without mouse movement or calls,
+    // 8b. Combined activity alerts (6 min without mouse movement or calls,
     // from the FRO panel detector,
     //     driven by idle_since on fro_live_status). These power the NGO
     //     admin dashboard idle badge, banner Notify buttons, and hourly
