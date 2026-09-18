@@ -685,7 +685,8 @@ export default function SpecialIncentives() {
     [history]
   )
 
-  // Ended (closed with no winner, not archived) and Archived tabs.
+  // History section filter tabs: All | Ended | Archived.
+  const [histFilter, setHistFilter] = useState('all')
   const endedList = useMemo(
     () => (history || []).filter((i) => (i.status === 'ended' || i.status === 'cancelled') && !i.archived_at),
     [history]
@@ -694,6 +695,22 @@ export default function SpecialIncentives() {
     () => (history || []).filter((i) => !!i.archived_at),
     [history]
   )
+  const visibleHistory = histFilter === 'ended'
+    ? endedList.filter((i) => selected === 'all' || String(i.ngo_id) === String((buckets.find((x) => x.key === selected) || {}).ngo_id))
+    : histFilter === 'archived'
+      ? archivedList.filter((i) => selected === 'all' || String(i.ngo_id) === String((buckets.find((x) => x.key === selected) || {}).ngo_id))
+      : filteredHistory
+  const histFilterBtn = (key, label) => {
+    const isActive = histFilter === key
+    return (
+      <button key={key} type="button" onClick={() => setHistFilter(key)}
+        style={{
+          padding: '5px 12px', borderRadius: 999, border: `1px solid ${isActive ? C.blue : C.line}`,
+          background: isActive ? '#E8F3FF' : '#fff', color: isActive ? C.blue : C.muted,
+          fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+        }}>{label}</button>
+    )
+  }
 
   // Nothing live anywhere → leaderboard shows nothing at all.
   const hasLive = buckets.some((b) => (boards[b.key] || []).length > 0)
@@ -807,8 +824,6 @@ export default function SpecialIncentives() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {tabBtn('dashboard', 'Dashboard')}
-          {tabBtn('ended', `Ended${endedList.length ? ` (${endedList.length})` : ''}`)}
-          {tabBtn('archived', `Archived${archivedList.length ? ` (${archivedList.length})` : ''}`)}
           {tabBtn('gallery', `Photo Gallery${celebrated.length ? ` (${celebrated.length})` : ''}`)}
           <button type="button" onClick={() => { setModalError(''); setModal({ mode: 'create' }) }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 14px', borderRadius: 8, border: 'none', background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
@@ -831,9 +846,6 @@ export default function SpecialIncentives() {
                     <div style={{ fontSize: 18, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>Leaderboard</div>
                     <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>Top 3 performers for each NGO</div>
                   </div>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 12px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.text, fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    <CalendarBlank size={14} /> This Month
-                  </span>
                 </div>
 
                 {loading ? (
@@ -872,6 +884,11 @@ export default function SpecialIncentives() {
                     <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>All incentives across NGOs</div>
                   </div>
                 </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {histFilterBtn('all', `All${filteredHistory.length ? ` (${filteredHistory.length})` : ''}`)}
+                  {histFilterBtn('ended', `Ended${endedList.length ? ` (${endedList.length})` : ''}`)}
+                  {histFilterBtn('archived', `Archived${archivedList.length ? ` (${archivedList.length})` : ''}`)}
+                </div>
 
                 {loading ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -888,19 +905,23 @@ export default function SpecialIncentives() {
                       <ArrowsClockwise size={14} /> Retry
                     </button>
                   </div>
-                ) : filteredHistory.length === 0 ? (
+                ) : visibleHistory.length === 0 ? (
                   <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                     <span style={{ width: 60, height: 60, borderRadius: '50%', background: '#E8F3FF', color: '#6C8EBF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <FileText size={28} />
                     </span>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 12 }}>History will appear here</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 12 }}>
+                      {histFilter === 'ended' ? 'No ended incentives' : histFilter === 'archived' ? 'No archived incentives' : 'History will appear here'}
+                    </div>
                     <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4, lineHeight: 1.55 }}>
-                      Select an NGO or create a new incentive<br />to see the history.
+                      {histFilter === 'all'
+                        ? (<>Select an NGO or create a new incentive<br />to see the history.</>)
+                        : 'Incentives will appear here when they close.'}
                     </div>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {filteredHistory.map((inc) => (
+                    {visibleHistory.map((inc) => (
                       <HistoryRow
                         key={inc.id}
                         inc={inc}
@@ -967,60 +988,7 @@ export default function SpecialIncentives() {
             </div>
           )}
         </div>
-      ) : (
-        <div className="si-panel">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ width: 32, height: 32, borderRadius: 9, background: '#F1F6FC', color: '#6C8EBF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <ClockCounterClockwise size={16} />
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>{tab === 'ended' ? 'Ended' : 'Archived'}</div>
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>
-                {tab === 'ended' ? 'Closed incentives with no winner' : 'Auto-archived and manually archived incentives'}
-              </div>
-            </div>
-          </div>
-          {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="si-shimmer" style={{ height: 64, borderRadius: 10 }} />
-              ))}
-            </div>
-          ) : (() => {
-            const list = tab === 'ended' ? endedList : archivedList
-            if (list.length === 0) {
-              return (
-                <div style={{ padding: '48px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                    {tab === 'ended' ? 'No ended incentives' : 'No archived incentives'}
-                  </div>
-                  <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>
-                    {tab === 'ended'
-                      ? 'Incentives that close with no winner will appear here.'
-                      : 'Incentives with no winner auto-archive here.'}
-                  </div>
-                </div>
-              )
-            }
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {list.map((inc) => (
-                  <HistoryRow
-                    key={inc.id}
-                    inc={inc}
-                    busyId={busyId}
-                    onEdit={(row) => { setModalError(''); setModal({ mode: 'edit', inc: row }) }}
-                    onCancel={cancelInc}
-                    onArchive={archiveInc}
-                    onDelete={removeInc}
-                    onSent={() => loadHistory()}
-                  />
-                ))}
-              </div>
-            )
-          })()}
-        </div>
-      )}
+      ) : null}
 
       {modal && (
         <IncentiveModal

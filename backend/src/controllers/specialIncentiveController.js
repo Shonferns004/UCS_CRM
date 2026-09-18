@@ -64,7 +64,7 @@ export async function generateCongratsMessage({ winnerName, title, amount }) {
       {
         role: 'system',
         content:
-          'You write warm, short congratulations (2-3 sentences) for FRO fundraising officers who won a collection incentive at a donation NGO. Mention the winner by name, the incentive and the prize. Cheerful, proud, inspiring. Use at most one emoji. Plain text only, no quotes, no markdown.',
+          'You write SUPER ENERGETIC, hype-filled congratulations (2-3 sentences) for FRO fundraising officers who won a collection incentive at a donation NGO. Mention the winner by name, the incentive and the prize. Loud, proud, electrifying — like a stadium celebration. Use at most one emoji. Plain text only, no quotes, no markdown.',
       },
       { role: 'user', content: `Winner: ${winnerName || 'The winner'}\nIncentive: ${title || 'the special incentive'}\nPrize: ₹${Number(amount) || 0}` },
     ],
@@ -276,8 +276,8 @@ export async function aiDraftHandler(req, res) {
     const reward = Number(req.body?.incentive_amount) || 0;
     const ngoName = String(req.body?.ngo_name || 'All NGOs');
     const fallback = () => ({
-      title: `${ngoName} Collection Race`,
-      message: `First FRO to collect ₹${target.toLocaleString('en-IN')} wins ₹${reward.toLocaleString('en-IN')}! Every verified rupee counts — let's go!`,
+      title: `${ngoName} Mega Collection Blast!`,
+      message: `BOOM! First FRO to smash ₹${target.toLocaleString('en-IN')} grabs a massive ₹${reward.toLocaleString('en-IN')}! Full speed, full energy — GO GO GO! 🔥`,
     });
     try {
       const model = process.env.GROQ_CONGRATS_MODEL || process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
@@ -286,13 +286,13 @@ export async function aiDraftHandler(req, res) {
           {
             role: 'system',
             content:
-              'You write short incentive announcements for FRO fundraising officers at a donation NGO. Reply in EXACTLY two lines: line 1 is the incentive title (max 8 words, plain text, no quotes), line 2 is the announcement message (1-2 sentences, cheerful and motivating, mention the target and reward amounts with ₹). Plain text only, no markdown, no numbering.',
+              'You write SUPER ENERGETIC, hype-filled incentive announcements for FRO fundraising officers at a donation NGO. High voltage,exciting, urgent, chest-thumping motivation — like a sports coach firing up the team. Reply in EXACTLY two lines: line 1 is the incentive title (max 8 words, punchy, plain text, no quotes), line 2 is the announcement message (1-2 sentences bursting with energy, mention the target and reward amounts with ₹, at most one emoji). Plain text only, no markdown, no numbering.',
           },
           { role: 'user', content: `NGO: ${ngoName}\nTarget: ₹${target}\nReward: ₹${reward}` },
         ],
         model,
         max_tokens: 200,
-        temperature: 0.85,
+        temperature: 0.9,
       });
       const text = (completion.choices?.[0]?.message?.content || '').trim();
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
