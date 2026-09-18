@@ -420,6 +420,13 @@ export function CallProvider({ children, userId }) {
     syncAllStats()
   }, [resetCallActivity, syncAllStats])
 
+  // FRO self-resume: the Play button in the blocking pause popup. Server
+  // clears the flag (converging socket event follows); lift locally at once.
+  const resumeSelf = useCallback(async () => {
+    await api('/fro/status/resume-self', { method: 'POST', body: JSON.stringify({}) })
+    clearPause()
+  }, [clearPause])
+
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return undefined
     const offPause = onFroPause((evt) => applyPause(evt?.by))
@@ -590,7 +597,7 @@ export function CallProvider({ children, userId }) {
       startDonorView, endDonorView, syncAllStats, fmt,
       onBreak, breakElapsed, toggleBreak, isBreakOvertime, BREAK_LIMIT,
       isCallIdle, resetCallActivity, sendHeartbeat, status: liveStatus,
-      paused, pausedBy,
+      paused, pausedBy, resumeSelf,
     }}>
       {children}
       {isCallIdle && !meetingActive && !paused && (
