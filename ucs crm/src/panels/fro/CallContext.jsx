@@ -43,7 +43,7 @@ function playAlertBeep() {
 }
 
 // Blocking popup shown while the FRO is call-idle. Sound plays on the first
-// alert only; snoozing hides it for 5 minutes and it re-appears (silently)
+// alert only; snoozing hides it for 6 minutes and it re-appears (silently)
 // while idle continues. Mouse activity or real call activity dismisses it when
 // the other inactivity condition is also clear.
 const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
@@ -69,7 +69,7 @@ const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
 
   const snooze = () => {
     setVisible(false)
-    snoozeTimerRef.current = setTimeout(() => setVisible(true), 5 * 60 * 1000)
+    snoozeTimerRef.current = setTimeout(() => setVisible(true), 6 * 60 * 1000)
   }
 
   const minutesIdle = callIdleSince
@@ -111,7 +111,7 @@ const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
         </div>
 
         <div style={{ marginBottom: 16, fontSize: 13, fontWeight: 600, color: '#d97706' }}>
-          No mouse movement or call activity for over 5 minutes. Please resume calling donors.
+          No mouse movement or call activity for over 6 minutes. Please resume calling donors.
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -133,12 +133,12 @@ const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
               cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
-            Snooze 5m
+            Snooze 6m
           </button>
         </div>
 
         <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af' }}>
-          This alert re-appears every 5 minutes while you remain idle. Making a call, saving a disposition, or ending a break dismisses it immediately.
+          This alert re-appears every 6 minutes while you remain idle. Making a call, saving a disposition, or ending a break dismisses it immediately.
         </div>
       </div>
     </div>
@@ -234,9 +234,9 @@ export function CallProvider({ children, userId }) {
     hydratedRef.current = true
   }, [])
 
-// ---------- Combined mouse/call idle engine (5 min) ----------
+// ---------- Combined mouse/call idle engine (6 min) ----------
   const { isCallIdle, callIdleSince, resetCallActivity, sendHeartbeat } = useActivityTracking(userId, {
-    callIdleThreshold: 5 * 60 * 1000,
+    callIdleThreshold: 6 * 60 * 1000,
     // Breaks, live calls, open donor views and meeting mode are exempt from idle detection
     isExempt: () => meetingActiveRef.current || onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
     onCallIdle: (sinceIso) => {

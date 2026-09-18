@@ -3,12 +3,12 @@ import { api } from '../api/auth';
 
 export function useActivityTracking(userId, options = {}) {
   const {
-    idleThreshold = 5 * 60 * 1000, // 5 minutes without mouse activity
+    idleThreshold = 6 * 60 * 1000, // 6 minutes without mouse activity
     heartbeatInterval = 30 * 1000,  // 30 seconds
     onIdle,
     onActive,
     onHeartbeat,
-    callIdleThreshold = 5 * 60 * 1000, // 5 minutes without call activity
+    callIdleThreshold = 6 * 60 * 1000, // 6 minutes without call activity
     onCallIdle,
     onCallResume,
     isExempt, // () => boolean — true while on a call, on break, or in a donor view
