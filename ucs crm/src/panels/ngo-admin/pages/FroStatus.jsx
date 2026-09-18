@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useUcs } from '../../../store'
-import { useRealtime } from '../../../hooks/useRealtime'
+import { onDbChange } from '../../../lib/socket'
 import { apiGet } from '../api/auth'
 import { fmt, STATUS_META } from '../../super-admin/components/froShared'
 import { FroDetailModal, FroDeepDetailModal } from '../../super-admin/components/FroModals'
@@ -38,7 +38,7 @@ export default function FroStatus() {
 
   useEffect(() => {
     if (!user?.id) return
-    return useRealtime('fro_live_status', {
+    return onDbChange({ table: 'fro_live_status',
       event: '*',
       onInsert: () => loadStatuses(),
       onUpdate: () => loadStatuses(),

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { onDbChange } from '../lib/socket';
 
-function parseFilter(filter) {
+export function parseFilter(filter) {
   if (!filter) return () => true
   const match = String(filter).match(/^([A-Za-z_][A-Za-z0-9_]*)=eq\.(.+)$/)
   if (!match) return () => true
