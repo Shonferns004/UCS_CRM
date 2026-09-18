@@ -189,11 +189,13 @@ export default function LeadIncentive() {
 
   useRealtime('lead_champion_announcements', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
   useRealtime('incentive_slabs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
+  // Verified collections land as fro_donor_logs — same realtime source the
+  // admin board uses, so the race updates live with zero polling.
+  useRealtime('fro_donor_logs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
 
   useEffect(() => {
     loadSummary();
-    const t = setInterval(loadSummary, 5000);
-    return () => { clearInterval(t); clearTimeout(debRef.current); };
+    return () => { clearTimeout(debRef.current); };
   }, [loadSummary]);
 
   const ranges = data.ranges || [];
