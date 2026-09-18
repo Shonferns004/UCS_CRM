@@ -180,8 +180,22 @@ function statusColor(status) {
 // paused. No dismiss, no resume button — only an admin resume (socket event)
 // lifts it. Rendered inside <CallProvider> so useCall() is available.
 function PauseGate() {
-  const { paused, pausedBy } = useCall();
+  const { paused, pausedBy, resumeSelf } = useCall();
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState(null);
   if (!paused) return null;
+  const onPlay = async () => {
+    if (resuming) return;
+    setResuming(true);
+    setResumeError(null);
+    try {
+      await resumeSelf();
+    } catch (e) {
+      setResumeError(e?.message || 'Resume failed. Please try again.');
+    } finally {
+      setResuming(false);
+    }
+  };
   return (
     <div role="alertdialog" aria-modal="true" aria-label="Account paused by admin"
       style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(15,23,42,.82)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -195,8 +209,21 @@ function PauseGate() {
           All your timers are stopped — nothing is being counted right now.
         </div>
         <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: '#FFFBEB', border: '1px solid #FDE68A', fontSize: 12.5, fontWeight: 600, color: '#92400E', lineHeight: 1.55 }}>
-          Contact your admin to resume. This screen lifts automatically the moment your admin resumes you.
+          Contact your admin to resume, or press Play below — this screen lifts the moment anyone resumes you.
         </div>
+        <button
+          type="button"
+          onClick={onPlay}
+          disabled={resuming}
+          aria-label="Resume work"
+          style={{ marginTop: 14, width: '100%', padding: '12px 14px', borderRadius: 12, border: 'none', background: '#16A34A', color: '#fff', fontSize: 15, fontWeight: 800, fontFamily: 'inherit', cursor: resuming ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          {resuming ? 'Resuming…' : 'Play — Resume Work'}
+        </button>
+        {resumeError && (
+          <div role="alert" style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: '#DC2626' }}>{resumeError}</div>
+        )}
       </div>
     </div>
   );

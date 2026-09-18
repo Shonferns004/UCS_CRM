@@ -44,6 +44,7 @@ import {
   searchSuspenseDonors,
   resetAllFroIdle,
   getMyLiveStatus,
+  resumeOwnPause,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -61,6 +62,8 @@ const requireFro = (req, res, next) => {
 };
 
 router.use(requireFro);
+
+router.post('/status/resume-self', resumeOwnPause);
 
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);

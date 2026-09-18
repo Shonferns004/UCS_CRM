@@ -4334,6 +4334,24 @@ export const resetAllFroIdle = async (req, res) => {
   }
 };
 
+// FRO self-resume: a paused worker taps Play in the blocking pause popup.
+// Same row update as the admin resume (plus the converging socket event).
+export const resumeOwnPause = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const nowIso = new Date().toISOString();
+    const { error } = await db.from('fro_live_status').upsert(
+      { worker_id: workerId, is_paused: false, paused_at: null, paused_by: null, idle_since: null, updated_at: nowIso },
+      { onConflict: 'worker_id' }
+    );
+    if (error) throw error;
+    emitRealtime('fro:resume', { at: nowIso, by: 'self' }, `worker:${workerId}`);
+    return res.json({ message: 'Resumed', paused: false });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // FRO's own live status row — used to restore today's counters in memory on panel
 // load (the client no longer mirrors these into localStorage).
 export const getMyLiveStatus = async (req, res) => {
@@ -4357,13 +4375,15 @@ export const getLiveStatuses = async (req, res) => {
       .select('*, workers!inner(id, name, login_id, ngo_id, is_active, department)')
       .order('updated_at', { ascending: false });
 
-    const { ngo_id: filterNgoId, fro_id: filterFroId } = req.query;
+    const { ngo_id: filterNgoId, fro_id: filterFroId, scope } = req.query;
     if (filterFroId) {
       query = query.eq('worker_id', filterFroId);
     }
+    // scope=all: list every FRO across NGOs (used by the NGO-admin FRO Status
+    // page). An explicit ngo_id filter still applies when given.
     if (filterNgoId && filterNgoId !== 'all') {
       query = query.eq('workers.ngo_id', filterNgoId);
-    } else if (req.user.ngo_id && req.user.role !== 'super_admin' && !filterFroId) {
+    } else if (scope !== 'all' && req.user.ngo_id && req.user.role !== 'super_admin' && !filterFroId) {
       query = query.eq('workers.ngo_id', req.user.ngo_id);
     }
 

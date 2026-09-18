@@ -118,7 +118,7 @@ export default function FroStatus() {
   const loadStatuses = async (showSpinner) => {
     if (showSpinner && aliveRef.current) setRefreshing(true)
     try {
-      const data = await apiGet('/fro/status')
+      const data = await apiGet('/fro/status?scope=all')
       if (!aliveRef.current) return
       setStatuses(Array.isArray(data) ? data : [])
       setLoadError(null)
