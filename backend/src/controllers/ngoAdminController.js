@@ -5271,13 +5271,16 @@ export const getTLDashboard = async (req, res) => {
       // own live_status row is stale / they have no own auth_session).
       const acting = workAsByOp.get(String(w.id));
       const workAsLabel = acting ? null : workAsName;
-      // True current idle streak while the FRO panel's 5-minute combined
-      // detector has them flagged idle (idle_since = streak start).
-      const idleMinutes = acting
-        ? (acting.status === 'idle' && acting.idle_since ? Math.floor((now - new Date(acting.idle_since)) / 60000) : 0)
+      // Effective idle today: committed counter PLUS the still-running streak.
+      // The FRO panel only commits elapsed idle when a streak ends, so the raw
+      // counter reads 0 mid-streak (blank IDLE HR column while the "Idle Xm"
+      // pill correctly shows the streak). Same streak source as idleMinutes.
+      const idleStreakSeconds = acting
+        ? (acting.status === 'idle' && acting.idle_since ? Math.max(0, Math.floor((now - new Date(acting.idle_since)) / 1000)) : 0)
         : (!workAsName && ls.status === 'idle' && lsFresh && ls.idle_since)
-          ? Math.floor((now - new Date(ls.idle_since)) / 60000)
+          ? Math.max(0, Math.floor((now - new Date(ls.idle_since)) / 1000))
           : 0;
+      const effectiveIdleSeconds = (ls.today_idle_seconds || 0) + idleStreakSeconds;
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -5351,8 +5354,8 @@ export const getTLDashboard = async (req, res) => {
         target_pct: targetPct,
         status,
         work_as_operator_name: workAsLabel,
-        idleMinutes: idleMinutes,
-        today_idle_seconds: ls.today_idle_seconds || 0,
+        idleMinutes: Math.floor(idleStreakSeconds / 60),
+        today_idle_seconds: effectiveIdleSeconds,
         overdue_calls: (overdueByWorker[String(w.id)] || {}).calls || 0,
         overdue_followups: (overdueByWorker[String(w.id)] || {}).followups || 0,
         logout_today: lc.today,

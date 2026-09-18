@@ -836,9 +836,18 @@ export const getMyPerformance = async (req, res) => {
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('today_idle_seconds, today_calls, idle_since')
+      .select('today_idle_seconds, today_calls, idle_since, updated_at')
       .eq('worker_id', workerId)
       .maybeSingle();
+
+    // Effective idle = committed counter + still-running streak (the panel
+    // only commits elapsed idle when a streak ends). Stale streaks (dead
+    // panel, heartbeat older than 3 min) are ignored so the number can't grow
+    // unbounded. Matches the admin Telecaller Performance definition.
+    const liveFresh = liveStatus?.updated_at && (Date.now() - new Date(liveStatus.updated_at).getTime()) <= 3 * 60 * 1000;
+    const liveStreakSecs = (liveStatus?.idle_since && liveFresh)
+      ? Math.max(0, Math.floor((Date.now() - new Date(liveStatus.idle_since).getTime()) / 1000))
+      : 0;
 
     return res.json({
       worker: { id: workerId, name: currentName },
@@ -850,7 +859,7 @@ export const getMyPerformance = async (req, res) => {
       rank: rank || null,
       team_size: leaderboard.length,
       calls: hours,
-      idle_seconds: liveStatus?.today_idle_seconds || 0,
+      idle_seconds: (liveStatus?.today_idle_seconds || 0) + liveStreakSecs,
       idle_since: liveStatus?.idle_since || null,
       today_calls: connected,
       today_collected: todayCollection[String(workerId)] || 0,
@@ -4086,11 +4095,36 @@ export const updateLiveStatus = async (req, res) => {
     }
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
-    if (today_calls !== undefined) payload.today_calls = today_calls;
-    if (today_talk_seconds !== undefined) payload.today_talk_seconds = today_talk_seconds;
-    if (today_skipped !== undefined) payload.today_skipped = today_skipped;
-    if (today_idle_seconds !== undefined) payload.today_idle_seconds = today_idle_seconds;
-    if (today_break_seconds !== undefined) payload.today_break_seconds = today_break_seconds;
+    // Same-day max-keep for cumulative counters: the heartbeat blind-overwrites
+    // fro_live_status, so a second tab/device (or a fresh panel that hasn't
+    // hydrated yet) pushing smaller numbers would wipe the day's totals while
+    // fro_daily_stats keeps the max — the classic "IDLE HR blank but alerts
+    // show 52m" split. Within the same IST day keep the larger value; a new
+    // IST day (or explicit midnight/admin reset, which bypasses this endpoint)
+    // starts from the client's number.
+    const counterFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
+    const incomingCounters = Object.entries(counterFields).filter(([, v]) => v !== undefined);
+    if (incomingCounters.length > 0) {
+      try {
+        const { data: existing } = await db
+          .from('fro_live_status')
+          .select('today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, updated_at')
+          .eq('worker_id', workerId)
+          .maybeSingle();
+        const istDayOf = (v) => {
+          const d = new Date(v);
+          if (isNaN(d.getTime())) return null;
+          return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+        };
+        const sameDay = existing?.updated_at && istDayOf(existing.updated_at) === istDayOf(Date.now());
+        for (const [key, val] of incomingCounters) {
+          const prev = sameDay ? Number(existing?.[key] || 0) : 0;
+          payload[key] = Math.max(prev, val);
+        }
+      } catch {
+        for (const [key, val] of incomingCounters) payload[key] = val;
+      }
+    }
     if (on_break !== undefined) payload.on_break = on_break;
     if (break_type !== undefined) payload.break_type = break_type;
 
