@@ -3,7 +3,7 @@ import { api } from './api/auth'
 import { useActivityTracking } from './hooks/useActivityTracking'
 import { istDateString } from './utils/time'
 import { useMeeting } from '../../meetingStore'
-import { onFroResetIdle, onSocketConnect, onFroPause, onFroResume } from '../../lib/socket'
+import { onFroResetIdle, onSocketConnect, onFroPause, onFroResume, onDbChange } from '../../lib/socket'
 
 const CallContext = createContext()
 
@@ -433,6 +433,23 @@ export function CallProvider({ children, userId }) {
     const offResume = onFroResume(() => clearPause())
     return () => { offPause(); offResume() }
   }, [applyPause, clearPause])
+
+  // Self-row watch (belt and suspenders): every fro_live_status write is
+  // broadcast as db:change, so even if a targeted fro:pause/fro:resume event
+  // is missed, the panel converges the moment any heartbeat lands. This is
+  // what makes pause work for panels that reconnected, missed events, or run
+  // older code paths — no room targeting involved.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token') || !userId) return undefined
+    return onDbChange({
+      table: 'fro_live_status',
+      event: '*',
+      filter: (p) => String((p.new || p.old || {}).worker_id) === String(userId),
+      onInsert: (row) => { if (row?.is_paused) applyPause(row.paused_by); },
+      onUpdate: (row) => { if (row?.is_paused) applyPause(row?.paused_by); else clearPause(); },
+      onDelete: () => {},
+    })
+  }, [userId, applyPause, clearPause])
 
   // Socket reconnect convergence: if the server row was authoritatively
   // zeroed (Clear Idle Time / midnight reset) while we were disconnected, our

@@ -156,7 +156,12 @@ export default function LiveFroStatus() {
     const id = fs.worker_id || fs.fro_id || fs.id
     if (!id || pausingId) return
     const pausing = !fs.is_paused
-    if (pausing && !window.confirm(`Pause ${fs.worker?.name || 'this FRO'}? All their timers stop until you resume them.`)) return
+    const liveSeen = fs.updated_at ? Date.now() - new Date(fs.updated_at).getTime() : Infinity
+    // Freshness gate (~3 min): a stale heartbeat means their panel is
+    // closed/offline — the pause still saves server-side and applies the
+    // moment they next open the app.
+    const panelOffline = pausing && liveSeen > 3 * 60 * 1000
+    if (pausing && !window.confirm(`Pause ${fs.worker?.name || 'this FRO'}? All their timers stop until you resume them.${panelOffline ? ' Their panel looks offline right now — the pause will apply when they next open the app.' : ''}`)) return
     setPausingId(id)
     try {
       await api(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
