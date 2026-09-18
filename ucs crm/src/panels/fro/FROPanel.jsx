@@ -176,6 +176,32 @@ function statusColor(status) {
   return '#3b82f6';
 }
 
+// Admin per-FRO pause gate: fullscreen blocking overlay while this FRO is
+// paused. No dismiss, no resume button — only an admin resume (socket event)
+// lifts it. Rendered inside <CallProvider> so useCall() is available.
+function PauseGate() {
+  const { paused, pausedBy } = useCall();
+  if (!paused) return null;
+  return (
+    <div role="alertdialog" aria-modal="true" aria-label="Account paused by admin"
+      style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(15,23,42,.82)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: 'min(420px, 100%)', borderRadius: 18, background: '#fff', boxShadow: '0 24px 60px rgba(0,0,0,.45)', padding: 24, textAlign: 'center' }}>
+        <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#fef3c7', color: '#d97706', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+        </span>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#17233C' }}>You are paused</div>
+        <div style={{ fontSize: 13, color: '#64748B', marginTop: 6, lineHeight: 1.6 }}>
+          {pausedBy ? <>Paused by {pausedBy}.<br /></> : null}
+          All your timers are stopped — nothing is being counted right now.
+        </div>
+        <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: '#FFFBEB', border: '1px solid #FDE68A', fontSize: 12.5, fontWeight: 600, color: '#92400E', lineHeight: 1.55 }}>
+          Contact your admin to resume. This screen lifts automatically the moment your admin resumes you.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Live status pill for the top bar — mirrors the backend fro_live_status value.
 // Rendered inside <CallProvider> so useCall() is available.
 function FroStatusPill() {
@@ -1022,6 +1048,7 @@ useEffect(() => onFroAction((action) => {
 
   return (
     <CallProvider userId={user?.id}>
+    <PauseGate />
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
       <div className="main">

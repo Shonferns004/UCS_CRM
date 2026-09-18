@@ -82,6 +82,8 @@ import {
   updateFollowupDate,
   getIdleAlerts,
   notifyFroHandler,
+  pauseFro,
+  resumeFro,
   getTopPerformers,
   getBottomPerformers,
   getAssignedData,
@@ -130,6 +132,8 @@ router.get('/dashboard/donation-funnel', getDonationFunnel);
 router.get('/dashboard/hourly-performance', getHourlyPerformance);
 router.get('/dashboard/idle-alerts', getIdleAlerts);
 router.post('/notify-fro', authenticateRole('admin', 'super_admin'), notifyFroHandler);
+router.post('/fro/:id/pause', authenticateRole('admin', 'super_admin'), pauseFro);
+router.post('/fro/:id/resume', authenticateRole('admin', 'super_admin'), resumeFro);
 router.get('/dashboard/top-performers', getTopPerformers);
 router.get('/dashboard/bottom-performers', getBottomPerformers);
 

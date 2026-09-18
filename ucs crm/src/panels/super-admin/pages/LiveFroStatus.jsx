@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { api } from '../../../api/auth'
 import { onDbChange } from '../../../lib/socket'
 import { fmt } from '../components/froShared'
-import { FroDetailModal, FroDeepDetailModal } from '../components/FroModals'
 
 const LFS_CSS = `
 .lfs-page { width: 100%; min-width: 0; }
@@ -102,10 +101,9 @@ export default function LiveFroStatus() {
   const [statuses, setStatuses] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
-  const [selectedFro, setSelectedFro] = useState(null)
-  const [deepFro, setDeepFro] = useState(null)
   const [resetting, setResetting] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [pausingId, setPausingId] = useState(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sort, setSort] = useState('name-asc')
@@ -152,6 +150,24 @@ export default function LiveFroStatus() {
 
   const refresh = () => { loadStatuses(true) }
 
+  // Per-FRO admin pause ("play/pause"): freezes all their timers and shows a
+  // blocking popup on their panel until resumed here.
+  const togglePause = async (fs) => {
+    const id = fs.worker_id || fs.fro_id || fs.id
+    if (!id || pausingId) return
+    const pausing = !fs.is_paused
+    if (pausing && !window.confirm(`Pause ${fs.worker?.name || 'this FRO'}? All their timers stop until you resume them.`)) return
+    setPausingId(id)
+    try {
+      await api(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
+      await loadStatuses(false)
+    } catch (e) {
+      console.error('Error:', e.message)
+    } finally {
+      setPausingId(null)
+    }
+  }
+
   const resetAllIdle = async () => {
     if (!window.confirm("Clear today's idle time for ALL FROs? This resets every FRO's current idle counter to zero.")) return
     setResetting(true)
@@ -164,19 +180,6 @@ export default function LiveFroStatus() {
       if (aliveRef.current) setResetting(false)
     }
   }
-
-  const summary = useMemo(() => {
-    let online = 0, idle = 0, talking = 0, talk = 0, idleSecs = 0
-    for (const s of statuses) {
-      if (s.status === 'online') online++
-      else if (s.status === 'idle') idle++
-      else if (s.status === 'on_call') talking++
-      talk += Number(s.performance?.today_talk_seconds) || 0
-      idleSecs += Number(s.performance?.today_idle_seconds) || 0
-    }
-    const denom = talk + idleSecs
-    return { online, idle, talking, productivity: denom > 0 ? Math.round((talk / denom) * 100) : null }
-  }, [statuses])
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -208,13 +211,6 @@ export default function LiveFroStatus() {
     return 0
   }
 
-  const sumCards = [
-    { key: 'online', label: 'Online', value: summary.online, color: '#12A65A', bg: '#EAF9F0', icon: '●' },
-    { key: 'idle', label: 'Idle', value: summary.idle, color: '#E98A00', bg: '#FFF7EA', icon: '●' },
-    { key: 'talking', label: 'Talking', value: summary.talking, color: '#287FE8', bg: '#EFF6FF', icon: '●' },
-    { key: 'prod', label: 'Productivity', value: summary.productivity == null ? '—' : `${summary.productivity}%`, color: '#E52B4A', bg: '#FFF1F4', icon: '%' },
-  ]
-
   return (
     <div className="lfs-page">
       <style>{LFS_CSS}</style>
@@ -234,26 +230,6 @@ export default function LiveFroStatus() {
             {resetting ? 'Clearing…' : 'Clear Idle Time'}
           </button>
         </div>
-      </div>
-
-      <div className="lfs-summary" role="status" aria-label="Team summary">
-        {loading ? sumCards.map((c) => (
-          <div key={c.key} className="lfs-sum" aria-hidden="true">
-            <div className="lfs-shimmer" style={{ width: 38, height: 38, borderRadius: 10 }} />
-            <div style={{ flex: 1 }}>
-              <div className="lfs-shimmer" style={{ height: 22, width: '40%', marginBottom: 6 }} />
-              <div className="lfs-shimmer" style={{ height: 12, width: '70%' }} />
-            </div>
-          </div>
-        )) : sumCards.map((c) => (
-          <div key={c.key} className="lfs-sum">
-            <span className="lfs-sum-ico" style={{ background: c.bg, color: c.color, fontSize: 16, fontWeight: 800 }} aria-hidden="true">{c.icon}</span>
-            <div style={{ minWidth: 0 }}>
-              <div className="lfs-sum-val">{c.value}</div>
-              <div className="lfs-sum-lbl">{c.label}</div>
-            </div>
-          </div>
-        ))}
       </div>
 
       <div className="lfs-toolbar">
@@ -311,9 +287,11 @@ export default function LiveFroStatus() {
       ) : (
         <div className="lfs-grid">
           {rows.map((fs) => {
-            const meta = PILL[fs.status] || PILL.offline
+            const paused = !!fs.is_paused
+            const meta = paused ? { label: 'Paused', color: '#6D28D9', bg: '#F5F3FF' } : (PILL[fs.status] || PILL.offline)
             const name = fs.worker?.name || 'Unknown'
             const mail = fs.worker?.email || fs.worker?.login_id || ''
+            const rowId = fs.worker_id || fs.fro_id || fs.id
             const talk = Number(fs.performance?.today_talk_seconds) || 0
             const idleS = Number(fs.performance?.today_idle_seconds) || 0
             const calls = Number(fs.performance?.today_calls) || 0
@@ -327,7 +305,7 @@ export default function LiveFroStatus() {
                     <div className="lfs-name" title={name}>{name}</div>
                     {!!mail && <div className="lfs-mail" title={mail}>{mail}</div>}
                   </div>
-                  <span className="lfs-pill" style={{ background: meta.bg, color: meta.color }}>
+                  <span className="lfs-pill" style={{ background: meta.bg, color: meta.color }} title={paused && fs.paused_by ? `Paused by ${fs.paused_by}` : undefined}>
                     <span className="lfs-dot" style={{ background: meta.color }} aria-hidden="true" />
                     {meta.label}
                   </span>
@@ -351,9 +329,17 @@ export default function LiveFroStatus() {
                   </div>
                 </div>
                 <div className="lfs-seen">Last seen: {fs.updated_at ? new Date(fs.updated_at).toLocaleTimeString('en-IN') : '—'}</div>
-                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                  <button type="button" className="lfs-btn" style={{ height: 32, fontSize: 12, padding: '0 12px' }} onClick={() => setSelectedFro(fs)}>
-                    View Details
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="lfs-btn"
+                    style={{ height: 32, fontSize: 12, padding: '0 12px', ...(paused ? {} : { background: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }) }}
+                    onClick={() => togglePause(fs)}
+                    disabled={pausingId === rowId}
+                    aria-label={paused ? `Resume ${name}` : `Pause ${name}`}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{paused ? 'play_arrow' : 'pause'}</span>
+                    {pausingId === rowId ? '…' : paused ? 'Resume' : 'Pause'}
                   </button>
                 </div>
               </article>
@@ -362,8 +348,6 @@ export default function LiveFroStatus() {
         </div>
       )}
 
-      {selectedFro && <FroDetailModal fro={selectedFro} onClose={() => setSelectedFro(null)} onShowDeep={() => setDeepFro(selectedFro)} />}
-      {deepFro && <FroDeepDetailModal fro={deepFro} onClose={() => setDeepFro(null)} />}
     </div>
   )
 }

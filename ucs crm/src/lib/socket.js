@@ -65,6 +65,18 @@ export function onFroResetIdle(handler) {
   return () => s.off('fro:reset-idle', handler)
 }
 
+export function onFroPause(handler) {
+  const s = getSocket()
+  s.on('fro:pause', handler)
+  return () => s.off('fro:pause', handler)
+}
+
+export function onFroResume(handler) {
+  const s = getSocket()
+  s.on('fro:resume', handler)
+  return () => s.off('fro:resume', handler)
+}
+
 export function onSocketConnect(handler) {
   const s = getSocket()
   s.on('connect', handler)
