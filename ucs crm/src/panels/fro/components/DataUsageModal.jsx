@@ -93,7 +93,7 @@ function PanelSkeleton() {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(90px,150px) 38px 46px', gap: 10, alignItems: 'center' }}>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(70px,110px) 34px 44px', gap: 8, alignItems: 'center' }}>
             <div className="du-sk" style={{ height: 12, borderRadius: 6 }} />
             <div className="du-sk" style={{ height: 8, borderRadius: 999 }} />
             <div className="du-sk" style={{ height: 12, borderRadius: 6 }} />
@@ -312,72 +312,72 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
 
         <style>{`
           .du-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,30,50,.38); box-sizing: border-box; }
-          .du-modal { display: flex; flex-direction: column; width: min(1160px, calc(100vw - 48px)); max-width: calc(100vw - 20px); max-height: calc(100vh - 48px); background: #FFFFFF; border: 1px solid #DCE7F5; border-radius: 18px; box-shadow: 0 18px 50px rgba(25,55,90,.18); overflow: hidden; box-sizing: border-box; }
-          .du-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 30px; border-bottom: 1px solid #E6EEF8; }
+          .du-modal { display: flex; flex-direction: column; width: min(860px, calc(100vw - 48px)); max-width: calc(100vw - 20px); max-height: calc(100vh - 48px); background: #FFFFFF; border: 1px solid #DCE7F5; border-radius: 14px; box-shadow: 0 18px 50px rgba(25,55,90,.18); overflow: hidden; box-sizing: border-box; }
+          .du-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #E6EEF8; }
           .du-header-text { min-width: 0; }
-          .du-title { font-size: 27px; font-weight: 700; color: #10213D; line-height: 1.2; }
-          .du-subtitle { font-size: 15px; color: #607795; margin-top: 4px; }
-          .du-header-controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-          .du-target-link { height: 42px; padding: 0 14px; background: transparent; border: 1px solid #C9DAEE; border-radius: 10px; color: #2F7BFF; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+          .du-title { font-size: 20px; font-weight: 700; color: #10213D; line-height: 1.2; }
+          .du-subtitle { font-size: 12.5px; color: #607795; margin-top: 2px; }
+          .du-header-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+          .du-target-link { height: 36px; padding: 0 12px; background: transparent; border: 1px solid #C9DAEE; border-radius: 10px; color: #2F7BFF; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
           .du-target-link:hover { background: #F1F6FF; }
           .du-target-link:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
-          .du-period { height: 42px; width: 170px; max-width: 185px; min-width: 150px; background: #fff; border: 1px solid #C9DAEE; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 600; padding: 0 10px; outline: none; cursor: pointer; font-family: inherit; }
+          .du-period { height: 36px; width: 150px; max-width: 165px; min-width: 130px; background: #fff; border: 1px solid #C9DAEE; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 600; padding: 0 10px; outline: none; cursor: pointer; font-family: inherit; }
           .du-period:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
-          .du-close { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 10px; color: #6D7E95; cursor: pointer; }
+          .du-close { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 10px; color: #6D7E95; cursor: pointer; }
           .du-close:hover { background: #F1F5FA; }
           .du-close:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
-          .du-content { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 22px 30px 28px; box-sizing: border-box; }
-          .du-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+          .du-content { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 18px 18px; box-sizing: border-box; }
+          .du-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
           .du-summary-grid > * { min-width: 0; }
-          .du-card { border-radius: 14px; padding: 20px 22px; min-width: 0; box-sizing: border-box; }
+          .du-card { border-radius: 12px; padding: 13px 15px; min-width: 0; box-sizing: border-box; }
           .du-card-allotted { background: #F1F6FF; border: 1px solid #CFE0FF; }
           .du-card-used { background: #FFF3F5; border: 1px solid #F5D5DC; }
-          .du-card-label { font-size: 15px; color: #33475F; font-weight: 600; }
-          .du-card-value { font-size: 28px; font-weight: 750; color: #10213D; margin-top: 6px; font-variant-numeric: tabular-nums; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; }
-          .du-track { height: 9px; border-radius: 999px; background: #E3EAF3; overflow: hidden; margin-top: 12px; }
+          .du-card-label { font-size: 13px; color: #33475F; font-weight: 600; }
+          .du-card-value { font-size: 22px; font-weight: 750; color: #10213D; margin-top: 4px; font-variant-numeric: tabular-nums; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; }
+          .du-track { height: 7px; border-radius: 999px; background: #E3EAF3; overflow: hidden; margin-top: 9px; }
           .du-fill { height: 100%; border-radius: 999px; max-width: 100%; transition: width .4s ease; }
           .du-fill-blue { background: #2F7BFF; }
           .du-fill-red { background: #E5485D; }
-          .du-today { margin-top: 16px; background: #F8FBFF; border: 1px solid #DCE7F5; border-radius: 14px; overflow: hidden; min-width: 0; }
-          .du-today-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #E6EEF8; }
+          .du-today { margin-top: 12px; background: #F8FBFF; border: 1px solid #DCE7F5; border-radius: 12px; overflow: hidden; min-width: 0; }
+          .du-today-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #E6EEF8; }
           .du-today-text { min-width: 0; }
-          .du-today-title { font-size: 19px; font-weight: 700; color: #10213D; }
-          .du-today-value { font-size: 28px; font-weight: 750; color: #10213D; margin-top: 2px; font-variant-numeric: tabular-nums; line-height: 1.1; }
-          .du-filter { height: 42px; background: #fff; border: 1px solid #C9DAEE; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 600; padding: 0 10px; outline: none; cursor: pointer; font-family: inherit; flex-shrink: 0; max-width: 100%; }
+          .du-today-title { font-size: 15px; font-weight: 700; color: #10213D; }
+          .du-today-value { font-size: 22px; font-weight: 750; color: #10213D; margin-top: 2px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+          .du-filter { height: 36px; background: #fff; border: 1px solid #C9DAEE; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 600; padding: 0 10px; outline: none; cursor: pointer; font-family: inherit; flex-shrink: 0; max-width: 100%; }
           .du-filter:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
-          .du-today-body { padding: 16px 20px 20px; min-width: 0; }
-          .du-breakdown-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; min-width: 0; }
+          .du-today-body { padding: 12px 14px 14px; min-width: 0; }
+          .du-breakdown-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; min-width: 0; }
           .du-breakdown-grid > * { min-width: 0; }
-          .du-breakdown-panel { border-radius: 12px; padding: 14px 16px; background: #fff; border: 1px solid; min-width: 0; box-sizing: border-box; }
+          .du-breakdown-panel { border-radius: 10px; padding: 10px 12px; background: #fff; border: 1px solid; min-width: 0; box-sizing: border-box; }
           .du-connects { background: #F1FBF7; border-color: #CFEFE1; }
           .du-non { background: #FFF8F0; border-color: #F3DEC8; }
-          .du-breakdown-head { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid rgba(16,33,61,.08); margin-bottom: 10px; min-width: 0; }
-          .du-icon-circle { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+          .du-breakdown-head { display: flex; align-items: center; gap: 7px; padding-bottom: 8px; border-bottom: 1px solid rgba(16,33,61,.08); margin-bottom: 8px; min-width: 0; }
+          .du-icon-circle { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
           .du-icon-green { background: #D9F2E5; color: #13A66A; }
           .du-icon-orange { background: #FDEBD7; color: #F07820; }
-          .du-breakdown-title { font-size: 14px; font-weight: 700; color: #10213D; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-          .du-breakdown-count { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+          .du-breakdown-title { font-size: 13px; font-weight: 700; color: #10213D; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .du-breakdown-count { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
           .du-text-green { color: #13A66A; }
           .du-text-orange { color: #F07820; }
           .du-breakdown-pill { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
           .du-pill-green { background: #D9F2E5; color: #0E7A4E; }
           .du-pill-orange { background: #FDEBD7; color: #B45309; }
-          .du-status-list { display: flex; flex-direction: column; gap: 9px; max-height: 420px; overflow-y: auto; overflow-x: hidden; padding-right: 2px; padding-bottom: 2px; min-width: 0; }
-          .du-status-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(90px,150px) 38px 46px; gap: 10px; align-items: center; min-width: 0; }
+          .du-status-list { display: flex; flex-direction: column; gap: 7px; max-height: 280px; overflow-y: auto; overflow-x: hidden; padding-right: 2px; padding-bottom: 2px; min-width: 0; }
+          .du-status-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(70px,110px) 34px 44px; gap: 8px; align-items: center; min-width: 0; }
           .du-status-row > * { min-width: 0; }
-          .du-status-name { font-size: 13px; font-weight: 500; color: #1B2E49; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-          .du-status-track { height: 8px; border-radius: 999px; background: #E4EAF2; overflow: hidden; }
+          .du-status-name { font-size: 12px; font-weight: 500; color: #1B2E49; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .du-status-track { height: 7px; border-radius: 999px; background: #E4EAF2; overflow: hidden; }
           .du-status-fill { display: block; height: 100%; border-radius: 999px; max-width: 100%; }
-          .du-status-count { font-size: 14px; font-weight: 650; color: #10213D; text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+          .du-status-count { font-size: 13px; font-weight: 650; color: #10213D; text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
           .du-status-pct { font-size: 10.5px; font-weight: 700; text-align: center; background: #EDF2F9; color: #40587A; border-radius: 999px; padding: 2px 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
           .du-status-empty { text-align: center; font-size: 12.5px; color: #607795; padding: 18px 8px; }
-          .du-empty { text-align: center; padding: 34px 16px; }
+          .du-empty { text-align: center; padding: 22px 14px; }
           .du-empty-title { font-size: 14px; font-weight: 700; color: #10213D; }
           .du-empty-sub { font-size: 12.5px; color: #607795; margin-top: 4px; }
           .du-sk { background: linear-gradient(90deg, #E8EEF6 25%, #F4F7FB 50%, #E8EEF6 75%); background-size: 200% 100%; animation: du-shimmer 1.4s infinite; }
           @keyframes du-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-          .du-footer { flex: 0 0 auto; display: flex; justify-content: flex-end; padding: 14px 30px; border-top: 1px solid #E6EEF8; background: #fff; }
-          .du-close-btn { height: 40px; padding: 0 22px; background: #fff; border: 1px solid #D2DEED; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+          .du-footer { flex: 0 0 auto; display: flex; justify-content: flex-end; padding: 10px 18px; border-top: 1px solid #E6EEF8; background: #fff; }
+          .du-close-btn { height: 36px; padding: 0 20px; background: #fff; border: 1px solid #D2DEED; border-radius: 10px; color: #10213D; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
           .du-close-btn:hover { background: #F4F7FB; }
           .du-close-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
           @media (max-width: 999px) and (min-width: 700px) {
@@ -387,16 +387,16 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
           @media (max-width: 699px) {
             .du-overlay { padding: 10px; }
             .du-modal { width: calc(100vw - 20px); max-height: calc(100vh - 20px); border-radius: 14px; }
-            .du-header { padding: 16px; flex-wrap: wrap; }
-            .du-title { font-size: 22px; }
-            .du-subtitle { font-size: 13px; }
+            .du-header { padding: 12px; flex-wrap: wrap; }
+            .du-title { font-size: 18px; }
+            .du-subtitle { font-size: 12px; }
             .du-header-controls { width: 100%; }
             .du-period { flex: 1; width: auto; min-width: 0; }
-            .du-content { padding: 16px 16px 20px; }
+            .du-content { padding: 12px 12px 14px; }
             .du-summary-grid { grid-template-columns: 1fr; }
             .du-breakdown-grid { grid-template-columns: 1fr; }
-            .du-card-value { font-size: 24px; }
-            .du-today-value { font-size: 24px; }
+            .du-card-value { font-size: 20px; }
+            .du-today-value { font-size: 20px; }
             .du-status-row { grid-template-columns: minmax(0,1fr) 38px 46px; }
             .du-status-track { grid-column: 1 / -1; order: 2; }
             .du-footer { padding: 12px 16px; }
