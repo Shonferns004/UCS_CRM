@@ -120,13 +120,29 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
 const monthStartDay = String(monthStart).slice(0, 10);
   const monthEndDay = String(monthEnd).slice(0, 10);
   const { data: receipts, error } = await sql(
-    `SELECT id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name
+    `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id
      FROM receipts
      WHERE receipt_date >= $1 AND receipt_date <= $2
        AND lower(btrim(agent_name)) = $3`,
     [monthStartDay, monthEndDay, workerName.toLowerCase()]
   ).then(r => ({ data: r, error: null })).catch(e => ({ data: null, error: e }));
   if (error) throw error;
+  // Verified this month but receipt backdated (receipt_date = transaction date,
+  // verified_at = now): include via linked log so Verified ⊆ Collected.
+  let verifiedReceipts = [];
+  try {
+    verifiedReceipts = await sql(
+      `SELECT r.id, r.donor_id, r.amount, r.project_id, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id
+       FROM receipts r
+       JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
+         AND l.verified_at >= $2 AND l.verified_at <= $3`,
+      [workerId, monthStart, monthEnd]
+    );
+  } catch (e) { verifiedReceipts = []; }
+  for (const r of verifiedReceipts || []) {
+    if (!(receipts || []).some(x => String(x.id) === String(r.id))) receipts.push(r);
+  }
 
   const { data: ngos } = await db.from('ngos').select('id, name');
   const projToNgoId = {};
@@ -164,15 +180,36 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
   const monthEndDay = String(monthEnd).slice(0, 10);
   const { data: receipts, error } = await db
     .from('receipts')
-    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name')
+    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name, log_id')
     .ilike('agent_name', workerName)
     .gte('receipt_date', monthStartDay)
     .lte('receipt_date', monthEndDay);
   if (error) throw error;
 
+  // Include receipts verified in this window even when receipt_date (transaction
+  // date) falls in an earlier month. Verified card counts by verified_at, so
+  // without this Verified amount never lands in Collected. Attributed by the
+  // linked log's fro_worker_id (authoritative) instead of agent_name text.
+  let verifiedReceipts = [];
+  try {
+    verifiedReceipts = await sql(
+      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id
+       FROM receipts r
+       JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
+         AND l.verified_at >= $2 AND l.verified_at <= $3`,
+      [workerId, monthStart, monthEnd]
+    );
+  } catch (e) { verifiedReceipts = []; }
+  const merged = [...(receipts || [])];
+  const ids = new Set(merged.map(r => String(r.id)));
+  for (const r of verifiedReceipts || []) {
+    if (!ids.has(String(r.id))) { merged.push(r); ids.add(String(r.id)); }
+  }
+
   const seen = new Set();
   let total = 0;
-  for (const r of receipts || []) {
+  for (const r of merged) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
     const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
@@ -192,18 +229,40 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
   const monthEndDay = String(monthEnd).slice(0, 10);
   const { data: receipts, error } = await db
     .from('receipts')
-    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name')
+    .select('id, donor_id, amount, receipt_date, receipt_no, payment_id, agent_name, log_id')
     .ilike('agent_name', workerName)
     .gte('receipt_date', monthStartDay)
     .lte('receipt_date', monthEndDay);
   if (error) throw error;
 
+  // Same verified-in-month union as getTotalCollectedByWorker, bucketed by the
+  // verification day so daily AKI days line up with the Verified Today card.
+  let verifiedRows = [];
+  try {
+    verifiedRows = await sql(
+      `SELECT r.id, r.donor_id, r.amount, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id,
+              l.verified_at AS verified_at
+       FROM receipts r
+       JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE l.fro_worker_id = $1 AND l.accounts_status = 'verified'
+         AND l.verified_at >= $2 AND l.verified_at <= $3`,
+      [workerId, monthStart, monthEnd]
+    );
+  } catch (e) { verifiedRows = []; }
+  const mergedById = new Map();
+  for (const r of receipts || []) mergedById.set(String(r.id), { ...r, verified_at: null });
+  // Verified-day version wins when the same receipt appears in both queries.
+  for (const r of verifiedRows || []) mergedById.set(String(r.id), r);
+  const merged = [...mergedById.values()];
+
   const seen = new Set();
   const byDay = {};
-  for (const r of receipts || []) {
+  for (const r of merged) {
     const amount = parseFloat(r.amount || 0);
     if (amount <= 0) continue;
-    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
+    const vDay = r.verified_at ? String(r.verified_at).slice(0, 10) : null;
+    const rDay = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
+    const day = (vDay && vDay >= monthStartDay && vDay <= monthEndDay) ? vDay : rDay;
     if (!day) continue;
     const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
     if (seen.has(dedupKey)) continue;
@@ -255,41 +314,103 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   }
 
   const receipts = await sql(
-    `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name
+    `SELECT id, donor_id, amount, project_id, receipt_date, receipt_no, payment_id, agent_name, log_id
      FROM receipts
      WHERE receipt_date >= $1 AND receipt_date <= $2
        AND lower(btrim(agent_name)) = ANY($3)`,
     [monthStartDay, monthEndDay, Object.keys(byName)]
   );
 
+  // Receipts verified in-month but backdated to an earlier receipt_date.
+  // Attributed by linked log worker so Verified ⊆ Collected per worker.
+  let verifiedLinked = [];
+  try {
+    verifiedLinked = await sql(
+      `SELECT r.id, r.donor_id, r.amount, r.project_id, r.receipt_date, r.receipt_no, r.payment_id, r.agent_name, r.log_id,
+              l.fro_worker_id AS log_worker_id, l.verified_at AS verified_at
+       FROM receipts r
+       JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE l.fro_worker_id = ANY($1) AND l.accounts_status = 'verified'
+         AND l.verified_at >= $2 AND l.verified_at <= $3`,
+      [workerIds, monthStart, monthEnd]
+    );
+  } catch (e) { verifiedLinked = []; }
+
   const dedup = {}; for (const id of workerIds) dedup[id] = new Set();
+  const verifiedLinkedIds = new Set((verifiedLinked || []).map(r => `${r.log_worker_id}|${String(r.id)}`));
+  const applyReceipt = (id, r, day) => {
+    const amount = parseFloat(r.amount || 0);
+    if (amount <= 0 || !day) return;
+    const idKey = String(r.id);
+    if (dedup[id].has(idKey)) return;
+    dedup[id].add(idKey);
+    if (day >= monthStartDay && day <= monthEndDay) monthCollection[id] += amount;
+    if (day >= weekStartDay && day <= weekEndDay) weekCollection[id] += amount;
+    if (day >= todayStartDay && day <= todayEndDay) todayCollection[id] += amount;
+    if (day >= monthStartDay && day <= monthEndDay) {
+      verifiedMonth[id].amount += amount;
+      verifiedMonth[id].count++;
+    }
+    if (day >= todayStartDay && day <= todayEndDay) {
+      verifiedToday[id].amount += amount;
+      verifiedToday[id].count++;
+    }
+  };
 
   for (const r of receipts) {
+    // Skip linked receipts here when the linked log belongs to a known worker;
+    // they are attributed via verifiedLinked to avoid agent_name mismatches.
+    if (r.log_id) continue;
     const matched = byName[String(r.agent_name || '').trim().toLowerCase()];
     if (!matched) continue;
-    const amount = parseFloat(r.amount || 0);
-    if (amount <= 0) continue;
     const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
-    if (!day) continue;
-    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
+    for (const id of matched) applyReceipt(id, r, day);
+  }
+  for (const r of receipts) {
+    if (!r.log_id) continue;
+    const matched = byName[String(r.agent_name || '').trim().toLowerCase()];
+    if (!matched) continue;
+    const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
     for (const id of matched) {
-      if (dedup[id].has(dedupKey)) continue;
-      dedup[id].add(dedupKey);
-
-      if (day >= monthStartDay && day <= monthEndDay) monthCollection[id] += amount;
-      if (day >= weekStartDay && day <= weekEndDay) weekCollection[id] += amount;
-      if (day >= todayStartDay && day <= todayEndDay) todayCollection[id] += amount;
-
-      if (day >= monthStartDay && day <= monthEndDay) {
-        verifiedMonth[id].amount += amount;
-        verifiedMonth[id].count++;
-      }
-      if (day >= todayStartDay && day <= todayEndDay) {
-        verifiedToday[id].amount += amount;
-        verifiedToday[id].count++;
-      }
+      // Verified-day bucket below wins for the same receipt+worker; skip here
+      // to avoid counting one receipt twice on two different days.
+      if (verifiedLinkedIds.has(`${id}|${String(r.id)}`)) continue;
+      applyReceipt(id, r, day);
     }
   }
+  for (const r of verifiedLinked || []) {
+    const id = r.log_worker_id;
+    if (!id || !dedup[id]) continue;
+    const vDay = r.verified_at ? String(r.verified_at).slice(0, 10) : null;
+    const day = (vDay && vDay >= monthStartDay && vDay <= monthEndDay)
+      ? vDay
+      : (r.receipt_date ? String(r.receipt_date).slice(0, 10) : null);
+    applyReceipt(id, r, day);
+  }
+
+  // Unverified = pending lead_done logs (receipts only exist after verify, so
+  // the receipts loop above can never fill these — previously always zero).
+  try {
+    const pending = await sql(
+      `SELECT fro_worker_id, amount_collected, created_at
+       FROM fro_donor_logs
+       WHERE fro_worker_id = ANY($1) AND disposition_detail = 'lead_done' AND accounts_status = 'pending'
+         AND created_at >= $2 AND created_at <= $3`,
+      [workerIds, monthStart, monthEnd]
+    );
+    for (const l of pending || []) {
+      const id = l.fro_worker_id;
+      if (!id || !unverifiedMonth[id]) continue;
+      const amount = parseFloat(l.amount_collected || 0);
+      const day = l.created_at ? String(l.created_at).slice(0, 10) : null;
+      unverifiedMonth[id].amount += amount;
+      unverifiedMonth[id].count++;
+      if (day && day >= todayStartDay && day <= todayEndDay) {
+        unverifiedToday[id].amount += amount;
+        unverifiedToday[id].count++;
+      }
+    }
+  } catch (e) { /* keep zeros on failure */ }
 
   return { monthCollection, todayCollection, weekCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
 };
@@ -313,28 +434,44 @@ export const getRangeCollectionByWorker = async (workerIds, startDay, endDay) =>
   if (Object.keys(byName).length === 0) return result;
 
   const receipts = await sql(
-    `SELECT amount, receipt_date, receipt_no, donor_id, payment_id, agent_name
+    `SELECT id, amount, receipt_date, receipt_no, donor_id, payment_id, agent_name, log_id
      FROM receipts
      WHERE receipt_date >= $1 AND receipt_date <= $2
        AND lower(btrim(agent_name)) = ANY($3)`,
     [startDay, endDay, Object.keys(byName)]
   );
+  let verifiedLinked = [];
+  try {
+    verifiedLinked = await sql(
+      `SELECT r.id, r.amount, r.receipt_date, r.receipt_no, r.donor_id, r.payment_id, r.agent_name, r.log_id,
+              l.fro_worker_id AS log_worker_id
+       FROM receipts r
+       JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE l.fro_worker_id = ANY($1) AND l.accounts_status = 'verified'
+         AND l.verified_at >= $2 AND l.verified_at <= $3`,
+      [workerIds, startDay, endDay]
+    );
+  } catch (e) { verifiedLinked = []; }
 
   const dedup = {};
   for (const id of workerIds) dedup[id] = new Set();
+  const addAmt = (id, r) => {
+    const amount = parseFloat(r.amount || 0);
+    if (amount <= 0) return;
+    const idKey = String(r.id);
+    if (dedup[id].has(idKey)) return;
+    dedup[id].add(idKey);
+    result[id] += amount;
+  };
   for (const r of receipts) {
     const matched = byName[String(r.agent_name || '').trim().toLowerCase()];
     if (!matched) continue;
-    const amount = parseFloat(r.amount || 0);
-    if (amount <= 0) continue;
     const day = r.receipt_date ? String(r.receipt_date).slice(0, 10) : null;
     if (!day) continue;
-    const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${day}|${r.payment_id || ''}`;
-    for (const id of matched) {
-      if (dedup[id].has(dedupKey)) continue;
-      dedup[id].add(dedupKey);
-      result[id] += amount;
-    }
+    for (const id of matched) addAmt(id, r);
+  }
+  for (const r of verifiedLinked || []) {
+    if (r.log_worker_id && dedup[r.log_worker_id]) addAmt(r.log_worker_id, r);
   }
   return result;
 };

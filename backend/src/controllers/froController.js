@@ -3074,9 +3074,10 @@ export const getMyTarget = async (req, res) => {
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
     const now = new Date();
+    const istNowT = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
     const monthStr = now.toISOString().slice(0, 7) + '-01';
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    const monthStart = new Date(Date.UTC(istNowT.getUTCFullYear(), istNowT.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+    const monthEnd = new Date(Date.UTC(istNowT.getUTCFullYear(), istNowT.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
 
     const joinedAt = new Date(worker.created_at);
     const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
