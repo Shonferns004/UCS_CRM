@@ -484,3 +484,23 @@ export const deleteSpecialIncentive = async (incentiveId) => {
   if (error) throw error;
   return (data && data[0]) || null;
 };
+
+// Admin edits a live incentive's setup (title/message/target/reward/window/ngo).
+// Only active (non-closed) incentives can be edited; winners and payouts stay untouched.
+export const updateSpecialIncentive = async (incentiveId, fields) => {
+  const allowed = ['title', 'message', 'target_amount', 'incentive_amount', 'start_at', 'end_at', 'ngo_id'];
+  const patch = {};
+  for (const k of allowed) {
+    if (fields[k] !== undefined) patch[k] = fields[k];
+  }
+  if (Object.keys(patch).length === 0) return null;
+  const { data, error } = await db
+    .from('special_incentives')
+    .update(patch)
+    .eq('id', incentiveId)
+    .eq('status', 'active')
+    .select('*, ngos(name)')
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+};
