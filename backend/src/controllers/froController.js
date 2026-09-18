@@ -577,9 +577,16 @@ export const getDashboard = async (req, res) => {
     const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
 
+    // Active donors: those who donated within the last 1 year.
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+    // The year-long active-donor scan and today's punch-in lookup are
+    // independent of the 9 aggregations below, so they ride in the same
+    // Promise.all instead of costing two extra sequential round-trips.
     const [
       monthlyConnectedRes, dailyConnectedRes, dailyDonationsRes, totalDonationsRes, assignmentsRes,
-      leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes,
+      leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes, activeDonorsRes,
     ] = stationNames.length > 0
       ? await Promise.all([
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
@@ -591,8 +598,17 @@ export const getDashboard = async (req, res) => {
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(
+            db
+              .from('fro_donor_logs')
+              .select('donor_id, fro_assignments!inner(station, ngo_id)')
+              .in('fro_assignments.station', stationNames)
+              .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+              .gte('created_at', oneYearAgo.toISOString()),
+            myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+          ),
         ])
-      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
+      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
     const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
     monthlyConnectedRes.data = filterByScope(monthlyConnectedRes.data, myScope, pairOf);
@@ -661,25 +677,11 @@ export const getDashboard = async (req, res) => {
     // FRO-specific reactivations: donors THIS worker reactivated (donated today/month but no prior donation in FY).
     // Own-money rule: match on the log's collector only. Cross-FRO verifications reuse
     // another FRO's assignment, so station-pair scoping used to hide them here.
+    // Single FY-range query instead of 3 sequential round-trips (today, month,
+    // FY): the FY window always covers today and the current month, so all
+    // four sets below derive from the same rows with identical boundaries.
     let froReactivatedToday = 0, froReactivatedMonthly = 0;
     {
-      // Get donations by this FRO worker today
-      const { data: froTodayDonors } = await db
-        .from('fro_donor_logs')
-        .select('donor_id')
-        .eq('fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', todayStart.toISOString())
-        .lte('created_at', todayEnd.toISOString());
-
-      const { data: froMonthDonors } = await db
-        .from('fro_donor_logs')
-        .select('donor_id')
-        .eq('fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', monthStart)
-        .lte('created_at', monthEnd);
-
       const { data: froFyDonors } = await db
         .from('fro_donor_logs')
         .select('donor_id, created_at')
@@ -688,33 +690,28 @@ export const getDashboard = async (req, res) => {
         .gte('created_at', fyStart.toISOString());
 
       const todayStr = todayStart.toISOString();
+      const todayEndStr = todayEnd.toISOString();
       const fyBeforeTodayDonorsSet = new Set();
       const fyBeforeMonthDonorsSet = new Set();
+      const froTodayDonorSet = new Set();
+      const froMonthDonorSet = new Set();
       for (const log of froFyDonors || []) {
+        if (!log.donor_id) continue;
         if (log.created_at < todayStr) fyBeforeTodayDonorsSet.add(log.donor_id);
         if (log.created_at < monthStart) fyBeforeMonthDonorsSet.add(log.donor_id);
+        if (log.created_at >= todayStr && log.created_at <= todayEndStr) froTodayDonorSet.add(log.donor_id);
+        if (log.created_at >= monthStart && log.created_at <= monthEnd) froMonthDonorSet.add(log.donor_id);
       }
 
-      const froTodayDonorSet = new Set((froTodayDonors || []).map(l => l.donor_id).filter(Boolean));
-      const froMonthDonorSet = new Set((froMonthDonors || []).map(l => l.donor_id).filter(Boolean));
       froReactivatedToday = [...froTodayDonorSet].filter(id => !fyBeforeTodayDonorsSet.has(id)).length;
       froReactivatedMonthly = [...froMonthDonorSet].filter(id => !fyBeforeMonthDonorsSet.has(id)).length;
     }
 
-    // Active donors: those who donated within the last 1 year
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    // Active donors: those who donated within the last 1 year (fetched in the
+    // batch above; only the scope filter + counting happen here).
     const donorsWithRecentDonations = stationNames.length > 0
       ? filterByScope(
-          (await withStationNgoPairs(
-            db
-              .from('fro_donor_logs')
-              .select('donor_id, fro_assignments!inner(station, ngo_id)')
-              .in('fro_assignments.station', stationNames)
-              .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-              .gte('created_at', oneYearAgo.toISOString()),
-            myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-          )).data || [],
+          activeDonorsRes.data || [],
           myScope,
           l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`
         )
