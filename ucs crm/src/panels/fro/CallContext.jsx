@@ -460,7 +460,14 @@ export function CallProvider({ children, userId, operatorId }) {
       event: '*',
       filter: (p) => watched.has(String((p.new || p.old || {}).worker_id)),
       onInsert: (row) => { if (row?.is_paused) applyPause(row.paused_by); },
-      onUpdate: (row) => { if (row?.is_paused) applyPause(row?.paused_by); else converge(); },
+      onUpdate: (row) => {
+        // Heartbeats rewrite this row ~every 30s without changing pause
+        // state — only converge (GET /fro/status/me) when the flag flipped,
+        // otherwise every heartbeat costs a pointless round-trip per panel.
+        if (!!row?.is_paused === pausedRef.current) return
+        if (row?.is_paused) applyPause(row?.paused_by)
+        else converge()
+      },
       onDelete: () => {},
     })
   }, [userId, operatorId, applyPause, clearPause])
