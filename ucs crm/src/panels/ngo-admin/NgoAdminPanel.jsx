@@ -16,9 +16,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Donors = lazy(() => import('./pages/Donors'))
 const DonorDetail = lazy(() => import('./pages/DonorDetail'))
 const StationManagement = lazy(() => import('./pages/StationManagement'))
-const RejectedLeads = lazy(() => import('./pages/RejectedLeads'))
 const NgoAttendance = lazy(() => import('./pages/Attendance'))
-const SuspensePage = lazy(() => import('./pages/Suspense'))
 const DonorCRM = lazy(() => import('./pages/DonorCRM'))
 const SearchResults = lazy(() => import('./pages/SearchResults'))
 const Codes = lazy(() => import('./pages/Codes'))
@@ -30,10 +28,8 @@ const NAV = [
   { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
   { id: 'donor-crm', path: '/ngo-admin/donor-crm', label: 'Donor CRM', icon: 'donorCrm' },
-  { id: 'suspense', path: '/ngo-admin/suspense', label: 'Suspense', icon: 'suspense' },
   { id: 'donors', path: '/ngo-admin/donors', label: 'Donors', icon: 'donors' },
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
-  { id: 'rejected', path: '/ngo-admin/rejected-leads', label: 'Rejected Leads', icon: 'rejected' },
   { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
   { id: 'my-tickets', path: '/ngo-admin/my-tickets', label: 'Tickets', icon: 'tickets' },
 ]
@@ -45,9 +41,7 @@ const ICONS = {
   donors: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   station: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   attendance: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-  rejected: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
   froStatus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17a4 4 0 0 1 8 0"/><circle cx="9" cy="7" r="4"/><path d="M13 4.13A4 4 0 0 1 18 8v4"/><path d="M18 12v6"/><line x1="16" y1="18" x2="20" y2="18"/></svg>,
-  suspense: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   callAnalytics: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
   dataOverview: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>,
   codes: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
@@ -112,8 +106,6 @@ export default function NgoAdminPanel() {
   const searchTimer = useRef(null)
   const menuRef = useRef(null)
   const location = useLocation()
-  const [rejectedCount, setRejectedCount] = useState(0);
-  const [rejectedItems, setRejectedItems] = useState([]);
   const [allNotifs, setAllNotifs] = useState([]);
   const [showNotifList, setShowNotifList] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -172,19 +164,6 @@ export default function NgoAdminPanel() {
     finally { setMeetingBusy(false); }
   };
 
-  const loadRejectedCount = (showDesktop = false) => {
-    api('/ngo-admin/rejected-leads', { _prefix: 'ucs' })
-      .then(data => {
-        const items = (data || []).filter(t => t.status === 'pending_review');
-        if (showDesktop && items.length > 0) {
-          showDesktopNotification('Lead Rejected', `${items[0].donor_name} (\u20B9${items[0].amount || 0}) lead rejected. Reason: ${items[0].rejection_reason}`, '/ngo-admin/rejected-leads');
-        }
-        setRejectedItems(items);
-        setRejectedCount(items.length);
-      })
-      .catch((err) => { console.error('Error:', err.message); });
-  };
-
   const loadNotifications = () => {
     const uid = user?.id;
     if (!uid) return;
@@ -215,19 +194,9 @@ export default function NgoAdminPanel() {
   }, [themeName])
 
   useEffect(() => {
-    loadRejectedCount();
     loadNotifications();
     requestNotifPermission();
   }, [user?.id]);
-
-  // Polling for rejected leads (replaces useRealtime)
-  usePolling(
-    () => loadRejectedCount(true),
-    30000,
-    {
-      enabled: true,
-    }
-  );
 
   // Polling for notifications (replaces useRealtime)
   usePolling(
@@ -297,11 +266,7 @@ export default function NgoAdminPanel() {
   const userName = user?.name || 'Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
-  const dropdownItems = rejectedItems.slice(0, MAX_DROPDOWN);
-  const totalHidden = rejectedCount - dropdownItems.length;
-
   const drawerSections = [
-    { label: 'Rejected Leads', type: 'rejected', items: rejectedItems },
     { label: 'Notifications', type: 'notifications', items: allNotifs },
   ];
 
@@ -312,15 +277,6 @@ export default function NgoAdminPanel() {
 
   const handleDrawerItemClick = (item, section) => {
     setDrawerOpen(false);
-    if (section?.type === 'rejected') {
-      navigate('/ngo-admin/rejected-leads');
-      return;
-    }
-    if (item.type === 'suspense_assigned' || item.fro_donor_log_id) {
-      navigate('/ngo-admin/suspense');
-    } else if (item.type === 'lead_rejected') {
-      navigate('/ngo-admin/rejected-leads');
-    }
   };
 
   return (
@@ -522,8 +478,6 @@ export default function NgoAdminPanel() {
             <Route path="donors/:id" element={<DonorDetailPage />} />
             <Route path="station-mgmt" element={<StationManagement />} />
             <Route path="attendance" element={<NgoAttendance />} />
-            <Route path="rejected-leads" element={<RejectedLeads />} />
-            <Route path="suspense" element={<SuspensePage />} />
             <Route path="search" element={<SearchResults />} />
             <Route path="codes" element={<Codes />} />
             <Route path="my-tickets" element={<TechnicalTickets panel="ngo_admin" />} />
