@@ -338,7 +338,7 @@ export function CallProvider({ children, userId }) {
       const next = { ...todayStatsRef.current, idleSeconds: 0 }
       todayStatsRef.current = next
       setTodayStats(next)
-      syncAllStats({ idle_since: null })
+      syncAllStats({ idle_since: null, force_counters: true })
     })
   }, [syncAllStats])
 
@@ -356,7 +356,10 @@ export function CallProvider({ children, userId }) {
       const next = { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
       todayStatsRef.current = next
       setTodayStats(next)
-      syncAllStats({ idle_since: null }, next)
+      // force_counters: this zero-push is the deliberate daily reset — it must
+      // win over any max-kept value on the server, otherwise idle would never
+      // reset each day.
+      syncAllStats({ idle_since: null, force_counters: true }, next)
     }, 30 * 1000)
     return () => clearInterval(timer)
   }, [syncAllStats])
