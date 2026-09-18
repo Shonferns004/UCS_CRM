@@ -76,9 +76,12 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
-export async function getMyAllotmentSummary(month) {
-  const params = month ? `?month=${month}` : ''
-  return api(`/fro/allotment-summary${params}`, { _prefix: 'ucs' })
+export async function getMyAllotmentSummary(month, batch) {
+  const params = new URLSearchParams();
+  if (month) params.set('month', month);
+  if (batch === 'new' || batch === 'old') params.set('batch', batch);
+  const qs = params.toString();
+  return api(`/fro/allotment-summary${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
 
 export async function getMyPerformance() {

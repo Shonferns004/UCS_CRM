@@ -2041,8 +2041,12 @@ export const getMyDonors = async (req, res) => {
     // same instances are reused by the hide-filter stage further down. 'others'
     // is a catch-all terminal disposition — a lead closed with it must leave the
     // work queue for the current month, not resurface as 'pending'.
+    // Includes the grouped picker IDs (ringing_voicemail, busy_call_waiting,
+    // ooc_unreachable_network) — without them a recycled lead is misclassified
+    // as fresh and sorts ahead of genuinely unused pending leads every day.
     const RETRYABLE_NOT_CONNECTED_DETAILS = new Set([
       'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
+      'ringing_voicemail', 'busy_call_waiting', 'ooc_unreachable_network',
     ]);
     // Permanent hide for terminal not-connected dispositions (wrong_number, invalid, etc.).
     // Retryable ones above are excluded here — they go to tail instead.
@@ -3803,12 +3807,25 @@ export const getFollowUps = async (req, res) => {
 // Allotment summary for the logged-in FRO: every donor allotted to them (one
 // row per donor, latest assignment, excluding reassigned) counted by its current
 // fro_assignments.status. Optional ?month=YYYY-MM narrows to assignments made in
-// that IST calendar month; otherwise it is all-time. Powers the FRO activity modal.
+// that IST calendar month; otherwise it is all-time. Optional
+// ?batch=new|old narrows the pool to new-data / old-data assignments (same
+// batch_type + legacy is_new rule as the My Leads New/Old tabs); default is
+// all batches. Powers the FRO activity modal.
 export const getMyAllotmentSummary = async (req, res) => {
   try {
     const workerId = req.user.id;
     const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ worked: 0, by_status: [], allotted_all_time: 0, used_all_time: 0 });
+
+    const batch = req.query.batch === 'new' ? 'new' : req.query.batch === 'old' ? 'old' : 'all';
+    // Same new/old rule as the My Leads tabs: legacy rows have NULL batch_type.
+    const inBatch = (row) => {
+      if (batch === 'all') return true;
+      if (!row) return false;
+      return batch === 'new'
+        ? (row.batch_type === 'new_data' || (row.batch_type == null && row.is_new !== false))
+        : (row.batch_type === 'old_data' || (row.batch_type == null && row.is_new === false));
+    };
 
     // All-time allotment: every unique donor assigned to this FRO (reassigned
     // rows excluded). This is the stable pool — monthly re-inclusion of the same
@@ -3816,7 +3833,7 @@ export const getMyAllotmentSummary = async (req, res) => {
     const { data: allotRows, error: allotErr } = await withStationNgoPairs(
       db
         .from('fro_assignments')
-        .select('donor_id')
+        .select('donor_id, batch_type, is_new')
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned'),
       myScope
@@ -3824,17 +3841,19 @@ export const getMyAllotmentSummary = async (req, res) => {
     if (allotErr) throw allotErr;
 
     const allottedIds = new Set();
-    for (const r of allotRows || []) if (r.donor_id) allottedIds.add(r.donor_id);
+    for (const r of allotRows || []) {
+      if (r.donor_id && inBatch(r)) allottedIds.add(r.donor_id);
+    }
 
     // Activity is derived from disposition logs: a lead counts in the month the
     // disposition was MADE, not when the lead was allotted. fro_assignments.status
     // only holds the current status, so it can't describe past months. Pull all
     // of the FRO's dispositions once — the same rows drive the all-time "used"
     // count and (filtered) the period breakdown.
-    const { data: rows, error } = await withStationNgoPairs(
+    const { data: allRows, error } = await withStationNgoPairs(
       db
         .from('fro_donor_logs')
-        .select('id, donor_id, disposition_detail, created_at, fro_assignments!inner(station, ngo_id)')
+        .select('id, donor_id, disposition_detail, created_at, fro_assignments!inner(station, ngo_id, batch_type, is_new)')
         .eq('fro_worker_id', workerId)
         .eq('action', 'disposition')
         .in('fro_assignments.station', stationNames),
@@ -3843,6 +3862,7 @@ export const getMyAllotmentSummary = async (req, res) => {
       'fro_assignments.ngo_id'
     );
     if (error) throw error;
+    const rows = (allRows || []).filter(r => inBatch(r.fro_assignments));
 
     // Used = allotted leads that have been worked at least once (any disposition,
     // even if a later month reset their status back to pending).

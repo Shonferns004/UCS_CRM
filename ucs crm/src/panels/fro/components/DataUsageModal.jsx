@@ -109,6 +109,7 @@ function PanelSkeleton() {
 export default function DataUsageModal({ onClose, onShowTarget }) {
   const monthOptions = useMemo(() => buildMonthOptions(), []);
   const [period, setPeriod] = useState(() => currentMonthValue());
+  const [batch, setBatch] = useState('all');
   const [filter, setFilter] = useState('all');
   const [allTime, setAllTime] = useState(null);
   const [loadingAll, setLoadingAll] = useState(true);
@@ -117,27 +118,27 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
   const closeRef = useRef(null);
   const prevFocusRef = useRef(null);
 
-  // All-time pool for the two summary cards — fetched once.
+  // All-time pool for the two summary cards — refetches only when batch changes.
   useEffect(() => {
     let cancelled = false;
     setLoadingAll(true);
-    getMyAllotmentSummary()
+    getMyAllotmentSummary(undefined, batch)
       .then((d) => { if (!cancelled) setAllTime(d || EMPTY_SUMMARY); })
       .catch(() => { if (!cancelled) setAllTime(EMPTY_SUMMARY); })
       .finally(() => { if (!cancelled) setLoadingAll(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [batch]);
 
-  // Period breakdown — refetches only when the period changes.
+  // Period breakdown — refetches only when the period or batch changes.
   useEffect(() => {
     let cancelled = false;
     setLoadingPeriod(true);
-    getMyAllotmentSummary(periodParam(period))
+    getMyAllotmentSummary(periodParam(period), batch)
       .then((d) => { if (!cancelled) setPeriodData(d || EMPTY_SUMMARY); })
       .catch(() => { if (!cancelled) setPeriodData(EMPTY_SUMMARY); })
       .finally(() => { if (!cancelled) setLoadingPeriod(false); });
     return () => { cancelled = true; };
-  }, [period]);
+  }, [period, batch]);
 
   // Latest onClose without re-subscribing: parent passes a new inline callback
   // every render, and re-running this effect would steal focus back to the
@@ -219,6 +220,19 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
                 Target →
               </button>
             )}
+            <div className="du-batch-seg" role="group" aria-label="Data type">
+              {['all', 'new', 'old'].map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  className={`du-batch-btn${batch === b ? ' active' : ''}`}
+                  aria-pressed={batch === b}
+                  onClick={() => setBatch(b)}
+                >
+                  {b === 'all' ? 'All' : b === 'new' ? 'New' : 'Old'}
+                </button>
+              ))}
+            </div>
             <select
               className="du-period"
               value={period}
@@ -320,7 +334,11 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
           .du-header-text { min-width: 0; }
           .du-title { font-size: 18px; font-weight: 700; color: #10213D; line-height: 1.2; }
           .du-subtitle { font-size: 12.5px; color: #607795; margin-top: 2px; }
-          .du-header-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+          .du-header-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+          .du-batch-seg { display: inline-flex; background: #F1F5FA; border: 1px solid #C9DAEE; border-radius: 8px; padding: 2px; gap: 2px; }
+          .du-batch-btn { height: 30px; padding: 0 12px; border: none; border-radius: 6px; background: transparent; color: #607795; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+          .du-batch-btn.active { background: #fff; color: #10213D; box-shadow: 0 1px 3px rgba(25,55,90,.18); }
+          .du-batch-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
           .du-target-link { height: 36px; padding: 0 12px; background: transparent; border: 1px solid #C9DAEE; border-radius: 10px; color: #2F7BFF; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
           .du-target-link:hover { background: #F1F6FF; }
           .du-target-link:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
