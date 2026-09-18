@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { getMyAllotmentSummary } from '../api/donors';
+import { getMyAllotmentSummary, getMyStations } from '../api/donors';
+import { isImpersonating } from '../../../api/auth';
 import { findDisp, CONNECTED_IDS } from '../dispositions';
 
 // Data Usage modal — UI redesign only. All numbers come from the existing
@@ -111,6 +112,17 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
   const [period, setPeriod] = useState(() => currentMonthValue());
   const [batch, setBatch] = useState('all');
   const [filter, setFilter] = useState('all');
+  const [ngoId, setNgoId] = useState(null);
+  const [station, setStation] = useState('all');
+  const [stations, setStations] = useState([]);
+  // In a work-as session default to the acting worker's own work; otherwise
+  // the owner's pool (identical numbers outside work-as).
+  const acting = isImpersonating();
+  const [actor, setActor] = useState(() => (isImpersonating() ? 'self' : 'owner'));
+  const scopeOpts = useMemo(
+    () => ({ ngoId, station, ...(acting && actor === 'self' ? { actor: 'self' } : {}) }),
+    [ngoId, station, acting, actor]
+  );
   const [allTime, setAllTime] = useState(null);
   const [loadingAll, setLoadingAll] = useState(true);
   const [periodData, setPeriodData] = useState(null);
@@ -118,27 +130,46 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
   const closeRef = useRef(null);
   const prevFocusRef = useRef(null);
 
-  // All-time pool for the two summary cards — refetches only when batch changes.
+  // Assigned stations for the NGO/Station dropdowns (already narrowed to
+  // claimed stations inside a work-as session).
+  useEffect(() => {
+    let cancelled = false;
+    getMyStations()
+      .then((s) => { if (!cancelled) setStations(Array.isArray(s) ? s : []); })
+      .catch(() => { if (!cancelled) setStations([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const ngoList = useMemo(() => {
+    const map = {};
+    stations.forEach((st) => { if (st.ngo_id && !map[st.ngo_id]) map[st.ngo_id] = st.ngo_name || st.ngo_id; });
+    return Object.entries(map).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+  }, [stations]);
+  const stationList = useMemo(() => stations
+    .filter((s) => !ngoId || String(s.ngo_id) === String(ngoId))
+    .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []), [stations, ngoId]);
+
+  // All-time pool for the two summary cards — refetches only when scope changes.
   useEffect(() => {
     let cancelled = false;
     setLoadingAll(true);
-    getMyAllotmentSummary(undefined, batch)
+    getMyAllotmentSummary(undefined, batch, scopeOpts)
       .then((d) => { if (!cancelled) setAllTime(d || EMPTY_SUMMARY); })
       .catch(() => { if (!cancelled) setAllTime(EMPTY_SUMMARY); })
       .finally(() => { if (!cancelled) setLoadingAll(false); });
     return () => { cancelled = true; };
-  }, [batch]);
+  }, [batch, scopeOpts]);
 
-  // Period breakdown — refetches only when the period or batch changes.
+  // Period breakdown — refetches only when the period or scope changes.
   useEffect(() => {
     let cancelled = false;
     setLoadingPeriod(true);
-    getMyAllotmentSummary(periodParam(period), batch)
+    getMyAllotmentSummary(periodParam(period), batch, scopeOpts)
       .then((d) => { if (!cancelled) setPeriodData(d || EMPTY_SUMMARY); })
       .catch(() => { if (!cancelled) setPeriodData(EMPTY_SUMMARY); })
       .finally(() => { if (!cancelled) setLoadingPeriod(false); });
     return () => { cancelled = true; };
-  }, [period, batch]);
+  }, [period, batch, scopeOpts]);
 
   // Latest onClose without re-subscribing: parent passes a new inline callback
   // every render, and re-running this effect would steal focus back to the
@@ -253,6 +284,42 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
         </div>
 
         <div className="du-content">
+          <div className="du-scope-bar">
+            <select
+              className="du-scope-select"
+              value={ngoId || ''}
+              onChange={(e) => { setNgoId(e.target.value || null); setStation('all'); }}
+              aria-label="Filter by NGO"
+            >
+              <option value="">All NGOs</option>
+              {ngoList.map((n) => <option key={n.ngo_id} value={n.ngo_id}>{n.ngo_name}</option>)}
+            </select>
+            <select
+              className="du-scope-select"
+              value={station}
+              onChange={(e) => setStation(e.target.value || 'all')}
+              aria-label="Filter by station"
+            >
+              <option value="all">All stations</option>
+              {stationList.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {acting && (
+              <div className="du-batch-seg" role="group" aria-label="Whose work">
+                {['owner', 'self'].map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    className={`du-batch-btn${actor === a ? ' active' : ''}`}
+                    aria-pressed={actor === a}
+                    title={a === 'self' ? 'Only what you personally dispositioned in this work-as session' : 'Everything done on this data (all workers)'}
+                    onClick={() => setActor(a)}
+                  >
+                    {a === 'self' ? 'My work' : 'Owner'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="du-summary-grid">
             <div className="du-card du-card-allotted">
               <div className="du-card-label">Total Data Allotted</div>
@@ -348,6 +415,9 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
           .du-close:hover { background: #F1F5FA; }
           .du-close:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
           .du-content { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 14px; box-sizing: border-box; }
+          .du-scope-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+          .du-scope-select { height: 36px; background: #fff; border: 1px solid #C9DAEE; border-radius: 8px; color: #10213D; font-size: 12px; font-weight: 600; padding: 0 8px; outline: none; cursor: pointer; font-family: inherit; max-width: 100%; }
+          .du-scope-select:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
           .du-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
           .du-summary-grid > * { min-width: 0; }
           .du-card { border-radius: 10px; padding: 11px 13px; min-width: 0; box-sizing: border-box; }

@@ -3814,8 +3814,26 @@ export const getFollowUps = async (req, res) => {
 export const getMyAllotmentSummary = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ worked: 0, by_status: [], allotted_all_time: 0, used_all_time: 0 });
+
+    // Optional ?ngo_id / ?station narrow the pool to one NGO / station.
+    // Values outside this FRO's scope yield an empty result — never fall back
+    // to the full scope (that would leak other NGOs' data into stale filters).
+    const EMPTY = { worked: 0, by_status: [], allotted_all_time: 0, used_all_time: 0 };
+    const ngoFilter = req.query.ngo_id || null;
+    if (ngoFilter && !allowedNgoIds.includes(ngoFilter)) return res.json(EMPTY);
+    const stationFilter = req.query.station && req.query.station !== 'all' ? req.query.station : null;
+    if (stationFilter && !stationNames.includes(stationFilter)) return res.json(EMPTY);
+
+    // Attribution in work-as sessions: logs are credited to the acting operator
+    // (imposter_id) while assignments stay with the owner. ?actor=self counts
+    // only what the acting worker personally did from this data; default
+    // (owner) counts everything done on the owner's pool. Outside work-as both
+    // are identical.
+    const isWorkAs = !!(req.user.impersonation && req.user.imposter_id != null);
+    const actorSelf = req.query.actor === 'self' && isWorkAs;
+    const creditId = actorSelf ? req.user.imposter_id : workerId;
 
     const batch = req.query.batch === 'new' ? 'new' : req.query.batch === 'old' ? 'old' : 'all';
     // Same new/old rule as the My Leads tabs: legacy rows have NULL batch_type.
@@ -3833,7 +3851,7 @@ export const getMyAllotmentSummary = async (req, res) => {
     const { data: allotRows, error: allotErr } = await withStationNgoPairs(
       db
         .from('fro_assignments')
-        .select('donor_id, batch_type, is_new')
+        .select('donor_id, batch_type, is_new, station, ngo_id')
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned'),
       myScope
@@ -3842,7 +3860,10 @@ export const getMyAllotmentSummary = async (req, res) => {
 
     const allottedIds = new Set();
     for (const r of allotRows || []) {
-      if (r.donor_id && inBatch(r)) allottedIds.add(r.donor_id);
+      if (!r.donor_id || !inBatch(r)) continue;
+      if (ngoFilter && String(r.ngo_id) !== String(ngoFilter)) continue;
+      if (stationFilter && r.station !== stationFilter) continue;
+      allottedIds.add(r.donor_id);
     }
 
     // Activity is derived from disposition logs: a lead counts in the month the
@@ -3854,7 +3875,7 @@ export const getMyAllotmentSummary = async (req, res) => {
       db
         .from('fro_donor_logs')
         .select('id, donor_id, disposition_detail, created_at, fro_assignments!inner(station, ngo_id, batch_type, is_new)')
-        .eq('fro_worker_id', workerId)
+        .eq('fro_worker_id', creditId)
         .eq('action', 'disposition')
         .in('fro_assignments.station', stationNames),
       myScope,
@@ -3862,7 +3883,12 @@ export const getMyAllotmentSummary = async (req, res) => {
       'fro_assignments.ngo_id'
     );
     if (error) throw error;
-    const rows = (allRows || []).filter(r => inBatch(r.fro_assignments));
+    const rows = (allRows || []).filter(r => {
+      if (!inBatch(r.fro_assignments)) return false;
+      if (ngoFilter && String(r.fro_assignments?.ngo_id) !== String(ngoFilter)) return false;
+      if (stationFilter && r.fro_assignments?.station !== stationFilter) return false;
+      return true;
+    });
 
     // Used = allotted leads that have been worked at least once (any disposition,
     // even if a later month reset their status back to pending).
