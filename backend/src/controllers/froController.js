@@ -4366,14 +4366,18 @@ export const getMyLiveStatus = async (req, res) => {
       .maybeSingle();
     let row = data || null;
     if (req.user.impersonation && req.user.imposter_id) {
-      const { data: opRow } = await db
-        .from('fro_live_status')
-        .select('is_paused, paused_by, paused_at')
-        .eq('worker_id', req.user.imposter_id)
-        .maybeSingle();
-      if (opRow?.is_paused && !row?.is_paused) {
-        row = { ...(row || {}), is_paused: true, paused_by: opRow.paused_by || null, paused_at: opRow.paused_at || null };
-      }
+      // Operator may be a non-FRO login (admin id, not a workers UUID) — a
+      // type mismatch must never 500 the hydrate, so failures fall through.
+      try {
+        const { data: opRow, error: opErr } = await db
+          .from('fro_live_status')
+          .select('is_paused, paused_by, paused_at')
+          .eq('worker_id', req.user.imposter_id)
+          .maybeSingle();
+        if (!opErr && opRow?.is_paused && !row?.is_paused) {
+          row = { ...(row || {}), is_paused: true, paused_by: opRow.paused_by || null, paused_at: opRow.paused_at || null };
+        }
+      } catch { /* non-FRO operator id — target row stands alone */ }
     }
     if (!row) return res.json(null);
     return res.json({ ...row, idle_epoch: await getIdleEpoch() });
