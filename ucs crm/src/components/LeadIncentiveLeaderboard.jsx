@@ -87,11 +87,13 @@ export function useLeadIncentiveLeaderboard() {
 
   useRealtime('lead_champion_announcements', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
   useRealtime('incentive_slabs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
+  // No polling: verified collections arrive as fro_donor_logs and refresh us
+  // through the same debounced reload (mirrors the admin board).
+  useRealtime('fro_donor_logs', { event: '*', onInsert: reloadSoon, onUpdate: reloadSoon, onDelete: reloadSoon });
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
+    return () => clearTimeout(debMsg.current);
   }, [load]);
 
   return { data, loading, reload: load };
