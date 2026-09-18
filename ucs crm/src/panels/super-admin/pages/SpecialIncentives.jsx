@@ -569,6 +569,9 @@ export default function SpecialIncentives() {
     [history]
   )
 
+  // Nothing live anywhere → leaderboard shows nothing at all.
+  const hasLive = buckets.some((b) => (boards[b.key] || []).length > 0)
+
   const refresh = async () => {
     setLoading(true)
     await loadHistory()
@@ -663,8 +666,12 @@ export default function SpecialIncentives() {
     <div className="si-scope">
       <style>{SI_CSS}</style>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+      {/* Header (sticky — stays visible while scrolling) */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50, background: 'var(--bg, #F7FAFE)',
+        padding: '12px 0', marginBottom: 14,
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      }}>
         <span style={{ width: 40, height: 40, borderRadius: 12, background: '#FFF7E8', color: '#B7791F', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Trophy size={20} weight="fill" />
         </span>
@@ -716,7 +723,7 @@ export default function SpecialIncentives() {
                       <ArrowsClockwise size={14} /> Retry
                     </button>
                   </div>
-                ) : (
+                ) : !hasLive ? null : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {buckets.map((b) => (
                       <NgoCard key={b.key} meta={b} rows={boards[b.key] || []} onViewAll={() => setViewAll(b.key)} />
