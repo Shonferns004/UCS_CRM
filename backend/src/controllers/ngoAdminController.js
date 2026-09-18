@@ -25,6 +25,7 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { notifyWorker } from '../services/fcmService.js';
+import { emitRealtime } from '../socket.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
@@ -4831,7 +4832,7 @@ export const getTLDashboard = async (req, res) => {
     //    current call state. An FRO is present while they hold an open CRM login
     //    session (logged_out_at NULL) OR are emitting a fresh heartbeat.
     const LIVE_FRESH_MS = 3 * 60 * 1000;
-    const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name';
+    const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
     const { data: liveStatus } = await db.from('fro_live_status').select(liveCols).in('worker_id', workerIds);
     // Operator presence must not depend on the viewing NGO's scope: when an FRO
     // here works-as someone OUTSIDE these NGOs, the covered row lives on another
@@ -5356,6 +5357,8 @@ export const getTLDashboard = async (req, res) => {
         work_as_operator_name: workAsLabel,
         idleMinutes: Math.floor(idleStreakSeconds / 60),
         today_idle_seconds: effectiveIdleSeconds,
+        is_paused: acting ? !!acting.is_paused : !!ls.is_paused,
+        paused_by: acting ? (acting.paused_by || null) : (ls.paused_by || null),
         overdue_calls: (overdueByWorker[String(w.id)] || {}).calls || 0,
         overdue_followups: (overdueByWorker[String(w.id)] || {}).followups || 0,
         logout_today: lc.today,
@@ -5951,6 +5954,76 @@ export const notifyFroHandler = async (req, res) => {
     return res.json({ message: 'Notification sent', sent: 1 });
   } catch (error) {
     console.error('notifyFroHandler error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/** POST /ngo-admin/fro/:id/pause
+ *  Freeze an FRO's panel like meeting mode: all their timers stop and a
+ *  blocking popup appears that only an admin resume can lift. Scoped to the
+ *  admin's NGO(s). The panel learns it via the targeted fro:pause socket
+ *  event (worker room) or on next hydrate via is_paused.
+ */
+export const pauseFro = async (req, res) => {
+  try {
+    const froId = req.params.id;
+    if (!froId) return res.status(400).json({ message: 'FRO id is required' });
+
+    const adminNgoIds = await getUserNgoIds(req.user);
+    const { data: worker } = await db
+      .from('workers')
+      .select('id, name, login_id, is_active, ngo_id')
+      .eq('id', froId)
+      .single();
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
+    if (worker.is_test === true) return res.status(403).json({ message: 'Cannot pause test worker' });
+    if (!adminNgoIds.some((ngoId) => String(worker.ngo_id) === String(ngoId))) {
+      return res.status(403).json({ message: 'Worker not in your NGO(s)' });
+    }
+    if (worker.is_active === false) return res.status(403).json({ message: 'Cannot pause inactive worker' });
+
+    const by = req.user.name || req.user.email || 'Admin';
+    const nowIso = new Date().toISOString();
+    const { error } = await db.from('fro_live_status').upsert(
+      { worker_id: froId, is_paused: true, paused_at: nowIso, paused_by: by, idle_since: null, updated_at: nowIso },
+      { onConflict: 'worker_id' }
+    );
+    if (error) throw error;
+    emitRealtime('fro:pause', { at: nowIso, by }, `worker:${froId}`);
+    return res.json({ message: 'FRO paused', paused: true });
+  } catch (error) {
+    console.error('pauseFro error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+/** POST /ngo-admin/fro/:id/resume — lift an admin pause (the "play" button). */
+export const resumeFro = async (req, res) => {
+  try {
+    const froId = req.params.id;
+    if (!froId) return res.status(400).json({ message: 'FRO id is required' });
+
+    const adminNgoIds = await getUserNgoIds(req.user);
+    const { data: worker } = await db
+      .from('workers')
+      .select('id, name, login_id, is_active, ngo_id')
+      .eq('id', froId)
+      .single();
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
+    if (!adminNgoIds.some((ngoId) => String(worker.ngo_id) === String(ngoId))) {
+      return res.status(403).json({ message: 'Worker not in your NGO(s)' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const { error } = await db.from('fro_live_status').upsert(
+      { worker_id: froId, is_paused: false, paused_at: null, paused_by: null, idle_since: null, updated_at: nowIso },
+      { onConflict: 'worker_id' }
+    );
+    if (error) throw error;
+    emitRealtime('fro:resume', { at: nowIso }, `worker:${froId}`);
+    return res.json({ message: 'FRO resumed', paused: false });
+  } catch (error) {
+    console.error('resumeFro error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

@@ -8,6 +8,9 @@ export async function ensureFroLiveStatusSchema() {
   try {
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS work_as_operator_id uuid`);
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS work_as_operator_name text`);
+    await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ NULL`);
+    await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS paused_by TEXT NULL`);
   } catch (error) {
     throw error;
   }

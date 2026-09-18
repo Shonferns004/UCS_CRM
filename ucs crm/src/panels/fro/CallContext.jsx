@@ -3,7 +3,7 @@ import { api } from './api/auth'
 import { useActivityTracking } from './hooks/useActivityTracking'
 import { istDateString } from './utils/time'
 import { useMeeting } from '../../meetingStore'
-import { onFroResetIdle, onSocketConnect } from '../../lib/socket'
+import { onFroResetIdle, onSocketConnect, onFroPause, onFroResume } from '../../lib/socket'
 
 const CallContext = createContext()
 
@@ -157,12 +157,21 @@ export function CallProvider({ children, userId }) {
   const breakTimerRef = useRef(null)
   const [liveStatus, setLiveStatus] = useState('online')
 
+  // Admin per-FRO pause: freezes every live counter exactly like meeting mode.
+  // Only an admin resume lifts it — the panel never unpauses itself.
+  const [paused, setPaused] = useState(false)
+  const [pausedBy, setPausedBy] = useState(null)
+  const pausedRef = useRef(false)
+
   // Company-wide meeting mode: freezes every live counter while active.
   const meeting = useMeeting()
   const meetingActive = !!meeting
   const meetingActiveRef = useRef(false); meetingActiveRef.current = meetingActive
   // Wall-clock frozen while the meeting is active (null when not in a meeting).
   const meetingStartRef = useRef(null)
+  // Wall-clock frozen while an admin pause is active (null when not paused).
+  // Subtracted from call/break timers exactly like the meeting window.
+  const pauseStartRef = useRef(null)
   // Paused milliseconds accumulated for the CURRENT call / break (per cycle).
   const callPausedMsRef = useRef(0)
   const breakPausedMsRef = useRef(0)
@@ -199,7 +208,10 @@ export function CallProvider({ children, userId }) {
   // a caller push a freshly-computed value before React re-renders the ref.
   const syncAllStats = useCallback((extra = {}, statsOverride = null) => {
     const stats = statsOverride || todayStatsRef.current
-    const status = meetingActiveRef.current ? 'meeting'
+    // Admin pause freezes like meeting mode: panel reports 'meeting' so every
+    // timer/counter path treats it as frozen; is_paused on the server row
+    // drives the distinct "Paused" display on admin screens.
+    const status = (meetingActiveRef.current || pausedRef.current) ? 'meeting'
       : (onBreakRef.current ? 'break'
         : (activeCallRef.current ? 'on_call'
           : (callIdleSinceRef.current ? 'idle' : 'online')))
@@ -251,8 +263,8 @@ export function CallProvider({ children, userId }) {
 // ---------- Combined mouse/call idle engine (6 min) ----------
   const { isCallIdle, callIdleSince, resetCallActivity, sendHeartbeat } = useActivityTracking(userId, {
     callIdleThreshold: 6 * 60 * 1000,
-    // Breaks, live calls, open donor views and meeting mode are exempt from idle detection
-    isExempt: () => meetingActiveRef.current || onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
+    // Breaks, live calls, open donor views, meeting mode and admin pause are exempt from idle detection
+    isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
     onCallIdle: (sinceIso) => {
       callIdleSinceRef.current = sinceIso
       syncAllStats({ status: 'idle', idle_since: sinceIso })
@@ -325,6 +337,12 @@ export function CallProvider({ children, userId }) {
             breakSeconds: live.today_break_seconds || 0,
             breakCount: 0,
           }, live.idle_epoch)
+          // Paused while away: enter frozen mode immediately on load.
+          if (live.is_paused) {
+            pausedRef.current = true
+            setPaused(true)
+            setPausedBy(live.paused_by || null)
+          }
         } else if (Number.isFinite(Number(live.idle_epoch))) {
           // New day: counters stay zero, but still learn the epoch.
           epochRef.current = Number(live.idle_epoch)
@@ -360,12 +378,61 @@ export function CallProvider({ children, userId }) {
     })
   }, [syncAllStats])
 
+  // ── Admin per-FRO pause ──────────────────────────────────────
+  // applyPause freezes exactly like meeting start: close any open idle streak
+  // counting only up to this moment, then announce (panel reports 'meeting'
+  // while paused; is_paused on the server drives the Paused badge).
+  const applyPause = useCallback((by) => {
+    if (pausedRef.current) {
+      if (by) setPausedBy(by)
+      return
+    }
+    pausedRef.current = true
+    setPaused(true)
+    setPausedBy(by || null)
+    if (pauseStartRef.current == null) pauseStartRef.current = Date.now()
+    if (callIdleSinceRef.current) {
+      const since = callIdleSinceRef.current
+      const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
+      callIdleSinceRef.current = null
+      if (idleSecs > 0) {
+        commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
+      }
+    }
+    resetCallActivity()
+    syncAllStats({ idle_since: null })
+  }, [commitTodayStats, resetCallActivity, syncAllStats])
+
+  const clearPause = useCallback(() => {
+    if (!pausedRef.current) return
+    pausedRef.current = false
+    setPaused(false)
+    setPausedBy(null)
+    // Accrue the paused window once so in-progress calls/breaks exclude it,
+    // mirroring the meeting-over path. Fresh idle streak starts post-pause.
+    if (pauseStartRef.current) {
+      const pausedMs = Date.now() - pauseStartRef.current
+      callPausedMsRef.current += pausedMs
+      breakPausedMsRef.current += pausedMs
+      pauseStartRef.current = null
+    }
+    resetCallActivity() // fresh streak starts post-pause, no paused seconds counted
+    syncAllStats()
+  }, [resetCallActivity, syncAllStats])
+
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    const offPause = onFroPause((evt) => applyPause(evt?.by))
+    const offResume = onFroResume(() => clearPause())
+    return () => { offPause(); offResume() }
+  }, [applyPause, clearPause])
+
   // Socket reconnect convergence: if the server row was authoritatively
   // zeroed (Clear Idle Time / midnight reset) while we were disconnected, our
   // in-memory counters are stale — adopting them via max-keep would resurrect
   // the wiped totals on the next push. Adopt the server zeros instead (and
   // drop any phantom streak). Non-zero server rows are left alone: max-keep
-  // already converges those correctly.
+  // already converges those correctly. Pause state is always adopted.
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return undefined
     return onSocketConnect(() => {
@@ -374,6 +441,8 @@ export function CallProvider({ children, userId }) {
         .then((live) => {
           if (!live || !live.updated_at) return
           if (Number.isFinite(Number(live.idle_epoch))) epochRef.current = Number(live.idle_epoch)
+          if (live.is_paused && !pausedRef.current) { applyPause(live.paused_by); return }
+          if (!live.is_paused && pausedRef.current) { clearPause(); return }
           if (new Date(live.updated_at).getTime() <= lastPushAtRef.current) return
           const serverZero = ['today_calls', 'today_talk_seconds', 'today_skipped', 'today_idle_seconds', 'today_break_seconds']
             .every((k) => Number(live[k] || 0) === 0)
@@ -388,7 +457,7 @@ export function CallProvider({ children, userId }) {
         })
         .catch(() => {})
     })
-  }, [])
+  }, [applyPause, clearPause])
   // New IST day while the panel is open: roll today's counters back to 0 so the
   // heartbeat never carries yesterday's totals into the new day's fro_daily_stats
   // row (which is upserted with GREATEST and would otherwise keep them forever).
@@ -422,7 +491,7 @@ export function CallProvider({ children, userId }) {
       clearBreakTimer()
       timerRef.current = setInterval(() => {
         const nowClock = Date.now()
-        const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
+        const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0) + (pauseStartRef.current ? nowClock - pauseStartRef.current : 0)
         setElapsed(Math.max(0, Math.floor((nowClock - activeCall.startTime - paused) / 1000)))
       }, 1000)
       return clearTimer
@@ -438,7 +507,7 @@ export function CallProvider({ children, userId }) {
       breakStartRef.current = Date.now()
       breakTimerRef.current = setInterval(() => {
         const nowClock = Date.now()
-        const paused = breakPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
+        const paused = breakPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0) + (pauseStartRef.current ? nowClock - pauseStartRef.current : 0)
         setBreakElapsed(Math.max(0, Math.floor((nowClock - breakStartRef.current - paused) / 1000)))
       }, 1000)
       return clearBreakTimer
@@ -458,9 +527,9 @@ export function CallProvider({ children, userId }) {
     const start = donorViewStartRef.current
     if (!start) return
     const elapsedView = Math.floor((Date.now() - start) / 1000)
-    // Meeting mode freezes all counters — a donor view during a meeting counts
-    // as neither a skip nor idle time.
-    if (!meetingActiveRef.current && !wasCalled && elapsedView >= 3) {
+    // Meeting mode and admin pause freeze all counters — a donor view during
+    // either counts as neither a skip nor idle time.
+    if (!meetingActiveRef.current && !pausedRef.current && !wasCalled && elapsedView >= 3) {
       commitTodayStats({
         skippedDonors: todayStatsRef.current.skippedDonors + 1,
         idleSeconds: todayStatsRef.current.idleSeconds + elapsedView,
@@ -501,8 +570,8 @@ export function CallProvider({ children, userId }) {
   const endCall = useCallback(() => {
     if (activeCall) {
       const nowClock = Date.now()
-      // Meeting time is excluded: only talk time outside the meeting counts.
-      const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0)
+      // Meeting/paused time is excluded: only talk time outside those windows counts.
+      const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0) + (pauseStartRef.current ? nowClock - pauseStartRef.current : 0)
       const duration = Math.max(0, Math.floor((nowClock - activeCall.startTime - paused) / 1000))
       if (duration > 0) {
         commitTodayStats({
@@ -521,9 +590,10 @@ export function CallProvider({ children, userId }) {
       startDonorView, endDonorView, syncAllStats, fmt,
       onBreak, breakElapsed, toggleBreak, isBreakOvertime, BREAK_LIMIT,
       isCallIdle, resetCallActivity, sendHeartbeat, status: liveStatus,
+      paused, pausedBy,
     }}>
       {children}
-      {isCallIdle && !meetingActive && (
+      {isCallIdle && !meetingActive && !paused && (
         <IdleAlertPopup
           callIdleSince={callIdleSince}
           resetCallActivity={resetCallActivity}
