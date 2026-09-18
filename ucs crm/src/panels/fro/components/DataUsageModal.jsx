@@ -139,11 +139,16 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
     return () => { cancelled = true; };
   }, [period]);
 
-  // Escape closes; focus the Close control on open and restore on unmount.
+  // Latest onClose without re-subscribing: parent passes a new inline callback
+  // every render, and re-running this effect would steal focus back to the
+  // Close button (collapsing an open period/filter dropdown).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  // Escape closes; focus the Close control once on open, restore on unmount.
   useEffect(() => {
     prevFocusRef.current = document.activeElement;
     const t = setTimeout(() => { closeRef.current?.focus(); }, 0);
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current?.(); };
     document.addEventListener('keydown', onKey);
     return () => {
       clearTimeout(t);
@@ -152,7 +157,9 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
         prevFocusRef.current.focus();
       }
     };
-  }, [onClose]);
+    // Mount-only: focusing on later renders yanks focus out of open dropdowns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allotted = toSafeCount(allTime?.allotted_all_time);
   const used = toSafeCount(allTime?.used_all_time);
