@@ -163,6 +163,7 @@ export default function LiveFroStatus() {
       await loadStatuses(false)
     } catch (e) {
       console.error('Error:', e.message)
+      window.alert(`Could not ${pausing ? 'pause' : 'resume'} this FRO: ${e.message || 'request failed'}`)
     } finally {
       setPausingId(null)
     }
