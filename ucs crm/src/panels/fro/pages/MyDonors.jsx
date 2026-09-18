@@ -36,8 +36,11 @@ const isCollectionLog = (log) =>
   log.disposition_detail === 'done' ||
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
+// Includes the grouped picker IDs — without them a recycled lead sorts as
+// fresh (tier 0/1) ahead of genuinely unused pending leads. Mirrors backend.
 const RETRYABLE_NOT_CONNECTED = new Set([
   'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
+  'ringing_voicemail', 'busy_call_waiting', 'ooc_unreachable_network',
 ]);
 // Mirrors the backend baseFiltered hidden-by-status sets exactly (money-done +
 // schedule/callback + hard-terminal). Connected-terminal dispositions
