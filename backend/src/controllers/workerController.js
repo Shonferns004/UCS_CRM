@@ -253,6 +253,7 @@ export const getWorkers = async (req, res) => {
         ngo_id: w.ngo_id,
         created_at: w.created_at,
         salary: salaryMap[w.id],
+        late_grace_minutes: w.late_grace_minutes ?? null,
         father_husband_name: w.father_husband_name,
         marital_status: w.marital_status,
         pan_number: w.pan_number,
@@ -283,6 +284,7 @@ export const getWorkers = async (req, res) => {
           references: w.reference_details || [],
           shift_start_time: w.shift_start_time,
           shift_end_time: w.shift_end_time,
+          late_grace_minutes: w.late_grace_minutes ?? null,
           onboarding_completed: w.onboarding_completed,
         };
       }
@@ -360,6 +362,7 @@ export const getWorker = async (req, res) => {
       salary: activeSalary ? parseFloat(activeSalary.salary) : null,
       shift_start_time: p.shift_start_time,
       shift_end_time: p.shift_end_time,
+      late_grace_minutes: p.late_grace_minutes ?? null,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -383,6 +386,7 @@ export const editWorker = async (req, res) => {
       team,
       is_test,
       documents_submitted,
+      late_grace_minutes,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -416,6 +420,17 @@ export const editWorker = async (req, res) => {
     if (created_at !== undefined) updates.created_at = created_at.includes('T') ? created_at : created_at + 'T00:00:00.000Z';
     if (shift_start_time !== undefined) updates.shift_start_time = shift_start_time;
     if (shift_end_time !== undefined) updates.shift_end_time = shift_end_time;
+    if (late_grace_minutes !== undefined) {
+      if (late_grace_minutes === null || late_grace_minutes === '') {
+        updates.late_grace_minutes = null;
+      } else {
+        const n = Number(late_grace_minutes);
+        if (!Number.isFinite(n) || Math.round(n) < 30 || Math.round(n) > 480) {
+          return res.status(400).json({ message: 'late_grace_minutes must be null or 30–480' });
+        }
+        updates.late_grace_minutes = Math.round(n);
+      }
+    }
     if (photo_url !== undefined) updates.photo_url = photo_url;
     if (correspondence !== undefined) updates.correspondence = correspondence;
     if (employment_status !== undefined) {

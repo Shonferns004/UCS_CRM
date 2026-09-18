@@ -78,6 +78,10 @@ export default function Profile() {
   const leavePct = Math.round((leave / days) * 100)
 
   const selectedDetail = selectedDate ? monthRecs.find(r => r.date === selectedDate) : null
+  const _lg = Number(user?.late_grace_minutes)
+  const _grace = Number.isFinite(_lg) && _lg >= 30 && _lg <= 480 ? Math.round(_lg) : 180
+  const _half = Math.max(1, Math.round(240 * (_grace / 180)))
+  const _full = Math.max(_half + 1, Math.round(480 * (_grace / 180)))
   const totalLate = history.reduce((s, r) => s + (r.late_minutes || 0), 0)
 
   const initials = user?.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U'
@@ -127,7 +131,7 @@ export default function Profile() {
         <div className="mt-2 flex items-center gap-3">
           <div className="text-2xl font-bold text-[var(--orange)]">{totalLate}m</div>
           <div className="flex-1 text-xs text-[var(--ink-soft)]">
-            {totalLate > 480 ? 'Tier 3: 1+ day deducted' : totalLate > 240 ? 'Tier 2: 1 day deducted' : totalLate > 180 ? 'Tier 1: 0.5 day deducted' : 'Within limit ✓'}
+            {totalLate > _full ? 'Tier 3: 1+ day deducted' : totalLate > _half ? 'Tier 2: 1 day deducted' : totalLate > _grace ? 'Tier 1: 0.5 day deducted' : 'Within limit ✓'}
           </div>
         </div>
       </div>

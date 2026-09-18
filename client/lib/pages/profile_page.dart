@@ -417,10 +417,30 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  int get _lateGrace {
+    final t = _salaryBreakdown?['lateThresholds'];
+    if (t is Map && (t['grace'] as num?) != null) return (t['grace'] as num).toInt();
+    final g = _salaryBreakdown?['lateGraceMinutes'];
+    if (g is num) return g.toInt();
+    return 180;
+  }
+
+  int get _lateHalf {
+    final t = _salaryBreakdown?['lateThresholds'];
+    if (t is Map && (t['half'] as num?) != null) return (t['half'] as num).toInt();
+    return (240 * (_lateGrace / 180)).round();
+  }
+
+  int get _lateFull {
+    final t = _salaryBreakdown?['lateThresholds'];
+    if (t is Map && (t['full'] as num?) != null) return (t['full'] as num).toInt();
+    return (480 * (_lateGrace / 180)).round();
+  }
+
   double get _lateTier {
-    if (_lateUsed <= 180) return 0;
-    if (_lateUsed <= 240) return 1;
-    if (_lateUsed <= 480) return 2;
+    if (_lateUsed <= _lateGrace) return 0;
+    if (_lateUsed <= _lateHalf) return 1;
+    if (_lateUsed <= _lateFull) return 2;
     return 3;
   }
 
@@ -466,10 +486,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String get _lateTierDesc {
     switch (_lateTier) {
-      case 0: return '$_lateUsed min used — within the 180 min grace period. No expense deduction for lateness.';
+      case 0: return '$_lateUsed min used — within the $_lateGrace min grace period. No expense deduction for lateness.';
       case 1: return '$_lateUsed min used — exceeds grace limit. Half-day (0.5 day) will be deducted from expenses.';
       case 2: return '$_lateUsed min used — exceeds half-day threshold. One full day will be deducted from expenses.';
-      case 3: return '$_lateUsed min used — exceeds 480 min. Proportional deduction (total min / 480) applied to salary.';
+      case 3: return '$_lateUsed min used — exceeds $_lateFull min. Proportional deduction (total min / $_lateFull) applied to salary.';
       default: return '';
     }
   }
@@ -568,10 +588,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
                 SizedBox(height: Responsive.pad(context, 6)),
-                _ruleRow('0 – 180 min', 'No deduction', _lateTier == 0),
-                _ruleRow('181 – 240 min', 'Half-day deduction', _lateTier == 1),
-                _ruleRow('241 – 480 min', 'One-day deduction', _lateTier == 2),
-                _ruleRow('> 480 min', 'Proportional deduction', _lateTier == 3),
+                _ruleRow('0 – $_lateGrace min', 'No deduction', _lateTier == 0),
+                _ruleRow('${_lateGrace + 1} – $_lateHalf min', 'Half-day deduction', _lateTier == 1),
+                _ruleRow('${_lateHalf + 1} – $_lateFull min', 'One-day deduction', _lateTier == 2),
+                _ruleRow('> $_lateFull min', 'Proportional deduction', _lateTier == 3),
               ],
             ),
           ),
@@ -648,15 +668,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   num get _fallbackLateDeductionDays {
-    switch (_lateTier) {
-      case 0: return 0;
-      case 1: return 0.5;
-      case 2: return 1;
-      case 3:
-        if (_lateUsed <= 0) return 0;
-        return ((_lateUsed / 480) * 2).roundToDouble() / 2;
-      default: return 0;
-    }
+    if (_lateUsed <= _lateGrace) return 0;
+    if (_lateUsed <= _lateHalf) return 0.5;
+    if (_lateUsed <= _lateFull) return 1;
+    return ((_lateUsed / _lateFull) * 2).roundToDouble() / 2;
   }
 
   Widget _summaryCardsGrid(AppColors colors, ColorScheme scheme) {

@@ -1,4 +1,5 @@
 import { getMonthsEmployed } from './incentive.js';
+import { calcLateDeductionDays, getLateThresholds, resolveLateGrace } from './latePolicy.js';
 
 const pad = n => String(n).padStart(2, '0');
 
@@ -101,7 +102,9 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
 // salaryController.js. `records` are the worker's attendance rows
 // ({ date, status, late_minutes }) for the month; `createdAt` is the worker's
 // created_at. `month` is 0-based.
-export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday, includeHolidayPay = false, compensatoryWorkdays = [] }) {
+export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday, includeHolidayPay = false, compensatoryWorkdays = [], lateGraceMinutes }) {
+  const lateGrace = resolveLateGrace(lateGraceMinutes);
+  const lateThresholds = getLateThresholds(lateGrace);
   const joinDate = createdAt ? new Date(createdAt) : null;
   const joinedThisMonth = joinDate && !isNaN(joinDate.getTime())
     ? joinDate.getFullYear() === year && joinDate.getMonth() === month
@@ -178,14 +181,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   const available = Math.min(daysInMonth, viewDay) - (joinedThisMonth ? (joinDay - 1) : 0);
   const leaveCount = afterJoin.filter(r => r.status === 'leave').length;
   const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
-  let lateDeductionDays = 0;
-  if (totalLateMinutes > 480) {
-    lateDeductionDays = Math.round((totalLateMinutes / 480) * 2) / 2;
-  } else if (totalLateMinutes > 240) {
-    lateDeductionDays = 1;
-  } else if (totalLateMinutes > 180) {
-    lateDeductionDays = 0.5;
-  }
+  const lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace);
 
   const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt, new Date(year, month + 1, 0)) <= 3) ? 1.5 : 0;
 
@@ -242,6 +238,8 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     leaveCount,
     totalLateMinutes,
     lateDeductionDays,
+    lateGraceMinutes: lateGrace,
+    lateThresholds,
     joiningDeduction,
     sundayDeductionDays,
     deducted,

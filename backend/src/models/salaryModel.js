@@ -379,6 +379,21 @@ export const getPresentDaysByMonth = async (month) => {
     .select('id, name, created_at');
   if (wErr) throw wErr;
 
+  // Per-person late grace (tolerant: empty map if column/migration missing).
+  let graceByWorker = {};
+  try {
+    const { data: graceRows, error: gErr } = await db
+      .from('workers')
+      .select('id, late_grace_minutes');
+    if (!gErr && graceRows) {
+      for (const g of graceRows) {
+        if (g.late_grace_minutes != null && g.late_grace_minutes !== '') {
+          graceByWorker[g.id] = g.late_grace_minutes;
+        }
+      }
+    }
+  } catch (_) { graceByWorker = {}; }
+
   const { data: attRecords, error: aErr } = await db
     .from('attendance')
     .select('worker_id, status, date, late_minutes')
@@ -429,6 +444,7 @@ export const getPresentDaysByMonth = async (month) => {
       records: attByWorker[w.id] || [],
       createdAt: w.created_at || '',
       holidayDates,
+      lateGraceMinutes: graceByWorker[w.id] ?? null,
     });
     return {
       worker_id: w.id,
@@ -441,6 +457,8 @@ export const getPresentDaysByMonth = async (month) => {
       leave: c.leave,
       paid_days: calc.paidDays,
       late_deduction_days: calc.lateDeductionDays,
+      late_grace_minutes: calc.lateGraceMinutes,
+      late_thresholds: calc.lateThresholds,
       joining_deduction: calc.joiningDeduction,
       available_days: calc.available,
       absent_count: calc.absentDatesAfterJoin.length,
@@ -490,6 +508,26 @@ export const getPagarExportData = async (month) => {
     .from('workers')
     .select('id, name, department, employment_status, account_holder_name, account_number, bank_name, ifsc_code, created_at, father_husband_name, ngo_id');
   if (wErr) throw wErr;
+
+  // Per-person late grace (tolerant: empty map if column/migration missing).
+  let graceByWorker = {};
+  try {
+    const { data: graceRows, error: gErr } = await db
+      .from('workers')
+      .select('id, late_grace_minutes');
+    if (!gErr && graceRows) {
+      for (const g of graceRows) {
+        if (g.late_grace_minutes != null && g.late_grace_minutes !== '') {
+          graceByWorker[g.id] = g.late_grace_minutes;
+        }
+      }
+    }
+  } catch (_) { graceByWorker = {}; }
+  for (const w of workers) {
+    if (w.late_grace_minutes == null && graceByWorker[w.id] != null) {
+      w.late_grace_minutes = graceByWorker[w.id];
+    }
+  }
 
   // 2. Latest salary per worker
   const { data: salaries, error: sErr } = await db
@@ -781,6 +819,7 @@ export const getPagarExportData = async (month) => {
       viewingToday,
       includeHolidayPay: true,
       compensatoryWorkdays: salaryCompensations,
+      lateGraceMinutes: w.late_grace_minutes ?? null,
     });
 
     const target = targetByWorker[w.id] || 0;
@@ -853,6 +892,9 @@ export const getPagarExportData = async (month) => {
       absent_days: attResult.absentDatesAfterJoin.length,
       half_days: attResult.halfDayCount * 0.5,
       late_deduction_days: lateDeductionDays,
+      late_grace_minutes: attResult.lateGraceMinutes,
+      late_thresholds: attResult.lateThresholds,
+      total_late_minutes: attResult.totalLateMinutes,
       sunday_deduction_days: sundayDeductionDays,
       training_deduction_days: trainingDeductionDays,
       net_present_days: netPresentDays,

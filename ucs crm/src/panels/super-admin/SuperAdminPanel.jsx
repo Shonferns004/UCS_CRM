@@ -25,6 +25,7 @@ import SpecialIncentives from './pages/SpecialIncentives'
 import LeadIncentivePage from './pages/LeadIncentivePage'
 import IncentivesPage from './pages/IncentivesPage'
 import Notices from './pages/Notices'
+import LatePolicy from './pages/LatePolicy'
 import LiveFroStatus from './pages/LiveFroStatus'
 import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
@@ -47,6 +48,7 @@ const NAV = [
   { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
+  { id: 'late-policy', path: '/sa/late-policy', label: 'Late Policy', eyebrow: 'HR', icon: Clock },
 ]
 
 const navMap = {}
@@ -56,7 +58,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'incentives', 'notices']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'incentives', 'notices', 'late-policy']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -343,6 +345,7 @@ export default function SuperAdminPanel() {
         <Route path="special-incentive" element={<Navigate to="../incentives/sir" replace />} />
         <Route path="lead-incentive" element={<Navigate to="../incentives/lead" replace />} />
         <Route path="notices" element={<Notices />} />
+        <Route path="late-policy" element={<LatePolicy />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
     </PageShell>

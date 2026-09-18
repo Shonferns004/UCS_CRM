@@ -12,6 +12,27 @@ import { API_BASE } from '../../../lib/apiBase';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
+// Per-person late policy mirrors backend/src/utils/latePolicy.js:
+// only the grace is stored per worker; half/full limits scale proportionally.
+function lateThresholds(graceValue) {
+  const n = Number(graceValue);
+  const grace = Number.isFinite(n) && n >= 30 && n <= 480 ? Math.round(n) : 180;
+  const f = grace / 180;
+  const half = Math.max(1, Math.round(240 * f));
+  const full = Math.max(half + 1, Math.round(480 * f));
+  return { grace, half, full };
+}
+
+function calcLateDeductionDays(totalLateMinutes, graceValue) {
+  const total = Number(totalLateMinutes) || 0;
+  if (total <= 0) return 0;
+  const { grace, half, full } = lateThresholds(graceValue);
+  if (total > full) return Math.round((total / full) * 2) / 2;
+  if (total > half) return 1;
+  if (total > grace) return 0.5;
+  return 0;
+}
+
 function fmtTime(iso) {
   if (!iso) return '\u2014';
   const d = new Date(new Date(iso).getTime() + IST_OFFSET);
@@ -495,21 +516,15 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const joiningDeduction = (joinedThisMonth && monthsEmployed <= 3) ? JOINING_DEDUCTION : 0;
   const perDay = activeSalary ? parseFloat(activeSalary.salary) / daysInMonth : 0;
 
-  // Late-minutes-based deductions
+  // Late-minutes-based deductions (per-person grace, proportional half/full)
+  const lateGrace = data?.late_grace_minutes ?? worker?.late_grace_minutes ?? null;
+  const lateT = lateThresholds(lateGrace);
   const totalLateMinutes = monthAttendance
     .filter(a => !joinedThisMonth || a.date >= joinCutoff)
     .reduce((sum, a) => sum + (a.late_minutes || 0), 0);
 
-  let lateDeductionDays = 0;
+  let lateDeductionDays = calcLateDeductionDays(totalLateMinutes, lateGrace);
   let totalDue;
-
-  if (totalLateMinutes > 480) {
-    lateDeductionDays = Math.round((totalLateMinutes / 480) * 2) / 2;
-  } else if (totalLateMinutes > 240) {
-    lateDeductionDays = 1;
-  } else if (totalLateMinutes > 180) {
-    lateDeductionDays = 0.5;
-  }
   totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
 
   // Loan / Advance deductions
@@ -601,10 +616,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       }
     }
     const pLateMins = pAtt.filter(a => !pJoined || a.date >= pJoinCutoff).reduce((s, a) => s + (a.late_minutes || 0), 0);
-    let pLateDays = 0;
-    if (pLateMins > 480) pLateDays = Math.round((pLateMins / 480) * 2) / 2;
-    else if (pLateMins > 240) pLateDays = 1;
-    else if (pLateMins > 180) pLateDays = 0.5;
+    let pLateDays = calcLateDeductionDays(pLateMins, lateGrace);
     const pPaid = Math.max(0, pAvailable - pDeducted.size);
     const pJoining = (pJoined && monthsEmployed <= 3) ? 1.5 : 0;
     prevTotalDue = pPerDay * Math.max(0, pPaid - pLateDays - pJoining);
@@ -862,12 +874,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                 {(() => {
                   const mLate = monthAttendance.reduce((s, a) => s + (a.late_minutes || 0), 0);
-                  const activeIdx = mLate > 480 ? 3 : mLate > 240 ? 2 : mLate > 180 ? 1 : 0;
+                  const lt = lateThresholds(data?.late_grace_minutes ?? worker?.late_grace_minutes ?? null);
+                  const activeIdx = mLate > lt.full ? 3 : mLate > lt.half ? 2 : mLate > lt.grace ? 1 : 0;
                   const tiers = [
-                    { label:'None', sub:'≤180 min', color:'var(--sage)' },
-                    { label:'Half', sub:'181–240 min', color:'var(--gold)' },
-                    { label:'1 Day', sub:'241–480 min', color:'#e67e22' },
-                    { label:'Proportional', sub:'>480 min', color:'var(--danger)' },
+                    { label:'None', sub:`≤${lt.grace} min`, color:'var(--sage)' },
+                    { label:'Half', sub:`${lt.grace + 1}–${lt.half} min`, color:'var(--gold)' },
+                    { label:'1 Day', sub:`${lt.half + 1}–${lt.full} min`, color:'#e67e22' },
+                    { label:'Proportional', sub:`>${lt.full} min`, color:'var(--danger)' },
                   ];
                   return (
                     <div style={{ marginBottom:16, padding:'12px 16px', background:'var(--bg)', borderRadius:'var(--radius-sm)' }}>
@@ -1349,24 +1362,24 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
                       {/* Late minutes badge */}
                       <div style={{ marginBottom:14 }}>
-                        {totalLateMinutes > 480 ? (
+                        {totalLateMinutes > lateT.full ? (
                           <div style={{ padding:'10px 14px', border:'1px solid #d9534f', borderRadius:8, background:'#fff5f5', fontSize:12 }}>
                             <div style={{ fontWeight:600, color:'#d9534f' }}>⚠ {totalLateMinutes} min late ({Math.round(totalLateMinutes / 60 * 10) / 10} hrs) → {lateDeductionDays} day{lateDeductionDays !== 1 ? 's' : ''} deducted (proportional)</div>
                             <div style={{ color:'var(--ink-soft)', marginTop:4 }}>
-                              Every 8 hours (480 min) of lateness = 1 day deducted.
+                              Every {lateT.full} min of lateness = 1 day deducted.
                             </div>
                           </div>
-                        ) : totalLateMinutes > 240 ? (
+                        ) : totalLateMinutes > lateT.half ? (
                           <div style={{ padding:'8px 14px', border:'1px solid #e67e22', borderRadius:8, background:'#fff8f0', fontSize:12 }}>
                             <strong style={{ color:'#e67e22' }}>{totalLateMinutes} min late → 1 day deducted</strong>
                           </div>
-                        ) : totalLateMinutes > 180 ? (
+                        ) : totalLateMinutes > lateT.grace ? (
                           <div style={{ padding:'8px 14px', border:'1px solid #e67e22', borderRadius:8, background:'#fff8f0', fontSize:12 }}>
                             <strong style={{ color:'#e67e22' }}>{totalLateMinutes} min late → Half day deducted</strong>
                           </div>
                         ) : totalLateMinutes > 0 ? (
                           <div style={{ padding:'8px 14px', border:'1px solid #5B6B4E', borderRadius:8, background:'#f6f9f4', fontSize:12 }}>
-                            <strong style={{ color:'#5B6B4E' }}>{totalLateMinutes} min late — No deduction (≤ 180 min)</strong>
+                            <strong style={{ color:'#5B6B4E' }}>{totalLateMinutes} min late — No deduction (≤ {lateT.grace} min)</strong>
                           </div>
                         ) : null}
                       </div>
