@@ -345,37 +345,44 @@ async function chunkedInQuery(ids, queryFn, chunkSize = 1000) {
 // (transaction_datetime -> verified_at -> created_at), not the log's created_at.
 // Returns per-assignment sets (keyed by assignment id) plus per-(donor, project)
 // receipt sets so callers can build NGO-scoped flags and row totals.
-async function fetchScopedDonationEvidence({ assignments, donorIds, projectSet, oneYearAgo }) {
+async function fetchScopedDonationEvidence({ assignments, donorIds, projectSet, oneYearAgo, donorTypeMap: preTypeMap }) {
   const assignmentIds = (assignments || []).map(a => a.id);
   const assignmentDonorMap = new Map();
   for (const a of assignments || []) assignmentDonorMap.set(a.id, a.donor_id);
 
-  const logRows = (assignmentIds && assignmentIds.length > 0)
-    ? await chunkedInQuery(assignmentIds, chunk => {
-        let q = db
-          .from('fro_donor_logs')
-          .select('assignment_id, accounts_status, action, disposition_detail, created_at, transaction_datetime, verified_at')
-          .in('assignment_id', chunk)
-          .gte('created_at', oneYearAgo);
-        return q;
-      })
-    : [];
+  // The three inputs are independent — fetch in parallel instead of three
+  // sequential chunked round-trips. Callers may pass a pre-fetched
+  // donorTypeMap (built from a profiles read they already need) to skip the
+  // third query entirely.
+  const [logRows, receiptRows, profiles] = await Promise.all([
+    (assignmentIds && assignmentIds.length > 0)
+      ? chunkedInQuery(assignmentIds, chunk => {
+          let q = db
+            .from('fro_donor_logs')
+            .select('assignment_id, accounts_status, action, disposition_detail, created_at, transaction_datetime, verified_at')
+            .in('assignment_id', chunk)
+            .gte('created_at', oneYearAgo);
+          return q;
+        })
+      : Promise.resolve([]),
+    (donorIds && donorIds.length > 0 && projectSet && projectSet.length > 0)
+      ? chunkedInQuery(donorIds, chunk =>
+          db
+            .from('receipts')
+            .select('donor_id, project_id, receipt_date')
+            .in('donor_id', chunk)
+            .in('project_id', projectSet)
+        )
+      : Promise.resolve([]),
+    (!preTypeMap && donorIds && donorIds.length > 0)
+      ? chunkedInQuery(donorIds, chunk =>
+          db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', chunk)
+        )
+      : Promise.resolve([]),
+  ]);
 
-  const receiptRows = (donorIds && donorIds.length > 0 && projectSet && projectSet.length > 0)
-    ? await chunkedInQuery(donorIds, chunk =>
-        db
-          .from('receipts')
-          .select('donor_id, project_id, receipt_date')
-          .in('donor_id', chunk)
-          .in('project_id', projectSet)
-      )
-    : [];
-
-  const donorTypeMap = {};
-  if (donorIds && donorIds.length > 0) {
-    const profiles = await chunkedInQuery(donorIds, chunk =>
-      db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', chunk)
-    );
+  const donorTypeMap = preTypeMap || {};
+  if (!preTypeMap) {
     for (const p of profiles || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
   }
 
@@ -1889,10 +1896,13 @@ export const getMyDonors = async (req, res) => {
     // maps to exactly one FRO in fro_station_assignments; already-worked /
     // disposed / terminal leads are filtered out downstream by baseFiltered so
     // only unclaimed, available rows surface in the queue.
+    // Narrow columns (not SELECT *): this pulls the FRO's whole station
+    // scope (often thousands of rows) over mobile data on every list load.
+    const ASSIGNMENT_COLS = 'id, donor_id, ngo_id, station, status, batch_type, is_new, notes, last_contacted_at, next_follow_up, hidden_until, assigned_at, ngos(name)';
     if (effectiveStations.length > 0) {
       let query = db
         .from('fro_assignments')
-        .select('*, ngos(name)')
+        .select(ASSIGNMENT_COLS)
         .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
@@ -1915,7 +1925,7 @@ export const getMyDonors = async (req, res) => {
       if (qErr) {
         console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
         try {
-          query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = db.from('fro_assignments').select(ASSIGNMENT_COLS).in('station', effectiveStations).not('status', 'eq', 'reassigned');
           query = withStationNgoPairs(query, effectiveScope);
           const { data: retry, error: retryErr } = await query;
           if (retryErr) {
@@ -1948,29 +1958,38 @@ export const getMyDonors = async (req, res) => {
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
     const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
+    let donorIds = [...new Set(assignments.map(a => a.donor_id))];
+
+    // Single donor_profiles read shared by the evidence builder (donor_type /
+    // frequency) and the row builder below — previously this table was
+    // scanned twice per request. Narrow columns: FROs are often on mobile data.
+    const DONOR_COLS = 'id, name, mobile_number, city, address_1, amount, email, pan_number, project_supported, birth_date, donor_type, donation_count, total_amount, last_donation_date, first_donation_date, donation_frequency';
+    const donors = await chunkedInQuery(donorIds, chunk =>
+      db.from('donor_profiles').select(DONOR_COLS).in('id', chunk)
+    );
+    const donorMap = {};
+    const donorTypeMap = {};
+    for (const d of donors || []) {
+      donorMap[d.id] = d;
+      donorTypeMap[d.id] = d.donor_type || d.donation_frequency || '';
+    }
+
     const evidence = await fetchScopedDonationEvidence({
       assignments,
-      donorIds: [...new Set(assignments.map(a => a.donor_id))],
+      donorIds,
       projectSet,
       oneYearAgo: oneYearAgo.toISOString(),
+      donorTypeMap,
     });
-
-    let donorIds = [...new Set(assignments.map(a => a.donor_id))];
 
     if (req.query.verified_only === 'true' && donorIds.length > 0) {
       assignments = assignments.filter(a => evidence.verifiedAssignmentIds.has(a.id));
       donorIds = [...new Set(assignments.map(a => a.donor_id))];
     }
-    const donors = await chunkedInQuery(donorIds, chunk =>
-      db.from('donor_profiles').select('*').in('id', chunk)
-    );
-
-    const donorMap = {};
-    for (const d of donors || []) donorMap[d.id] = d;
 
     const assignmentIds = assignments.map(a => a.id);
     const schedules = await chunkedInQuery(assignmentIds, chunk =>
-      db.from('fro_scheduled_contacts').select('*').in('assignment_id', chunk).eq('is_completed', false)
+      db.from('fro_scheduled_contacts').select('id, assignment_id, scheduled_at, notes').in('assignment_id', chunk).eq('is_completed', false)
     );
 
     const scheduleMap = {};
@@ -2138,18 +2157,20 @@ export const getMyDonors = async (req, res) => {
       r.ngo_names = donorNgos[r.donor_id] || [r.ngo_name];
     }
 
-    // Attach latest accounts_status from fro_donor_logs (for verified_only view)
+    // Attach latest accounts_status from fro_donor_logs (for verified_only view).
+    // Single DISTINCT ON query instead of pulling every matching log row and
+    // sorting in JS — identical result (latest log per donor), far fewer rows.
     if (req.query.verified_only === 'true' && result.length > 0) {
       const donorIdsForStatus = result.map(r => r.donor_id);
-      const statusLogs = await chunkedInQuery(donorIdsForStatus, chunk =>
-        db.from('fro_donor_logs').select('donor_id, accounts_status, created_at').in('donor_id', chunk)
-          .in('accounts_status', ['verified', 'rejected', 'pending'])
+      const { rows: statusRows } = await db._pool.query(
+        `SELECT DISTINCT ON (donor_id) donor_id, accounts_status
+         FROM fro_donor_logs
+         WHERE donor_id = ANY($1) AND accounts_status IN ('verified', 'rejected', 'pending')
+         ORDER BY donor_id, created_at DESC`,
+        [donorIdsForStatus]
       );
-      statusLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       const latestStatus = {};
-      for (const log of statusLogs) {
-        if (!latestStatus[log.donor_id]) latestStatus[log.donor_id] = log.accounts_status;
-      }
+      for (const log of statusRows || []) latestStatus[log.donor_id] = log.accounts_status;
       for (const r of result) {
         r.accounts_status = latestStatus[r.donor_id] || r.status;
       }
@@ -2171,12 +2192,12 @@ export const getMyDonors = async (req, res) => {
         periodCutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
       }
       if (periodCutoff) {
-        const periodActivity = await chunkedInQuery(donorIds, chunk =>
-          db.from('fro_donor_logs').select('donor_id').in('donor_id', chunk)
-            .not('action', 'eq', 'note')
-            .gte('created_at', periodCutoff)
+        const { rows: periodRows } = await db._pool.query(
+          `SELECT DISTINCT donor_id FROM fro_donor_logs
+           WHERE donor_id = ANY($1) AND action <> 'note' AND created_at >= $2`,
+          [donorIds, periodCutoff]
         );
-        const periodDonorIds = new Set(periodActivity.map(l => l.donor_id));
+        const periodDonorIds = new Set((periodRows || []).map(l => l.donor_id));
         result = result.filter(r => periodDonorIds.has(r.donor_id));
       }
     }
@@ -2191,25 +2212,25 @@ export const getMyDonors = async (req, res) => {
     const now = new Date();
     const nowISO = now.toISOString();
 
+    // Latest disposition per donor via a single DISTINCT ON query instead of
+    // pulling unbounded full disposition histories (no LIMIT) and deduping in
+    // JS. Identical semantics: first row per donor in created_at DESC order.
     const notConnectedForeverIds = new Set();
     const terminalForeverIds = new Set();
     if (donorIds.length > 0) {
-      const recentLogs = await chunkedInQuery(donorIds, chunk =>
-        db.from('fro_donor_logs').select('donor_id, disposition_detail, created_at')
-          .in('donor_id', chunk)
-          .eq('action', 'disposition')
-          .order('created_at', { ascending: false })
+      const { rows: latestDisps } = await db._pool.query(
+        `SELECT DISTINCT ON (donor_id) donor_id, disposition_detail
+         FROM fro_donor_logs
+         WHERE donor_id = ANY($1) AND action = 'disposition'
+         ORDER BY donor_id, created_at DESC`,
+        [donorIds]
       );
-      const seenEver = new Set();
-      for (const log of recentLogs) {
-        if (!seenEver.has(log.donor_id)) {
-          seenEver.add(log.donor_id);
-          if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
-            notConnectedForeverIds.add(log.donor_id);
-          }
-          if (TERMINAL_DISPOSITIONS.has(log.disposition_detail)) {
-            terminalForeverIds.add(log.donor_id);
-          }
+      for (const log of latestDisps || []) {
+        if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
+          notConnectedForeverIds.add(log.donor_id);
+        }
+        if (TERMINAL_DISPOSITIONS.has(log.disposition_detail)) {
+          terminalForeverIds.add(log.donor_id);
         }
       }
     }
@@ -2223,15 +2244,13 @@ export const getMyDonors = async (req, res) => {
     const disposedTodayIds = new Set();
     if (donorIds.length > 0) {
       const { start, end } = istDayBounds();
-      const todayLogs = await chunkedInQuery(donorIds, chunk =>
-        db.from('fro_donor_logs')
-          .select('donor_id')
-          .in('donor_id', chunk)
-          .eq('fro_worker_id', workerId)
-          .gte('created_at', start.toISOString())
-          .lt('created_at', end.toISOString())
+      const { rows: todayRows } = await db._pool.query(
+        `SELECT DISTINCT donor_id FROM fro_donor_logs
+         WHERE donor_id = ANY($1) AND fro_worker_id = $2
+           AND created_at >= $3 AND created_at < $4`,
+        [donorIds, workerId, start.toISOString(), end.toISOString()]
       );
-      for (const log of todayLogs) disposedTodayIds.add(log.donor_id);
+      for (const log of todayRows || []) disposedTodayIds.add(log.donor_id);
     }
 
     const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
