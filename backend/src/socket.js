@@ -26,7 +26,11 @@ export function initRealtime(server) {
   io.on('connection', (socket) => {
     const role = (socket.user && socket.user.role) || 'unknown';
     socket.join(`role:${role}`);
-    if (socket.user && socket.user.workerId) socket.join(`worker:${socket.user.workerId}`);
+    // FRO login tokens carry `id` (not `workerId`) — join both spellings so
+    // worker-targeted events (fro:pause, fro:resume, …) actually reach panels.
+    // Without this, pause/resume emits silently go nowhere.
+    const wid = socket.user && (socket.user.workerId || socket.user.id);
+    if (wid) socket.join(`worker:${wid}`);
   });
 
   return io;
