@@ -38,6 +38,36 @@ import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
+import { getSetting, upsertSetting } from '../models/settingsModel.js';
+
+// ─── Idle reset epoch ──────────────────────────────────────────────
+// Every Clear Idle Time / midnight reset bumps fro_idle_epoch. Heartbeats
+// carry the epoch they last saw (idle_epoch); a client pushing with an older
+// epoch missed the reset, so its counters + idle_since are pre-reset stale
+// data and must NOT touch the row (presence fields still update). Without
+// this, a stale panel resurrects wiped totals through same-day max-keep —
+// the "clear 3 times, 1h23m still there" bug.
+const IDLE_EPOCH_KEY = 'fro_idle_epoch';
+let idleEpochCache = { v: 0, at: 0 };
+async function getIdleEpoch() {
+  if (Date.now() - idleEpochCache.at < 30000) return idleEpochCache.v;
+  try {
+    const raw = await getSetting(IDLE_EPOCH_KEY);
+    const v = Number(raw) || 0;
+    idleEpochCache = { v, at: Date.now() };
+    return v;
+  } catch {
+    return idleEpochCache.v;
+  }
+}
+async function bumpIdleEpoch() {
+  const next = (await getIdleEpoch()) + 1;
+  try {
+    await upsertSetting(IDLE_EPOCH_KEY, String(next));
+    idleEpochCache = { v: next, at: Date.now() };
+  } catch { /* non-fatal: broadcast still carries the epoch */ }
+  return next;
+}
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
@@ -4062,7 +4092,7 @@ export const getDonorHistory = async (req, res) => {
 export const updateLiveStatus = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at } = req.body;
+    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at, idle_epoch, force_counters } = req.body;
 
     if (status && !['online', 'idle', 'on_call', 'break', 'offline', 'meeting'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline, meeting' });
@@ -4095,21 +4125,35 @@ export const updateLiveStatus = async (req, res) => {
     }
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
+    // Reset epoch: every Clear Idle Time / midnight reset bumps fro_idle_epoch.
+    // A client pushing with an older epoch missed the reset → its counters and
+    // idle_since predate the wipe and must not touch the row (presence fields
+    // still update). Without this, a stale panel resurrects wiped totals
+    // through same-day max-keep — the "clear 3 times, 1h23m still there" bug.
+    // force_counters (deliberate rollover/clear push) always wins.
+    const forceCounters = req.body.force_counters === true;
+    const serverEpoch = await getIdleEpoch();
+    const clientEpoch = idle_epoch === undefined || idle_epoch === null ? null : Number(idle_epoch);
+    const staleEpoch = !forceCounters && clientEpoch !== null && Number.isFinite(clientEpoch) && clientEpoch < serverEpoch;
+    // Pre-reset data (stale epoch) must not touch counters or the streak —
+    // only the deliberate force_counters push or a current epoch may.
+    const mayWriteIdleData = forceCounters || !staleEpoch;
+    if (mayWriteIdleData) {
+      if (idle_since !== undefined) payload.idle_since = parseTs(idle_since);
+      if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
+    }
+    // Any non-idle status always clears the streak (server-side safety net).
+    if (status && status !== 'idle') payload.idle_since = null;
     // Same-day max-keep for cumulative counters: the heartbeat blind-overwrites
     // fro_live_status, so a second tab/device (or a fresh panel that hasn't
     // hydrated yet) pushing smaller numbers would wipe the day's totals while
     // fro_daily_stats keeps the max — the classic "IDLE HR blank but alerts
     // show 52m" split. Within the same IST day keep the larger value; a new
-    // IST day (or explicit midnight/admin reset, which bypasses this endpoint)
-    // starts from the client's number.
-    // force_counters (sent ONLY by the client's own midnight rollover and the
-    // admin-clear handler) bypasses max-keep so the daily reset actually
-    // sticks — otherwise the zero-push would lose to yesterday's max and the
-    // idle count would never reset.
+    // IST day starts from the client's number. Stale-epoch clients skip this
+    // block entirely (mayWriteIdleData === false).
     const counterFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
     const incomingCounters = Object.entries(counterFields).filter(([, v]) => v !== undefined);
-    const forceCounters = req.body.force_counters === true;
-    if (incomingCounters.length > 0) {
+    if (incomingCounters.length > 0 && mayWriteIdleData) {
       try {
         const { data: existing } = await db
           .from('fro_live_status')
@@ -4148,10 +4192,8 @@ export const updateLiveStatus = async (req, res) => {
       payload.on_break = true;
     }
     // idle_since: the start of the current idle streak (drives "Idle Xm" on
-    // the NGO admin dashboard). The FRO panel sets it when the 6-minute
-    // call-idle detector fires and clears it on resume.
-    if (idle_since !== undefined) payload.idle_since = parseTs(idle_since);
-    if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
+    // the NGO admin dashboard). Handled in the epoch-gated block above — a
+    // stale (pre-reset) idle_since must never resurrect a cleared streak.
     // Any non-idle status always clears the streak (server-side safety net).
     if (status && status !== 'idle') payload.idle_since = null;
 
@@ -4164,9 +4206,11 @@ export const updateLiveStatus = async (req, res) => {
     // midnight, so the previous day's idle/talk/break totals would otherwise be
     // lost. Upsert today's row keeping the max value seen (the counters only
     // grow within a day) — this powers monthly/yearly idle aggregation while
-    // the dashboard keeps showing today's fresh-from-0 count. Non-fatal: table
-    // may be missing until migration 126 is applied.
-    try {
+    // the dashboard keeps showing today's fresh-from-0 count. Gated on
+    // mayWriteIdleData so a stale (pre-reset) heartbeat can't inflate today's
+    // max-kept snapshot either. Non-fatal: table may be missing until
+    // migration 126 is applied.
+    if (mayWriteIdleData) try {
       const istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const daily = {
         idle_seconds: today_idle_seconds,
@@ -4262,7 +4306,11 @@ export const saveMyProgress = async (req, res) => {
 
 // Super admin: clear every FRO's current idle streak (today_idle_seconds + idle_since)
 // and push a fro:reset-idle socket event so connected FRO panels zero their in-memory
-// idle counters too (they are not persisted to localStorage anymore).
+// idle counters too (they are not persisted to localStorage anymore). The epoch
+// bump makes the wipe stick: heartbeats from panels that missed the event carry
+// an older idle_epoch and are ignored for counters/streak (presence still
+// updates). Broadcast is global (no role room) so panels whose token role isn't
+// exactly 'fro' still receive it — only FRO panels listen for this event.
 export const resetAllFroIdle = async (req, res) => {
   try {
     const updatedAt = new Date().toISOString();
@@ -4276,7 +4324,8 @@ export const resetAllFroIdle = async (req, res) => {
       .not('worker_id', 'is', null);
     if (error) throw error;
 
-    emitRealtime('fro:reset-idle', { at: updatedAt }, 'role:fro');
+    const epoch = await bumpIdleEpoch();
+    emitRealtime('fro:reset-idle', { at: updatedAt, epoch });
 
     return res.json({ message: 'All FRO idle counts reset' });
   } catch (error) {
@@ -4293,7 +4342,8 @@ export const getMyLiveStatus = async (req, res) => {
       .select('*')
       .eq('worker_id', req.user.id)
       .maybeSingle();
-    return res.json(data || null);
+    if (!data) return res.json(null);
+    return res.json({ ...data, idle_epoch: await getIdleEpoch() });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

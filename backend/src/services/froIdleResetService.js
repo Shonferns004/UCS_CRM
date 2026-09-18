@@ -10,13 +10,18 @@ export function istDayOf(date = new Date()) {
 
 // Clears every FRO's current idle streak. The day's idle total is already saved
 // in fro_daily_stats on every heartbeat (GREATEST upsert), so zeroing the live row
-// never loses history — it just starts the new day from 0.
+// never loses history — it just starts the new day from 0. Bumps fro_idle_epoch
+// so heartbeats carrying pre-reset counters are ignored (see updateLiveStatus).
 export async function resetFroIdleNow() {
   const { error } = await db
     .from('fro_live_status')
     .update({ today_idle_seconds: 0, idle_since: null, updated_at: new Date().toISOString() })
     .not('worker_id', 'is', null);
   if (error) throw error;
+  try {
+    const raw = await getSetting('fro_idle_epoch');
+    await upsertSetting('fro_idle_epoch', String((Number(raw) || 0) + 1));
+  } catch { /* non-fatal */ }
 }
 
 // Auto-reset at IST midnight. Guarded by a settings key so it runs at most once

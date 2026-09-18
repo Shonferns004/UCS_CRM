@@ -183,6 +183,10 @@ export function CallProvider({ children, userId }) {
   // reconnect to detect a server-side reset (Clear Idle / midnight) that we
   // missed while disconnected.
   const lastPushAtRef = useRef(0)
+  // Reset epoch: bumped by every Clear Idle Time / midnight reset. The server
+  // ignores counters + streak from pushes carrying an older epoch, so a panel
+  // that missed the reset broadcast can never resurrect wiped totals.
+  const epochRef = useRef(0)
 
   const clearTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null } }
   const clearBreakTimer = () => { if (breakTimerRef.current) { clearInterval(breakTimerRef.current); breakTimerRef.current = null } }
@@ -208,6 +212,7 @@ export function CallProvider({ children, userId }) {
       method: 'PUT',
       body: JSON.stringify({
         status,
+        idle_epoch: epochRef.current,
         current_donor_name: activeCallRef.current?.donorName || null,
         current_donor_id: activeCallRef.current?.donorId || null,
         ...(countersReady ? {
@@ -234,10 +239,13 @@ export function CallProvider({ children, userId }) {
   }, [syncAllStats])
 
   // Seed today's counters (used on panel load — no localStorage anymore).
-  const hydrateTodayStats = useCallback((next) => {
+  // Also learns the server's reset epoch so our pushes are never mistaken
+  // for pre-reset stale data.
+  const hydrateTodayStats = useCallback((next, epoch) => {
     todayStatsRef.current = next
     setTodayStats(next)
     hydratedRef.current = true
+    if (Number.isFinite(Number(epoch))) epochRef.current = Number(epoch)
   }, [])
 
 // ---------- Combined mouse/call idle engine (6 min) ----------
@@ -316,7 +324,10 @@ export function CallProvider({ children, userId }) {
             idleSeconds: live.today_idle_seconds || 0,
             breakSeconds: live.today_break_seconds || 0,
             breakCount: 0,
-          })
+          }, live.idle_epoch)
+        } else if (Number.isFinite(Number(live.idle_epoch))) {
+          // New day: counters stay zero, but still learn the epoch.
+          epochRef.current = Number(live.idle_epoch)
         }
       } catch (e) {
         console.error('Error:', e.message)
@@ -339,7 +350,8 @@ export function CallProvider({ children, userId }) {
   // and broadcast fro:reset-idle. Mirror it in memory so the UI matches.
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return undefined
-    return onFroResetIdle(() => {
+    return onFroResetIdle((evt) => {
+      if (Number.isFinite(Number(evt?.epoch))) epochRef.current = Number(evt.epoch)
       callIdleSinceRef.current = null
       const next = { ...todayStatsRef.current, idleSeconds: 0 }
       todayStatsRef.current = next
@@ -361,6 +373,7 @@ export function CallProvider({ children, userId }) {
       api('/fro/status/me', { _prefix: 'ucs' })
         .then((live) => {
           if (!live || !live.updated_at) return
+          if (Number.isFinite(Number(live.idle_epoch))) epochRef.current = Number(live.idle_epoch)
           if (new Date(live.updated_at).getTime() <= lastPushAtRef.current) return
           const serverZero = ['today_calls', 'today_talk_seconds', 'today_skipped', 'today_idle_seconds', 'today_break_seconds']
             .every((k) => Number(live[k] || 0) === 0)
