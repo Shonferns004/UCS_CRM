@@ -51,7 +51,9 @@ export function useActivityTracking(userId, options = {}) {
       isIdleRef.current = true;
       cbsRef.current.onIdle?.();
       if (!isCallIdleRef.current && !cbsRef.current.isExempt?.()) {
-        cbsRef.current.onCallIdle?.(new Date(lastActivityRef.current).toISOString());
+        // Grace period is NOT counted: the streak starts when the warning
+        // fires (now), not backdated to the last mouse movement.
+        cbsRef.current.onCallIdle?.(new Date().toISOString());
       }
     }, idleThreshold);
   }, [idleThreshold]);
@@ -85,7 +87,9 @@ export function useActivityTracking(userId, options = {}) {
       callIdleConditionRef.current = true;
       if (!isCallIdleRef.current) {
         isCallIdleRef.current = true;
-        const since = new Date(lastCallActivityRef.current).toISOString();
+        // Grace period is NOT counted: the streak starts when the warning
+        // fires (now), not backdated to the last call activity.
+        const since = new Date().toISOString();
         setCallIdleSince(since);
         setIsCallIdle(true);
         cbsRef.current.onCallIdle?.(since);
