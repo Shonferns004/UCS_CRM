@@ -285,24 +285,51 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
 
         <div className="du-content">
           <div className="du-scope-bar">
-            <select
-              className="du-scope-select"
-              value={ngoId || ''}
-              onChange={(e) => { setNgoId(e.target.value || null); setStation('all'); }}
-              aria-label="Filter by NGO"
-            >
-              <option value="">All NGOs</option>
-              {ngoList.map((n) => <option key={n.ngo_id} value={n.ngo_id}>{n.ngo_name}</option>)}
-            </select>
-            <select
-              className="du-scope-select"
-              value={station}
-              onChange={(e) => setStation(e.target.value || 'all')}
-              aria-label="Filter by station"
-            >
-              <option value="all">All stations</option>
-              {stationList.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <div className="du-batch-seg du-seg-wrap" role="group" aria-label="Filter by NGO">
+              <button
+                key="all-ngo"
+                type="button"
+                className={`du-batch-btn${!ngoId ? ' active' : ''}`}
+                aria-pressed={!ngoId}
+                onClick={() => { setNgoId(null); setStation('all'); }}
+              >
+                All NGOs
+              </button>
+              {ngoList.map((n) => (
+                <button
+                  key={n.ngo_id}
+                  type="button"
+                  className={`du-batch-btn${String(ngoId) === String(n.ngo_id) ? ' active' : ''}`}
+                  aria-pressed={String(ngoId) === String(n.ngo_id)}
+                  title={n.ngo_name}
+                  onClick={() => { setNgoId(n.ngo_id); setStation('all'); }}
+                >
+                  {n.ngo_name}
+                </button>
+              ))}
+            </div>
+            <div className="du-batch-seg du-seg-wrap" role="group" aria-label="Filter by station">
+              <button
+                key="all-station"
+                type="button"
+                className={`du-batch-btn${station === 'all' ? ' active' : ''}`}
+                aria-pressed={station === 'all'}
+                onClick={() => setStation('all')}
+              >
+                All stations
+              </button>
+              {stationList.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`du-batch-btn${station === s ? ' active' : ''}`}
+                  aria-pressed={station === s}
+                  onClick={() => setStation(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
             {acting && (
               <div className="du-batch-seg" role="group" aria-label="Whose work">
                 {['owner', 'self'].map((a) => (
@@ -405,7 +432,8 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
           .du-title { font-size: 18px; font-weight: 700; color: #10213D; line-height: 1.2; }
           .du-subtitle { font-size: 12.5px; color: #607795; margin-top: 2px; }
           .du-header-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
-          .du-batch-seg { display: inline-flex; background: #F1F5FA; border: 1px solid #C9DAEE; border-radius: 8px; padding: 2px; gap: 2px; }
+          .du-batch-seg { display: inline-flex; background: #F1F5FA; border: 1px solid #C9DAEE; border-radius: 8px; padding: 2px; gap: 2px; max-width: 100%; }
+          .du-seg-wrap { flex-wrap: wrap; }
           .du-batch-btn { height: 30px; padding: 0 12px; border: none; border-radius: 6px; background: transparent; color: #607795; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
           .du-batch-btn.active { background: #fff; color: #10213D; box-shadow: 0 1px 3px rgba(25,55,90,.18); }
           .du-batch-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
@@ -419,8 +447,7 @@ export default function DataUsageModal({ onClose, onShowTarget }) {
           .du-close:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
           .du-content { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 14px; box-sizing: border-box; }
           .du-scope-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-          .du-scope-select { height: 36px; background: #fff; border: 1px solid #C9DAEE; border-radius: 8px; color: #10213D; font-size: 12px; font-weight: 600; padding: 0 8px; outline: none; cursor: pointer; font-family: inherit; max-width: 100%; }
-          .du-scope-select:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+          .du-scope-bar .du-batch-btn { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
           .du-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
           .du-summary-grid > * { min-width: 0; }
           .du-card { border-radius: 10px; padding: 11px 13px; min-width: 0; box-sizing: border-box; }
