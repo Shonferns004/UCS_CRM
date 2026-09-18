@@ -86,8 +86,16 @@ const REALTIME_TABLES = new Set([
 function emitRealtimeRows(table, eventType, rows) {
   for (const row of rows) {
     if (!row) continue;
+    // fro_live_status rows are rewritten by every heartbeat and broadcast to
+    // EVERY connected client: ship only the fields subscribers read (pause
+    // convergence needs worker_id/is_paused/paused_by; admin lists refetch
+    // full data themselves), not the full counter payload.
+    const slim =
+      table === 'fro_live_status' && eventType !== 'DELETE' && row && typeof row === 'object'
+        ? { worker_id: row.worker_id, is_paused: row.is_paused, paused_by: row.paused_by, status: row.status, updated_at: row.updated_at }
+        : row;
     if (eventType === 'DELETE') emitDbChange({ table, schema: 'public', eventType, new: null, old: row });
-    else emitDbChange({ table, schema: 'public', eventType, new: row, old: null });
+    else emitDbChange({ table, schema: 'public', eventType, new: slim, old: null });
   }
 }
 
