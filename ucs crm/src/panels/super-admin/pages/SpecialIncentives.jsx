@@ -668,7 +668,7 @@ export default function SpecialIncentives() {
 
       {/* Header (sticky — stays visible while scrolling) */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 50, background: 'var(--bg, #F7FAFE)',
+        position: 'sticky', top: 0, zIndex: 50,
         padding: '12px 0', marginBottom: 14,
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
       }}>
