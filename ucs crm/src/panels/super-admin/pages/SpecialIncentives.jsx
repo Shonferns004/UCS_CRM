@@ -700,10 +700,12 @@ export default function SpecialIncentives() {
     : histFilter === 'archived'
       ? archivedList.filter((i) => selected === 'all' || String(i.ngo_id) === String((buckets.find((x) => x.key === selected) || {}).ngo_id))
       : filteredHistory
+  // No "All" pill — the base view shows everything; picking an active
+  // filter again clears it back to all.
   const histFilterBtn = (key, label) => {
     const isActive = histFilter === key
     return (
-      <button key={key} type="button" onClick={() => setHistFilter(key)}
+      <button key={key} type="button" onClick={() => setHistFilter(isActive ? 'all' : key)}
         style={{
           padding: '5px 12px', borderRadius: 999, border: `1px solid ${isActive ? C.blue : C.line}`,
           background: isActive ? '#E8F3FF' : '#fff', color: isActive ? C.blue : C.muted,
@@ -885,7 +887,6 @@ export default function SpecialIncentives() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                  {histFilterBtn('all', `All${filteredHistory.length ? ` (${filteredHistory.length})` : ''}`)}
                   {histFilterBtn('ended', `Ended${endedList.length ? ` (${endedList.length})` : ''}`)}
                   {histFilterBtn('archived', `Archived${archivedList.length ? ` (${archivedList.length})` : ''}`)}
                 </div>
