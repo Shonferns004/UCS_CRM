@@ -467,8 +467,8 @@ export const getMySalaryBreakdown = async (req, res) => {
       holidayDates = (await getHolidaysInRange(startDate, endDate)).map(h => h.date);
     } catch (err) { console.error('Holiday fetch error:', err.message); }
 
-    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates });
-    const { paidDays, totalDueDays, lateDeductionDays, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
+    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at, holidayDates, lateGraceMinutes: worker.late_grace_minutes ?? null });
+    const { paidDays, totalDueDays, lateDeductionDays, lateGraceMinutes, lateThresholds, sundayDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
 
@@ -575,6 +575,8 @@ export const getMySalaryBreakdown = async (req, res) => {
       halfDayCount,
       totalLateMinutes,
       lateDeductionDays,
+      lateGraceMinutes,
+      lateThresholds,
       sundayDeductionDays,
       joiningDeduction,
       totalDue: Math.round(totalDue),

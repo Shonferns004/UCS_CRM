@@ -479,12 +479,16 @@ export default function Attendance() {
       const covered = new Set(records.map(r => r.date));
       let present = 0, late = 0, halfDay = 0, leave = 0, absent = 0;
       const totalLateMinutes = records.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
+      const _lg = Number(w.late_grace_minutes);
+      const _grace = Number.isFinite(_lg) && _lg >= 30 && _lg <= 480 ? Math.round(_lg) : 180;
+      const _half = Math.max(1, Math.round(240 * (_grace / 180)));
+      const _full = Math.max(_half + 1, Math.round(480 * (_grace / 180)));
       let lateDeductionDays = 0;
-      if (totalLateMinutes > 480) {
-        lateDeductionDays = Math.round((totalLateMinutes / 480) * 2) / 2;
-      } else if (totalLateMinutes > 240) {
+      if (totalLateMinutes > _full) {
+        lateDeductionDays = Math.round((totalLateMinutes / _full) * 2) / 2;
+      } else if (totalLateMinutes > _half) {
         lateDeductionDays = 1;
-      } else if (totalLateMinutes > 180) {
+      } else if (totalLateMinutes > _grace) {
         lateDeductionDays = 0.5;
       }
       const halfDayDates = [];
