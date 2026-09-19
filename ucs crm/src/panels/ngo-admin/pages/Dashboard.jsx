@@ -1155,6 +1155,12 @@ export default function Dashboard() {
   // Per-FRO pause/resume from the Dashboard FRO Status panel (same endpoints
   // as the FRO Status page — NGO-scoped server-side).
   const [pausingFroId, setPausingFroId] = useState(null);
+  // Shared 30s ticker so paused durations ("Paused 12m") tick live.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
   const handleTogglePause = useCallback(async (p) => {
     const id = p.fro_id;
     if (!id || pausingFroId) return;
@@ -1163,6 +1169,14 @@ export default function Dashboard() {
     setPausingFroId(id);
     try {
       await apiPost(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, {});
+      // Optimistic flip: render Resume/Play instantly instead of waiting for
+      // the next 10s poll (the poll then confirms it server-side).
+      const stamp = new Date().toISOString();
+      setTlData(prev => prev && Array.isArray(prev.performance)
+        ? { ...prev, performance: prev.performance.map(p => String(p.fro_id) === String(id)
+          ? { ...p, is_paused: pausing, paused_by: pausing ? (p.paused_by || 'Admin') : null, paused_at: pausing ? (p.paused_at || stamp) : null }
+          : p) }
+        : prev);
       toast(pausing ? `${p.fro_name} paused` : `${p.fro_name} resumed`, 'success');
     } catch (e) {
       toast(e.message || `Could not ${pausing ? 'pause' : 'resume'} this FRO`, 'error');
@@ -2283,6 +2297,12 @@ export default function Dashboard() {
                   if (p.status === 'meeting') return { label: 'Meeting', color: '#7c3aed', bg: '#f5f3ff' };
                   return { label: 'Online', color: '#16a34a', bg: '#f0fdf4' };
                 };
+                // Live paused-minutes counter: how long this FRO has been paused.
+                const pausedMins = (p) => {
+                  if (!p.is_paused || !p.paused_at) return null;
+                  const m = Math.floor((nowTs - new Date(p.paused_at).getTime()) / 60000);
+                  return m < 0 ? null : m;
+                };
                 const dotOf = (p) => p.is_paused ? '#6D28D9' : p.status === 'idle' ? '#2F80D9' : p.status === 'meeting' ? '#7c3aed' : '#16a34a';
                 if (!tlData) {
                   return (
@@ -2336,7 +2356,9 @@ export default function Dashboard() {
                               <span title={p.is_paused && p.paused_by ? `Paused by ${p.paused_by}` : pill.label} style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: pill.bg, color: pill.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{pill.label}</span>
                             </div>
                             <div style={{ fontSize: 11, color: '#64748B', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              Idle {idleShort(p.today_idle_seconds)} · {p.calls_range || 0} calls · {p.connected_range || 0} conn
+                              {p.is_paused
+                                ? <>Paused {pausedMins(p) == null ? '' : `${pausedMins(p)}m `}· by {p.paused_by || 'Admin'}</>
+                                : <>Idle {idleShort(p.today_idle_seconds)}</>}
                               {p.work_as_operator_name ? ` · ⚡ ${p.work_as_operator_name}` : ''}
                             </div>
                           </div>

@@ -62,9 +62,12 @@ const requireFro = (req, res, next) => {
   return res.status(403).json({ message: 'FRO worker access required' });
 };
 
-router.use(requireFro);
+// Self-resume must work for every telecaller regardless of role/department
+// spelling in their token (requireFro below rejects non-'fro' roles, which
+// made Play flaky per-FRO). It only ever touches the caller's own row.
+router.post('/status/resume-self', authenticate, resumeOwnPause);
 
-router.post('/status/resume-self', resumeOwnPause);
+router.use(requireFro);
 
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
