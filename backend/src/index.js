@@ -81,6 +81,7 @@ import benefitRoutes from './routes/benefitRoutes.js';
 import distributionRoutes from './routes/distributionRoutes.js';
 import biometricRoutes from './routes/biometricRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import metropadRouter from './metropad/router.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 import { ensureEventHeadSchema } from './bootstrap/ensureEventHeadSchema.js';
@@ -255,6 +256,7 @@ app.use('/api/benefits', benefitRoutes);
 app.use('/api/distributions', distributionRoutes);
 app.use('/api/biometrics', biometricRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/metropad', metropadRouter);
 
 app.get('/api/deploy-test', (req, res) => {
   res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });

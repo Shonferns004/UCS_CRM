@@ -65,6 +65,8 @@ The database has grown organically — the WhatsApp CRM tables (contacts, conver
               { name: 'permanent_address', type: 'TEXT', description: 'Permanent address' },
               { name: 'photo_url', type: 'TEXT', description: 'Profile photo URL' },
               { name: 'is_active', type: 'BOOLEAN', description: 'Active status flag' },
+              { name: 'documents_submitted', type: 'BOOLEAN', description: 'Whether the volunteer submitted their documents' },
+              { name: 'documents_value', type: 'TEXT', description: 'Which education document was submitted: 10th / 12th / Degree / Others' },
               { name: 'onboarding_completed', type: 'BOOLEAN', description: 'Whether onboarding wizard completed' },
               { name: 'ngo_id', type: 'INTEGER', description: 'FK → ngos.id (primary NGO)' },
               { name: 'created_by', type: 'UUID', description: 'FK → workers.id (who created this record)' },

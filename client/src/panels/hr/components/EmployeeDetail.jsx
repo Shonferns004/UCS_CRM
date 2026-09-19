@@ -12,6 +12,8 @@ import { API_BASE } from '../../../lib/apiBase';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
+const DOC_OPTIONS = ['10th', '12th', 'Degree', 'Others'];
+
 // Per-person late policy mirrors backend/src/utils/latePolicy.js:
 // only the grace is stored per worker; half/full limits scale proportionally.
 function lateThresholds(graceValue) {
@@ -87,6 +89,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [salaryHold, setSalaryHoldData] = useState(null);
   const [holdBusy, setHoldBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
+  const [docModal, setDocModal] = useState(false);
+  const [docValue, setDocValue] = useState('');
   const [holdModal, setHoldModal] = useState(false);
   const [holdReason, setHoldReason] = useState('');
   const [currentTarget, setCurrentTarget] = useState(null);
@@ -245,12 +249,18 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     }
   };
 
-  const toggleDocsSubmitted = async () => {
+  const openDocsModal = () => {
+    setDocValue(data.documents_value || '');
+    setDocModal(true);
+  };
+
+  const saveDocs = async () => {
     setDocsBusy(true);
     try {
-      await updateWorker(worker.id, { documents_submitted: !data.documents_submitted });
+      await updateWorker(worker.id, { documents_value: docValue });
       const fresh = await fetchWorkerById(worker.id);
       setData(fresh);
+      setDocModal(false);
     } catch (e) {
       alert(e.message);
     } finally {
@@ -669,7 +679,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               <h3 style={{ marginTop:12, fontSize:17, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
                 {data.name}
                 {data.documents_submitted && (
-                  <span title="Documents submitted & verified" style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
+                  <span title={`Documents submitted: ${data.documents_value || 'Yes'}`} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ display:'block' }}>
                       <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -685,10 +695,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               </span>
               <button
                 type="button"
-                onClick={toggleDocsSubmitted}
+                onClick={openDocsModal}
                 disabled={docsBusy}
                 style={{ background:'none', border:'none', padding:0, cursor: docsBusy ? 'wait' : 'pointer', display:'inline-flex', alignItems:'center', gap:4 }}
-                title="Mark documents as submitted"
+                title={data.documents_submitted ? 'Documents submitted: ' + (data.documents_value || 'Yes') + ' — click to edit' : 'Select the document this volunteer has submitted'}
               >
                 <span className="side-tag" style={{
                   background: data.documents_submitted ? '#1a8d3a' : '#e5e5e5',
@@ -706,6 +716,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
             <SideField label="Gender" value={data.gender || '\u2014'} />
             <SideField label="Date of Birth" value={data.dob || '\u2014'} />
             <SideField label="Joined" value={data.created_at ? new Date(data.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '\u2014'} />
+            <SideField label="Document Submitted" value={data.documents_value || '\u2014'} />
           </div>
           </div>
         </div>
@@ -2419,6 +2430,38 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               <button className="btn btn-sm" style={{ background:'var(--danger)', color:'#fff', border:'none' }}
                 onClick={handlerHoldSalary} disabled={holdBusy}>
                 {holdBusy ? 'Saving…' : 'Confirm Hold'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {docModal && (
+        <div style={{
+          position:'fixed', inset:0, background:'rgba(15,23,42,.45)', zIndex:200,
+          display:'flex', alignItems:'center', justifyContent:'center',
+        }} onClick={() => setDocModal(false)}>
+          <div style={{
+            background:'#fff', borderRadius:14, width:'min(92vw,420px)',
+            padding:'20px 22px', boxShadow:'0 20px 60px rgba(0,0,0,.25)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Documents Submitted</div>
+            <div style={{ fontSize:12, color:'var(--ink-soft)', marginBottom:14 }}>
+              {data?.name || 'Volunteer'} — which document has been submitted?
+            </div>
+            <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>
+              Document
+            </div>
+            <Dropdown
+              value={docValue}
+              onChange={e => setDocValue(e.target.value)}
+              style={{ width:'100%' }}
+              options={[{ value:'', label:'None / Not submitted' }, ...DOC_OPTIONS.map(d => ({ value:d, label:d }))]}
+            />
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:16 }}>
+              <button className="btn btn-sm" onClick={() => setDocModal(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={saveDocs} disabled={docsBusy}>
+                {docsBusy ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
