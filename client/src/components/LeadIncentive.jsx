@@ -8,23 +8,23 @@ const fmt = (n) => {
   return (Number.isFinite(v) ? v : 0).toLocaleString('en-IN')
 }
 
-// Value for <input type="datetime-local"> (no seconds, local time).
-const toLocalInput = (d) => {
-  if (!d) return ''
-  const dt = new Date(d)
-  if (Number.isNaN(dt.getTime())) return ''
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
-}
-
-// Absolute UTC ISO for a filled datetime-local value so the backend stores the
-// exact instant the admin picked regardless of its own timezone. Blank → null.
-const toIso = (v) => (v ? new Date(v).toISOString() : null)
-
 const pad2 = (n) => String(n).padStart(2, '0')
 const todayLocal = () => {
   const d = new Date()
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+const DEFAULT_END_TIME = '19:00' // blank end time → range runs until 7:00 PM today
+const toTimeInput = (d) => {
+  if (!d) return ''
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  return `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`
+}
+// Combine today's date with an HH:MM time → a local Date (null when blank).
+const todayAt = (hhmm) => {
+  if (!hhmm) return null
+  const dt = new Date(`${todayLocal()}T${hhmm}`)
+  return Number.isNaN(dt.getTime()) ? null : dt
 }
 const fmtDate = (d) => {
   if (!d) return '—'
@@ -463,8 +463,7 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
   const [form, setForm] = useState(() => ({
     amount_to_win: slab.amount_to_win ?? '',
     incentive_amount: slab.incentive_amount ?? '',
-    started_at: toLocalInput(slab.started_at),
-    ended_at: toLocalInput(slab.ended_at),
+    ended_at: slab.ended_at ? toTimeInput(slab.ended_at) : '',
   }))
   const [error, setError] = useState('')
 
@@ -474,13 +473,8 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
     if (!(amount_to_win > 0)) { setError('Enter a valid Win On amount (must be more than ₹0)'); return }
     const incentive_amount = Number(form.incentive_amount)
     if (!(incentive_amount > 0)) { setError('Enter a valid Prize amount (must be more than ₹0)'); return }
-    const started_at = form.started_at
-    const ended_at = form.ended_at
-    if (started_at && ended_at && !(new Date(ended_at).getTime() > new Date(started_at).getTime())) {
-      setError('End Time must be after Start Time'); return
-    }
     try {
-      await onSave({ amount_to_win, incentive_amount, started_at: started_at || null, ended_at: ended_at || null })
+      await onSave({ amount_to_win, incentive_amount, ended_time: form.ended_at })
       onClose()
     } catch (e) {
       setError(e.message || 'Failed to save')
@@ -510,13 +504,12 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
     </div>
   )
 
-  const dateInput = (value, onChange, alt) => (
+  const timeInput = (value, onChange) => (
     <input
-      type="datetime-local"
+      type="time"
       value={value}
       onChange={e => onChange(e.target.value)}
       style={{ width: '100%', height: 40, padding: '0 10px', border: '1px solid #DCE7F5', borderRadius: 10, background: '#fff', fontSize: 13, fontWeight: 600, color: C.dark, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
-      {...(alt ? { placeholder: alt } : {})}
     />
   )
 
@@ -548,14 +541,9 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
           {field('Prize', '(₹) — flat payout to the winner', inputBox(form.incentive_amount, v => setForm(p => ({ ...p, incentive_amount: v })), true, '0'))}
 
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>Start Time</label>
-            {dateInput(form.started_at, v => setForm(p => ({ ...p, started_at: v })))}
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>Verified leads count for this range only after this moment · empty = not started</div>
-          </div>
-
-          <div style={{ marginBottom: 18 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>End Time <span style={{ fontWeight: 500, color: C.muted }}>(optional — runs to end of day)</span></label>
-            {dateInput(form.ended_at, v => setForm(p => ({ ...p, ended_at: v })))}
+            <label style={{ fontSize: 12, fontWeight: 700, color: C.dark, display: 'block', marginBottom: 6 }}>End Time <span style={{ fontWeight: 500, color: C.muted }}>(optional — defaults to 7:00 PM today)</span></label>
+            {timeInput(form.ended_at, v => setForm(p => ({ ...p, ended_at: v })))}
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>This range starts 3 minutes after you click start and counts until this time.</div>
           </div>
         </div>
 
@@ -566,7 +554,7 @@ function ConfigureRangeModal({ slab, saving, onSave, onClose }) {
           </button>
           <button type="button" onClick={submit} disabled={saving}
             style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: C.primary, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            {saving ? 'Saving…' : 'Save Changes'}
+            {saving ? 'Saving…' : (rangeStatus(slab) === 'running' && !stoppedToday(slab) ? 'Save Changes' : 'Start Range')}
           </button>
         </div>
       </div>
@@ -828,7 +816,7 @@ function SlabConfig({ slabs, onAdd, onUpdate, onDelete, saving, embedded = false
         </table>
       </div>
       <div style={{ fontSize: 11, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>
-        Edit a range's Min/Max here. Use <b style={{ fontWeight: 600 }}>Start</b> on the main table to set its Win On target, prize and Start/End window.
+        Edit a range's Min/Max here. Use <b style={{ fontWeight: 600 }}>Start</b> on the main table to set its Win On target and prize. A range starts 3 minutes after clicking start and runs until the end time you pick (default 7:00 PM).
       </div>
     </div>
   )
@@ -1400,10 +1388,19 @@ export default function LeadIncentive() {
     } finally { setSavingSlab(false) }
   }
 
-  // Per-range configure save: touches this slab's Prize + Win On amount + Start/End window
-  const updateSlabRates = async (slab, { amount_to_win, incentive_amount, started_at, ended_at }) => {
+  // Start a range (or edit a live one): the race always starts "today" — 3
+  // minutes from now — and ends today at the chosen time (default 7:00 PM).
+  const updateSlabRates = async (slab, { amount_to_win, incentive_amount, ended_time }) => {
     setSavingSlab(true)
     try {
+      const isLive = rangeStatus(slab) === 'running' && !stoppedToday(slab)
+      const startAt = isLive && slab.started_at
+        ? new Date(slab.started_at)
+        : new Date(Date.now() + 3 * 60 * 1000)
+      const endAt = todayAt(ended_time || DEFAULT_END_TIME)
+      if (!endAt || endAt <= startAt) {
+        throw new Error('End time must be later than start (3 minutes from now)')
+      }
       await api(`/incentive/lead/slabs/${slab.id}`, {
         method: 'PUT', _prefix: 'ucs',
         body: JSON.stringify({
@@ -1411,8 +1408,8 @@ export default function LeadIncentive() {
           max_amount: Number(slab.max_amount),
           incentive_amount: Number(incentive_amount) || 0,
           amount_to_win: Number(amount_to_win) || 1500,
-          started_at: toIso(started_at),
-          ended_at: toIso(ended_at),
+          started_at: startAt.toISOString(),
+          ended_at: endAt.toISOString(),
         }),
       })
       await loadSlabs()
