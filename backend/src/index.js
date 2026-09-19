@@ -41,6 +41,7 @@ import dataImportRoutes from './routes/dataImportRoutes.js';
 import ngoAdminRoutes from './routes/ngoAdminRoutes.js';
 import codeRoutes from './routes/codeRoutes.js';
 import froRoutes from './routes/froRoutes.js';
+import meetingRoutes from './routes/meetingRoutes.js';
 import accountsRoutes from './routes/accountsRoutes.js';
 import loanRoutes from './routes/loanRoutes.js';
 import attendanceCorrectionRoutes from './routes/attendanceCorrectionRoutes.js';
@@ -91,6 +92,7 @@ import { ensureCertificateSchema } from './bootstrap/ensureCertificateSchema.js'
 import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js';
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
 import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema.js';
+import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 
@@ -213,6 +215,7 @@ app.use('/api/impersonation-codes', codeRoutes);
 app.post('/api/whatsapp/fro-login', whatsappLogin);
 app.use('/api/fro/whatsapp', froWhatsAppRoutes);
 app.use('/api/fro', froRoutes);
+app.use('/api/meeting', meetingRoutes);
 app.use('/api/accounts/scraper', scraperRoutes);
 app.use('/api/accounts', accountsRoutes);
 app.use('/api/loans', loanRoutes);
@@ -903,6 +906,7 @@ if (!process.env.VERCEL) {
     await ensureCertificateSchema().catch(e => console.error('ensureCertificateSchema failed:', e?.message || e));
     await ensureNoticeSchema().catch(e => console.error('ensureNoticeSchema failed:', e?.message || e));
     await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));
+    await ensureMeetingSchema().catch(e => console.error('ensureMeetingSchema failed:', e?.message || e));
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureNotificationLogTypes().catch(e => console.error('ensureNotificationLogTypes failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));

@@ -15,6 +15,7 @@ import { reverseTransfer } from '../models/froAssignmentModel.js';
 import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
+import { checkAndResetFroIdleDaily } from './froIdleResetService.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
@@ -407,13 +408,15 @@ function start() {
   cronJobs.push(cron.schedule('0 18 * * *', () => runNotificationCycle()));
   console.log('Scheduled: 6:00 PM notification check');
 
-  cronJobs.push(cron.schedule('* * * * *', () => sendScheduledNotifications()));
+  // Staggered across the minute (seconds field): six jobs all firing at
+  // second 0 created a CPU/DB pile-up every 60s on the 2-core host.
+  cronJobs.push(cron.schedule('25 * * * * *', () => sendScheduledNotifications()));
   console.log('Scheduled: every-minute check for admin-scheduled notifications');
 
-  cronJobs.push(cron.schedule('* * * * *', () => sendPunchInReminders()));
+  cronJobs.push(cron.schedule('5 * * * * *', () => sendPunchInReminders()));
   console.log('Scheduled: every-minute check for punch-in reminders');
 
-  cronJobs.push(cron.schedule('* * * * *', () => sendPunchOutReminders()));
+  cronJobs.push(cron.schedule('15 * * * * *', () => sendPunchOutReminders()));
   console.log('Scheduled: every-minute check for punch-out reminders');
 
   if (!process.env.VERCEL) {
@@ -421,17 +424,25 @@ function start() {
     console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
   }
 
-  cronJobs.push(cron.schedule('* * * * *', () => autoReportMissedSchedules()));
+  cronJobs.push(cron.schedule('35 * * * * *', () => autoReportMissedSchedules()));
   console.log('Scheduled: every-minute check for missed schedules (10 min overdue)');
 
-  cronJobs.push(cron.schedule('* * * * *', () => autoReturnTransfers()));
+  cronJobs.push(cron.schedule('45 * * * * *', () => autoReturnTransfers()));
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 10 * *', () => runMonthlyLoanSettlement()));
     console.log('Scheduled: 10th of month - auto loan/advance settlement for previous month');
   }
-  cronJobs.push(cron.schedule('*/20 * * * * *', () => runSpecialIncentiveRefresh()));
-  console.log('Scheduled: every 20s - special incentive ("Sir ka Incentive") live tracking');
+  // Every 60s, not 20s: donor-log writes already trigger a refresh via
+  // froDonorLogModel, so the poll is only a safety net. Each refresh runs a
+  // window aggregation + per-worker upserts that broadcast realtime events.
+  cronJobs.push(cron.schedule('50 * * * * *', () => runSpecialIncentiveRefresh()));
+  console.log('Scheduled: every 60s - special incentive ("Sir ka Incentive") live tracking');
+
+  // Clears every FRO's idle counter at the first tick of a new IST day (and once
+  // after a deploy, so the currently inflated counts are reset immediately).
+  cronJobs.push(cron.schedule('55 * * * * *', () => checkAndResetFroIdleDaily()));
+  console.log('Scheduled: every-minute IST-day idle reset for all FROs');
   console.log('Scheduled: every-minute check for expired lead transfers');
 
   // Email imports and Razorpay synchronization are manual-only. Do not schedule

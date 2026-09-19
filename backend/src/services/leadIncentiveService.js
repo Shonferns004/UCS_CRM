@@ -118,7 +118,10 @@ async function resolveFroSlab(froId, date, slabs, assignMap, slabById) {
 
 // Calculate lead incentive for a single FRO on a given date, within their slab.
 // `slab` decides the qualify amount + per-lead reward + slab bonus.
-async function calculateFroLeadIncentive(froId, date, slabs, settings, { target, slab }) {
+// `stopAt` (optional ISO) clamps the competition window to a fixed time — used
+// for STOP-AFTER-WIN so a range's competition truly ENDS the moment a winner
+// hits the target: any leads verified after that time stop counting for everyone.
+async function calculateFroLeadIncentive(froId, date, slabs, settings, { target, slab, stopAt }) {
   const startDate = new Date(date);
   startDate.setHours(0, 0, 0, 0);
   const endDate = new Date(date);
@@ -136,6 +139,26 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
   if (slab && slab.ended_at) {
     const e = new Date(slab.ended_at);
     if (e.getTime() < winEnd.getTime()) winEnd = e;
+  }
+  // STOP-AFTER-WIN: once there's a winner, the range's competition is over — no
+  // lead verified after the winner's winning hit counts for anyone.
+  if (stopAt) {
+    const s = new Date(stopAt);
+    if (s.getTime() < winEnd.getTime()) winEnd = s;
+  }
+  // No start time yet = this range's competition has not begun → nothing counts
+  // (matches the UI "empty = not started" and the FRO live view hiding it).
+  if (slab && !slab.started_at) {
+    return {
+      target: target != null ? target : 0,
+      slab,
+      total_leads: 0,
+      qualified_leads: 0,
+      total_amount: 0,
+      lead_incentive: 0,
+      slab_bonus: 0,
+      leads: [],
+    };
   }
   // Window fully outside the day (e.g. not yet started, or ended before day) → nothing counts.
   if (winStart.getTime() >= winEnd.getTime()) {
@@ -164,35 +187,25 @@ async function calculateFroLeadIncentive(froId, date, slabs, settings, { target,
     .order('verified_at', { ascending: false });
 
   const allLeads = leads || [];
-  // Per-range rules: each slab/range carries its own Minimum Lead Amount and
-  // ₹ per Qualified Lead. Fall back to the old global settings if missing.
-  const minLead = slab && slab.min_lead_amount != null
-    ? Number(slab.min_lead_amount)
-    : (Number(settings.min_lead_amount) || 300);
-  const leadRate = slab && slab.lead_rate != null
-    ? Number(slab.lead_rate)
-    : (Number(settings.lead_rate) || 20);
-
-  // Filter qualified leads (amount >= range's min_lead_amount)
-  const qualifiedLeads = allLeads.filter(l => Number(l.amount_collected) >= minLead);
-  const totalAmount = qualifiedLeads.reduce((sum, l) => sum + (Number(l.amount_collected) || 0), 0);
-
-  const leadIncentive = qualifiedLeads.length * leadRate;
-  const slabBonus = slab ? Number(slab.incentive_amount) || 0 : 0;
+  // Flat-prize model: EVERY verified lead counts toward the day's collection —
+  // there is no per-lead minimum (even a ₹10 lead counts). The only threshold a
+  // range has is amount_to_win: the total day collection that first reaches it
+  // wins the range's flat prize (incentive_amount). Per-lead math is gone.
+  const totalAmount = allLeads.reduce((sum, l) => sum + (Number(l.amount_collected) || 0), 0);
 
   return {
     target: target != null ? target : 0,
     slab,
     total_leads: allLeads.length,
-    qualified_leads: qualifiedLeads.length,
+    qualified_leads: allLeads.length,
     total_amount: totalAmount,
-    lead_incentive: leadIncentive,
-    slab_bonus: slabBonus,
+    lead_incentive: 0,
+    slab_bonus: 0,
     leads: allLeads.map(l => ({
       id: l.id,
       donor_id: l.donor_id,
       amount: Number(l.amount_collected) || 0,
-      qualified: Number(l.amount_collected) >= minLead,
+      qualified: true,
       verified_at: l.verified_at,
     })),
   };
@@ -243,43 +256,116 @@ export const getDailySummary = async (date) => {
     }
   }
 
-  // Per-range winner: earliest qualified lead (amount ≥ range Min Lead Amount).
+  // Per-range winner: the FRO whose CUMULATIVE verified day collection (sum of
+  // every verified lead, by verified_at) first crosses the range's amount_to_win.
+  // A range with no FRO crossing the target that day simply has no champion.
+  const findWinners = () => {
+    const winnersBySlab = {};
+    for (const slab of slabs) {
+      const competing = pool[slab.id];
+      if (!competing || competing.size === 0) continue;
+      const winAt = slab && slab.amount_to_win != null
+        ? Number(slab.amount_to_win)
+        : 1500;
+
+      let winner = null;
+      for (const r of results) {
+        if (!r._slab_id || r._slab_id !== slab.id) continue;
+        const asc = (r._leads || [])
+          .slice()
+          .sort((a, b) => new Date(a.verified_at) - new Date(b.verified_at));
+        let running = 0;
+        let hit = null;
+        for (const l of asc) {
+          running += Number(l.amount) || 0;
+          if (running >= winAt) {
+            hit = { verified_at: l.verified_at, crossing: running, crossedBy: Number(l.amount) || 0, leadId: l.id };
+            break;
+          }
+        }
+        if (hit && (!winner || new Date(hit.verified_at) < new Date(winner.theAt))) {
+          winner = {
+            fro: r,
+            at: hit.verified_at,
+            crossingAmount: hit.crossing,
+            hitAmount: hit.crossedBy,
+            leadId: hit.leadId,
+            theAt: hit.verified_at,
+          };
+        }
+      }
+
+      if (!winner || winner.at == null) continue;
+      winnersBySlab[slab.id] = winner;
+    }
+    return winnersBySlab;
+  };
+
+  // STOP-AFTER-WIN: first find the winner of every range, then RE-RUN the
+  // calculation for the ranges that already have a champion with the window
+  // clamped to the winner's hit time. Leads verified after that moment stop
+  // counting for everyone in that range — the competition is over immediately.
+  const winnersBySlab = findWinners();
+  for (const slab of slabs) {
+    const winner = winnersBySlab[slab.id];
+    if (!winner) continue;
+    for (const r of results) {
+      if (String(r._slab_id) !== String(slab.id)) continue;
+      const calc = await calculateFroLeadIncentive(r.fro_id, date, slabs, settings, {
+        target: r.target,
+        slab,
+        stopAt: winner.at,
+      });
+      r.total_leads = calc.total_leads;
+      r.qualified_leads = calc.qualified_leads;
+      r.total_amount = calc.total_amount;
+      r.lead_incentive = calc.lead_incentive;
+      r.slab_bonus = calc.slab_bonus;
+      r.total_incentive = calc.lead_incentive + calc.slab_bonus;
+      r._leads = calc.leads;
+    }
+  }
+  const finalWinners = findWinners();
+
+  // Prize assignment (flat model): the range's incentive_amount is the ONLY
+  // reward and goes onto the range's champion row. Losers get ₹0. lead_incentive
+  // and champion_bonus are always 0.
+  for (const slab of slabs) {
+    const winner = finalWinners[slab.id];
+    if (!winner) continue;
+    const prize = Number(slab.incentive_amount) || 0;
+    for (const r of results) {
+      if (String(r._slab_id) !== String(slab.id)) continue;
+      const isChamp = String(r.fro_id) === String(winner.fro.fro_id);
+      r.lead_incentive = 0;
+      r.champion_bonus = 0;
+      r.slab_bonus = isChamp ? prize : 0;
+      r.total_incentive = isChamp ? prize : 0;
+    }
+  }
+
   const champions = [];
   for (const slab of slabs) {
-    const competing = pool[slab.id];
-    if (!competing || competing.size === 0) continue;
-    const minLead = slab?.min_lead_amount != null
-      ? Number(slab.min_lead_amount)
-      : (Number(settings.min_lead_amount) || 300);
+    const winner = finalWinners[slab.id];
+    if (!winner) continue;
 
-    let winner = null;
-    for (const r of results) {
-      if (!r._slab_id || r._slab_id !== slab.id) continue;
-      const hit = (r._leads || [])
-        .filter(l => l.qualified)
-        .sort((a, b) => new Date(a.verified_at) - new Date(b.verified_at))[0];
-      if (hit && (!winner || new Date(hit.verified_at) < new Date(winner.at))) {
-        winner = { fro: r, at: hit.verified_at, hitAmount: Number(hit.amount), leadId: hit.id };
-      }
-    }
-
-    if (!winner || winner.at == null || Number(winner.hitAmount) < minLead) continue;
-
-    const bonus = Number(settings.champion_bonus) || 0;
+    const prize = Number(slab.incentive_amount) || 0;
     champions.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
+      amount_to_win: slab && slab.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
       fro_id: winner.fro.fro_id,
       fro_name: winner.fro.fro_name,
       hit_lead_id: winner.leadId,
       hit_amount: winner.hitAmount,
+      crossing_amount: winner.crossingAmount,
       hit_at: winner.at,
       qualified_leads: winner.fro.qualified_leads,
       total_amount: winner.fro.total_amount,
-      lead_incentive: winner.fro.lead_incentive,
-      slab_bonus: winner.fro.slab_bonus,
-      champion_bonus: bonus,
-      total_incentive: winner.fro.total_incentive + bonus,
+      lead_incentive: 0,
+      slab_bonus: prize,
+      champion_bonus: 0,
+      total_incentive: prize,
     });
   }
   champions.sort((a, b) => new Date(a.hit_at) - new Date(b.hit_at));
@@ -316,6 +402,21 @@ export const getFroDetail = async (froId, date) => {
   const { slab, target } = await resolveFroSlab(froId, date, slabs, assignMap, slabById);
   const calc = await calculateFroLeadIncentive(froId, date, slabs, settings, { target, slab });
 
+  // Flat model: the range's flat prize (incentive_amount) lands only on the
+  // day's champion of the FRO's range — everything else stays ₹0.
+  let slabBonus = 0;
+  let totalIncentive = 0;
+  try {
+    const summary = await getDailySummary(date);
+    const champ = (summary.champions || []).find(c => String(c.fro_id) === String(froId));
+    if (champ) {
+      slabBonus = Number(champ.slab_bonus || 0);
+      totalIncentive = Number(champ.total_incentive || 0);
+    }
+  } catch (e) {
+    console.error('[lead fro detail] champion check:', e?.message);
+  }
+
   // Enrich leads with donor names + mobile
   const leadIds = calc.leads.map(l => l.donor_id).filter(Boolean);
   let donorMap = {};
@@ -341,13 +442,14 @@ export const getFroDetail = async (froId, date) => {
     date,
     target: calc.target,
     slab: calc.slab,
+    amount_to_win: slab?.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
     total_leads: calc.total_leads,
     qualified_leads: calc.qualified_leads,
     total_amount: calc.total_amount,
-    lead_incentive: calc.lead_incentive,
-    slab_bonus: calc.slab_bonus,
+    lead_incentive: 0,
+    slab_bonus: slabBonus,
     champion_bonus: 0,
-    total_incentive: calc.lead_incentive + calc.slab_bonus,
+    total_incentive: totalIncentive,
     leads: enrichedLeads,
   };
 };
@@ -366,7 +468,9 @@ export const getCurrentChampions = async (date) => {
 
 // FRO-facing daily leaderboard: every active range's standings, the per-range
 // champion (with photos) and whether the competition has any activity today.
-export const getFroRanks = async (date) => {
+// `includeWon` (admin view) keeps ranges that already have a champion visible so
+// the admin strip still shows the live competition + winner management.
+export const getFroRanks = async (date, { includeWon = false } = {}) => {
   const summary = await getDailySummary(date);
   const fros = summary.fros || [];
   const champions = summary.champions || [];
@@ -407,11 +511,21 @@ export const getFroRanks = async (date) => {
   const champBySlab = {};
   for (const c of champions) champBySlab[c.slab_id] = c;
 
+  // STOP-AFTER-WIN: a range whose competition already produced a winner is
+  // immediately removed from the FRO-facing live leaderboard — the race ends
+  // the moment anyone wins it. Only the winner section (winner card + history)
+  // keeps showing that range; remaining ranges stay live until their own winner.
+  // The admin live strip (includeWon) still sees these ranges so it can manage
+  // their status ("🏆 won") and stop them.
+  if (!includeWon) {
+    slabs = slabs.filter(s => !champBySlab[s.id]);
+  }
+
   const ranges = [];
   for (const slab of slabs) {
     const members = fros
       .filter(f => f.slab && f.slab.id === slab.id)
-      .sort((a, b) => b.total_incentive - a.total_incentive)
+      .sort((a, b) => (b.total_amount || 0) - (a.total_amount || 0))
       .map(f => ({
         fro_id: f.fro_id,
         fro_name: f.fro_name,
@@ -421,6 +535,7 @@ export const getFroRanks = async (date) => {
         total_amount: f.total_amount || 0,
         lead_incentive: f.lead_incentive || 0,
         slab_bonus: f.slab_bonus || 0,
+        champion_bonus: f.champion_bonus || 0,
         total_incentive: f.total_incentive || 0,
         is_winner: !!(champBySlab[slab.id] && champBySlab[slab.id].fro_id === f.fro_id),
       }));
@@ -430,8 +545,8 @@ export const getFroRanks = async (date) => {
     ranges.push({
       slab_id: slab.id,
       slab_label: fmtRange(slab),
-      min_lead_amount: slab?.min_lead_amount != null ? Number(slab.min_lead_amount) : (Number(settings.min_lead_amount) || 300),
-      lead_rate: slab?.lead_rate != null ? Number(slab.lead_rate) : (Number(settings.lead_rate) || 20),
+      amount_to_win: slab?.amount_to_win != null ? Number(slab.amount_to_win) : 1500,
+      incentive_amount: Number(slab.incentive_amount) || 0,
       champion: champ ? {
         ...champ,
         photo_url: photoMap[champ.fro_id] || null,
@@ -619,14 +734,53 @@ export const announceChampion = async ({ date, message, userId }) => {
   return { announcements: inserted };
 };
 
-// Broadcast lead rule (min qualify amount + per-lead reward) updates to every
-// active FRO as a notification_log row of type 'lead_rule_update', which the FRO
-// app surfaces as a side popup.
-// - Single range ({ slab }): every FRO gets a popup for that range. The popup is
-//   informational; the range a FRO competes in comes from the admin assignment
-//   (⚙️ Configure) or falls back to their monthly target bucketing.
-// - Apply-all ({ slabs }, no slab): every FRO gets ONE combined popup listing every
-//   active range with the new common value.
+// FRO ids competing in ONE slab: explicit admin assignments win, everyone else
+// falls in by monthly target bucket — the exact resolution the leaderboard
+// uses, so only that range's FROs ever get its popups.
+async function froIdsInSlab(slabId, activeSlabs) {
+  const { data: froRows } = await db
+    .from('workers')
+    .select('id')
+    .eq('is_active', true)
+    .ilike('department', 'fro');
+  if (!froRows || froRows.length === 0) return [];
+
+  const assignments = await getAllSlabAssignments();
+  const assignedSlab = {};
+  for (const a of assignments || {}) {
+    if (a && a.fro_worker_id) assignedSlab[a.fro_worker_id] = a.slab_id;
+  }
+
+  const month = monthStrOf(new Date().toISOString().slice(0, 10));
+  const [{ data: manual }, { data: auto }] = await Promise.all([
+    db.from('fro_monthly_targets').select('fro_worker_id, target_amount').eq('month', month),
+    db.from('incentive_targets').select('worker_id, target_amount').eq('month', month),
+  ]);
+  const manualMap = {};
+  for (const m of manual || {}) manualMap[m.fro_worker_id] = Number(m.target_amount) || 0;
+  const autoMap = {};
+  for (const m of auto || {}) autoMap[m.worker_id] = Number(m.target_amount) || 0;
+
+  const inSlab = [];
+  for (const f of froRows) {
+    const a = assignedSlab[f.id];
+    if (a) {
+      if (String(a) === String(slabId)) inSlab.push(f.id);
+      continue;
+    }
+    const t = manualMap[f.id] > 0 ? manualMap[f.id] : (autoMap[f.id] || 0);
+    const bucket = getSlabForTarget(t, activeSlabs);
+    if (bucket && String(bucket.id) === String(slabId)) inSlab.push(f.id);
+  }
+  return inSlab;
+}
+
+// Broadcast lead rule updates as notification_log rows of type
+// 'lead_rule_update', which the FRO app surfaces as a side popup.
+// - Single range ({ slab }): ONLY that range's FROs get the popup. Other
+//   ranges are never disturbed. (Winner announcements still go to everyone.)
+// - Apply-all ({ slabs }, no slab): every FRO gets ONE combined popup listing
+//   every active range with the new common value.
 export const notifyRangeRuleChange = async ({ slab, slabs }) => {
   const { data: froRows } = await db
     .from('workers')
@@ -641,9 +795,9 @@ export const notifyRangeRuleChange = async ({ slab, slabs }) => {
   // Apply-all: one combined popup per FRO covering every range.
   if (!slab && activeSlabs.length > 0) {
     const body = activeSlabs
-      .map(s => `₹${fmtMoney(s.min_amount)} – ₹${fmtMoney(s.max_amount)}: Minimum Lead ₹${fmtMoney(s.min_lead_amount)} · ₹${fmtMoney(s.lead_rate)} per qualified lead`)
+      .map(s => `₹${fmtMoney(s.min_amount)} – ₹${fmtMoney(s.max_amount)}: Win on ₹${fmtMoney(s.amount_to_win)} collected · Prize ₹${fmtMoney(s.incentive_amount)}`)
       .join('\n');
-    const rows = fros.map(worker_id => ({
+    const rows = fros.map(({ id: worker_id }) => ({
       worker_id,
       type: 'lead_rule_update',
       title: '📢 All Lead Ranges Updated',
@@ -654,13 +808,15 @@ export const notifyRangeRuleChange = async ({ slab, slabs }) => {
     return rows.length;
   }
 
-  // Single range: tell every FRO, but only assigned/target-bucketed FROs
-  // actually compete under it.
+  // Single range: only the FROs competing in it are told.
   if (!slab || !slab.id) return 0;
   const rangeLabel = `₹${fmtMoney(slab.min_amount)} – ₹${fmtMoney(slab.max_amount)}`;
-  const body = `${rangeLabel}: Minimum Lead ₹${fmtMoney(slab.min_lead_amount)} · ₹${fmtMoney(slab.lead_rate)} per qualified lead\nFirst FRO to hit the minimum lead amount is that range's champion.`;
+  const amountToWin = slab.amount_to_win != null ? Number(slab.amount_to_win) : 1500;
+  const prize = Number(slab.incentive_amount) || 0;
+  const body = `${rangeLabel}: Win on ₹${fmtMoney(amountToWin)} collected · Prize ₹${fmtMoney(prize)}\nEvery verified lead counts. First FRO to reach ₹${fmtMoney(amountToWin)} in total today wins this range's prize!`;
 
-  const rows = fros.map(worker_id => ({
+  const ids = await froIdsInSlab(slab.id, activeSlabs);
+  const rows = ids.map(worker_id => ({
     worker_id,
     type: 'lead_rule_update',
     title: '📢 Your Lead Range Updated',

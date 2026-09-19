@@ -2,12 +2,6 @@ name: Deploy Vercel (path-filtered)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [master]
-    paths:
-      - 'others/client-web/**'
-      - 'others/admin-attendance/**'
-      - 'others/hr form/**'
 
 jobs:
   changes:

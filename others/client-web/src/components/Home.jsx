@@ -197,11 +197,15 @@ export default function Home() {
   const totalLate = allHistory.reduce((s, r) => s + (r.late_minutes || 0), 0)
   const lateMinutes = lateUsed ?? totalLate
 
-  const lateTier = lateMinutes <= 180 ? 0 : lateMinutes <= 240 ? 1 : lateMinutes <= 480 ? 2 : 3
+  const _lg = Number(user?.late_grace_minutes)
+  const _grace = Number.isFinite(_lg) && _lg >= 30 && _lg <= 480 ? Math.round(_lg) : 180
+  const _half = Math.max(1, Math.round(240 * (_grace / 180)))
+  const _full = Math.max(_half + 1, Math.round(480 * (_grace / 180)))
+  const lateTier = lateMinutes <= _grace ? 0 : lateMinutes <= _half ? 1 : lateMinutes <= _full ? 2 : 3
   const lateTierLabel = ['Within grace limit', 'Half-day deduction', 'One-day deduction', 'Proportional deduction'][lateTier]
   const lateTierColor = ['#2a6a4b', '#e67e22', '#d35400', '#ba1a1a'][lateTier]
-  const batch1Pct = Math.min(lateMinutes / 180, 1)
-  const batch2Pct = lateMinutes > 180 ? Math.min((lateMinutes - 180) / 60, 1) : 0
+  const batch1Pct = Math.min(lateMinutes / _grace, 1)
+  const batch2Pct = lateMinutes > _grace ? Math.min((lateMinutes - _grace) / Math.max(1, _half - _grace), 1) : 0
 
   const hours = String(time.getHours() % 12 || 12).padStart(2, '0')
   const mins = String(time.getMinutes()).padStart(2, '0')
@@ -378,8 +382,8 @@ export default function Home() {
               </div>
             </div>
             <div className="flex justify-between mt-0.5 text-[9px] text-[var(--ink-soft)]">
-              <span>0–180m</span>
-              <span>181–240m</span>
+              <span>0–{_grace}m</span>
+              <span>{_grace + 1}–{_half}m</span>
             </div>
           </button>
         </div>
