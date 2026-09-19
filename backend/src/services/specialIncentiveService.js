@@ -266,12 +266,19 @@ export const refreshSpecialIncentive = async (incentiveId) => {
   const rows = await sql(WINDOW_COLLECTION_SQL, [inc.start_at, inc.end_at, inc.ngo_id]);
   const nowIso = new Date().toISOString();
 
+  // One batched read instead of a SELECT per worker (N+1 on every refresh).
+  const { data: existingRows } = await db
+    .from('special_incentive_progress')
+    .select('id, worker_id, hit_target_at')
+    .eq('special_incentive_id', inc.id);
+  const existingByWorker = new Map((existingRows || []).map((p) => [String(p.worker_id), p]));
+
   for (const r of rows || []) {
     const raw = Number(r.amount) || 0;
     const amount = Math.min(raw, target);
     const hit = raw >= target ? nowIso : null;
     try {
-      const existing = await getProgressForWorker(inc.id, r.worker_id);
+      const existing = existingByWorker.get(String(r.worker_id));
       if (existing) {
         await db
           .from('special_incentive_progress')
@@ -329,20 +336,27 @@ export const claimWinnerIfReady = async (incentiveId) => {
 };
 
 export const endWithoutWinner = async (incentiveId) => {
+  // No one won: end it AND auto-archive so it leaves the live views at once.
   const { data, error } = await db
     .from('special_incentives')
-    .update({ status: 'ended' })
+    .update({ status: 'ended', archived_at: new Date().toISOString(), archived_by: null })
     .eq('id', incentiveId)
     .eq('status', 'active')
     .select();
   if (error) throw error;
   if (data && data.length > 0) {
-    console.log(`[special incentive] ${incentiveId} ended without a winner`);
+    console.log(`[special incentive] ${incentiveId} ended without a winner (auto-archived)`);
   }
 };
 
 // Cheap existence check + refresh. Safe to call after any donor-log write.
+// In-flight guard: refreshes are triggered both by the scheduler poll and by
+// every donor-log write, so overlapping runs would stack window aggregations
+// and per-worker upserts on the t3.micro.
+let refreshRunning = false;
 export const maybeRefreshSpecialIncentives = async () => {
+  if (refreshRunning) return;
+  refreshRunning = true;
   try {
     const active = await getActiveIncentives();
     if (active.length === 0) return;
@@ -351,6 +365,8 @@ export const maybeRefreshSpecialIncentives = async () => {
     );
   } catch (e) {
     console.error('[special incentive] maybeRefresh:', e.message);
+  } finally {
+    refreshRunning = false;
   }
 };
 
@@ -483,4 +499,24 @@ export const deleteSpecialIncentive = async (incentiveId) => {
     .select('id');
   if (error) throw error;
   return (data && data[0]) || null;
+};
+
+// Admin edits a live incentive's setup (title/message/target/reward/window/ngo).
+// Only active (non-closed) incentives can be edited; winners and payouts stay untouched.
+export const updateSpecialIncentive = async (incentiveId, fields) => {
+  const allowed = ['title', 'message', 'target_amount', 'incentive_amount', 'start_at', 'end_at', 'ngo_id'];
+  const patch = {};
+  for (const k of allowed) {
+    if (fields[k] !== undefined) patch[k] = fields[k];
+  }
+  if (Object.keys(patch).length === 0) return null;
+  const { data, error } = await db
+    .from('special_incentives')
+    .update(patch)
+    .eq('id', incentiveId)
+    .eq('status', 'active')
+    .select('*, ngos(name)')
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 };

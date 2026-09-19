@@ -69,6 +69,35 @@ export const getAnnouncements = async () => {
   return data || [];
 };
 
+export const getAnnouncementById = async (id) => {
+  const { data, error } = await db
+    .from('lead_champion_announcements')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+};
+
+// Publish a winner celebration exactly once: attaches the uploaded winner
+// photo + congrats message and stamps celebrated_at. The IS NULL guard makes
+// a second Send a no-op (returns null) so a celebration can never be
+// re-published or resurrected after dismissal.
+export const updateAnnouncementCelebration = async (id, { photoUrl, message }) => {
+  const patch = { celebrated_at: new Date().toISOString() };
+  if (photoUrl) patch.winner_photo_url = photoUrl;
+  if (typeof message === 'string' && message.trim()) patch.message = message.trim();
+  const { data, error } = await db
+    .from('lead_champion_announcements')
+    .update(patch)
+    .eq('id', id)
+    .is('celebrated_at', null)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+};
+
 // Hard delete an announcement row. Returns the deleted row so callers can
 // confirm / broadcast the removal.
 export const deleteAnnouncement = async (id) => {

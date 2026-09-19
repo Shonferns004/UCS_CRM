@@ -74,6 +74,11 @@ ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS lead_rate NUMERIC(12,2) NOT
 -- hidden from the FRO-facing live leaderboard for that date, without deleting
 -- the slab. Restarting the competition (configure / apply-all / announce)
 -- clears it.
+-- Flat-prize "first to collect ₹X today wins" target: the total verified day
+-- collection a FRO must reach (by verified_at) to win the range's flat prize
+-- (incentive_amount). amount_to_win is the only qualification a range needs;
+-- every verified lead counts toward it (no per-lead minimum).
+ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS amount_to_win NUMERIC(12,2) NOT NULL DEFAULT 1500;
 ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS stopped_date DATE;
 -- Competition window (like "Sir ka Incentive"): started_at = when the range's
 -- competition begins, ended_at = when it ends. NULL started_at = not started yet;
@@ -190,6 +195,10 @@ CREATE TABLE IF NOT EXISTS lead_champion_announcements (
 -- date can hold one winner PER RANGE (each range runs its own competition).
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_id UUID;
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_label TEXT;
+-- Winner celebration: uploaded winner photo + published congrats popup
+-- (celebrated_at set once when Super Admin hits Send; never rewritten).
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS winner_photo_url TEXT;
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS celebrated_at TIMESTAMPTZ;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint

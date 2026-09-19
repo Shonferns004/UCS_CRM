@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticateRole, authenticateWorker } from '../middleware/authMiddleware.js';
 import {
   getSettingsHandler,
   updateSettingsHandler,
@@ -12,10 +12,13 @@ import {
   stopAllSlabsCompetitionHandler,
   dailySummaryHandler,
   froDetailHandler,
+  myLeadSummaryHandler,
   currentChampionHandler,
   leaderboardHandler,
   announceChampionHandler,
   championHistoryHandler,
+  generateChampionCongratsHandler,
+  celebrateChampionHandler,
   deleteChampionHandler,
   getSlabFrosHandler,
   setSlabFrosHandler,
@@ -45,6 +48,9 @@ router.delete('/slabs/:id', sirLevel, deleteSlabHandler);
 router.get('/slabs/:id/fros', sirLevel, getSlabFrosHandler);
 router.put('/slabs/:id/fros', sirLevel, setSlabFrosHandler);
 
+// Lead incentive summary (FRO self-view for dashboard).
+router.get('/my-summary', authenticateWorker, myLeadSummaryHandler);
+
 // Lead incentive summary
 router.get('/lead-summary', sirLevel, dailySummaryHandler);
 router.get('/lead-summary/fro/:id', sirLevel, froDetailHandler);
@@ -54,6 +60,8 @@ router.get('/leaderboard', popupLevel, leaderboardHandler);
 router.get('/champion/current', popupLevel, currentChampionHandler);
 router.get('/champion/history', sirLevel, championHistoryHandler);
 router.post('/champion/announce', sirLevel, announceChampionHandler);
+router.post('/champion/:id/congrats', sirLevel, generateChampionCongratsHandler);
+router.post('/champion/:id/celebrate', sirLevel, celebrateChampionHandler);
 router.delete('/champion/:id', sirLevel, deleteChampionHandler);
 
 export default router;

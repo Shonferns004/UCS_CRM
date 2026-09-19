@@ -253,6 +253,7 @@ export const getWorkers = async (req, res) => {
         ngo_id: w.ngo_id,
         created_at: w.created_at,
         salary: salaryMap[w.id],
+        late_grace_minutes: w.late_grace_minutes ?? null,
         father_husband_name: w.father_husband_name,
         marital_status: w.marital_status,
         pan_number: w.pan_number,
@@ -283,6 +284,7 @@ export const getWorkers = async (req, res) => {
           references: w.reference_details || [],
           shift_start_time: w.shift_start_time,
           shift_end_time: w.shift_end_time,
+          late_grace_minutes: w.late_grace_minutes ?? null,
           onboarding_completed: w.onboarding_completed,
         };
       }
@@ -334,6 +336,7 @@ export const getWorker = async (req, res) => {
       is_active: p.is_active,
       employment_status: p.employment_status || 'active',
       onboarding_completed: p.onboarding_completed,
+      documents_submitted: p.documents_submitted,
       ngo_id: p.ngo_id,
       created_at: p.created_at,
       father_husband_name: p.father_husband_name,
@@ -359,6 +362,7 @@ export const getWorker = async (req, res) => {
       salary: activeSalary ? parseFloat(activeSalary.salary) : null,
       shift_start_time: p.shift_start_time,
       shift_end_time: p.shift_end_time,
+      late_grace_minutes: p.late_grace_minutes ?? null,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -381,6 +385,8 @@ export const editWorker = async (req, res) => {
       declaration_date, declaration_place,
       team,
       is_test,
+      documents_submitted,
+      late_grace_minutes,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -392,6 +398,7 @@ export const editWorker = async (req, res) => {
     if (department !== undefined) updates.department = department;
     if (team !== undefined) updates.team = team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null;
     if (is_test !== undefined) updates.is_test = !!is_test;
+    if (documents_submitted !== undefined) updates.documents_submitted = !!documents_submitted;
     if (address !== undefined) updates.address = address;
     if (city !== undefined) updates.city = city;
     if (state !== undefined) updates.state = state;
@@ -413,6 +420,17 @@ export const editWorker = async (req, res) => {
     if (created_at !== undefined) updates.created_at = created_at.includes('T') ? created_at : created_at + 'T00:00:00.000Z';
     if (shift_start_time !== undefined) updates.shift_start_time = shift_start_time;
     if (shift_end_time !== undefined) updates.shift_end_time = shift_end_time;
+    if (late_grace_minutes !== undefined) {
+      if (late_grace_minutes === null || late_grace_minutes === '') {
+        updates.late_grace_minutes = null;
+      } else {
+        const n = Number(late_grace_minutes);
+        if (!Number.isFinite(n) || Math.round(n) < 30 || Math.round(n) > 480) {
+          return res.status(400).json({ message: 'late_grace_minutes must be null or 30–480' });
+        }
+        updates.late_grace_minutes = Math.round(n);
+      }
+    }
     if (photo_url !== undefined) updates.photo_url = photo_url;
     if (correspondence !== undefined) updates.correspondence = correspondence;
     if (employment_status !== undefined) {
@@ -484,10 +502,43 @@ export const getBirthdays = async (req, res) => {
   }
 };
 
+export const getAnniversaries = async (req, res) => {
+  try {
+    const workers = await getAllWorkers(null);
+    const today = new Date();
+    const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const upcoming = workers
+      .filter((w) => w.created_at)
+      .filter((w) => !(w.is_active === false || ['terminated', 'absconded'].includes(String(w.employment_status || '').toLowerCase().trim())))
+      .map((w) => {
+        const joinDate = new Date(w.created_at);
+        if (isNaN(joinDate.getTime())) return null;
+        const years = today.getFullYear() - joinDate.getFullYear();
+        if (years < 1) return null;
+        const md = `${String(joinDate.getMonth() + 1).padStart(2, '0')}-${String(joinDate.getDate()).padStart(2, '0')}`;
+        const diffDays = (new Date(today.getFullYear(), joinDate.getMonth(), joinDate.getDate()) - today) / 86400000;
+        const isToday = md === todayMD;
+        return { ...w, _md: md, _diff: isToday ? 0 : (diffDays >= 0 ? diffDays : diffDays + 365), _years: years };
+      })
+      .filter(Boolean)
+      .filter((w) => w._diff <= 30)
+      .sort((a, b) => a._diff - b._diff)
+      .slice(0, 10)
+      .map(({ password, _md, _diff, _years, ...rest }) => ({
+        ...rest,
+        anniversaryInDays: Math.round(_diff),
+        yearsCompleted: _years,
+      }));
+    return res.json(upcoming);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const removeWorker = async (req, res) => {
   try {
-    const result = await deleteWorker(req.params.id);
-    return res.json(result);
+    const data = await deleteWorker(req.params.id);
+    return res.json({ message: 'Worker deleted', worker: data });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

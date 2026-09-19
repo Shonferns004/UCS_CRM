@@ -6,6 +6,7 @@ import {
   getLeaderboard,
   getProgressForWorker,
   createSpecialIncentive,
+  updateSpecialIncentive,
   cancelSpecialIncentive,
   getHistory,
   refreshSpecialIncentive,
@@ -63,7 +64,7 @@ export async function generateCongratsMessage({ winnerName, title, amount }) {
       {
         role: 'system',
         content:
-          'You write warm, short congratulations (2-3 sentences) for FRO fundraising officers who won a collection incentive at a donation NGO. Mention the winner by name, the incentive and the prize. Cheerful, proud, inspiring. Use at most one emoji. Plain text only, no quotes, no markdown.',
+          'You write SUPER ENERGETIC, hype-filled congratulations (2-3 sentences) for FRO fundraising officers who won a collection incentive at a donation NGO. Mention the winner by name, the incentive and the prize. Loud, proud, electrifying — like a stadium celebration. Use at most one emoji. Plain text only, no quotes, no markdown.',
       },
       { role: 'user', content: `Winner: ${winnerName || 'The winner'}\nIncentive: ${title || 'the special incentive'}\nPrize: ₹${Number(amount) || 0}` },
     ],
@@ -140,15 +141,34 @@ export async function activeHandler(req, res) {
     incentives = incentives.filter((i) => new Date(i.start_at).getTime() <= now);
 
     const result = [];
+    const boardByIncentive = new Map();
     for (const inc of incentives) {
       const board = await getLeaderboard(inc.id);
+      boardByIncentive.set(inc.id, board || []);
+    }
+    // Profile photos for every leaderboard row (single query, shown as avatars).
+    let boardPhotoMap = {};
+    try {
+      const boardWorkerIds = [...new Set(
+        [...boardByIncentive.values()].flat().map((p) => p.worker_id).filter(Boolean)
+      )];
+      if (boardWorkerIds.length > 0) {
+        const { data: boardWorkers } = await db.from('workers').select('id, photo_url').in('id', boardWorkerIds);
+        boardPhotoMap = Object.fromEntries((boardWorkers || []).map((w) => [w.id, w.photo_url || null]));
+      }
+    } catch (e) {
+      console.error('[special incentive] leaderboard photos:', e.message);
+    }
+    for (const inc of incentives) {
+      const board = boardByIncentive.get(inc.id) || [];
       const base = pretty(inc);
       const mine = req.user?.id ? await getProgressForWorker(inc.id, req.user.id) : null;
       result.push({
         ...base,
-        leaderboard: (board || []).map((p) => ({
+        leaderboard: board.map((p) => ({
           worker_id: p.worker_id,
           name: p.workers?.name || 'Unknown',
+          photo_url: boardPhotoMap[p.worker_id] || null,
           collected_amount: Number(p.collected_amount) || 0,
           hit_target_at: p.hit_target_at,
         })),
@@ -201,14 +221,135 @@ export async function historyHandler(req, res) {
   try {
     const list = await getHistory(Number(req.query.limit) || 60);
     const enriched = [];
+    const ids = new Set();
     for (const inc of list) {
       const base = pretty(inc);
-      enriched.push({
-        ...base,
-        leaderboard: await getLeaderboard(inc.id),
-      });
+      const board = await getLeaderboard(inc.id);
+      for (const p of board || []) if (p.worker_id) ids.add(p.worker_id);
+      enriched.push({ ...base, leaderboard: board });
     }
-    return res.json(enriched);
+    // Attach profile photos so leaderboard cards can show faces.
+    let photoMap = {};
+    if (ids.size > 0) {
+      try {
+        const { data: ws } = await db.from('workers').select('id, photo_url').in('id', [...ids]);
+        photoMap = Object.fromEntries((ws || []).map((w) => [w.id, w.photo_url || null]));
+      } catch (e) {
+        console.error('[special incentive] leaderboard photos:', e.message);
+      }
+    }
+    return res.json(enriched.map((e) => ({
+      ...e,
+      leaderboard: (e.leaderboard || []).map((p) => ({ ...p, photo_url: photoMap[p.worker_id] || null })),
+    })));
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+export async function updateHandler(req, res) {
+  try {
+    const inc = await getIncentiveById(req.params.id);
+    if (!inc) return res.status(404).json({ message: 'Incentive not found' });
+    if (inc.status !== 'active') {
+      return res.status(400).json({ message: 'Only live incentives can be edited' });
+    }
+    const { title, message, target_amount, incentive_amount, start_at, end_at, ngo_id } = req.body || {};
+    if (title !== undefined && !String(title).trim()) {
+      return res.status(400).json({ message: 'Title is required' });
+    }
+    if (target_amount !== undefined && !(Number(target_amount) > 0)) {
+      return res.status(400).json({ message: 'Target must be more than zero' });
+    }
+    if (incentive_amount !== undefined && !(Number(incentive_amount) > 0)) {
+      return res.status(400).json({ message: 'Reward must be more than zero' });
+    }
+    if ((start_at !== undefined || end_at !== undefined)) {
+      const s = start_at !== undefined ? start_at : inc.start_at;
+      const e = end_at !== undefined ? end_at : inc.end_at;
+      if (!s || !e || new Date(s).getTime() >= new Date(e).getTime()) {
+        return res.status(400).json({ message: 'End date-time must be after start date-time' });
+      }
+    }
+    const updated = await updateSpecialIncentive(req.params.id, {
+      ...(title !== undefined ? { title: String(title).trim() } : {}),
+      ...(message !== undefined ? { message: String(message || '') } : {}),
+      ...(target_amount !== undefined ? { target_amount: Number(target_amount) } : {}),
+      ...(incentive_amount !== undefined ? { incentive_amount: Number(incentive_amount) } : {}),
+      ...(start_at !== undefined ? { start_at: new Date(start_at).toISOString() } : {}),
+      ...(end_at !== undefined ? { end_at: new Date(end_at).toISOString() } : {}),
+      ...(ngo_id !== undefined ? { ngo_id: ngo_id || null } : {}),
+    });
+    if (!updated) return res.status(400).json({ message: 'Unable to update this incentive' });
+    return res.json({ incentive: pretty(updated) });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// AI-drafted title + message for a NEW incentive, looking at the target and
+// reward. Falls back to a template so the button never hard-fails.
+export async function aiDraftHandler(req, res) {
+  try {
+    const target = Number(req.body?.target_amount) || 0;
+    const reward = Number(req.body?.incentive_amount) || 0;
+    const ngoName = String(req.body?.ngo_name || 'All NGOs');
+    const fallback = () => ({
+      title: `${ngoName} Mega Collection Blast!`,
+      message: `BOOM! First FRO to smash ₹${target.toLocaleString('en-IN')} grabs a massive ₹${reward.toLocaleString('en-IN')}! Full speed, full energy — GO GO GO! 🔥`,
+    });
+    try {
+      const model = process.env.GROQ_CONGRATS_MODEL || process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
+      const completion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You write SUPER ENERGETIC, hype-filled incentive announcements for FRO fundraising officers at a donation NGO. High voltage,exciting, urgent, chest-thumping motivation — like a sports coach firing up the team. Reply in EXACTLY two lines: line 1 is the incentive title (max 8 words, punchy, plain text, no quotes), line 2 is the announcement message (1-2 sentences bursting with energy, mention the target and reward amounts with ₹, at most one emoji). Plain text only, no markdown, no numbering.',
+          },
+          { role: 'user', content: `NGO: ${ngoName}\nTarget: ₹${target}\nReward: ₹${reward}` },
+        ],
+        model,
+        max_tokens: 200,
+        temperature: 0.9,
+      });
+      const text = (completion.choices?.[0]?.message?.content || '').trim();
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length >= 2) {
+        return res.json({ title: lines[0].replace(/^["“”']+|["“”']+$/g, ''), message: lines.slice(1).join(' ') });
+      }
+      if (lines.length === 1) {
+        const fb = fallback();
+        return res.json({ title: lines[0], message: fb.message });
+      }
+    } catch (e) {
+      console.error('[special incentive] ai draft:', e.message);
+    }
+    return res.json(fallback());
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// AI-written congratulation preview for a won incentive (History composer).
+// Falls back to a template so the button never hard-fails.
+export async function congratsHandler(req, res) {
+  try {
+    const inc = await getIncentiveById(req.params.id);
+    if (!inc) return res.status(404).json({ message: 'Incentive not found' });
+    try {
+      const text = await generateCongratsMessage({
+        winnerName: inc.winner_name,
+        title: inc.title,
+        amount: inc.incentive_amount,
+      });
+      if (text) return res.json({ message: text });
+    } catch (e) {
+      console.error('[special incentive] ai congrats:', e.message);
+    }
+    return res.json({
+      message: `Heartiest congratulations to ${inc.winner_name || 'our champion'} for winning "${inc.title || 'the incentive'}" with a reward of ₹${Number(inc.incentive_amount || 0).toLocaleString('en-IN')}! Your hard work inspires the whole team. 🎉`,
+    });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

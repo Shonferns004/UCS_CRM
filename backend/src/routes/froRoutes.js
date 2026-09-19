@@ -1,10 +1,13 @@
 import { Router } from 'express';
+import db from '../config/db.js';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import {
   listFroSuspense, resolveSuspenseEntry, searchFroDispositions,
 } from '../controllers/bankAuditController.js';
 import {
   getDashboard,
+  getMyAllotmentSummary,
+  getMyPerformance,
   getMyCollections,
   getMyDonors,
   getTransferredLeads,
@@ -19,6 +22,7 @@ import {
   getFroScheduled,
   getFroCallbacks,
   getFroPromises,
+  getFroOverdue,
   getMyHistory,
   requestData,
   getMyDataRequests,
@@ -39,6 +43,9 @@ import {
   getSuspenseReceipts,
   claimSuspenseReceipt,
   searchSuspenseDonors,
+  resetAllFroIdle,
+  getMyLiveStatus,
+  resumeOwnPause,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -46,6 +53,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
+router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
+router.get('/status/me', getMyLiveStatus);
 
 const requireFro = (req, res, next) => {
   if (req.user.role === 'fro') return next();
@@ -53,10 +62,17 @@ const requireFro = (req, res, next) => {
   return res.status(403).json({ message: 'FRO worker access required' });
 };
 
+// Self-resume must work for every telecaller regardless of role/department
+// spelling in their token (requireFro below rejects non-'fro' roles, which
+// made Play flaky per-FRO). It only ever touches the caller's own row.
+router.post('/status/resume-self', authenticate, resumeOwnPause);
+
 router.use(requireFro);
 
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
+router.get('/allotment-summary', getMyAllotmentSummary);
+router.get('/my-performance', getMyPerformance);
 router.get('/dashboard/collections', getMyCollections);
 router.get('/dashboard/suspense', getSuspenseReceipts);
 router.post('/dashboard/suspense/:receiptId/claim', claimSuspenseReceipt);
@@ -99,6 +115,7 @@ router.post('/upload-payment-screenshot', uploadPaymentScreenshot);
 router.get('/scheduled', getFroScheduled);
 router.get('/callbacks', getFroCallbacks);
 router.get('/promises', getFroPromises);
+router.get('/overdue', getFroOverdue);
 router.put('/status', updateLiveStatus);
 router.get('/progress', getMyProgress);
 router.put('/progress', saveMyProgress);
