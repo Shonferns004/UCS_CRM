@@ -196,33 +196,21 @@ export function WinnerBanner({ inc }) {
 // Data + behavior preserved: same inc payload, shared nowMs countdown,
 // realtime leaderboard, existing close action. Presentation only.
 const SI_MODAL_CSS = `
-.si-im-overlay { position: fixed; inset: 0; z-index: 99990; display: flex; align-items: center; justify-content: center; padding: 24px; width: 100%; overflow: hidden; background: rgba(15,27,45,.48); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); box-sizing: border-box; }
+.si-im-overlay { position: fixed; inset: 0; z-index: 99990; display: flex; align-items: center; justify-content: center; padding: 20px; width: 100%; overflow: hidden; background: rgba(15,27,45,.48); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); box-sizing: border-box; }
 .si-im-overlay *, .si-im-overlay *:before, .si-im-overlay *:after { box-sizing: border-box; }
-.si-im-modal { width: min(1050px, calc(100vw - 48px)); max-height: calc(100vh - 40px); min-width: 0; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DCE6F3; border-radius: 22px; box-shadow: 0 24px 70px rgba(15,35,65,.22); overflow: hidden; position: relative; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #10213D; }
+.si-im-modal { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-width: 0; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DCE6F3; border-radius: 18px; box-shadow: 0 24px 70px rgba(15,35,65,.22); overflow: hidden; position: relative; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #10213D; }
 .si-im-header, .si-im-footer { flex: 0 0 auto; }
 .si-im-scroll { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-.si-im-close { width: 42px; height: 42px; border-radius: 50%; border: none; background: #EAF2FB; color: #10213D; font-size: 17px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background-color 150ms ease; font-family: inherit; }
+.si-im-close { width: 34px; height: 34px; border-radius: 50%; border: none; background: #EAF2FB; color: #10213D; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background-color 150ms ease; font-family: inherit; }
 .si-im-close:hover { background: #DCE8F6; }
 .si-im-close:focus-visible, .si-im-cta:focus-visible, .si-im-filter:focus-visible { outline: 2px solid #3E82F7; outline-offset: 2px; }
-.si-im-hero { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: center; }
-.si-im-visual { width: 220px; height: 170px; display: flex; align-items: center; justify-content: center; }
-.si-im-visual img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.si-im-progress { display: grid; grid-template-columns: 1.1fr auto 1fr 1.2fr; gap: 20px; align-items: center; }
-.si-im-row, .si-im-headrow { display: grid; grid-template-columns: 48px minmax(180px, 1fr) 150px minmax(250px, 2fr); gap: 0 12px; align-items: center; min-width: 0; }
+.si-im-row, .si-im-headrow { display: grid; grid-template-columns: 32px minmax(160px, 1fr) 110px minmax(150px, 1.1fr); gap: 0 10px; align-items: center; min-width: 0; }
 .si-im-rank { grid-area: rank; } .si-im-fro { grid-area: fro; } .si-im-amt { grid-area: amt; } .si-im-prog { grid-area: prog; }
-@media (max-width: 1099px) and (min-width: 700px) {
-  .si-im-progress { grid-template-columns: 1fr 1fr; }
-  .si-im-overlay { padding: 20px; }
-}
 @media (max-width: 699px) {
   .si-im-overlay { padding: 8px; }
-  .si-im-modal { width: calc(100vw - 16px); max-height: calc(100vh - 16px); border-radius: 16px; }
-  .si-im-hero { grid-template-columns: minmax(0, 1fr); text-align: center; }
-  .si-im-visual { width: 100%; height: 140px; }
-  .si-im-progress { grid-template-columns: minmax(0, 1fr); }
+  .si-im-modal { width: calc(100vw - 16px); max-height: calc(100vh - 16px); border-radius: 14px; }
   .si-im-headrow { display: none; }
-  .si-im-row { grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "rank fro amt" "prog prog prog"; row-gap: 8px; }
-  .si-im-title { font-size: 22px !important; }
+  .si-im-row { grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-areas: "rank fro amt" "prog prog prog"; row-gap: 5px; }
 }
 `;
 
@@ -232,34 +220,34 @@ const SI_RANK_STYLE = [
   { bg: '#FBEDDE', color: '#9A5A22' },
 ];
 
-function SiAvatar({ url, name }) {
+function SiAvatar({ url, name, size = 36 }) {
   const [err, setErr] = useState(false);
   useEffect(() => { setErr(false); }, [url]);
-  const box = { width: 36, height: 36, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' };
+  const box = { width: size, height: size, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' };
   if (url && !err) {
     return <img src={url} alt={name || 'FRO'} onError={() => setErr(true)} style={{ ...box, display: 'block', background: '#EDF2F7' }} />;
   }
   const initials = String(name || 'F').split(' ').slice(0, 2).map((s) => s[0]).join('').toUpperCase();
   return (
-    <div aria-hidden="true" style={{ ...box, background: '#E8F1FC', color: '#3E82F7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800 }}>
+    <div aria-hidden="true" style={{ ...box, background: '#E8F1FC', color: '#3E82F7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.35), fontWeight: 800 }}>
       {initials}
     </div>
   );
 }
 
-function SiRing({ pct }) {
+function SiRing({ pct, size = 160, stroke = 11 }) {
   const p = Math.min(100, Math.max(0, Number(pct) || 0));
-  const r = 70;
+  const r = (size - stroke) / 2 - 2;
   const circ = 2 * Math.PI * r;
   return (
     <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(p)} aria-label="Your progress toward target"
-      style={{ width: 160, height: 160, flexShrink: 0, position: 'relative' }}>
-      <svg width="160" height="160" viewBox="0 0 160 160" style={{ display: 'block', transform: 'rotate(-90deg)' }}>
-        <circle cx="80" cy="80" r={r} fill="none" stroke="#E3EAF5" strokeWidth="11" />
-        <circle cx="80" cy="80" r={r} fill="none" stroke="#3E82F7" strokeWidth="11" strokeLinecap="round"
+      style={{ width: size, height: size, flexShrink: 0, position: 'relative' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block', transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#E3EAF5" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#3E82F7" strokeWidth={stroke} strokeLinecap="round"
           strokeDasharray={circ} strokeDashoffset={circ - (circ * p) / 100} style={{ transition: 'stroke-dashoffset .5s ease' }} />
       </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 800, color: '#10213D' }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.16), fontWeight: 800, color: '#10213D' }}>
         {Math.round(p)}%
       </div>
     </div>
@@ -273,24 +261,24 @@ function SiBoardRow({ p, i, target, you }) {
   const rank = SI_RANK_STYLE[i] || null;
   const isMe = you && p.worker_id === you;
   return (
-    <div className="si-im-row" style={{ padding: '11px 14px', borderBottom: '1px solid #EDF2F7', minWidth: 0 }}>
+    <div className="si-im-row" style={{ padding: '6px 12px', borderBottom: '1px solid #EDF2F7', minWidth: 0 }}>
       <span className="si-im-rank" style={{
-        width: 30, height: 30, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 13, fontWeight: 800, flexShrink: 0,
+        width: 24, height: 24, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 11.5, fontWeight: 800, flexShrink: 0,
         background: rank ? rank.bg : '#F1F5F9', color: rank ? rank.color : '#475569',
       }}>{i + 1}</span>
-      <span className="si-im-fro" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        <SiAvatar url={p.photo_url} name={p.name} />
-        <span title={p.name} style={{ fontSize: 14, fontWeight: isMe ? 750 : 650, color: isMe ? '#10213D' : '#203553', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span className="si-im-fro" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <SiAvatar url={p.photo_url} name={p.name} size={26} />
+        <span title={p.name} style={{ fontSize: 12.5, fontWeight: isMe ? 750 : 650, color: isMe ? '#10213D' : '#203553', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {p.name}{isMe ? ' (you)' : ''}
         </span>
       </span>
-      <span className="si-im-amt" style={{ fontSize: 14, fontWeight: 750, color: '#10213D', whiteSpace: 'nowrap' }}>₹{fmt(collected)}</span>
-      <span className="si-im-prog" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        <span style={{ flex: '1 1 0', minWidth: 0, height: 12, borderRadius: 999, background: '#E4ECF6', overflow: 'hidden' }}>
+      <span className="si-im-amt" style={{ fontSize: 12.5, fontWeight: 750, color: '#10213D', whiteSpace: 'nowrap' }}>₹{fmt(collected)}</span>
+      <span className="si-im-prog" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span style={{ flex: '1 1 0', minWidth: 0, height: 9, borderRadius: 999, background: '#E4ECF6', overflow: 'hidden' }}>
           <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 999, background: '#3E82F7', transition: 'width .4s ease' }} />
         </span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#5D7696', flexShrink: 0, minWidth: 36, textAlign: 'right' }}>{Math.round(pct)}%</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#5D7696', flexShrink: 0, minWidth: 32, textAlign: 'right' }}>{Math.round(pct)}%</span>
       </span>
     </div>
   );
@@ -351,105 +339,82 @@ function PopupModal({ inc, you, onClose, nowMs }) {
     <div className="si-im-overlay">
       <style>{SI_MODAL_CSS}</style>
       <div className="si-im-modal" role="dialog" aria-modal="true" aria-labelledby="si-im-title">
-        {/* Header */}
-        <div className="si-im-header" style={{ padding: '20px 26px 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: ended ? '#64748B' : '#EF2B31', color: '#FFFFFF', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 750, letterSpacing: .3, whiteSpace: 'nowrap' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#FFFFFF', display: 'inline-block', flexShrink: 0 }} />
-            SIR KA INCENTIVE • {ended ? 'ENDED' : 'LIVE'}
+        {/* Header: status + title + countdown + close */}
+        <div className="si-im-header" style={{ padding: '10px 12px 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ended ? '#64748B' : '#EF2B31', color: '#FFFFFF', borderRadius: 999, padding: '5px 10px', fontSize: 11, fontWeight: 800, letterSpacing: .3, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF', display: 'inline-block', flexShrink: 0 }} />
+            {ended ? 'ENDED' : 'LIVE'}
           </span>
           <NgoBadge ngoName={inc.ngo_name} />
-          <span style={{ flex: 1 }} />
+          <span id="si-im-title" title={inc.title} style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 800, color: '#10213D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {inc.title || 'Special Incentive'}
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#B75A00', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', background: '#FFF7E8', border: '1px solid #F5E1B9', padding: '4px 9px', borderRadius: 999, flexShrink: 0 }}>
+            ⏳ {fmtClock(left)}
+          </span>
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Close incentive" className="si-im-close">✕</button>
         </div>
 
-        {/* Scrollable content */}
-        <div className="si-im-scroll" style={{ padding: '16px 26px 20px' }}>
-          {/* Hero */}
-          <div className="si-im-hero">
-            <div className="si-im-visual" aria-hidden="true">
-              <span style={{ width: 150, height: 150, borderRadius: '50%', background: '#FFF4DE', border: '1px solid #F5E1B9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Trophy size={92} color="#E8A415" strokeWidth={1.6} fill="#FBD35B" />
-              </span>
+        {inc.message && (
+          <div style={{ padding: '0 14px 4px', fontSize: 12.5, lineHeight: 1.5, color: '#5D7696', overflowWrap: 'anywhere' }}>{inc.message}</div>
+        )}
+
+        {/* Progress summary: ring + numbers + reward in one row */}
+        <div style={{ margin: '8px 12px 0', background: '#F9FBFE', border: '1px solid #DCE7F4', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 16, minWidth: 0 }}>
+          <SiRing pct={myPct} size={72} stroke={8} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 750, color: '#5D7696', letterSpacing: '.02em' }}>YOUR COLLECTION</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: '#10213D', whiteSpace: 'nowrap' }}>₹{fmt(collected)}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#67809F', whiteSpace: 'nowrap' }}>of ₹{fmt(target)} target</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', background: '#EAF9F1', color: '#15965A', borderRadius: 999, padding: '2px 8px', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>↗ Keep going!</span>
             </div>
-            <div style={{ minWidth: 0 }}>
-              <h2 id="si-im-title" className="si-im-title" style={{ margin: 0, fontSize: 28, lineHeight: 1.15, fontWeight: 800, color: '#10213D', overflowWrap: 'anywhere' }}>
-                {inc.title || 'Special Incentive'}
-              </h2>
-              {inc.message ? (
-                <p style={{ margin: '10px 0 0', fontSize: 16, lineHeight: 1.55, color: '#5D7696', fontWeight: 500, overflowWrap: 'anywhere' }}>
-                  {inc.message}
-                </p>
-              ) : null}
-              <div style={{ marginTop: 14, background: '#FFF7E8', border: '1px solid #F5E1B9', borderRadius: 11, padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 14 }}>
-                <span style={{ color: '#9A4D00', fontWeight: 700, whiteSpace: 'nowrap' }}>📅 Ends {fmtEnd(inc.end_at)}</span>
-                <span style={{ color: '#E3C98F' }}>|</span>
-                <span style={{ color: '#B75A00', fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>⏳ {fmtClock(left)} left</span>
-              </div>
+            <div style={{ height: 8, borderRadius: 999, background: '#E4ECF6', overflow: 'hidden', marginTop: 7 }}>
+              <div style={{ width: `${myPct}%`, height: '100%', borderRadius: 999, background: 'linear-gradient(90deg,#3E82F7,#5694f8)', transition: 'width .5s ease' }} />
             </div>
           </div>
-
-          {/* Progress summary */}
-          <div className="si-im-progress" style={{ marginTop: 20, background: '#F9FBFE', border: '1px solid #DCE7F4', borderRadius: 16, padding: '20px 24px' }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 750, color: '#5D7696', letterSpacing: '.02em' }}>YOUR COLLECTION</div>
-              <div style={{ fontSize: 34, fontWeight: 800, color: '#10213D', marginTop: 6, whiteSpace: 'nowrap' }}>₹{fmt(collected)}</div>
-              <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 10, background: '#EAF9F1', color: '#15965A', borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                ↗ Keep going!
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <SiRing pct={myPct} />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 750, color: '#67809F' }}>TARGET</div>
-              <div style={{ fontSize: 25, fontWeight: 800, color: '#10213D', marginTop: 4, whiteSpace: 'nowrap' }}>₹{fmt(target)}</div>
-              <div style={{ fontSize: 13, fontWeight: 750, color: '#67809F', marginTop: 12 }}>REWARD</div>
-              <div style={{ fontSize: 25, fontWeight: 800, color: '#15965A', marginTop: 4, whiteSpace: 'nowrap' }}>🏆 ₹{fmt(reward)}</div>
-            </div>
-            <div style={{ background: '#FFF1F5', border: '1px solid #F5D6E0', borderRadius: 15, padding: 18, minWidth: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#D62D4A' }}>You can do it!</div>
-              <div style={{ fontSize: 13.5, lineHeight: 1.55, color: '#8A4B5C', marginTop: 6, overflowWrap: 'anywhere' }}>
-                Be the first to reach the target and win ₹{fmt(reward)}!
-              </div>
-            </div>
+          <div style={{ textAlign: 'center', flexShrink: 0, background: '#FFF1F5', border: '1px solid #F5D6E0', borderRadius: 12, padding: '8px 14px' }}>
+            <div style={{ fontSize: 10, fontWeight: 750, color: '#8A4B5C' }}>REWARD</div>
+            <div style={{ fontSize: 19, fontWeight: 800, color: '#D62D4A', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>🏆 ₹{fmt(reward)}</div>
+            <div style={{ fontSize: 10, fontWeight: 650, color: '#8A4B5C', marginTop: 1, whiteSpace: 'nowrap' }}>1st to reach target</div>
           </div>
+        </div>
 
-          {/* Leaderboard */}
-          <div style={{ marginTop: 18, background: '#FFFFFF', border: '1px solid #DCE7F4', borderRadius: 16, padding: '20px 24px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 19, fontWeight: 800, color: '#10213D' }}>🔥 FRO Leaderboard</div>
-                <div style={{ fontSize: 14, color: '#67809F', marginTop: 2 }}>Top performers in this incentive</div>
+        {/* Leaderboard */}
+        <div style={{ margin: '10px 12px 12px', background: '#FFFFFF', border: '1px solid #DCE7F4', borderRadius: 12, padding: '0 0 4px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 14.5, fontWeight: 800, color: '#10213D' }}>🔥 FRO Leaderboard</span>
+              <span style={{ fontSize: 11.5, color: '#67809F', marginLeft: 8 }}>{board.length} FRO{board.length !== 1 ? 's' : ''}</span>
+            </div>
+            <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Leaderboard filter" className="si-im-filter"
+              style={{ height: 30, padding: '0 10px', background: '#FFFFFF', border: '1px solid #C9DAEE', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#10213D', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', flexShrink: 0 }}>
+              <option value="all">All FROs</option>
+              <option value="top10">Top 10</option>
+            </select>
+          </div>
+          <div className="si-im-headrow" aria-hidden="true" style={{ background: '#F3F7FC', padding: '6px 12px', fontSize: 11.5, fontWeight: 750, color: '#6B82A0' }}>
+            <span>#</span>
+            <span>FRO</span>
+            <span style={{ textAlign: 'right' }}>Collection (₹)</span>
+            <span>Progress</span>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            {board.length === 0 ? (
+              <div style={{ padding: '14px 12px', textAlign: 'center' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#10213D' }}>No FRO activity yet</div>
+                <div style={{ fontSize: 11, color: '#5D7696', marginTop: 2 }}>Verified collections will appear here as they come in.</div>
               </div>
-              <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Leaderboard filter"
-                style={{ height: 42, padding: '0 16px', background: '#FFFFFF', border: '1px solid #C9DAEE', borderRadius: 10, fontSize: 13.5, fontWeight: 600, color: '#10213D', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', flexShrink: 0 }}>
-                <option value="all">All FROs</option>
-                <option value="top10">Top 10</option>
-              </select>
-            </div>
-            <div className="si-im-headrow" aria-hidden="true" style={{ background: '#F3F7FC', borderRadius: 10, padding: '11px 14px', fontSize: 13, fontWeight: 750, color: '#6B82A0' }}>
-              <span>#</span>
-              <span>FRO</span>
-              <span style={{ textAlign: 'right' }}>Collection (₹)</span>
-              <span>Progress</span>
-            </div>
-            <div style={{ minWidth: 0 }}>
-              {board.length === 0 ? (
-                <div style={{ padding: '28px 12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#10213D' }}>No FRO activity yet</div>
-                  <div style={{ fontSize: 13, color: '#5D7696', marginTop: 4 }}>Verified collections will appear here as they come in.</div>
-                </div>
-              ) : (
-                board.map((p, i) => <SiBoardRow key={p.worker_id} p={p} i={i} target={target} you={you} />)
-              )}
-            </div>
+            ) : (
+              board.map((p, i) => <SiBoardRow key={p.worker_id} p={p} i={i} target={target} you={you} />)
+            )}
           </div>
         </div>
 
         {/* Footer CTA */}
-        <div className="si-im-footer" style={{ padding: '16px 20px' }}>
+        <div className="si-im-footer" style={{ padding: '0 12px 10px' }}>
           <button type="button" onClick={onClose}
-            style={{ width: '100%', height: 54, borderRadius: 12, border: 'none', background: '#102E59', color: '#FFFFFF', fontSize: 15, fontWeight: 750, cursor: 'pointer', fontFamily: 'inherit', transition: 'background-color 150ms ease', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 16px' }}
+            style={{ width: '100%', height: 40, borderRadius: 10, border: 'none', background: '#102E59', color: '#FFFFFF', fontSize: 13.5, fontWeight: 750, cursor: 'pointer', fontFamily: 'inherit', transition: 'background-color 150ms ease', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 16px' }}
             onMouseEnter={(e) => { e.currentTarget.style.background = '#1A3F73'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = '#102E59'; }}>
             ⚡ Get in the race! Start collecting now! →
