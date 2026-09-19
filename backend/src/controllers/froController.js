@@ -3520,7 +3520,7 @@ export const getFroOverdue = async (req, res) => {
     const { data: schedules, error: sErr } = await withStationNgoPairs(
       db
         .from('fro_scheduled_contacts')
-        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, fro_worker_id, next_follow_up, ngos(name))')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, status, fro_worker_id, next_follow_up, last_contacted_at, ngos(name))')
         .eq('is_completed', false)
         .in('fro_assignments.station', stationNames),
       myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
@@ -3551,26 +3551,17 @@ export const getFroOverdue = async (req, res) => {
     }
     const assignments = Object.values(assignmentById);
 
-    // Same-day rework rule: an assignment already dispositioned today was
-    // worked — it leaves Overdue immediately instead of lingering on its old
-    // past follow-up date until tomorrow.
-    let workedToday = new Set();
-    {
-      const ids = [...new Set(assignments.map(a => a.id).filter(Boolean))];
-      if (ids.length > 0) {
-        const dayStart = new Date();
-        dayStart.setHours(0, 0, 0, 0);
-        try {
-          const { data: logs } = await db.from('fro_donor_logs')
-            .select('assignment_id')
-            .in('assignment_id', ids)
-            .eq('action', 'disposition')
-            .gte('created_at', dayStart.toISOString());
-          workedToday = new Set((logs || []).map(l => l.assignment_id));
-        } catch (e) { console.error('[fro overdue] worked-today filter:', e.message); }
-      }
-    }
-    const openAssignments = assignments.filter(a => !workedToday.has(a.id));
+    // Same-day rework rule: an assignment worked at any point today leaves
+    // Overdue immediately instead of lingering on its old past follow-up date
+    // until tomorrow. Uses last_contacted_at (stamped on every disposition /
+    // call / visit, IST day boundary) — immune to log-row quirks, no query.
+    const istDayStart = new Date(`${istDateString(new Date())}T00:00:00+05:30`).getTime();
+    const workedToday = (a) => {
+      if (!a || !a.last_contacted_at) return false;
+      const t = new Date(a.last_contacted_at).getTime();
+      return Number.isFinite(t) && t >= istDayStart;
+    };
+    const openAssignments = assignments.filter(a => !workedToday(a));
 
     const keep = await buildFollowUpOwnerFilter(openAssignments, req.user);
     const personalAssignments = openAssignments.filter(a => keep(a));
