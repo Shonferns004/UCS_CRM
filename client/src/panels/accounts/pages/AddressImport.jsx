@@ -119,6 +119,7 @@ export default function AddressImport() {
     setEditError('')
     setEditForm({
       name: donor.name || '',
+      mobile_number: donor.mobile_number || '',
       pan_number: donor.pan_number || '',
       address_1: donor.address_1 || '',
       address_2: donor.address_2 || '',
@@ -388,8 +389,9 @@ export default function AddressImport() {
           <div className="card" style={{ width: 'min(520px, calc(100vw - 32px))', padding: 20, background: '#fff' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Edit donor details</div>
             <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px', gap: 10 }}>
                 <label style={{ fontSize: 12, fontWeight: 600 }}>Donor name<input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>Mobile no.<input value={editForm.mobile_number} onChange={e => setEditForm(f => ({ ...f, mobile_number: e.target.value }))} style={{ ...editInputStyle, marginTop: 4, fontFamily: 'monospace' }} /></label>
                 <label style={{ fontSize: 12, fontWeight: 600 }}>PAN no.<input value={editForm.pan_number} onChange={e => setEditForm(f => ({ ...f, pan_number: e.target.value }))} style={{ ...editInputStyle, marginTop: 4, fontFamily: 'monospace' }} /></label>
               </div>
               <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 1<input value={editForm.address_1} onChange={e => setEditForm(f => ({ ...f, address_1: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
