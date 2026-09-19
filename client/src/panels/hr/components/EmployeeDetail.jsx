@@ -12,7 +12,7 @@ import { API_BASE } from '../../../lib/apiBase';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
-const DOC_OPTIONS = ['10th', '12th', 'Degree', 'Others'];
+const DOC_OPTIONS = ['10th', '12th', 'Degree', 'Marriage Certificate', 'Voter ID', 'Others'];
 
 // Per-person late policy mirrors backend/src/utils/latePolicy.js:
 // only the grace is stored per worker; half/full limits scale proportionally.
