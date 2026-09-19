@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UCS GPay Scraper</string>
+    <string name="accessibility_service_description">Used only while a scrape run is active: unlocks the phone, opens Google Pay, enters the passcode, reads the payment history, and uploads the transactions to the UCS CRM. Enable it, then tap Start inside the app.</string>
+</resources>
