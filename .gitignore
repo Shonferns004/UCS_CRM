@@ -8,7 +8,8 @@ backend/.tunnel.log
 backend/.tunnel.err.log
 backend/start-local-db-tunnel.ps1
 backend/stop-local-db-tunnel.ps1
-ufs crm/dist/
+ucs crm/dist/
+/MetroPadCare/
 others/hr form/dist/
 *.log
 backend/backend-log.txt
