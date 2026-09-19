@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet, apiPost } from '../api/auth'
+import { apiGet, apiPost, apiPatch } from '../api/auth'
 
 const COLUMNS = [
   { key: 'mobile_number', label: 'Mobile No.', required: true, aliases: ['mobile no', 'mobileno', 'mobile number', 'mobile', 'phone no', 'phone', 'contact no', 'contact number', 'contact', 'mob no', 'mo no'] },
@@ -80,9 +80,14 @@ export default function AddressImport() {
   const [donorSearch, setDonorSearch] = useState('')
   const [donorsLoading, setDonorsLoading] = useState(true)
   const [listReload, setListReload] = useState(0)
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({})
+  const [savingId, setSavingId] = useState(null)
+  const [editError, setEditError] = useState('')
 
   const fullAddress = (d) => [d.address_1, d.address_2]
     .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
+  const editInputStyle = { width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }
 
   useEffect(() => {
     const t = setTimeout(() => { setDonorSearch(donorSearchInput); setDonorPage(1) }, 400)
@@ -108,6 +113,26 @@ export default function AddressImport() {
   const listFrom = donorTotal === 0 ? 0 : (donorPage - 1) * LIST_LIMIT + 1
   const listTo = Math.min(donorPage * LIST_LIMIT, donorTotal)
   const listPages = Math.max(1, Math.ceil(donorTotal / LIST_LIMIT))
+
+  const startEdit = (donor) => {
+    setEditingId(donor.id)
+    setEditError('')
+    setEditForm({ address_1: donor.address_1 || '', address_2: donor.address_2 || '', city: donor.city || '', state: donor.state || '', pin_code: donor.pin_code || '' })
+  }
+
+  const cancelEdit = () => { setEditingId(null); setEditForm({}); setEditError('') }
+
+  const saveAddress = async (donor) => {
+    if (savingId) return
+    setSavingId(donor.id); setEditError('')
+    try {
+      await apiPatch(`/accounts/donors/${donor.id}`, editForm)
+      cancelEdit()
+      setListReload(c => c + 1)
+    } catch (err) {
+      setEditError(err.message || 'Unable to save address')
+    } finally { setSavingId(null) }
+  }
 
   useEffect(() => {
     if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -316,7 +341,7 @@ export default function AddressImport() {
 
         <div className="table-wrap" style={{ maxHeight: 480, overflowY: 'auto' }}>
           <table className="donors-table">
-            <thead><tr><th>Donor Name</th><th>Mobile No.</th><th>Address</th><th>PAN No.</th></tr></thead>
+            <thead><tr><th>Donor Name</th><th>Mobile No.</th><th>Address</th><th>City</th><th>State</th><th>PIN</th><th>PAN No.</th><th></th></tr></thead>
             <tbody>
               {donorsLoading ? (
                 <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>Loading donors…</td></tr>
@@ -329,7 +354,11 @@ export default function AddressImport() {
                   <td style={{ fontWeight: 600 }}>{d.name || '—'}</td>
                   <td style={{ fontFamily: 'monospace' }}>{d.mobile_number || '—'}</td>
                   <td style={{ maxWidth: 320 }}>{fullAddress(d)}</td>
+                  <td>{d.city || '—'}</td>
+                  <td>{d.state || '—'}</td>
+                  <td>{d.pin_code || '—'}</td>
                   <td style={{ fontFamily: 'monospace' }}>{d.pan_number || '—'}</td>
+                  <td><button className="btn btn-sm" onClick={() => startEdit(d)}>Edit</button></td>
                 </tr>
               ))}
             </tbody>
@@ -345,6 +374,28 @@ export default function AddressImport() {
           </span>
         </div>
       </div>
+
+      {editingId && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }} onClick={cancelEdit}>
+          <div className="card" style={{ width: 'min(520px, calc(100vw - 32px))', padding: 20, background: '#fff' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Edit donor address</div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 1<input value={editForm.address_1} onChange={e => setEditForm(f => ({ ...f, address_1: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+              <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 2<input value={editForm.address_2} onChange={e => setEditForm(f => ({ ...f, address_2: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>City<input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>State<input value={editForm.state} onChange={e => setEditForm(f => ({ ...f, state: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>PIN<input value={editForm.pin_code} onChange={e => setEditForm(f => ({ ...f, pin_code: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+              </div>
+            </div>
+            {editError && <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 10 }}>{editError}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              <button className="btn btn-sm" onClick={cancelEdit} disabled={savingId}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={() => saveAddress(donors.find(d => d.id === editingId))} disabled={savingId}>{savingId ? 'Saving…' : 'Save address'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
