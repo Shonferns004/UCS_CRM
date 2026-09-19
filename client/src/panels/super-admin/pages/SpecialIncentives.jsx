@@ -65,12 +65,23 @@ const fmtDate = (d) => {
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
-const toLocalInput = (d) => {
+const pad2 = (n) => String(n).padStart(2, '0')
+const todayLocal = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+const DEFAULT_END_TIME = '19:00' // blank end time → race runs until 7:00 PM today
+const toTimeInput = (d) => {
   if (!d) return ''
   const dt = new Date(d)
   if (Number.isNaN(dt.getTime())) return ''
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+  return `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`
+}
+// Combine today's date with an HH:MM time → a local Date (null when blank).
+const todayAt = (hhmm) => {
+  if (!hhmm) return null
+  const dt = new Date(`${todayLocal()}T${hhmm}`)
+  return Number.isNaN(dt.getTime()) ? null : dt
 }
 const initialsOf = (name) => String(name || 'S')
   .split(' ')
@@ -339,54 +350,6 @@ function HistoryRow({ inc, busyId, onEdit, onCancel, onArchive, onDelete, onSent
   )
 }
 
-// ─── Date + 12-hour time picker ───────────────────────────
-function DateTime12({ value, onChange }) {
-  const parse = (v) => {
-    const m = String(v || '').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/)
-    if (!m) return { d: '', h12: '10', mm: '00', ap: 'AM' }
-    const h = Number(m[2])
-    const ap = h >= 12 ? 'PM' : 'AM'
-    let h12 = h % 12
-    if (h12 === 0) h12 = 12
-    return { d: m[1], h12: String(h12), mm: m[3], ap }
-  }
-  const p = parse(value)
-  const emit = (np) => {
-    if (!np.d) { onChange(''); return }
-    let h = Number(np.h12) % 12
-    if (np.ap === 'PM') h += 12
-    onChange(`${np.d}T${String(h).padStart(2, '0')}:${np.mm}`)
-  }
-  const mins = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
-  if (!mins.includes(p.mm)) mins.push(p.mm)
-  mins.sort()
-  const sel = {
-    height: 38, borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff',
-    color: C.text, fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit',
-    padding: '0 6px', flexShrink: 0,
-  }
-  return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      <input type="date" value={p.d} onChange={(e) => emit({ ...p, d: e.target.value })}
-        style={{ flex: '1 1 140px', minWidth: 0, height: 38, borderRadius: 9, border: `1px solid ${C.line}`, background: '#fff', color: C.text, fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit', padding: '0 10px', boxSizing: 'border-box' }} />
-      <select value={p.h12} onChange={(e) => emit({ ...p, h12: e.target.value })} aria-label="Hour" style={sel}>
-        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((h) => (
-          <option key={h} value={h}>{h}</option>
-        ))}
-      </select>
-      <select value={p.mm} onChange={(e) => emit({ ...p, mm: e.target.value })} aria-label="Minute" style={sel}>
-        {mins.map((m) => (
-          <option key={m} value={m}>{m}</option>
-        ))}
-      </select>
-      <select value={p.ap} onChange={(e) => emit({ ...p, ap: e.target.value })} aria-label="AM or PM" style={sel}>
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
-    </div>
-  )
-}
-
 // ─── Create / Edit incentive modal ────────────────────────
 function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose }) {
   const [form, setForm] = useState(() => ({
@@ -395,8 +358,7 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
     message: initial?.message || '',
     target_amount: initial?.target_amount ?? '',
     incentive_amount: initial?.incentive_amount ?? '',
-    start_at: toLocalInput(initial?.start_at || new Date(Date.now() + 5 * 60000)),
-    end_at: toLocalInput(initial?.end_at || new Date(Date.now() + 24 * 3600 * 1000)),
+    end_at: initial?.end_at ? toTimeInput(initial.end_at) : '',
   }))
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState('')
@@ -526,12 +488,9 @@ function IncentiveModal({ initial, ngoOptions, saving, error, onSave, onClose })
               style={{ ...box, height: 'auto', minHeight: 56, padding: '8px 12px', resize: 'vertical' }} />
           </div>
           <div>
-            {label('Start Date/Time')}
-            <DateTime12 value={form.start_at} onChange={(v) => set('start_at', v)} />
-          </div>
-          <div>
-            {label('End Date/Time')}
-            <DateTime12 value={form.end_at} onChange={(v) => set('end_at', v)} />
+            <label style={{ fontSize: 11.5, fontWeight: 700, color: C.text, display: 'block', marginBottom: 6 }}>End Time <span style={{ fontWeight: 500, color: C.muted }}>(optional — defaults to 7:00 PM today)</span></label>
+            <input type="time" value={form.end_at} onChange={(e) => set('end_at', e.target.value)} style={box} />
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>This race starts 3 minutes after you click start and counts until this time.</div>
           </div>
         </div>
 
@@ -709,9 +668,11 @@ export default function SpecialIncentives() {
     )
   }
 
-  // A race is live the moment it is started — the leaderboard opens
-  // immediately, not only after the first collection lands.
-  const hasLive = (history || []).some((i) => i.status === 'active' && !i.archived_at)
+  // A race is live only after its start moment — it starts 3 minutes after
+  // being created, so the board doesn't flash a "LIVE" card before that.
+  const hasLive = (history || []).some((i) =>
+    i.status === 'active' && !i.archived_at && new Date(i.start_at).getTime() <= Date.now()
+  )
 
   const refresh = async () => {
     setLoading(true)
@@ -722,8 +683,14 @@ export default function SpecialIncentives() {
     if (!String(form.title).trim()) { setModalError('Title is required'); return }
     if (!(Number(form.target_amount) > 0)) { setModalError('Target must be more than zero'); return }
     if (!(Number(form.incentive_amount) > 0)) { setModalError('Reward must be more than zero'); return }
-    if (!form.start_at || !form.end_at || !(new Date(form.end_at).getTime() > new Date(form.start_at).getTime())) {
-      setModalError('End date-time must be after start date-time'); return
+    // A race always starts "today" — 3 minutes from now. An already-live race
+    // being edited keeps its original start so it is not restarted.
+    const startAt = modal?.mode === 'edit' && modal.inc?.start_at
+      ? new Date(modal.inc.start_at)
+      : new Date(Date.now() + 3 * 60 * 1000)
+    const endAt = todayAt(form.end_at || DEFAULT_END_TIME)
+    if (!endAt || endAt <= startAt) {
+      setModalError('End time must be later than start (3 minutes from now)'); return
     }
     setModalSaving(true)
     setModalError('')
@@ -734,8 +701,8 @@ export default function SpecialIncentives() {
         ngo_id: form.ngo_id || null,
         target_amount: Number(form.target_amount),
         incentive_amount: Number(form.incentive_amount),
-        start_at: new Date(form.start_at).toISOString(),
-        end_at: new Date(form.end_at).toISOString(),
+        start_at: startAt.toISOString(),
+        end_at: endAt.toISOString(),
       }
       if (modal?.mode === 'edit') {
         await api(`/incentive/special/${modal.inc.id}`, { method: 'PUT', _prefix: 'ucs', body: JSON.stringify(payload) })
