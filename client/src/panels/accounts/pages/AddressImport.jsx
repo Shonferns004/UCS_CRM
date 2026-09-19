@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
-import { apiPost } from '../api/auth'
+import { apiGet, apiPost } from '../api/auth'
 
 const COLUMNS = [
   { key: 'mobile_number', label: 'Mobile No.', required: true, aliases: ['mobile no', 'mobileno', 'mobile number', 'mobile', 'phone no', 'phone', 'contact no', 'contact number', 'contact', 'mob no', 'mo no'] },
@@ -71,6 +71,44 @@ export default function AddressImport() {
   const fileRef = useRef(null)
   const resultRef = useRef(null)
 
+  // ── All-donors address list ──────────────────────────────────────
+  const LIST_LIMIT = 50
+  const [donors, setDonors] = useState([])
+  const [donorTotal, setDonorTotal] = useState(0)
+  const [donorPage, setDonorPage] = useState(1)
+  const [donorSearchInput, setDonorSearchInput] = useState('')
+  const [donorSearch, setDonorSearch] = useState('')
+  const [donorsLoading, setDonorsLoading] = useState(true)
+  const [listReload, setListReload] = useState(0)
+
+  const fullAddress = (d) => [d.address_1, d.address_2]
+    .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDonorSearch(donorSearchInput); setDonorPage(1) }, 400)
+    return () => clearTimeout(t)
+  }, [donorSearchInput])
+
+  useEffect(() => {
+    let cancelled = false
+    setDonorsLoading(true)
+    const params = new URLSearchParams({ page: String(donorPage), limit: String(LIST_LIMIT) })
+    if (donorSearch.trim()) params.set('search', donorSearch.trim())
+    apiGet(`/accounts/donors?${params.toString()}`)
+      .then(res => {
+        if (cancelled) return
+        setDonors(Array.isArray(res?.data) ? res.data : [])
+        setDonorTotal(Number(res?.total) || 0)
+      })
+      .catch(() => { if (!cancelled) { setDonors([]); setDonorTotal(0) } })
+      .finally(() => { if (!cancelled) setDonorsLoading(false) })
+    return () => { cancelled = true }
+  }, [donorPage, donorSearch, listReload])
+
+  const listFrom = donorTotal === 0 ? 0 : (donorPage - 1) * LIST_LIMIT + 1
+  const listTo = Math.min(donorPage * LIST_LIMIT, donorTotal)
+  const listPages = Math.max(1, Math.ceil(donorTotal / LIST_LIMIT))
+
   useEffect(() => {
     if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [result])
@@ -128,6 +166,7 @@ export default function AddressImport() {
       }))
       const res = await apiPost('/accounts/donors/address-import', { rows: payload })
       setResult({ ...res, fileName })
+      setListReload(c => c + 1)
     } catch (err) {
       setError('Import failed: ' + err.message)
     } finally {
@@ -255,6 +294,56 @@ export default function AddressImport() {
             <button className="btn btn-sm" onClick={downloadReport}>Download Full Report (all rows)</button>
           </div>
         )}
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ marginRight: 'auto' }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>All Donors</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
+              {donorTotal.toLocaleString('en-IN')} donor{donorTotal !== 1 ? 's' : ''} in database
+            </div>
+          </div>
+          <input
+            type="text"
+            placeholder="Search name or mobile..."
+            aria-label="Search donors by name or mobile"
+            value={donorSearchInput}
+            onChange={e => setDonorSearchInput(e.target.value)}
+            style={{ width: 220, height: 34, border: '1px solid var(--line)', borderRadius: 8, background: '#fff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
+          />
+        </div>
+
+        <div className="table-wrap" style={{ maxHeight: 480, overflowY: 'auto' }}>
+          <table className="donors-table">
+            <thead><tr><th>Donor Name</th><th>Mobile No.</th><th>Address</th><th>PAN No.</th></tr></thead>
+            <tbody>
+              {donorsLoading ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>Loading donors…</td></tr>
+              ) : donors.length === 0 ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
+                  {donorSearch ? 'No donors match your search.' : 'No donors found.'}
+                </td></tr>
+              ) : donors.map(d => (
+                <tr key={d.id}>
+                  <td style={{ fontWeight: 600 }}>{d.name || '—'}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{d.mobile_number || '—'}</td>
+                  <td style={{ maxWidth: 320 }}>{fullAddress(d)}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{d.pan_number || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft)' }}>
+          <span>Showing {listFrom}–{listTo} of {donorTotal.toLocaleString('en-IN')}</span>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm" disabled={donorPage <= 1} onClick={() => setDonorPage(p => Math.max(1, p - 1))}>Prev</button>
+            <span style={{ alignSelf: 'center' }}>Page {donorPage} / {listPages}</span>
+            <button className="btn btn-sm" disabled={donorPage >= listPages} onClick={() => setDonorPage(p => p + 1)}>Next</button>
+          </span>
+        </div>
       </div>
 
       <style>{`
