@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Users, Clock, X } from 'lucide-react';
-import { apiGet, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
@@ -1040,115 +1040,8 @@ export default function Dashboard() {
     [lowPresent, lowPerfSearch]
   );
 
-  // Format a minute count as "3 min" / "1 hr 10 min" / "2 hr"
-  const formatIdleDuration = (mins) => {
-    if (!mins || mins < 0) return '—';
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    if (h === 0) return `${m} min`;
-    if (m === 0) return `${h} hr`;
-    return `${h} hr ${m} min`;
-  };
-
-  // Derived: day totals + per-FRO productivity alerts for the selected hourly date.
-  // For TODAY the idle comes from the live effective counter — the exact same
-  // value as the Telecaller Performance IDLE HR column. Past dates use the
-  // fro_daily_stats snapshot (history).
-  const hourlyAlerts = useMemo(() => {
-    const workAsNameById = new Map();
-    for (const pf of (tlData?.performance || [])) {
-      if (pf.work_as_operator_name && pf.fro_id) workAsNameById.set(pf.fro_id, pf.work_as_operator_name);
-    }
-    const byFro = {};
-    for (const r of hourlyFroRows) {
-      if (!r.fro_worker_id) continue;
-      if (!byFro[r.fro_worker_id]) byFro[r.fro_worker_id] = { id: r.fro_worker_id, name: r.fro_name || 'Unknown', calls: 0, connected: 0, workAsName: workAsNameById.get(r.fro_worker_id) || null };
-      const f = byFro[r.fro_worker_id];
-      f.calls += r.calls || 0;
-      f.connected += r.connected || 0;
-    }
-    const isToday = hourlyDate === toIstDate();
-    const nowIstHour = new Date(Date.now() + 5.5 * 60 * 60 * 1000).getUTCHours();
-    // Fully-elapsed working slots: all 12 for past days; up to the current IST hour for today
-    const elapsed = isToday ? Math.max(0, Math.min(12, nowIstHour - 9)) : 12;
-
-    const perfById = new Map();
-    for (const p of (tlData?.performance || [])) perfById.set(p.fro_id, p);
-    const perfOf = (id) => perfById.get(id) ?? perfById.get(String(id)) ?? perfById.get(Number(id));
-    const hrOf = (id) => byFro[id] ?? byFro[String(id)];
-    // Attendance snapshot (fro_daily_stats): used ONLY for past dates and for
-    // the punched-in filter + rank. For TODAY the idle MUST come from the live
-    // effective value (same as Telecaller Performance IDLE HR) — the snapshot
-    // is max-keep, never resets intraday, and ignores Clear Idle Time.
-    const punchedInById = new Map();
-    const rankById = new Map();
-    for (const s of (dailyStats || [])) {
-      punchedInById.set(String(s.fro_id), s.punched_in === true);
-      if (s.rank) rankById.set(String(s.fro_id), s.rank);
-    }
-    const hasAttendance = dailyStats && dailyStats.length > 0;
-    const effIdleMins = (id) => Math.round(((perfOf(id)?.today_idle_seconds) || 0) / 60);
-
-    if (!isToday && hasAttendance) {
-      const idle = dailyStats
-        .map(s => {
-          const hr = byFro[s.fro_id];
-          return {
-            id: s.fro_id,
-            name: s.fro_name,
-            idleMinutes: Math.round((s.idle_seconds || 0) / 60),
-            calls: hr ? hr.calls : (s.calls || 0),
-            connected: hr ? hr.connected : 0,
-            rank: s.rank || null,
-            punchedIn: s.punched_in === true,
-            workAsName: workAsNameById.get(s.fro_id) || null,
-          };
-        })
-        .filter(f => f.punchedIn && f.idleMinutes > 0)
-        .sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
-
-      const noCalls = dailyStats
-        .filter(s => ((byFro[s.fro_id]?.calls ?? s.calls ?? 0) === 0))
-        .map(s => ({ id: s.fro_id, name: s.fro_name, workAsName: workAsNameById.get(s.fro_id) || null }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      return { idle, noCalls, elapsed, isToday };
-    }
-
-    // TODAY: idle from the live effective counter — identical to the
-    // Telecaller Performance IDLE HR column (committed + running streak).
-    const candMap = new Map();
-    for (const p of (tlData?.performance || [])) candMap.set(String(p.fro_id), { id: p.fro_id, name: p.fro_name || 'Unknown' });
-    for (const k of Object.keys(byFro)) {
-      if (!candMap.has(String(k))) candMap.set(String(k), { id: byFro[k].id, name: byFro[k].name });
-    }
-    const presentNow = (id) => { const st = perfOf(id)?.status; return st && st !== 'offline'; };
-    const idle = [...candMap.values()]
-      .map(({ id, name }) => ({
-        id,
-        name,
-        idleMinutes: effIdleMins(id),
-        calls: hrOf(id)?.calls || 0,
-        connected: hrOf(id)?.connected || 0,
-        rank: rankById.get(String(id)) ?? perfOf(id)?.rank ?? null,
-        punchedIn: hasAttendance ? punchedInById.get(String(id)) === true : undefined,
-        workAsName: workAsNameById.get(id) ?? workAsNameById.get(String(id)) ?? perfOf(id)?.work_as_operator_name ?? null,
-      }))
-      .filter(f => f.idleMinutes > 0 && (hasAttendance ? f.punchedIn : presentNow(f.id)))
-      .sort((a, b) => b.idleMinutes - a.idleMinutes || a.name.localeCompare(b.name));
-
-    const noCalls = [...candMap.values()]
-      .filter(({ id }) => (hrOf(id)?.calls || 0) === 0 && (hasAttendance || presentNow(id)))
-      .map(({ id, name }) => ({ id, name, workAsName: workAsNameById.get(id) ?? workAsNameById.get(String(id)) ?? null }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return { idle, noCalls, elapsed, isToday };
-  }, [hourlyFroRows, hourlyDate, tlData, dailyStats]);
-
-  // Search-filtered idle list for the productivity alerts table
-  const idleFiltered = useMemo(() => {
-    const q = idleSearch.toLowerCase().trim();
-    if (!q) return hourlyAlerts.idle;
-    return hourlyAlerts.idle.filter(f => (f.name || '').toLowerCase().includes(q));
-  }, [hourlyAlerts.idle, idleSearch]);
+  // (Productivity-alerts idle list removed — the Idle Hours panel was replaced
+  // by the FRO Status panel, which reads live data straight from tlData.)
 
   // FRO × hour groups for the hourly performance table — active (online/on-call/idle)
   // FROs only, sorted low-performer-first; future hours are excluded from totals today.
@@ -1258,6 +1151,25 @@ export default function Dashboard() {
       setNotifyingFroId(null);
     }
   }, [notifyingFroId]);
+
+  // Per-FRO pause/resume from the Dashboard FRO Status panel (same endpoints
+  // as the FRO Status page — NGO-scoped server-side).
+  const [pausingFroId, setPausingFroId] = useState(null);
+  const handleTogglePause = useCallback(async (p) => {
+    const id = p.fro_id;
+    if (!id || pausingFroId) return;
+    const pausing = !p.is_paused;
+    if (pausing && !window.confirm(`Pause ${p.fro_name || 'this FRO'}? All their timers stop until you resume them.`)) return;
+    setPausingFroId(id);
+    try {
+      await apiPost(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, {});
+      toast(pausing ? `${p.fro_name} paused` : `${p.fro_name} resumed`, 'success');
+    } catch (e) {
+      toast(e.message || `Could not ${pausing ? 'pause' : 'resume'} this FRO`, 'error');
+    } finally {
+      setPausingFroId(null);
+    }
+  }, [pausingFroId]);
 
   const fetchDashboard = useCallback((opts = {}) => {
     const controller = new AbortController();
@@ -2334,12 +2246,16 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Productivity Alerts — Idle Hours (single unified container) */}
+            {/* FRO Status — present FROs with Pause/Resume (replaces Idle Hours) */}
             <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, height: 460, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {/* Header */}
               <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: '#dc2626', display: 'flex' }}><TriangleAlert size={18} /></span> Idle Hours
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-flex', flexShrink: 0 }} />
+                  FRO Status
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                    {(tlData?.performance || []).filter(p => ['online', 'on_call', 'idle', 'meeting'].includes(p.status)).length} present
+                  </span>
                 </h3>
                 <input
                   type="text"
@@ -2350,107 +2266,99 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Body: loading / empty states / table */}
+              {/* Body: loading / empty states / present-FRO list with Pause-Resume */}
               {(() => {
-                const colSep = { borderLeft: '1px solid #eef2f6' };
-                const idleTone = (mins) => (
-                  mins >= 120
-                    ? { level: 'High', color: '#dc2626', bg: '#fee2e2' }
-                    : mins >= 60
-                      ? { level: 'Medium', color: '#d97706', bg: '#ffedcc' }
-                      : { level: 'Low', color: '#2563eb', bg: '#eaf1fe' }
-                );
-                if (meetingActive) {
+                const idleShort = (secs) => {
+                  const m = Math.round((secs || 0) / 60);
+                  if (!m || m < 0) return '—';
+                  const h = Math.floor(m / 60); const mm = m % 60;
+                  if (h === 0) return `${mm}m`;
+                  if (mm === 0) return `${h}h`;
+                  return `${h}h ${mm}m`;
+                };
+                const pillOf = (p) => {
+                  if (p.is_paused) return { label: 'Paused', color: '#6D28D9', bg: '#F5F3FF' };
+                  if (p.status === 'on_call') return { label: 'On Call', color: '#15803d', bg: '#ecfdf5' };
+                  if (p.status === 'idle') return { label: 'Idle', color: '#2F80D9', bg: '#EFF6FF' };
+                  if (p.status === 'meeting') return { label: 'Meeting', color: '#7c3aed', bg: '#f5f3ff' };
+                  return { label: 'Online', color: '#16a34a', bg: '#f0fdf4' };
+                };
+                const dotOf = (p) => p.is_paused ? '#6D28D9' : p.status === 'idle' ? '#2F80D9' : p.status === 'meeting' ? '#7c3aed' : '#16a34a';
+                if (!tlData) {
                   return (
-                    <div style={{ padding: '28px 24px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Megaphone size={34} color="#7c3aed" /></div>
-                      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: '#7c3aed' }}>Counts paused — meeting in progress</div>
-                      <div style={{ marginTop: 4, fontSize: 12, color: '#64748B' }}>Idle / zero-call alerts resume automatically when an admin ends the meeting.</div>
-                    </div>
-                  );
-                }
-                if (hourlyLoading) {
-                  return (
-                    <div style={{ padding: '8px 24px 20px' }} aria-label="Loading productivity data">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '14px 0' }}>
-                        <div style={{ width: 220, height: 14, background: '#eef2f6', borderRadius: 6 }} />
-                        <div style={{ width: 140, height: 14, background: '#eef2f6', borderRadius: 6 }} />
-                      </div>
+                    <div style={{ padding: '8px 24px 20px' }} aria-label="Loading FRO status">
                       {[0, 1, 2, 3, 4].map(i => (
-                        <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < 4 ? '1px solid #f1f5f9' : 'none' }}>
-                          <div style={{ flex: 2.2, height: 14, background: '#eef2f6', borderRadius: 6 }} />
-                          <div style={{ flex: 1, height: 20, background: '#eef2f6', borderRadius: 999 }} />
-                          <div style={{ flex: 1, height: 14, background: '#eef2f6', borderRadius: 6 }} />
-                          <div style={{ flex: 1, height: 14, background: '#eef2f6', borderRadius: 6 }} />
+                        <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < 4 ? '1px solid #f1f5f9' : 'none', alignItems: 'center' }}>
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#eef2f6' }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ height: 13, width: '45%', background: '#eef2f6', borderRadius: 6, marginBottom: 6 }} />
+                            <div style={{ height: 11, width: '70%', background: '#eef2f6', borderRadius: 6 }} />
+                          </div>
+                          <div style={{ width: 64, height: 28, background: '#eef2f6', borderRadius: 8 }} />
                         </div>
                       ))}
                     </div>
                   );
                 }
-                if (hourlyAlerts.elapsed === 0) {
+                if (meetingActive) {
                   return (
-                    <div style={{ padding: 24, textAlign: 'center' }}>
-                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
-                      <div style={{ fontSize: 12, color: '#64748B' }}>Working window hasn't started yet — alerts begin from 09:00 IST</div>
+                    <div style={{ padding: '28px 24px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Megaphone size={34} color="#7c3aed" /></div>
+                      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: '#7c3aed' }}>Counts paused — meeting in progress</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: '#64748B' }}>FRO Status resumes automatically when an admin ends the meeting.</div>
                     </div>
                   );
                 }
-                if (hourlyAlerts.idle.length === 0) {
+                const q = idleSearch.toLowerCase().trim();
+                const present = (tlData.performance || [])
+                  .filter(p => ['online', 'on_call', 'idle', 'meeting'].includes(p.status) && (!q || (p.fro_name || '').toLowerCase().includes(q)))
+                  .sort((a, b) => ((b.today_idle_seconds || 0) - (a.today_idle_seconds || 0)) || ((a.fro_name || '').localeCompare(b.fro_name || '')));
+                if (present.length === 0) {
                   return (
                     <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}><CircleCheck size={16} /></div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>No idle-hour alerts</div>
-                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>All FROs have made calls during the elapsed working hours.</div>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>{q ? 'No FROs match your search.' : 'No FROs present right now.'}</div>
+                      {!q && <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Present FROs will appear here with pause controls.</div>}
                     </div>
-                  );
-                }
-                if (idleFiltered.length === 0) {
-                  return (
-                    <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#64748B' }}>No FROs match your search.</div>
                   );
                 }
                 return (
-                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto' }}>
-                    <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead>
-                        <tr>
-                          <th style={{ padding: '10px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc' }}>FRO Name</th>
-                          <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Idle Hrs</th>
-                          <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Calls</th>
-                          <th style={{ padding: '10px 8px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Connected</th>
-                          <th style={{ padding: '10px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: '#64748B', fontWeight: 700, letterSpacing: .4, background: '#f8fafc', ...colSep }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {idleFiltered.map(f => {
-                          const tone = idleTone(f.idleMinutes);
-                          return (
-                            <tr key={f.id} style={{ borderBottom: '1px solid #edf1f5', height: 44 }}>
-                              <td style={{ padding: '8px 10px' }}>
-                                <div style={{ fontWeight: 600, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
-                              </td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center', ...colSep }}>
-                                <span style={{ minWidth: 42, height: 28, padding: '0 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', background: tone.bg, color: tone.color, animation: 'countPop .3s ease-out' }}>
-                                  {formatIdleDuration(f.idleMinutes)}
-                                </span>
-                              </td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#17233C', fontWeight: 600, ...colSep }}>{f.calls}</td>
-                              <td style={{ padding: '8px 8px', textAlign: 'center', color: '#16a34a', fontWeight: 700, ...colSep }}>{f.connected}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', ...colSep }}>
-                                <button
-                                  onClick={() => handleNotifyFro(f.id, f.name)}
-                                  disabled={notifyingFroId === f.id}
-                                  title={`Send idle alert to ${f.name}`}
-                                  style={{ height: 34, padding: '0 14px', border: '1px solid #f59e0b', borderRadius: 8, background: notifyingFroId === f.id ? '#fffbeb' : '#ffffff', color: '#d97706', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: notifyingFroId === f.id ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-                                >
-                                  {notifyingFroId === f.id ? '…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={13} color="#d97706" /> Notify</span>}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
+                    {present.map(p => {
+                      const pill = pillOf(p);
+                      const busy = pausingFroId === p.fro_id || notifyingFroId === p.fro_id;
+                      return (
+                        <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                          <span style={{ width: 9, height: 9, borderRadius: '50%', background: dotOf(p), display: 'inline-block', flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <span title={p.fro_name} style={{ fontWeight: 700, color: '#17233C', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
+                              <span title={p.is_paused && p.paused_by ? `Paused by ${p.paused_by}` : pill.label} style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: pill.bg, color: pill.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{pill.label}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748B', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              Idle {idleShort(p.today_idle_seconds)} · {p.calls_range || 0} calls · {p.connected_range || 0} conn
+                              {p.work_as_operator_name ? ` · ⚡ ${p.work_as_operator_name}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleNotifyFro(p.fro_id, p.fro_name)}
+                            disabled={busy}
+                            title={`Send idle alert to ${p.fro_name}`}
+                            style={{ height: 30, minWidth: 30, padding: '0 7px', border: '1px solid #f59e0b', borderRadius: 8, background: '#ffffff', color: '#d97706', fontFamily: 'inherit', cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                          >
+                            {notifyingFroId === p.fro_id ? '…' : <Bell size={13} color="#d97706" />}
+                          </button>
+                          <button
+                            onClick={() => handleTogglePause(p)}
+                            disabled={pausingFroId === p.fro_id}
+                            title={p.is_paused ? `Resume ${p.fro_name}` : `Pause ${p.fro_name}`}
+                            style={{ height: 30, padding: '0 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: pausingFroId === p.fro_id ? 'default' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0, ...(p.is_paused ? { border: '1px solid #DCE7F5', background: '#fff', color: '#17233C' } : { border: '1px solid #FDE68A', background: '#FFFBEB', color: '#92400E' }) }}
+                          >
+                            {pausingFroId === p.fro_id ? '…' : p.is_paused ? '▶ Resume' : '⏸ Pause'}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
