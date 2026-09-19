@@ -184,6 +184,12 @@ export default function LiveFroStatus() {
     setPausingId(id)
     try {
       await api(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
+      // Optimistic flip: render Resume instantly instead of waiting for the
+      // next realtime reload (which then confirms it server-side).
+      const stamp = new Date().toISOString();
+      setStatuses(prev => (prev || []).map(s => String(s.worker_id || s.fro_id || s.id) === String(id)
+        ? { ...s, is_paused: pausing, paused_by: pausing ? (s.paused_by || 'Admin') : null, paused_at: pausing ? (s.paused_at || stamp) : null }
+        : s));
       await loadStatuses(false)
     } catch (e) {
       console.error('Error:', e.message)
@@ -354,6 +360,14 @@ export default function LiveFroStatus() {
                   </div>
                 </div>
                 <div className="lfs-seen">Last seen: {fs.updated_at ? new Date(fs.updated_at).toLocaleTimeString('en-IN') : '—'}</div>
+                {paused && fs.paused_at && (() => {
+                  const m = Math.floor((now - new Date(fs.paused_at).getTime()) / 60000);
+                  return m >= 0 ? (
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6D28D9', marginTop: 4 }}>
+                      Paused {m}m · by {fs.paused_by || 'Admin'}
+                    </div>
+                  ) : null;
+                })()}
                 <div style={{ marginTop: 8 }}>
                   <button
                     type="button"
