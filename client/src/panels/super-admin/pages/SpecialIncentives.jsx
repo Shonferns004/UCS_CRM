@@ -653,10 +653,11 @@ export default function SpecialIncentives() {
       const incs = b.key === 'all'
         ? (history || []).filter((i) => i.status === 'active' && !i.archived_at)
         : activeOf(b.key, b.ngo_id)
+      // Zero-collection rows stay: a race that just started has seeded ₹0
+      // contenders and must already show on the leaderboard.
       const merged = []
       for (const inc of incs) {
         for (const r of inc.leaderboard || []) {
-          if ((Number(r.collected_amount) || 0) <= 0) continue
           merged.push(rowOf(r, inc.ngo_name || b.label))
         }
       }
@@ -708,8 +709,9 @@ export default function SpecialIncentives() {
     )
   }
 
-  // Nothing live anywhere → leaderboard shows nothing at all.
-  const hasLive = buckets.some((b) => (boards[b.key] || []).length > 0)
+  // A race is live the moment it is started — the leaderboard opens
+  // immediately, not only after the first collection lands.
+  const hasLive = (history || []).some((i) => i.status === 'active' && !i.archived_at)
 
   const refresh = async () => {
     setLoading(true)
