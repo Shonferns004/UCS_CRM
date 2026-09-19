@@ -18,8 +18,13 @@ backend/credentials/
 app-debug.apk
 app-release.apk
 *.apk
+# NOTE: blanket *.jpeg/*.jpg ignores were breaking the web build — receipt
+# templates import logo JPEGs from source. Source asset dirs are re-included
+# below; only stray image files elsewhere stay ignored.
 *.jpeg
 *.jpg
+!client/src/**/assets/**
+!client/public/**
 feereceiptapp/
 /whatsapp-crm/
 shon/
