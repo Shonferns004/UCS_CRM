@@ -100,6 +100,8 @@ export default function AddressImport() {
   const [search, setSearch] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [filterProject, setFilterProject] = useState('')
+  const [projectOptions, setProjectOptions] = useState([])
   const [receiptsLoading, setReceiptsLoading] = useState(true)
   const [listReload, setListReload] = useState(0)
   const [editingId, setEditingId] = useState(null)
@@ -127,16 +129,18 @@ export default function AddressImport() {
     if (search.trim()) params.set('search', search.trim())
     if (fromDate) params.set('from_date', fromDate)
     if (toDate) params.set('to_date', toDate)
+    if (filterProject) params.set('project', filterProject)
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then(res => {
         if (cancelled) return
         setReceipts(Array.isArray(res?.data) ? res.data : [])
         setReceiptTotal(Number(res?.total) || 0)
+        if (Array.isArray(res?.projects)) setProjectOptions(res.projects)
       })
       .catch(() => { if (!cancelled) { setReceipts([]); setReceiptTotal(0) } })
       .finally(() => { if (!cancelled) setReceiptsLoading(false) })
     return () => { cancelled = true }
-  }, [receiptPage, search, fromDate, toDate, listReload])
+  }, [receiptPage, search, fromDate, toDate, filterProject, listReload])
 
   const listFrom = receiptTotal === 0 ? 0 : (receiptPage - 1) * LIST_LIMIT + 1
   const listTo = Math.min(receiptPage * LIST_LIMIT, receiptTotal)
@@ -377,6 +381,13 @@ export default function AddressImport() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
+              NGO
+              <select value={filterProject} onChange={e => { setFilterProject(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, maxWidth: 180, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }}>
+                <option value="">All NGOs</option>
+                {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </label>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
               From
               <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
