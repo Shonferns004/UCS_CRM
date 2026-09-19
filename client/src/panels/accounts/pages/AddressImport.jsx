@@ -84,6 +84,13 @@ export default function AddressImport() {
   const [editForm, setEditForm] = useState({})
   const [savingId, setSavingId] = useState(null)
   const [editError, setEditError] = useState('')
+  const [receiptsDonor, setReceiptsDonor] = useState(null)
+  const [receiptsData, setReceiptsData] = useState([])
+  const [receiptsLoading, setReceiptsLoading] = useState(false)
+  const [editingReceiptId, setEditingReceiptId] = useState(null)
+  const [receiptForm, setReceiptForm] = useState({})
+  const [savingReceiptId, setSavingReceiptId] = useState(null)
+  const [receiptError, setReceiptError] = useState('')
 
   const fullAddress = (d) => [d.address_1, d.address_2]
     .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
@@ -146,6 +153,66 @@ export default function AddressImport() {
   useEffect(() => {
     if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [result])
+
+  // ── Donor receipts modal ────────────────────────────────────────
+  const RECEIPT_EDIT_FIELDS = [
+    ['donor_name', 'Donor Name'],
+    ['donor_mobile', 'Donor Mobile'],
+    ['mobile_2', 'Mobile 2'],
+    ['email', 'Email'],
+    ['pan_number', 'PAN No.'],
+    ['address', 'Address'],
+    ['address_2', 'Address 2'],
+    ['station', 'Station'],
+    ['account_of', 'Account Of'],
+    ['mode', 'Mode'],
+    ['bank_name', 'Bank Name'],
+    ['payment_id', 'Payment ID'],
+    ['caller_name', 'Caller Name'],
+    ['agent_name', 'Agent Name'],
+    ['project_id', 'Project'],
+    ['receipt_time', 'Receipt Time'],
+  ]
+
+  const openReceipts = (donor) => {
+    setReceiptsDonor(donor)
+    setReceiptsData([])
+    setReceiptError('')
+    setEditingReceiptId(null)
+    setReceiptForm({})
+    setReceiptsLoading(true)
+    apiGet(`/accounts/donors/${donor.id}`)
+      .then(res => setReceiptsData(Array.isArray(res?.receipts) ? res.receipts : []))
+      .catch(err => setReceiptError(err.message || 'Unable to load receipts'))
+      .finally(() => setReceiptsLoading(false))
+  }
+
+  const startReceiptEdit = (r) => {
+    setReceiptError('')
+    setEditingReceiptId(r.id)
+    setReceiptForm(r)
+  }
+
+  const cancelReceiptEdit = () => { setEditingReceiptId(null); setReceiptForm({}); setReceiptError('') }
+
+  const saveReceipt = async (r) => {
+    if (savingReceiptId) return
+    const changes = {}
+    for (const [key] of RECEIPT_EDIT_FIELDS) {
+      if (String(receiptForm[key] ?? '') !== String(r[key] ?? '')) changes[key] = receiptForm[key]
+    }
+    if (Object.keys(changes).length === 0) { setEditingReceiptId(null); return }
+    setSavingReceiptId(r.id); setReceiptError('')
+    try {
+      await apiPatch(`/accounts/receipts/${r.id}`, changes)
+      setEditingReceiptId(null)
+      setReceiptForm({})
+      openReceipts(receiptsDonor)
+      setListReload(c => c + 1)
+    } catch (err) {
+      setReceiptError(err.message || 'Unable to save receipt')
+    } finally { setSavingReceiptId(null) }
+  }
 
   const statusMap = useMemo(() => {
     const m = new Map()
@@ -359,7 +426,7 @@ export default function AddressImport() {
                   {donorSearch ? 'No donors match your search.' : 'No donors found.'}
                 </td></tr>
               ) : donors.map(d => (
-                <tr key={d.id}>
+                <tr key={d.id} onClick={() => openReceipts(d)} style={{ cursor: 'pointer', transition: 'background .12s' }} className="donor-clickable">
                   <td style={{ fontWeight: 600 }}>{d.name || '—'}</td>
                   <td style={{ fontFamily: 'monospace' }}>{d.mobile_number || '—'}</td>
                   <td style={{ maxWidth: 320 }}>{fullAddress(d)}</td>
@@ -367,7 +434,9 @@ export default function AddressImport() {
                   <td>{d.state || '—'}</td>
                   <td>{d.pin_code || '—'}</td>
                   <td style={{ fontFamily: 'monospace' }}>{d.pan_number || '—'}</td>
-                  <td><button className="btn btn-sm" onClick={() => startEdit(d)}>Edit</button></td>
+                  <td>
+                    <button className="btn btn-sm" onClick={e => { e.stopPropagation(); startEdit(d) }}>Edit</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -411,9 +480,77 @@ export default function AddressImport() {
         </div>
       )}
 
+      {receiptsDonor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }} onClick={() => setReceiptsDonor(null)}>
+          <div className="card" style={{ width: 'min(720px, calc(100vw - 32px))', maxHeight: '86vh', display: 'flex', flexDirection: 'column', padding: 0, background: '#fff', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>{receiptsDonor.name || 'Donor'}{receiptsDonor.mobile_number ? ` · ${receiptsDonor.mobile_number}` : ''}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{receiptsData.length} receipt{receiptsData.length !== 1 ? 's' : ''} · click a receipt to edit its details · amount, date &amp; receipt no. are locked</div>
+              </div>
+              <button className="btn btn-sm" onClick={() => setReceiptsDonor(null)}>Close</button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '8px 18px 18px' }}>
+              {receiptsLoading ? (
+                <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--ink-soft)' }}>Loading receipts…</div>
+              ) : receiptError && receiptsData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: '#b91c1c' }}>{receiptError}</div>
+              ) : receiptsData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--ink-soft)' }}>No receipts found for this donor.</div>
+              ) : (
+                receiptsData.map((r, i) => (
+                  <div key={r.id} style={{ marginTop: i === 0 ? 10 : 10, border: '1px solid var(--line)', borderRadius: 8, background: '#fafbf8' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{r.receipt_no || '—'}</span>
+                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {r.donor_name || r.address || r.pan_number || r.mode || r.project_id || '—'}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div>
+                      {editingReceiptId !== r.id
+                        ? <button className="btn btn-sm" onClick={() => startReceiptEdit(r)}>Edit</button>
+                        : <button className="btn btn-sm" onClick={cancelReceiptEdit} disabled={!!savingReceiptId}>Cancel</button>}
+                    </div>
+                    {editingReceiptId === r.id && (
+                      <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--line)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 2px 4px' }}>
+                          {RECEIPT_EDIT_FIELDS.map(([key, label]) => (
+                            <label key={key} style={{ fontSize: 11, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {label}
+                              <input
+                                type="text"
+                                value={receiptForm[key] ?? ''}
+                                onChange={e => setReceiptForm(p => ({ ...p, [key]: e.target.value }))}
+                                style={{ ...editInputStyle, marginTop: 0, fontFamily: key === 'pan_number' || key === 'donor_mobile' || key === 'mobile_2' || key === 'payment_id' ? 'monospace' : undefined }}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+                          <button className="btn btn-sm" onClick={cancelReceiptEdit} disabled={!!savingReceiptId}>Cancel</button>
+                          <button className="btn btn-primary btn-sm" onClick={() => saveReceipt(r)} disabled={!!savingReceiptId}>{savingReceiptId === r.id ? 'Saving…' : 'Save receipt'}</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+              {receiptError && receiptError !== 'Unable to load receipts' && (
+                <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 10 }}>{receiptError}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
         .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
+        .donor-clickable:hover { background: #f4f6f1; }
       `}</style>
     </div>
   )
