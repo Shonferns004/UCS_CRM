@@ -32,3 +32,15 @@ client/assets/*.properties
 tmp_schema.sql
 aws/main.md
 
+# Flutter / Android build outputs (never commit)
+/build/
+**/build/
+**/android/build/
+**/.gradle/
+.dart_tool/
+.flutter-plugins-dependencies
+
+# Firebase / app secrets (never commit)
+**/google-services.json
+**/GoogleService-Info.plist
+
