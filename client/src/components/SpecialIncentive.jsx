@@ -113,6 +113,20 @@ const fmtEnd = (iso) => {
   } catch { return '—'; }
 };
 
+const SI_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+const fmtDeadline = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'pm' : 'am';
+    h = h % 12 || 12;
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `Ends ${d.getDate()} ${SI_MONTHS[d.getMonth()]}, ${String(h).padStart(2, '0')}:${mm} ${ampm}`;
+  } catch { return ''; }
+};
+
 const CONFETTI_COLORS = ['#f59e0b', '#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#f472b6', '#fb923c', '#facc15'];
 
 const CONFETTI_CSS = `
@@ -196,29 +210,69 @@ export function WinnerBanner({ inc }) {
 // Data + behavior preserved: same inc payload, shared nowMs countdown,
 // realtime leaderboard, existing close action. Presentation only.
 const SI_MODAL_CSS = `
-.si-im-overlay { position: fixed; inset: 0; z-index: 99990; display: flex; align-items: center; justify-content: center; padding: 20px; width: 100%; overflow: hidden; background: rgba(15,27,45,.48); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); box-sizing: border-box; }
-.si-im-overlay *, .si-im-overlay *:before, .si-im-overlay *:after { box-sizing: border-box; }
-.si-im-modal { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-width: 0; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DCE6F3; border-radius: 18px; box-shadow: 0 24px 70px rgba(15,35,65,.22); overflow: hidden; position: relative; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #10213D; }
-.si-im-header, .si-im-footer { flex: 0 0 auto; }
-.si-im-scroll { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-.si-im-close { width: 34px; height: 34px; border-radius: 50%; border: none; background: #EAF2FB; color: #10213D; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background-color 150ms ease; font-family: inherit; }
-.si-im-close:hover { background: #DCE8F6; }
-.si-im-close:focus-visible, .si-im-cta:focus-visible, .si-im-filter:focus-visible { outline: 2px solid #3E82F7; outline-offset: 2px; }
-.si-im-row, .si-im-headrow { display: grid; grid-template-columns: 32px minmax(160px, 1fr) 110px minmax(150px, 1.1fr); gap: 0 10px; align-items: center; min-width: 0; }
-.si-im-rank { grid-area: rank; } .si-im-fro { grid-area: fro; } .si-im-amt { grid-area: amt; } .si-im-prog { grid-area: prog; }
-@media (max-width: 699px) {
-  .si-im-overlay { padding: 8px; }
-  .si-im-modal { width: calc(100vw - 16px); max-height: calc(100vh - 16px); border-radius: 14px; }
-  .si-im-headrow { display: none; }
-  .si-im-row { grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-areas: "rank fro amt" "prog prog prog"; row-gap: 5px; }
+.incentive-overlay, .incentive-overlay *, .incentive-overlay *:before, .incentive-overlay *:after { box-sizing: border-box; }
+.incentive-overlay { position: fixed; inset: 0; z-index: 99990; display: flex; align-items: center; justify-content: center; padding: 16px; overflow: hidden; background: rgba(20,31,48,.58); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.incentive-modal { width: min(590px, calc(100vw - 32px)); height: min(750px, calc(100vh - 32px)); max-width: 590px; max-height: 750px; min-width: 0; display: flex; flex-direction: column; background: #FFFDF5; border: 2px solid #F3A400; border-radius: 20px; box-shadow: 0 24px 70px rgba(15,35,65,.28); overflow: hidden; position: relative; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #10213D; }
+.incentive-header, .incentive-hero, .incentive-summary, .leaderboard-heading, .leaderboard-scroll, .leaderboard-row, .incentive-cta, .leaderboard-section { min-width: 0; }
+.incentive-header { flex: 0 0 auto; padding: 14px 18px 0; display: flex; align-items: center; gap: 10px; }
+.si-live-badge { display: inline-flex; align-items: center; gap: 7px; background: #EF292D; color: #fff; border-radius: 999px; padding: 8px 15px; font-size: 12px; font-weight: 800; letter-spacing: .3px; white-space: nowrap; flex-shrink: 0; }
+.si-ngo-badge { background: #F4ECFF; border: 1px solid #D9C3FF; color: #8955E8; border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+.si-close { width: 40px; height: 40px; border-radius: 50%; background: #DCEAF8; color: #10213D; border: 0; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: inherit; transition: background-color 150ms ease; margin-left: auto; }
+.si-close:hover { background: #C6DBF4; }
+.si-close:focus-visible, .incentive-cta:focus-visible { outline: 2px solid #3E82F7; outline-offset: 2px; }
+.incentive-hero { flex: 0 0 auto; text-align: center; padding: 8px 24px 0; }
+.si-title { font-size: 28px; line-height: 1.15; font-weight: 800; color: #10213D; text-align: center; margin: 0; overflow-wrap: anywhere; }
+.si-desc { font-size: 15px; line-height: 1.45; font-weight: 500; color: #577291; text-align: center; margin: 6px 0 0; overflow-wrap: anywhere; }
+.si-deadline { margin-top: 6px; font-size: 15px; font-weight: 800; color: #B35400; }
+.si-deadline .si-left { color: #9A4D00; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; margin-left: 8px; }
+.cup-container { width: 170px; height: 150px; margin: 2px auto 0; display: flex; align-items: center; justify-content: center; }
+.cup-image { width: 150px; height: 150px; max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.cup-visual { width: 150px; height: 150px; border-radius: 50%; background: #FFF4DE; border: 1px solid #F5E1B9; display: flex; align-items: center; justify-content: center; }
+.si-pct { font-size: 20px; font-weight: 800; color: #B75A00; text-align: center; }
+.incentive-summary { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 56px; padding: 4px 24px 0; min-width: 0; }
+.sum-label { font-size: 14px; font-weight: 700; color: #4F6D91; }
+.sum-value { font-size: 26px; font-weight: 800; color: #10213D; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sum-small { font-size: 17px; font-weight: 750; color: #355579; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sum-reward { font-size: 17px; font-weight: 800; color: #B75A00; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.leaderboard-divider { flex: 0 0 auto; border-top: 1px dashed #E8B45A; margin: 8px 24px 10px; }
+.leaderboard-heading { flex: 0 0 auto; font-size: 16px; font-weight: 800; color: #10213D; padding: 0 24px 8px; }
+.leaderboard-scroll { flex: 0 0 250px; height: 250px; min-height: 250px; max-height: 250px; overflow-y: auto; overflow-x: hidden; padding: 0 18px 0 24px; min-width: 0; }
+.leaderboard-scroll::-webkit-scrollbar { width: 5px; }
+.leaderboard-scroll::-webkit-scrollbar-track { background: transparent; }
+.leaderboard-scroll::-webkit-scrollbar-thumb { background: #C9D8EA; border-radius: 999px; }
+.leaderboard-scroll { scrollbar-width: thin; scrollbar-color: #C9D8EA transparent; }
+.leaderboard-row { min-height: 38px; display: grid; grid-template-columns: 24px 32px minmax(90px, 1fr) minmax(70px, 1.25fr) 48px; gap: 7px; align-items: center; min-width: 0; }
+.si-rank { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
+.si-amt { font-size: 13px; font-weight: 800; color: #B75A00; text-align: right; white-space: nowrap; }
+.incentive-cta { flex: 0 0 auto; height: 48px; margin: 10px 18px 16px; border: 0; border-radius: 11px; background: #102D52; color: #FFFFFF; font-size: 14px; font-weight: 800; font-family: inherit; cursor: pointer; width: calc(100% - 36px); align-self: center; }
+.incentive-cta:hover { background: #1A3F73; }
+.leaderboard-empty { padding: 30px 12px; text-align: center; }
+.leaderboard-empty-title { font-size: 13px; font-weight: 700; color: #10213D; }
+.leaderboard-empty-sub { font-size: 12px; color: #5D7696; margin-top: 3px; }
+@media (max-width: 700px) {
+  .incentive-modal { width: calc(100vw - 20px); height: min(760px, calc(100vh - 20px)); max-height: calc(100vh - 20px); border-radius: 16px; }
+  .leaderboard-scroll { height: 220px; min-height: 220px; max-height: 220px; }
+  .cup-container { width: 140px; height: 125px; }
+  .cup-image, .cup-visual { width: 125px; height: 125px; }
+  .si-title { font-size: 22px; }
+  .leaderboard-row { grid-template-columns: 24px 30px minmax(80px, 1fr) minmax(55px, 1fr) 42px; gap: 5px; }
+  .incentive-header { padding: 12px 14px 0; }
+  .incentive-hero, .incentive-summary, .leaderboard-heading { padding-left: 14px; padding-right: 14px; }
+  .leaderboard-scroll { padding-left: 14px; padding-right: 12px; }
+}
+@media (max-height: 800px) {
+  .cup-container { height: 120px; }
+  .cup-image, .cup-visual { width: 120px; height: 120px; }
+  .si-title { font-size: 24px; }
+  .leaderboard-scroll { height: 210px; min-height: 210px; max-height: 210px; }
+  .incentive-summary { gap: 44px; }
+}
+@media (max-height: 700px) {
+  .leaderboard-scroll { height: 160px; min-height: 160px; max-height: 160px; }
 }
 `;
 
-const SI_RANK_STYLE = [
-  { bg: '#FDF1D6', color: '#A9760C' },
-  { bg: '#EEF2F6', color: '#5E6B7E' },
-  { bg: '#FBEDDE', color: '#9A5A22' },
-];
+const RANK_MEDALS = ['🥇', '🥈', '🥉'];
 
 function SiAvatar({ url, name, size = 36 }) {
   const [err, setErr] = useState(false);
@@ -235,57 +289,30 @@ function SiAvatar({ url, name, size = 36 }) {
   );
 }
 
-function SiRing({ pct, size = 160, stroke = 11 }) {
-  const p = Math.min(100, Math.max(0, Number(pct) || 0));
-  const r = (size - stroke) / 2 - 2;
-  const circ = 2 * Math.PI * r;
-  return (
-    <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(p)} aria-label="Your progress toward target"
-      style={{ width: size, height: size, flexShrink: 0, position: 'relative' }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block', transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#E3EAF5" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#3E82F7" strokeWidth={stroke} strokeLinecap="round"
-          strokeDasharray={circ} strokeDashoffset={circ - (circ * p) / 100} style={{ transition: 'stroke-dashoffset .5s ease' }} />
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.16), fontWeight: 800, color: '#10213D' }}>
-        {Math.round(p)}%
-      </div>
-    </div>
-  );
-}
-
 function SiBoardRow({ p, i, target, you }) {
   const collected = Number(p.collected_amount) || 0;
   const t = Number(target) || 0;
   const pct = t > 0 ? Math.min(100, Math.max(0, (collected / t) * 100)) : 0;
-  const rank = SI_RANK_STYLE[i] || null;
   const isMe = you && p.worker_id === you;
+  const medal = RANK_MEDALS[i];
   return (
-    <div className="si-im-row" style={{ padding: '6px 12px', borderBottom: '1px solid #EDF2F7', minWidth: 0 }}>
-      <span className="si-im-rank" style={{
-        width: 24, height: 24, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 11.5, fontWeight: 800, flexShrink: 0,
-        background: rank ? rank.bg : '#F1F5F9', color: rank ? rank.color : '#475569',
-      }}>{i + 1}</span>
-      <span className="si-im-fro" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <SiAvatar url={p.photo_url} name={p.name} size={26} />
-        <span title={p.name} style={{ fontSize: 12.5, fontWeight: isMe ? 750 : 650, color: isMe ? '#10213D' : '#203553', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {p.name}{isMe ? ' (you)' : ''}
+    <div className="leaderboard-row" style={{ background: isMe ? '#FFF4DE' : 'transparent', borderRadius: 8 }}>
+      <span className="si-rank" style={medal ? { fontSize: 16 } : { fontSize: 12.5, fontWeight: 800, color: '#7789A1' }}>{medal || i + 1}</span>
+      <SiAvatar url={p.photo_url} name={p.name} size={28} />
+      <span title={p.name} style={{ fontSize: 13, fontWeight: isMe ? 750 : 650, color: isMe ? '#10213D' : '#203753', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {p.name}{isMe ? ' (you)' : ''}
+      </span>
+      <span style={{ minWidth: 0 }}>
+        <span className="progress-track" style={{ display: 'block', width: '100%', height: 8, background: '#D9E7F5', borderRadius: 999, overflow: 'hidden' }}>
+          <span className="progress-fill" style={{ display: 'block', height: '100%', width: `${pct}%`, background: '#B9D7F5', borderRadius: 'inherit', transition: 'width .4s ease' }} />
         </span>
       </span>
-      <span className="si-im-amt" style={{ fontSize: 12.5, fontWeight: 750, color: '#10213D', whiteSpace: 'nowrap' }}>₹{fmt(collected)}</span>
-      <span className="si-im-prog" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <span style={{ flex: '1 1 0', minWidth: 0, height: 9, borderRadius: 999, background: '#E4ECF6', overflow: 'hidden' }}>
-          <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 999, background: '#3E82F7', transition: 'width .4s ease' }} />
-        </span>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#5D7696', flexShrink: 0, minWidth: 32, textAlign: 'right' }}>{Math.round(pct)}%</span>
-      </span>
+      <span className="si-amt">₹{fmt(collected)}</span>
     </div>
   );
 }
 
 function PopupModal({ inc, you, onClose, nowMs }) {
-  const [filter, setFilter] = useState('all');
   const closeRef = useRef(null);
   const prevFocusRef = useRef(null);
 
@@ -297,10 +324,7 @@ function PopupModal({ inc, you, onClose, nowMs }) {
   const left = inc && Number.isFinite(endMs) ? Math.max(0, endMs - nowMs) : 0;
   const ended = inc ? (Number.isFinite(endMs) ? nowMs >= endMs : false) : false;
 
-  const board = useMemo(() => {
-    const rows = Array.isArray(inc?.leaderboard) ? inc.leaderboard.slice() : [];
-    return filter === 'top10' ? rows.slice(0, 10) : rows;
-  }, [inc, filter]);
+  const board = useMemo(() => Array.isArray(inc?.leaderboard) ? inc.leaderboard.slice() : [], [inc]);
 
   // Lock page scroll + Escape to close + focus handling. All cleaned up.
   useEffect(() => {
@@ -320,10 +344,10 @@ function PopupModal({ inc, you, onClose, nowMs }) {
 
   if (!inc) {
     return (
-      <div className="si-im-overlay" onClick={onClose}>
+      <div className="incentive-overlay" onClick={onClose}>
         <style>{SI_MODAL_CSS}</style>
-        <div className="si-im-modal" role="dialog" aria-modal="true" aria-label="Incentive" onClick={(e) => e.stopPropagation()}
-          style={{ width: 'min(460px, calc(100vw - 48px))', padding: 32, textAlign: 'center' }}>
+        <div className="incentive-modal" role="dialog" aria-modal="true" aria-label="Incentive" onClick={(e) => e.stopPropagation()}
+          style={{ width: 'min(460px, calc(100vw - 48px))', height: 'auto', padding: 32, textAlign: 'center', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: '#10213D' }}>Unable to load incentive</div>
           <div style={{ fontSize: 13, color: '#5D7696', marginTop: 6 }}>Please try again.</div>
           <button type="button" onClick={onClose}
@@ -336,90 +360,65 @@ function PopupModal({ inc, you, onClose, nowMs }) {
   }
 
   return (
-    <div className="si-im-overlay">
+    <div className="incentive-overlay">
       <style>{SI_MODAL_CSS}</style>
-      <div className="si-im-modal" role="dialog" aria-modal="true" aria-labelledby="si-im-title">
-        {/* Header: status + title + countdown + close */}
-        <div className="si-im-header" style={{ padding: '10px 12px 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ended ? '#64748B' : '#EF2B31', color: '#FFFFFF', borderRadius: 999, padding: '5px 10px', fontSize: 11, fontWeight: 800, letterSpacing: .3, whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF', display: 'inline-block', flexShrink: 0 }} />
-            {ended ? 'ENDED' : 'LIVE'}
+      <div className="incentive-modal" role="dialog" aria-modal="true" aria-labelledby="incentive-title">
+        {/* Header: live badge · NGO badge · close */}
+        <div className="incentive-header">
+          <span className="si-live-badge">
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFFFFF', display: 'inline-block', flexShrink: 0 }} />
+            SIR KA INCENTIVE · {ended ? 'ENDED' : 'LIVE'}
           </span>
-          <NgoBadge ngoName={inc.ngo_name} />
-          <span id="si-im-title" title={inc.title} style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 800, color: '#10213D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {inc.title || 'Special Incentive'}
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 800, color: '#B75A00', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', background: '#FFF7E8', border: '1px solid #F5E1B9', padding: '4px 9px', borderRadius: 999, flexShrink: 0 }}>
-            ⏳ {fmtClock(left)}
-          </span>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close incentive" className="si-im-close">✕</button>
+          {inc.ngo_name && <span className="si-ngo-badge">{inc.ngo_name}</span>}
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close incentive" className="si-close">✕</button>
         </div>
 
-        {inc.message && (
-          <div style={{ padding: '0 14px 4px', fontSize: 12.5, lineHeight: 1.5, color: '#5D7696', overflowWrap: 'anywhere' }}>{inc.message}</div>
-        )}
-
-        {/* Progress summary: ring + numbers + reward in one row */}
-        <div style={{ margin: '8px 12px 0', background: '#F9FBFE', border: '1px solid #DCE7F4', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 16, minWidth: 0 }}>
-          <SiRing pct={myPct} size={72} stroke={8} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 750, color: '#5D7696', letterSpacing: '.02em' }}>YOUR COLLECTION</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: '#10213D', whiteSpace: 'nowrap' }}>₹{fmt(collected)}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#67809F', whiteSpace: 'nowrap' }}>of ₹{fmt(target)} target</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', background: '#EAF9F1', color: '#15965A', borderRadius: 999, padding: '2px 8px', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>↗ Keep going!</span>
-            </div>
-            <div style={{ height: 8, borderRadius: 999, background: '#E4ECF6', overflow: 'hidden', marginTop: 7 }}>
-              <div style={{ width: `${myPct}%`, height: '100%', borderRadius: 999, background: 'linear-gradient(90deg,#3E82F7,#5694f8)', transition: 'width .5s ease' }} />
+        {/* Hero: title · message · deadline · cup · % */}
+        <div className="incentive-hero">
+          <h2 id="incentive-title" className="si-title">{inc.title || 'Special Incentive'}</h2>
+          {inc.message ? <p className="si-desc">{inc.message}</p> : null}
+          <div className="si-deadline">
+            📅 {fmtDeadline(inc.end_at)}
+            <span className="si-left">· ⏳ {fmtClock(left)} left</span>
+          </div>
+          <div className="cup-container" aria-hidden="true">
+            <div className="cup-visual">
+              <Trophy size={104} color="#E8A415" strokeWidth={1.6} fill="#FBD35B" />
             </div>
           </div>
-          <div style={{ textAlign: 'center', flexShrink: 0, background: '#FFF1F5', border: '1px solid #F5D6E0', borderRadius: 12, padding: '8px 14px' }}>
-            <div style={{ fontSize: 10, fontWeight: 750, color: '#8A4B5C' }}>REWARD</div>
-            <div style={{ fontSize: 19, fontWeight: 800, color: '#D62D4A', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>🏆 ₹{fmt(reward)}</div>
-            <div style={{ fontSize: 10, fontWeight: 650, color: '#8A4B5C', marginTop: 1, whiteSpace: 'nowrap' }}>1st to reach target</div>
+          <div className="si-pct">{Math.round(myPct)}%</div>
+        </div>
+
+        {/* Summary: collection · target · reward */}
+        <div className="incentive-summary">
+          <div style={{ textAlign: 'left', minWidth: 0 }}>
+            <div className="sum-label">Your collection</div>
+            <div className="sum-value">₹{fmt(collected)}</div>
+          </div>
+          <div style={{ textAlign: 'right', minWidth: 0 }}>
+            <div className="sum-label">Target</div>
+            <div className="sum-small">₹{fmt(target)}</div>
+            <div className="sum-reward">Win ₹{fmt(reward)}</div>
           </div>
         </div>
 
-        {/* Leaderboard */}
-        <div style={{ margin: '10px 12px 12px', background: '#FFFFFF', border: '1px solid #DCE7F4', borderRadius: 12, padding: '0 0 4px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 14.5, fontWeight: 800, color: '#10213D' }}>🔥 FRO Leaderboard</span>
-              <span style={{ fontSize: 11.5, color: '#67809F', marginLeft: 8 }}>{board.length} FRO{board.length !== 1 ? 's' : ''}</span>
+        <div className="leaderboard-divider" />
+
+        {/* Fixed heading + scrollable rows + fixed CTA */}
+        <div className="leaderboard-heading">🔥 FRO Leaderboard</div>
+        <div className="leaderboard-scroll">
+          {board.length === 0 ? (
+            <div className="leaderboard-empty">
+              <div className="leaderboard-empty-title">No FRO activity yet</div>
+              <div className="leaderboard-empty-sub">Verified collections will appear here as they come in.</div>
             </div>
-            <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Leaderboard filter" className="si-im-filter"
-              style={{ height: 30, padding: '0 10px', background: '#FFFFFF', border: '1px solid #C9DAEE', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#10213D', fontFamily: 'inherit', cursor: 'pointer', outline: 'none', flexShrink: 0 }}>
-              <option value="all">All FROs</option>
-              <option value="top10">Top 10</option>
-            </select>
-          </div>
-          <div className="si-im-headrow" aria-hidden="true" style={{ background: '#F3F7FC', padding: '6px 12px', fontSize: 11.5, fontWeight: 750, color: '#6B82A0' }}>
-            <span>#</span>
-            <span>FRO</span>
-            <span style={{ textAlign: 'right' }}>Collection (₹)</span>
-            <span>Progress</span>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            {board.length === 0 ? (
-              <div style={{ padding: '14px 12px', textAlign: 'center' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#10213D' }}>No FRO activity yet</div>
-                <div style={{ fontSize: 11, color: '#5D7696', marginTop: 2 }}>Verified collections will appear here as they come in.</div>
-              </div>
-            ) : (
-              board.map((p, i) => <SiBoardRow key={p.worker_id} p={p} i={i} target={target} you={you} />)
-            )}
-          </div>
+          ) : (
+            board.map((p, i) => <SiBoardRow key={p.worker_id} p={p} i={i} target={target} you={you} />)
+          )}
         </div>
-
-        {/* Footer CTA */}
-        <div className="si-im-footer" style={{ padding: '0 12px 10px' }}>
-          <button type="button" onClick={onClose}
-            style={{ width: '100%', height: 40, borderRadius: 10, border: 'none', background: '#102E59', color: '#FFFFFF', fontSize: 13.5, fontWeight: 750, cursor: 'pointer', fontFamily: 'inherit', transition: 'background-color 150ms ease', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 16px' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#1A3F73'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#102E59'; }}>
-            ⚡ Get in the race! Start collecting now! →
-          </button>
-        </div>
+        <button type="button" onClick={onClose} className="incentive-cta">
+          ⚡ Get in the race! Start collecting now! →
+        </button>
       </div>
     </div>
   );
