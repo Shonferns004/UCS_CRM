@@ -141,15 +141,34 @@ export async function activeHandler(req, res) {
     incentives = incentives.filter((i) => new Date(i.start_at).getTime() <= now);
 
     const result = [];
+    const boardByIncentive = new Map();
     for (const inc of incentives) {
       const board = await getLeaderboard(inc.id);
+      boardByIncentive.set(inc.id, board || []);
+    }
+    // Profile photos for every leaderboard row (single query, shown as avatars).
+    let boardPhotoMap = {};
+    try {
+      const boardWorkerIds = [...new Set(
+        [...boardByIncentive.values()].flat().map((p) => p.worker_id).filter(Boolean)
+      )];
+      if (boardWorkerIds.length > 0) {
+        const { data: boardWorkers } = await db.from('workers').select('id, photo_url').in('id', boardWorkerIds);
+        boardPhotoMap = Object.fromEntries((boardWorkers || []).map((w) => [w.id, w.photo_url || null]));
+      }
+    } catch (e) {
+      console.error('[special incentive] leaderboard photos:', e.message);
+    }
+    for (const inc of incentives) {
+      const board = boardByIncentive.get(inc.id) || [];
       const base = pretty(inc);
       const mine = req.user?.id ? await getProgressForWorker(inc.id, req.user.id) : null;
       result.push({
         ...base,
-        leaderboard: (board || []).map((p) => ({
+        leaderboard: board.map((p) => ({
           worker_id: p.worker_id,
           name: p.workers?.name || 'Unknown',
+          photo_url: boardPhotoMap[p.worker_id] || null,
           collected_amount: Number(p.collected_amount) || 0,
           hit_target_at: p.hit_target_at,
         })),
