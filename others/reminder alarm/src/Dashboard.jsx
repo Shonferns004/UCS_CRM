@@ -393,51 +393,48 @@ export default function Dashboard() {
 
       <div className="dash-row asymmetric">
         <div className="dash-financial-hero">
-        <div className="fin-hero">
+        <div className="fin-hero-top">
           <div className="fin-hero-left">
             <div className="fin-hero-label">Total Obligations</div>
             <div className="fin-hero-amount">{summary.monthlyObligations > 0 ? formatCurrency(summary.monthlyObligations) : 'Not available'}</div>
           </div>
-          <div className="fin-hero-right">
-            {summary.monthlyObligations > 0 && (
-              <>
-                <div className="fin-hero-pct">{Math.round((summary.monthlyPaid / summary.monthlyObligations) * 100)}%</div>
-                <div className="fin-hero-sub">of total paid</div>
-              </>
-            )}
-          </div>
+          {summary.monthlyObligations > 0 && (
+            <div className="fin-hero-right">
+              <div className="fin-hero-ring" style={{ '--pct': `${(summary.monthlyPaid / summary.monthlyObligations) * 100}%` }}>
+                <div className="fin-hero-ring-inner">
+                  <span className="fin-hero-ring-val">{Math.round((summary.monthlyPaid / summary.monthlyObligations) * 100)}%</span>
+                </div>
+              </div>
+              <div className="fin-hero-caption">of total paid</div>
+            </div>
+          )}
         </div>
         {summary.monthlyObligations > 0 && (
           <div className="fin-progress">
             <div className="fin-progress-track">
               <div className="fin-progress-fill" style={{ width: `${(summary.monthlyPaid / summary.monthlyObligations) * 100}%` }} />
             </div>
-            <div className="fin-progress-legend">
-              <span className="fin-legend-item"><span className="fin-legend-dot" style={{ background: '#16a34a' }} />Paid</span>
-              <span className="fin-legend-item"><span className="fin-legend-dot" style={{ background: '#f59e0b' }} />Pending</span>
-              <span className="fin-legend-item"><span className="fin-legend-dot" style={{ background: '#ef4444' }} />Overdue</span>
-            </div>
           </div>
         )}
         <div className="fin-cards">
           <div className="fin-card fin-card-paid">
-            <div className="fin-card-icon"><Icon name="check" size={16} /></div>
+            <div className="fin-card-icon"><Icon name="check" size={15} /></div>
             <div className="fin-card-body">
-              <div className="fin-card-label">Paid</div>
+              <div className="fin-card-label">PAID</div>
               <div className="fin-card-amount">{summary.monthlyPaid > 0 ? formatCurrency(summary.monthlyPaid) : '₹0'}</div>
             </div>
           </div>
           <div className="fin-card fin-card-pending">
-            <div className="fin-card-icon"><Icon name="clock" size={16} /></div>
+            <div className="fin-card-icon"><Icon name="clock" size={15} /></div>
             <div className="fin-card-body">
-              <div className="fin-card-label">Pending</div>
+              <div className="fin-card-label">PENDING</div>
               <div className="fin-card-amount">{summary.monthlyPending > 0 ? formatCurrency(summary.monthlyPending) : '₹0'}</div>
             </div>
           </div>
           <div className="fin-card fin-card-overdue">
-            <div className="fin-card-icon"><Icon name="alert" size={16} /></div>
+            <div className="fin-card-icon"><Icon name="alert" size={15} /></div>
             <div className="fin-card-body">
-              <div className="fin-card-label">Overdue</div>
+              <div className="fin-card-label">OVERDUE</div>
               <div className="fin-card-amount">{summary.monthlyOverdue > 0 ? formatCurrency(summary.monthlyOverdue) : '₹0'}</div>
             </div>
           </div>
@@ -450,11 +447,9 @@ export default function Dashboard() {
           </div>
           <div className="dash-cal">
             <div className="dash-cal-head">
+              <button className="dash-cal-btn" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}>◀</button>
               <h4>{new Date(calYear, calMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
-              <div className="dash-cal-nav">
-                <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}>◀</button>
-                <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}>▶</button>
-              </div>
+              <button className="dash-cal-btn" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}>▶</button>
             </div>
             <div className="dash-cal-grid">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
