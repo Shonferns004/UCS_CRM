@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mantra MFS100 -->
+    <usb-device vendor-id="3118" product-id="32" /> <!-- 0x0C2E:0x0020 -->
+    <usb-device vendor-id="3118" product-id="4112" /> <!-- 0x0C2E:0x1010 -->
+
+    <!-- Mantra MFS110 -->
+    <usb-device vendor-id="3118" product-id="48" /> <!-- 0x0C2E:0x0030 -->
+    <usb-device vendor-id="3118" product-id="4128" /> <!-- 0x0C2E:0x1020 -->
+    <usb-device vendor-id="11279" product-id="4612" /> <!-- 0x2C0F:0x1204 (MFS110) -->
+    <usb-device vendor-id="11279" /> <!-- 0x2C0F: any product -->
+
+    <!-- Morpho MSO1300 -->
+    <usb-device vendor-id="1260" product-id="20512" /> <!-- 0x04EC:0x5020 -->
+    <usb-device vendor-id="1260" product-id="20513" /> <!-- 0x04EC:0x5021 -->
+
+    <!-- Startek FM2200 / ACPL -->
+    <usb-device vendor-id="9010" product-id="100" /> <!-- 0x2342:0x0064 -->
+    <usb-device vendor-id="9010" product-id="101" /> <!-- 0x2342:0x0065 -->
+
+    <!-- SecuGen -->
+    <usb-device vendor-id="1425" product-id="5" /> <!-- 0x0591:0x0005 -->
+    <usb-device vendor-id="1425" product-id="6" /> <!-- 0x0591:0x0006 -->
+
+    <!-- Generic: Cypress / CH340 / CP210x used by various biometric devices -->
+    <usb-device vendor-id="1952" product-id="31344" /> <!-- 0x07A0:0x7A70 -->
+    <usb-device vendor-id="6790" product-id="21761" /> <!-- 0x1A86:0x5521 -->
+    <usb-device vendor-id="4292" product-id="60000" /> <!-- 0x10C4:0xEA60 -->
+</resources>
