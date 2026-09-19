@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, Fragment } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiPatch } from '../api/auth'
 
@@ -71,93 +71,10 @@ export default function AddressImport() {
   const fileRef = useRef(null)
   const resultRef = useRef(null)
 
-  // ── All-donors address list ──────────────────────────────────────
-  const LIST_LIMIT = 50
-  const [donors, setDonors] = useState([])
-  const [donorTotal, setDonorTotal] = useState(0)
-  const [donorPage, setDonorPage] = useState(1)
-  const [donorSearchInput, setDonorSearchInput] = useState('')
-  const [donorSearch, setDonorSearch] = useState('')
-  const [donorsLoading, setDonorsLoading] = useState(true)
-  const [listReload, setListReload] = useState(0)
-  const [editingId, setEditingId] = useState(null)
-  const [editForm, setEditForm] = useState({})
-  const [savingId, setSavingId] = useState(null)
-  const [editError, setEditError] = useState('')
-  const [receiptsDonor, setReceiptsDonor] = useState(null)
-  const [receiptsData, setReceiptsData] = useState([])
-  const [receiptsLoading, setReceiptsLoading] = useState(false)
-  const [editingReceiptId, setEditingReceiptId] = useState(null)
-  const [receiptForm, setReceiptForm] = useState({})
-  const [savingReceiptId, setSavingReceiptId] = useState(null)
-  const [receiptError, setReceiptError] = useState('')
-
-  const fullAddress = (d) => [d.address_1, d.address_2]
-    .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
-  const editInputStyle = { width: '100%', padding: '6px 8px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }
-
-  useEffect(() => {
-    const t = setTimeout(() => { setDonorSearch(donorSearchInput); setDonorPage(1) }, 400)
-    return () => clearTimeout(t)
-  }, [donorSearchInput])
-
-  useEffect(() => {
-    let cancelled = false
-    setDonorsLoading(true)
-    const params = new URLSearchParams({ page: String(donorPage), limit: String(LIST_LIMIT) })
-    if (donorSearch.trim()) params.set('search', donorSearch.trim())
-    apiGet(`/accounts/donors?${params.toString()}`)
-      .then(res => {
-        if (cancelled) return
-        setDonors(Array.isArray(res?.data) ? res.data : [])
-        setDonorTotal(Number(res?.total) || 0)
-      })
-      .catch(() => { if (!cancelled) { setDonors([]); setDonorTotal(0) } })
-      .finally(() => { if (!cancelled) setDonorsLoading(false) })
-    return () => { cancelled = true }
-  }, [donorPage, donorSearch, listReload])
-
-  const listFrom = donorTotal === 0 ? 0 : (donorPage - 1) * LIST_LIMIT + 1
-  const listTo = Math.min(donorPage * LIST_LIMIT, donorTotal)
-  const listPages = Math.max(1, Math.ceil(donorTotal / LIST_LIMIT))
-
-  const startEdit = (donor) => {
-    setEditingId(donor.id)
-    setEditError('')
-    setEditForm({
-      name: donor.name || '',
-      mobile_number: donor.mobile_number || '',
-      pan_number: donor.pan_number || '',
-      address_1: donor.address_1 || '',
-      address_2: donor.address_2 || '',
-      city: donor.city || '',
-      state: donor.state || '',
-      pin_code: donor.pin_code || '',
-    })
-  }
-
-  const cancelEdit = () => { setEditingId(null); setEditForm({}); setEditError('') }
-
-  const saveAddress = async (donor) => {
-    if (savingId) return
-    setSavingId(donor.id); setEditError('')
-    try {
-      await apiPatch(`/accounts/donors/${donor.id}`, editForm)
-      cancelEdit()
-      setListReload(c => c + 1)
-    } catch (err) {
-      setEditError(err.message || 'Unable to save address')
-    } finally { setSavingId(null) }
-  }
-
-  useEffect(() => {
-    if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [result])
-
-  // ── Donor receipts modal ────────────────────────────────────────
+  // ── Receipts list (search by mobile / receipt no. + date range) ──
   const RECEIPT_EDIT_FIELDS = [
     ['donor_name', 'Donor Name'],
-    ['donor_mobile', 'Donor Mobile'],
+    ['donor_mobile', 'Mobile No.'],
     ['mobile_2', 'Mobile 2'],
     ['email', 'Email'],
     ['pan_number', 'PAN No.'],
@@ -173,46 +90,100 @@ export default function AddressImport() {
     ['project_id', 'Project'],
     ['receipt_time', 'Receipt Time'],
   ]
+  const RECEIPT_MONO = ['donor_mobile', 'mobile_2', 'pan_number', 'payment_id']
 
-  const openReceipts = (donor) => {
-    setReceiptsDonor(donor)
-    setReceiptsData([])
-    setReceiptError('')
-    setEditingReceiptId(null)
-    setReceiptForm({})
+  const LIST_LIMIT = 50
+  const [receipts, setReceipts] = useState([])
+  const [receiptTotal, setReceiptTotal] = useState(0)
+  const [receiptPage, setReceiptPage] = useState(1)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [receiptsLoading, setReceiptsLoading] = useState(true)
+  const [listReload, setListReload] = useState(0)
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({})
+  const [savingId, setSavingId] = useState(null)
+  const [editError, setEditError] = useState('')
+  const [moreOpen, setMoreOpen] = useState(false)
+  const MORE_FIELDS = RECEIPT_EDIT_FIELDS.filter(([key]) => !['donor_name', 'donor_mobile', 'email', 'pan_number', 'address', 'address_2'].includes(key))
+
+  const fullAddress = (r) => [r.address, r.address_2]
+    .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
+  const editInputStyle = { width: '100%', padding: '5px 7px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, boxSizing: 'border-box', color: 'var(--ink)', background: '#fff' }
+  const rv = (r, k) => { const v = r?.[k]; return v == null ? '' : String(v) }
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput); setReceiptPage(1) }, 400)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  useEffect(() => {
+    let cancelled = false
     setReceiptsLoading(true)
-    apiGet(`/accounts/donors/${donor.id}`)
-      .then(res => setReceiptsData(Array.isArray(res?.receipts) ? res.receipts : []))
-      .catch(err => setReceiptError(err.message || 'Unable to load receipts'))
-      .finally(() => setReceiptsLoading(false))
+    const params = new URLSearchParams({ page: String(receiptPage), limit: String(LIST_LIMIT) })
+    if (search.trim()) params.set('search', search.trim())
+    if (fromDate) params.set('from_date', fromDate)
+    if (toDate) params.set('to_date', toDate)
+    apiGet(`/accounts/receipts?${params.toString()}`)
+      .then(res => {
+        if (cancelled) return
+        setReceipts(Array.isArray(res?.data) ? res.data : [])
+        setReceiptTotal(Number(res?.total) || 0)
+      })
+      .catch(() => { if (!cancelled) { setReceipts([]); setReceiptTotal(0) } })
+      .finally(() => { if (!cancelled) setReceiptsLoading(false) })
+    return () => { cancelled = true }
+  }, [receiptPage, search, fromDate, toDate, listReload])
+
+  const listFrom = receiptTotal === 0 ? 0 : (receiptPage - 1) * LIST_LIMIT + 1
+  const listTo = Math.min(receiptPage * LIST_LIMIT, receiptTotal)
+  const listPages = Math.max(1, Math.ceil(receiptTotal / LIST_LIMIT))
+
+  const startEdit = (r) => {
+    setEditingId(r.id)
+    setEditError('')
+    setMoreOpen(false)
+    const f = {}
+    for (const [key] of RECEIPT_EDIT_FIELDS) f[key] = rv(r, key)
+    setEditForm(f)
   }
 
-  const startReceiptEdit = (r) => {
-    setReceiptError('')
-    setEditingReceiptId(r.id)
-    setReceiptForm(r)
-  }
+  const cancelEdit = () => { setEditingId(null); setEditForm({}); setEditError(''); setMoreOpen(false) }
 
-  const cancelReceiptEdit = () => { setEditingReceiptId(null); setReceiptForm({}); setReceiptError('') }
-
-  const saveReceipt = async (r) => {
-    if (savingReceiptId) return
+  const saveEdit = async (r) => {
+    if (savingId) return
     const changes = {}
     for (const [key] of RECEIPT_EDIT_FIELDS) {
-      if (String(receiptForm[key] ?? '') !== String(r[key] ?? '')) changes[key] = receiptForm[key]
+      if (String(editForm[key] ?? '').trim() !== rv(r, key).trim()) changes[key] = editForm[key]
     }
-    if (Object.keys(changes).length === 0) { setEditingReceiptId(null); return }
-    setSavingReceiptId(r.id); setReceiptError('')
+    if (Object.keys(changes).length === 0) { setEditingId(null); return }
+    setSavingId(r.id); setEditError('')
     try {
       await apiPatch(`/accounts/receipts/${r.id}`, changes)
-      setEditingReceiptId(null)
-      setReceiptForm({})
-      openReceipts(receiptsDonor)
+      setEditingId(null)
+      setEditForm({})
+      setMoreOpen(false)
       setListReload(c => c + 1)
     } catch (err) {
-      setReceiptError(err.message || 'Unable to save receipt')
-    } finally { setSavingReceiptId(null) }
+      setEditError(err.message || 'Unable to save receipt')
+    } finally { setSavingId(null) }
   }
+
+  const editInput = (key) => (
+    <input
+      type="text"
+      value={editForm[key] ?? ''}
+      onChange={e => setEditForm(p => ({ ...p, [key]: e.target.value }))}
+      style={{ ...editInputStyle, fontFamily: RECEIPT_MONO.includes(key) ? 'monospace' : undefined }}
+    />
+  )
+
+  useEffect(() => {
+    if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [result])
 
   const statusMap = useMemo(() => {
     const m = new Map()
@@ -398,164 +369,129 @@ export default function AddressImport() {
       </div>
 
       <div className="card" style={{ marginTop: 14 }}>
-        <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 10 }}>
           <div style={{ marginRight: 'auto' }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>All Donors</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Receipts</div>
             <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
-              {donorTotal.toLocaleString('en-IN')} donor{donorTotal !== 1 ? 's' : ''} in database
+              {receiptTotal.toLocaleString('en-IN')} receipt{receiptTotal !== 1 ? 's' : ''} · search by mobile no. or receipt no. · edit inline (amount, date &amp; receipt no. are locked)
             </div>
           </div>
-          <input
-            type="text"
-            placeholder="Search name or mobile..."
-            aria-label="Search donors by name or mobile"
-            value={donorSearchInput}
-            onChange={e => setDonorSearchInput(e.target.value)}
-            style={{ width: 220, height: 34, border: '1px solid var(--line)', borderRadius: 8, background: '#fff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
-          />
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
+              From
+              <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
+            </label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>
+              To
+              <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setReceiptPage(1) }} style={{ display: 'block', height: 32, border: '1px solid var(--line)', borderRadius: 8, padding: '0 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff', marginTop: 3 }} />
+            </label>
+            {(fromDate || toDate) && (
+              <button className="btn btn-sm" onClick={() => { setFromDate(''); setToDate(''); setReceiptPage(1) }}>Clear dates</button>
+            )}
+            <input
+              type="text"
+              placeholder="Search mobile / receipt no. / name..."
+              aria-label="Search receipts by mobile or receipt number"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              style={{ width: 230, height: 32, border: '1px solid var(--line)', borderRadius: 8, background: '#fff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--ink)', boxSizing: 'border-box' }}
+            />
+          </div>
         </div>
 
-        <div className="table-wrap" style={{ maxHeight: 480, overflowY: 'auto' }}>
-          <table className="donors-table">
-            <thead><tr><th>Donor Name</th><th>Mobile No.</th><th>Address</th><th>City</th><th>State</th><th>PIN</th><th>PAN No.</th><th></th></tr></thead>
+        <div className="table-wrap" style={{ maxHeight: 520, overflowY: 'auto' }}>
+          <table className="donors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+              <tr>
+                <th>Receipt No.</th>
+                <th>Donor Name</th>
+                <th>Mobile</th>
+                <th>Address</th>
+                <th>PAN</th>
+                <th>Email</th>
+                <th>Amount</th>
+                <th>Date</th>
+                <th></th>
+              </tr>
+            </thead>
             <tbody>
-              {donorsLoading ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>Loading donors…</td></tr>
-              ) : donors.length === 0 ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
-                  {donorSearch ? 'No donors match your search.' : 'No donors found.'}
+              {receiptsLoading ? (
+                <tr><td colSpan={9} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>Loading receipts…</td></tr>
+              ) : receipts.length === 0 ? (
+                <tr><td colSpan={9} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
+                  {search || fromDate || toDate ? 'No receipts match your search / date range.' : 'No receipts found.'}
                 </td></tr>
-              ) : donors.map(d => (
-                <tr key={d.id} onClick={() => openReceipts(d)} style={{ cursor: 'pointer', transition: 'background .12s' }} className="donor-clickable">
-                  <td style={{ fontWeight: 600 }}>{d.name || '—'}</td>
-                  <td style={{ fontFamily: 'monospace' }}>{d.mobile_number || '—'}</td>
-                  <td style={{ maxWidth: 320 }}>{fullAddress(d)}</td>
-                  <td>{d.city || '—'}</td>
-                  <td>{d.state || '—'}</td>
-                  <td>{d.pin_code || '—'}</td>
-                  <td style={{ fontFamily: 'monospace' }}>{d.pan_number || '—'}</td>
-                  <td>
-                    <button className="btn btn-sm" onClick={e => { e.stopPropagation(); startEdit(d) }}>Edit</button>
-                  </td>
-                </tr>
-              ))}
+              ) : receipts.map(r => {
+                const editing = editingId === r.id
+                return (
+                  <Fragment key={r.id}>
+                  <tr className={editing ? 'receipt-editing' : ''} style={{ verticalAlign: 'top' }}>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.receipt_no || '—'}</td>
+                    <td style={{ minWidth: 150 }}>{editing ? editInput('donor_name') : (r.donor_name || '—')}</td>
+                    <td style={{ fontFamily: 'monospace', whiteSpace: 'nowrap', minWidth: 110 }}>{editing ? editInput('donor_mobile') : (r.donor_mobile || '—')}</td>
+                    <td style={{ maxWidth: 280, minWidth: 180 }}>
+                      {editing
+                        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{editInput('address')}{editInput('address_2')}</div>
+                        : <span style={{ wordBreak: 'break-word' }}>{fullAddress(r)}</span>}
+                    </td>
+                    <td style={{ fontFamily: 'monospace', minWidth: 120 }}>{editing ? editInput('pan_number') : (r.pan_number || '—')}</td>
+                    <td style={{ maxWidth: 160, minWidth: 140, wordBreak: 'break-word' }}>{editing ? editInput('email') : (r.email || '—')}</td>
+                    <td style={{ fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.receipt_date)}{r.receipt_date && r.receipt_time ? ` ${r.receipt_time}` : ''}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        {editing ? (
+                          <>
+                            {moreOpen
+                              ? <button className="btn btn-sm" onClick={() => setMoreOpen(false)} disabled={!!savingId}>Less</button>
+                              : <button className="btn btn-sm" onClick={() => setMoreOpen(true)} disabled={!!savingId}>More</button>}
+                            <button className="btn btn-sm" onClick={cancelEdit} disabled={!!savingId}>Cancel</button>
+                            <button className="btn btn-sm btn-primary" onClick={() => saveEdit(r)} disabled={!!savingId}>{savingId ? 'Saving…' : 'Save'}</button>
+                          </>
+                        ) : (
+                          <button className="btn btn-sm" onClick={() => startEdit(r)}>Edit</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  {editing && moreOpen && (
+                    <tr className="receipt-editing" style={{ verticalAlign: 'top' }}>
+                      <td colSpan={9} style={{ borderTop: '1px dashed var(--line)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, padding: '4px 0' }}>
+                          {MORE_FIELDS.map(([key, label]) => (
+                            <label key={key} style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {label}
+                              {editInput(key)}
+                            </label>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
 
+        {editError && <div style={{ fontSize: 12, color: '#b91c1c', padding: '8px 16px' }}>Save failed: {editError}</div>}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft)' }}>
-          <span>Showing {listFrom}–{listTo} of {donorTotal.toLocaleString('en-IN')}</span>
+          <span>Showing {listFrom}–{listTo} of {receiptTotal.toLocaleString('en-IN')}</span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="btn btn-sm" disabled={donorPage <= 1} onClick={() => setDonorPage(p => Math.max(1, p - 1))}>Prev</button>
-            <span style={{ alignSelf: 'center' }}>Page {donorPage} / {listPages}</span>
-            <button className="btn btn-sm" disabled={donorPage >= listPages} onClick={() => setDonorPage(p => p + 1)}>Next</button>
+            <button className="btn btn-sm" disabled={receiptPage <= 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
+            <span style={{ alignSelf: 'center' }}>Page {receiptPage} / {listPages}</span>
+            <button className="btn btn-sm" disabled={receiptPage >= listPages} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
           </span>
         </div>
       </div>
 
-      {editingId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }} onClick={cancelEdit}>
-          <div className="card" style={{ width: 'min(520px, calc(100vw - 32px))', padding: 20, background: '#fff' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Edit donor details</div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px', gap: 10 }}>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>Donor name<input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>Mobile no.<input value={editForm.mobile_number} onChange={e => setEditForm(f => ({ ...f, mobile_number: e.target.value }))} style={{ ...editInputStyle, marginTop: 4, fontFamily: 'monospace' }} /></label>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>PAN no.<input value={editForm.pan_number} onChange={e => setEditForm(f => ({ ...f, pan_number: e.target.value }))} style={{ ...editInputStyle, marginTop: 4, fontFamily: 'monospace' }} /></label>
-              </div>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 1<input value={editForm.address_1} onChange={e => setEditForm(f => ({ ...f, address_1: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 2<input value={editForm.address_2} onChange={e => setEditForm(f => ({ ...f, address_2: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10 }}>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>City<input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>State<input value={editForm.state} onChange={e => setEditForm(f => ({ ...f, state: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
-                <label style={{ fontSize: 12, fontWeight: 600 }}>PIN<input value={editForm.pin_code} onChange={e => setEditForm(f => ({ ...f, pin_code: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
-              </div>
-            </div>
-            {editError && <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 10 }}>{editError}</div>}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-              <button className="btn btn-sm" onClick={cancelEdit} disabled={savingId}>Cancel</button>
-              <button className="btn btn-primary btn-sm" onClick={() => saveAddress(donors.find(d => d.id === editingId))} disabled={savingId}>{savingId ? 'Saving…' : 'Save details'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {receiptsDonor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }} onClick={() => setReceiptsDonor(null)}>
-          <div className="card" style={{ width: 'min(600px, calc(100vw - 32px))', maxHeight: '82vh', display: 'flex', flexDirection: 'column', padding: 0, background: '#fff', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{receiptsDonor.name || 'Donor'}{receiptsDonor.mobile_number ? ` · ${receiptsDonor.mobile_number}` : ''}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{receiptsData.length} receipt{receiptsData.length !== 1 ? 's' : ''} · amount, date &amp; receipt no. are locked</div>
-              </div>
-              <button className="btn btn-sm" onClick={() => setReceiptsDonor(null)}>Close</button>
-            </div>
-            <div style={{ overflowY: 'auto', padding: '10px 16px 16px' }}>
-              {receiptsLoading ? (
-                <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--ink-soft)' }}>Loading receipts…</div>
-              ) : receiptError && receiptsData.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: '#b91c1c' }}>{receiptError}</div>
-              ) : receiptsData.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--ink-soft)' }}>No receipts found for this donor.</div>
-              ) : (
-                receiptsData.map(r => (
-                  <div key={r.id} style={{ marginTop: 8, border: '1px solid var(--line)', borderRadius: 8, background: '#fafbf8' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{r.receipt_no || '—'}</span>
-                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {r.donor_name || r.address || r.pan_number || r.mode || r.project_id || '—'}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div>
-                      {editingReceiptId !== r.id
-                        ? <button className="btn btn-sm" onClick={() => startReceiptEdit(r)}>Edit</button>
-                        : <button className="btn btn-sm" onClick={cancelReceiptEdit} disabled={!!savingReceiptId}>Cancel</button>}
-                    </div>
-                    {editingReceiptId === r.id && (
-                      <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--line)' }}>
-                        <div style={{ display: 'flex', gap: 10, padding: '9px 2px 8px', borderBottom: '1px dashed var(--line)', marginBottom: 8 }}>
-                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Receipt <strong style={{ color: 'var(--ink)', fontFamily: 'monospace' }}>{r.receipt_no || '—'}</strong></span>
-                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Date <strong style={{ color: 'var(--ink)' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</strong></span>
-                          <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 'auto' }}>Amount <strong style={{ color: 'var(--sage)' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</strong></span>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px 10px', padding: '0 2px' }}>
-                          {RECEIPT_EDIT_FIELDS.map(([key, label]) => (
-                            <label key={key} style={{ fontSize: 11, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              {label}
-                              <input
-                                type="text"
-                                value={receiptForm[key] ?? ''}
-                                onChange={e => setReceiptForm(p => ({ ...p, [key]: e.target.value }))}
-                                style={{ ...editInputStyle, marginTop: 0, fontFamily: key === 'pan_number' || key === 'donor_mobile' || key === 'mobile_2' || key === 'payment_id' ? 'monospace' : undefined }}
-                              />
-                            </label>
-                          ))}
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-                          <button className="btn btn-sm" onClick={cancelReceiptEdit} disabled={!!savingReceiptId}>Cancel</button>
-                          <button className="btn btn-primary btn-sm" onClick={() => saveReceipt(r)} disabled={!!savingReceiptId}>{savingReceiptId === r.id ? 'Saving…' : 'Save receipt'}</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-              {receiptError && receiptError !== 'Unable to load receipts' && (
-                <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 10 }}>{receiptError}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
         .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
-        .donor-clickable:hover { background: #f4f6f1; }
+        .receipt-editing { background: #f4f8f1; }
+        .receipt-editing td { padding-top: 6px; padding-bottom: 6px; }
       `}</style>
     </div>
   )
