@@ -117,7 +117,15 @@ export default function AddressImport() {
   const startEdit = (donor) => {
     setEditingId(donor.id)
     setEditError('')
-    setEditForm({ address_1: donor.address_1 || '', address_2: donor.address_2 || '', city: donor.city || '', state: donor.state || '', pin_code: donor.pin_code || '' })
+    setEditForm({
+      name: donor.name || '',
+      pan_number: donor.pan_number || '',
+      address_1: donor.address_1 || '',
+      address_2: donor.address_2 || '',
+      city: donor.city || '',
+      state: donor.state || '',
+      pin_code: donor.pin_code || '',
+    })
   }
 
   const cancelEdit = () => { setEditingId(null); setEditForm({}); setEditError('') }
@@ -378,8 +386,12 @@ export default function AddressImport() {
       {editingId && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }} onClick={cancelEdit}>
           <div className="card" style={{ width: 'min(520px, calc(100vw - 32px))', padding: 20, background: '#fff' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Edit donor address</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Edit donor details</div>
             <div style={{ display: 'grid', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 10 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>Donor name<input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>PAN no.<input value={editForm.pan_number} onChange={e => setEditForm(f => ({ ...f, pan_number: e.target.value }))} style={{ ...editInputStyle, marginTop: 4, fontFamily: 'monospace' }} /></label>
+              </div>
               <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 1<input value={editForm.address_1} onChange={e => setEditForm(f => ({ ...f, address_1: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
               <label style={{ fontSize: 12, fontWeight: 600 }}>Address line 2<input value={editForm.address_2} onChange={e => setEditForm(f => ({ ...f, address_2: e.target.value }))} style={{ ...editInputStyle, marginTop: 4 }} /></label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10 }}>
@@ -391,7 +403,7 @@ export default function AddressImport() {
             {editError && <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 10 }}>{editError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
               <button className="btn btn-sm" onClick={cancelEdit} disabled={savingId}>Cancel</button>
-              <button className="btn btn-primary btn-sm" onClick={() => saveAddress(donors.find(d => d.id === editingId))} disabled={savingId}>{savingId ? 'Saving…' : 'Save address'}</button>
+              <button className="btn btn-primary btn-sm" onClick={() => saveAddress(donors.find(d => d.id === editingId))} disabled={savingId}>{savingId ? 'Saving…' : 'Save details'}</button>
             </div>
           </div>
         </div>
