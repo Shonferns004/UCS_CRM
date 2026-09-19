@@ -1,11 +1,11 @@
-name: Deploy Frontend (ucs crm)
+name: Deploy Frontend (client)
 
 on:
   workflow_dispatch:
   push:
     branches: [master]
     paths:
-      - 'ucs crm/**'
+      - 'client/**'
 
 jobs:
   deploy:
@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: 'ucs crm/package-lock.json'
+          cache-dependency-path: 'client/package-lock.json'
 
       - name: Build
         env:
@@ -27,7 +27,7 @@ jobs:
           VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
           VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
         run: |
-          cd "ucs crm"
+          cd client
           npm ci
           npm run build
 
@@ -53,7 +53,7 @@ jobs:
           host: 13.207.47.116
           username: ec2-user
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "ucs crm/dist/*"
+          source: "client/dist/*"
           target: /var/www/crm
           strip_components: 2
 
