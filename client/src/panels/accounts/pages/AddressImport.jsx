@@ -454,7 +454,7 @@ export default function AddressImport() {
       </div>
 
       {editingId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }} onClick={cancelEdit}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }} onClick={cancelEdit}>
           <div className="card" style={{ width: 'min(520px, calc(100vw - 32px))', padding: 20, background: '#fff' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Edit donor details</div>
             <div style={{ display: 'grid', gap: 10 }}>
@@ -481,16 +481,16 @@ export default function AddressImport() {
       )}
 
       {receiptsDonor && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }} onClick={() => setReceiptsDonor(null)}>
-          <div className="card" style={{ width: 'min(720px, calc(100vw - 32px))', maxHeight: '86vh', display: 'flex', flexDirection: 'column', padding: 0, background: '#fff', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }} onClick={() => setReceiptsDonor(null)}>
+          <div className="card" style={{ width: 'min(600px, calc(100vw - 32px))', maxHeight: '82vh', display: 'flex', flexDirection: 'column', padding: 0, background: '#fff', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>{receiptsDonor.name || 'Donor'}{receiptsDonor.mobile_number ? ` · ${receiptsDonor.mobile_number}` : ''}</div>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{receiptsData.length} receipt{receiptsData.length !== 1 ? 's' : ''} · click a receipt to edit its details · amount, date &amp; receipt no. are locked</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{receiptsDonor.name || 'Donor'}{receiptsDonor.mobile_number ? ` · ${receiptsDonor.mobile_number}` : ''}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{receiptsData.length} receipt{receiptsData.length !== 1 ? 's' : ''} · amount, date &amp; receipt no. are locked</div>
               </div>
               <button className="btn btn-sm" onClick={() => setReceiptsDonor(null)}>Close</button>
             </div>
-            <div style={{ overflowY: 'auto', padding: '8px 18px 18px' }}>
+            <div style={{ overflowY: 'auto', padding: '10px 16px 16px' }}>
               {receiptsLoading ? (
                 <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--ink-soft)' }}>Loading receipts…</div>
               ) : receiptError && receiptsData.length === 0 ? (
@@ -498,9 +498,9 @@ export default function AddressImport() {
               ) : receiptsData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--ink-soft)' }}>No receipts found for this donor.</div>
               ) : (
-                receiptsData.map((r, i) => (
-                  <div key={r.id} style={{ marginTop: i === 0 ? 10 : 10, border: '1px solid var(--line)', borderRadius: 8, background: '#fafbf8' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px' }}>
+                receiptsData.map(r => (
+                  <div key={r.id} style={{ marginTop: 8, border: '1px solid var(--line)', borderRadius: 8, background: '#fafbf8' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{r.receipt_no || '—'}</span>
@@ -517,7 +517,12 @@ export default function AddressImport() {
                     </div>
                     {editingReceiptId === r.id && (
                       <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--line)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 2px 4px' }}>
+                        <div style={{ display: 'flex', gap: 10, padding: '9px 2px 8px', borderBottom: '1px dashed var(--line)', marginBottom: 8 }}>
+                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Receipt <strong style={{ color: 'var(--ink)', fontFamily: 'monospace' }}>{r.receipt_no || '—'}</strong></span>
+                          <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Date <strong style={{ color: 'var(--ink)' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</strong></span>
+                          <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 'auto' }}>Amount <strong style={{ color: 'var(--sage)' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</strong></span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px 10px', padding: '0 2px' }}>
                           {RECEIPT_EDIT_FIELDS.map(([key, label]) => (
                             <label key={key} style={{ fontSize: 11, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 3 }}>
                               {label}
