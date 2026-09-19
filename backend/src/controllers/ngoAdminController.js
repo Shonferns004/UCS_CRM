@@ -5019,9 +5019,11 @@ export const getTLDashboard = async (req, res) => {
     const notConnectedBreakdown = Object.entries(notConnectedBreakdownMap).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count);
 
     // 3. Follow-ups due (global KPI + per-FRO overdue split for the
-    // Telecaller Performance table: callback-type vs follow-up-type, by IST date)
-    const CALLBACK_OVERDUE_STATUSES = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate']);
-    const PROMISE_OVERDUE_STATUSES = new Set(['promise_to_pay', 'will_donate_online', 'payment_pending']);
+    // Telecaller Performance table, by IST date). Strict buckets: FU O/D counts
+    // follow-up-family statuses only, CB O/D counts callbacks only — any other
+    // past-due status counts in neither.
+    const FU_OVERDUE_STATUSES = new Set(['scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled']);
+    const CB_OVERDUE_STATUSES = new Set(['callback']);
     let followupsQuery = db
       .from('fro_assignments')
       .select('id, next_follow_up, fro_worker_id, status')
@@ -5042,8 +5044,8 @@ export const getTLDashboard = async (req, res) => {
       if (!nd || nd >= istTodayStr || !f.fro_worker_id) continue;
       const wid = String(f.fro_worker_id);
       if (!overdueByWorker[wid]) overdueByWorker[wid] = { calls: 0, followups: 0 };
-      if (CALLBACK_OVERDUE_STATUSES.has(f.status)) overdueByWorker[wid].calls++;
-      else if (!PROMISE_OVERDUE_STATUSES.has(f.status)) overdueByWorker[wid].followups++;
+      if (CB_OVERDUE_STATUSES.has(f.status)) overdueByWorker[wid].calls++;
+      else if (FU_OVERDUE_STATUSES.has(f.status)) overdueByWorker[wid].followups++;
     }
 
     // 4. Target achievement

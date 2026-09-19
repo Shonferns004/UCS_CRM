@@ -30,17 +30,18 @@ const DISPOSITION_LABELS = {
   overdue_followup: 'Follow-Up Overdue', overdue_callback: 'Callback Overdue',
 };
 
-// Overdue buckets mirror the backend Telecaller split (past-due assignments):
-// callback-type statuses vs everything else except promise-type statuses.
-const OD_CALL_KEYS = new Set(['callback', 'scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'visit_donate', 'office_program_visit']);
-const OD_PROMISE_KEYS = new Set(['promise_to_pay', 'will_donate_online', 'payment_pending', 'promise_pay_wa_email']);
+// Overdue buckets mirror the backend Telecaller split exactly: FU O/D is the
+// follow-up family only, CB O/D is callbacks only. Any other past-due status
+// counts in neither — so the modal list reconciles 1:1 with the counts.
+const OD_FU_KEYS = new Set(['scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled']);
+const OD_CB_KEYS = new Set(['callback']);
 // Backend excludes these from overdue counting entirely.
 const OD_EXCLUDED_KEYS = new Set(['reassigned', 'donation_collected']);
 const overdueKindOf = (key) => {
   if (!key || OD_EXCLUDED_KEYS.has(key)) return null;
-  if (OD_CALL_KEYS.has(key)) return 'callback';
-  if (OD_PROMISE_KEYS.has(key)) return null;
-  return 'followup';
+  if (OD_CB_KEYS.has(key)) return 'callback';
+  if (OD_FU_KEYS.has(key)) return 'followup';
+  return null;
 };
 const isPastDueRow = (d) => {
   const nd = d && d.next_follow_up ? String(d.next_follow_up).slice(0, 10) : null;
