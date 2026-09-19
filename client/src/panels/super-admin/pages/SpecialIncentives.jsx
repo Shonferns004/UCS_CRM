@@ -829,9 +829,14 @@ export default function SpecialIncentives() {
                   </div>
                 ) : !hasLive ? null : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {buckets.map((b) => (
-                      <NgoCard key={b.key} meta={b} rows={boards[b.key] || []} onViewAll={() => setViewAll(b.key)} />
-                    ))}
+                    {buckets
+                      // Only buckets holding a live race render — dead NGO
+                      // cards ("No verified collections yet" with no race
+                      // behind them) stay hidden.
+                      .filter((b) => (boards[b.key] || []).length > 0 || activeOf(b.key, b.ngo_id).length > 0)
+                      .map((b) => (
+                        <NgoCard key={b.key} meta={b} rows={boards[b.key] || []} onViewAll={() => setViewAll(b.key)} />
+                      ))}
                   </div>
                 )}
               </div>
