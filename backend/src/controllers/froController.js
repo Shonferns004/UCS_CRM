@@ -3480,13 +3480,14 @@ export const getFroPromises = async (req, res) => {
 };
 
 // Statuses that mean a lead is finished / not worth chasing — anything else
-// with a past next_follow_up counts as overdue (follow-up, callback, promise,
-// visit, etc.), no matter how far back the date goes.
-const FRO_OVERDUE_CLOSED_STATUSES = [
-  'done', 'lead_done', 'donation_collected', 'already_donated',
-  'rejected', 'payment_rejected', 'not_interested', 'not_interested_now',
-  'dnd', 'not_possible', 'wrong_number', 'wrong_person', 'invalid_number',
-  'reassigned', 'others', 'language_barrier', 'call_disconnected',
+// Strict overdue rule (mirrors the admin Telecaller O/D split): only
+// follow-up-family + promise + callback statuses with a past follow-up date
+// count as overdue, no matter how far back the date goes. Leftover
+// not-connected statuses (ringing, busy, …) never sit in Overdue.
+const FRO_OVERDUE_OPEN_STATUSES = [
+  'scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled',
+  'promise_to_pay', 'will_donate_online', 'payment_pending', 'promise_pay_wa_email',
+  'callback',
 ];
 
 export const getFroOverdue = async (req, res) => {
@@ -3506,7 +3507,7 @@ export const getFroOverdue = async (req, res) => {
         .select('*, ngos!left(name)')
         .in('station', stationNames)
         .lt('next_follow_up', today)
-        .not('status', 'in', FRO_OVERDUE_CLOSED_STATUSES),
+        .in('status', FRO_OVERDUE_OPEN_STATUSES),
       myScope
     );
 
@@ -3545,7 +3546,7 @@ export const getFroOverdue = async (req, res) => {
     for (const a of dateOverdue || []) assignmentById[a.id] = a;
     for (const s of schedules || []) {
       const a = s.fro_assignments;
-      if (a && passedScheduleAt.has(a.id) && FRO_OVERDUE_CLOSED_STATUSES.indexOf(a.status) === -1) {
+      if (a && passedScheduleAt.has(a.id) && FRO_OVERDUE_OPEN_STATUSES.indexOf(a.status) !== -1) {
         assignmentById[a.id] = a;
       }
     }
