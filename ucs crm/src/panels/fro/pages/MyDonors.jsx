@@ -1206,9 +1206,13 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         reloadDonors();
       }
       setExternalDonor(null);
-      // Overdue view: drop the just-worked lead right away so a changed
-      // disposition never lingers in Overdue (backend also excludes
-      // same-day-worked assignments on refetch).
+      // Drop the just-worked lead from Overdue / Follow-Up lists instantly —
+      // a changed disposition must never linger there, no matter what the
+      // next server refetch returns. The refetch below reconciles after.
+      const sameLead = (d) => d && d.id === donor.id
+        && (d.ngo_id == null || donor.ngo_id == null || d.ngo_id === donor.ngo_id);
+      setOverdueLeads((prev) => (Array.isArray(prev) ? prev.filter((d) => !sameLead(d)) : prev));
+      setFollowUps((prev) => (Array.isArray(prev) ? prev.filter((d) => !sameLead(d)) : prev));
       if (listView === 'overdue') {
         getOverdue()
           .then((list) => setOverdueLeads(list || []))
