@@ -31,9 +31,9 @@ const DISPOSITION_LABELS = {
 };
 
 // Overdue buckets mirror the backend Telecaller split exactly: FU O/D is the
-// follow-up family only, CB O/D is callbacks only. Any other past-due status
-// counts in neither — so the modal list reconciles 1:1 with the counts.
-const OD_FU_KEYS = new Set(['scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled']);
+// follow-up family + promises, CB O/D is callbacks only. Any other past-due
+// status counts in neither — so the modal list reconciles 1:1 with the counts.
+const OD_FU_KEYS = new Set(['scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled', 'promise_to_pay', 'will_donate_online', 'payment_pending', 'promise_pay_wa_email']);
 const OD_CB_KEYS = new Set(['callback']);
 // Backend excludes these from overdue counting entirely.
 const OD_EXCLUDED_KEYS = new Set(['reassigned', 'donation_collected']);

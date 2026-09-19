@@ -5020,9 +5020,10 @@ export const getTLDashboard = async (req, res) => {
 
     // 3. Follow-ups due (global KPI + per-FRO overdue split for the
     // Telecaller Performance table, by IST date). Strict buckets: FU O/D counts
-    // follow-up-family statuses only, CB O/D counts callbacks only — any other
-    // past-due status counts in neither.
-    const FU_OVERDUE_STATUSES = new Set(['scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled']);
+    // follow-up-family + promise statuses, CB O/D counts callbacks only — any
+    // other past-due status counts in neither. Promises drop out automatically
+    // once collected (receipt check / closed status).
+    const FU_OVERDUE_STATUSES = new Set(['scheduled', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled', 'promise_to_pay', 'will_donate_online', 'payment_pending', 'promise_pay_wa_email']);
     const CB_OVERDUE_STATUSES = new Set(['callback']);
     let followupsQuery = db
       .from('fro_assignments')
