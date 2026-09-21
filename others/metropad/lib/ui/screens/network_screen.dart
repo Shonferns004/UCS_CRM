@@ -237,6 +237,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _openLine(line),
+        onLongPress: () => _lineActions(line),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -291,6 +292,144 @@ class _NetworkScreenState extends State<NetworkScreen> {
         builder: (_) => LineDetailScreen(line: line),
       ),
     ).then((_) => _load());
+  }
+
+  void _lineActions(MetroLine line) {
+    if (!AppState.auth.canManage) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.pencil, size: 20),
+              title: const Text('Edit Line'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editLine(line);
+              },
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.trash2,
+                  size: 20, color: AppColors.danger),
+              title: const Text('Delete Line',
+                  style: TextStyle(color: AppColors.danger)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteLine(line);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editLine(MetroLine line) async {
+    final name = TextEditingController(text: line.name);
+    await showFormModal(
+      context,
+      title: 'Edit Line',
+      builder: (ctx, setState) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Edit Line',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            FormFieldWrap(
+              label: 'Line Name',
+              required: true,
+              child: TextField(
+                controller: name,
+                textCapitalization: TextCapitalization.words,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: () async {
+                    final n = name.text.trim();
+                    if (n.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Line name is required')),
+                      );
+                      return;
+                    }
+                    final msg = await apiRun(context, () async {
+                      await MetroLineService.update(
+                        line.id,
+                        MetroLine(
+                          id: line.id,
+                          code: line.code,
+                          name: n,
+                          description: line.description,
+                          status: line.status,
+                        ),
+                      );
+                    }, success: 'Line updated');
+                    if (!mounted) return;
+                    if (msg == null) {
+                      Navigator.pop(ctx);
+                      _load();
+                    } else {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text(msg)));
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteLine(MetroLine line) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Delete line?'),
+        content: Text(
+            'This permanently deletes "${line.name}", all its stations, machines and their records.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final msg = await apiRun(context, () async {
+      await MetroLineService.remove(line.id);
+    }, success: 'Line deleted');
+    if (!mounted) return;
+    if (msg == null) {
+      _load();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
 

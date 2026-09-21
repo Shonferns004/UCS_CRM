@@ -1,5 +1,6 @@
 import { requireDb, normalizeError } from '../config/supabase.js'
 import { withMachineSpec } from '../config/machineSpec.js'
+import { purgeMachine } from './machine.model.js'
 
 const STATION_SELECT = 'id, line_id, station_code, name, description, status, created_at, updated_at'
 const LINE_SELECT = 'id, name, code, status'
@@ -227,20 +228,35 @@ export const updateStatus = async (id, status) => {
   return data
 }
 
+const STATION_CHILD_TABLES = [
+  'refill_records',
+  'stock_issues',
+  'maintenance_records',
+  'cash_collections',
+  'monthly_data',
+]
+
 export const remove = async (id) => {
-  const { count, error: cErr } = await requireDb()
+  const db = requireDb()
+
+  const { data: machines, error: mErr } = await db
     .from('machines')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .eq('station_id', id)
-  if (cErr) throw normalizeError(cErr)
-  if (count > 0) {
-    throw Object.assign(new Error('Cannot delete station: machines still reference this station'), {
-      statusCode: 409,
-      isOperational: true,
-    })
+  if (mErr) throw normalizeError(mErr)
+  for (const m of machines || []) {
+    await purgeMachine(m.id)
   }
 
-  const { data, error } = await requireDb()
+  for (const table of STATION_CHILD_TABLES) {
+    const { error } = await db.from(table).delete().eq('station_id', id)
+    if (error) throw normalizeError(error)
+  }
+
+  const { error: machErr } = await db.from('machines').delete().eq('station_id', id)
+  if (machErr) throw normalizeError(machErr)
+
+  const { data, error } = await db
     .from('stations')
     .delete()
     .eq('id', id)

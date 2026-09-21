@@ -256,20 +256,27 @@ export const countActive = async () => {
   return count
 }
 
-export const remove = async (id) => {
-  const [refills, issues, maintenance] = await Promise.all([
-    countByMachine('refill_records', id),
-    countByMachine('stock_issues', id),
-    countByMachine('maintenance_records', id),
-  ])
+const MACHINE_CHILD_TABLES = [
+  'refill_records',
+  'stock_issues',
+  'maintenance_records',
+  'monthly_data',
+  'pad_stock',
+  'machine_status_history',
+  'monthly_refill_status',
+]
 
-  if (refills > 0 || issues > 0 || maintenance > 0) {
-    throw Object.assign(
-      new Error('Cannot delete machine: it has refill records, stock issues or maintenance records'),
-      { statusCode: 409, isOperational: true }
-    )
+// Remove every record that references the machine so it can be deleted.
+export const purgeMachine = async (id) => {
+  const db = requireDb()
+  for (const table of MACHINE_CHILD_TABLES) {
+    const { error } = await db.from(table).delete().eq('machine_id', id)
+    if (error) throw normalizeError(error)
   }
+}
 
+export const remove = async (id) => {
+  await purgeMachine(id)
   const { data, error } = await requireDb()
     .from('machines')
     .delete()
