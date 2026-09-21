@@ -148,16 +148,21 @@ class StockIssuesScreen extends StatelessWidget {
                 const SizedBox(width: 10),
                 FilledButton(
                   onPressed: () async {
+                    final exp = int.tryParse(expected.text.trim());
+                    final act = int.tryParse(actual.text.trim());
+                    final missing =
+                        (exp != null && act != null && exp > act) ? exp - act : 0;
                     final msg = await apiRun(context, () async {
                       await StockIssueService.create({
-                        'machine_id': machineId.text.trim(),
-                        'issue_type': issueType,
-                        'expected_stock': int.tryParse(expected.text.trim()),
-                        'actual_stock': int.tryParse(actual.text.trim()),
+                        'machineId': machineId.text.trim(),
+                        'issueType': issueType,
+                        'expectedStock': exp,
+                        'actualStock': act,
+                        'missingQuantity': missing,
                         'reason': reason.text.trim(),
-                        'report_date':
+                        'reportDate':
                             DateTime.now().toIso8601String().substring(0, 10),
-                        'reported_by': AppState.auth.user?.email,
+                        'reportedBy': AppState.auth.user?.email,
                       });
                     }, success: 'Issue reported');
                     if (msg == null) {

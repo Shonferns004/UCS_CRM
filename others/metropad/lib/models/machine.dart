@@ -77,14 +77,15 @@ class Machine {
   }
 
   Map<String, dynamic> toJson() => {
-        'machine_id': machineId,
-        'station_id': stationId,
+        'machineId': machineId,
+        'stationId': stationId,
+        'lineId': lineId,
         'location': location,
-        'machine_type': machineType,
+        'machineType': machineType,
         'capacity': capacity,
-        'current_stock': currentStock,
-        'low_stock_threshold': lowStockThreshold,
-        'installation_date': installationDate,
+        'currentStock': currentStock,
+        'lowStockThreshold': lowStockThreshold,
+        'installationDate': installationDate,
         'status': status,
         'remark': remark,
       };

@@ -1,4 +1,5 @@
 import { requireDb, normalizeError } from '../config/supabase.js'
+import { withMachineSpec } from '../config/machineSpec.js'
 
 const STATION_SELECT = 'id, line_id, station_code, name, description, status, created_at, updated_at'
 const LINE_SELECT = 'id, name, code, status'
@@ -121,7 +122,7 @@ export const findById = async (id) => {
   )
 
   const machineList = machines
-    .map((m) => ({
+    .map((m) => withMachineSpec({
       id: m.id,
       machine_id: m.machine_id,
       location: m.location,
