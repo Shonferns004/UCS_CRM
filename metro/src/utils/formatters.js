@@ -1,3 +1,15 @@
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function formatDateShort(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ''
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = MONTHS_SHORT[d.getMonth()]
+  const yy = String(d.getFullYear()).slice(-2)
+  return `${dd}-${mm}-${yy}`
+}
+
 export function formatDate(value) {
   if (!value) return ''
   const d = new Date(value)

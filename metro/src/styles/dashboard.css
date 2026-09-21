@@ -856,3 +856,13 @@
     height: 46px;
   }
 }
+
+.dash-section {
+  margin-top: 32px;
+  padding-top: 28px;
+  border-top: 1px dashed #d9e0ea;
+}
+
+.dash-section > .page {
+  gap: 18px;
+}

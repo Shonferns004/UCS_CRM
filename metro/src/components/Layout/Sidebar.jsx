@@ -1,21 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NavLink } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth.js';
-import * as stockIssueService from '../../services/stockIssue.service.js';
 import {
   LayoutDashboard,
-  TrainFront,
-  MapPin,
-  Cpu,
-  RefreshCw,
-  Boxes,
-  AlertTriangle,
-  Wrench,
-  BarChart3,
-  FileText,
-  Users,
-  ScrollText,
-  Settings,
   ChevronRight,
 } from 'lucide-react';
 
@@ -25,65 +12,13 @@ const navSections = [
       { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     ],
   },
-  {
-    header: 'Metro Management',
-    items: [
-      { to: '/metro-lines', icon: TrainFront, label: 'Metro Lines' },
-      { to: '/stations', icon: MapPin, label: 'Stations' },
-    ],
-  },
-  {
-    header: 'Machine Management',
-    items: [
-      { to: '/pad-stock', icon: Boxes, label: 'Pad Stock' },
-      { to: '/machines', icon: Cpu, label: 'Machines' },
-      { to: '/refills', icon: RefreshCw, label: 'Refill Management' },
-      { to: '/stock-issues', icon: AlertTriangle, label: 'Stock Issues', badge: 'stockIssues' },
-      { to: '/maintenance', icon: Wrench, label: 'Maintenance' },
-    ],
-  },
-  {
-    header: 'Analytics & System',
-    items: [
-      { to: '/monthly-data', icon: BarChart3, label: 'Monthly Data' },
-      { to: '/reports', icon: FileText, label: 'Reports' },
-    ],
-  },
-  {
-    header: 'Administration',
-    adminOnly: true,
-    items: [
-      { to: '/users', icon: Users, label: 'Users' },
-      { to: '/audit-logs', icon: ScrollText, label: 'Audit Logs' },
-    ],
-  },
-  {
-    header: 'System',
-    items: [
-      { to: '/settings', icon: Settings, label: 'Settings' },
-    ],
-  },
 ];
 
 function Sidebar({ isOpen, onClose }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
-  const [stockIssueCount, setStockIssueCount] = useState(null);
   const getLinkClass = ({ isActive }) =>
     `sidebar-link${isActive ? ' active' : ''}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    stockIssueService
-      .getAll({ limit: 1, status: 'OPEN' })
-      .then((res) => {
-        if (!cancelled) setStockIssueCount(res?.meta?.total ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setStockIssueCount(null);
-      });
-    return () => { cancelled = true; };
-  }, []);
 
   return (
     <>
@@ -113,31 +48,25 @@ function Sidebar({ isOpen, onClose }) {
                   {section.header}
                 </div>
               )}
-              {section.items.map((item) => {
-                const badgeCount = item.badge === 'stockIssues' ? stockIssueCount : null;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={getLinkClass}
-                    end={item.to === '/'}
-                    onClick={onClose}
-                  >
-                    <span className="sidebar-link-icon">
-                      <item.icon size={17} strokeWidth={1.75} />
+              {section.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={getLinkClass}
+                  end={item.to === '/'}
+                  onClick={onClose}
+                >
+                  <span className="sidebar-link-icon">
+                    <item.icon size={17} strokeWidth={1.75} />
+                  </span>
+                  <span>{item.label}</span>
+                  {section.items.length === 1 && (
+                    <span className="sidebar-link-arrow">
+                      <ChevronRight size={14} strokeWidth={2} />
                     </span>
-                    <span>{item.label}</span>
-                    {badgeCount !== null && badgeCount > 0 && (
-                      <span className="sidebar-link-badge">{badgeCount}</span>
-                    )}
-                    {section.items.length === 1 && (
-                      <span className="sidebar-link-arrow">
-                        <ChevronRight size={14} strokeWidth={2} />
-                      </span>
-                    )}
-                  </NavLink>
-                );
-              })}
+                  )}
+                </NavLink>
+              ))}
             </div>
           ))}
         </nav>
