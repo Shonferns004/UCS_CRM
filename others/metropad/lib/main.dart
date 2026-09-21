@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
 
+import 'core/theme.dart';
+import 'state/app_state.dart';
+import 'ui/screens/screens.dart';
+import 'ui/widgets/common.dart';
+import 'ui/widgets/toast_host.dart';
+
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MetroPadApp());
 }
 
@@ -12,49 +19,47 @@ class MetroPadApp extends StatelessWidget {
     return MaterialApp(
       title: 'MetroPad',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        useMaterial3: true,
-      ),
-      home: const HomeScreen(),
+      theme: buildAppTheme(),
+      builder: (context, child) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ?child,
+            const ToastHost(),
+          ],
+        );
+      },
+      home: const RootGate(),
     );
   }
 }
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class RootGate extends StatefulWidget {
+  const RootGate({super.key});
+  @override
+  State<RootGate> createState() => _RootGateState();
+}
+
+class _RootGateState extends State<RootGate> {
+  @override
+  void initState() {
+    super.initState();
+    AppState.auth.restore();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: theme.colorScheme.inversePrimary,
-        title: const Text('MetroPad'),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.directions_subway,
-              size: 72,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'MetroPad Care',
-              style: theme.textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Metro patrol, machine refill & cash collection',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
-            ),
-          ],
-        ),
-      ),
+    return ListenableBuilder(
+      listenable: AppState.auth,
+      builder: (context, _) {
+        if (!AppState.auth.ready) {
+          return const LoadingSpinner(fullPage: true, message: 'Loading...');
+        }
+        if (AppState.auth.isLoggedIn) {
+          return const DashboardScreen();
+        }
+        return const LoginScreen();
+      },
     );
   }
 }
