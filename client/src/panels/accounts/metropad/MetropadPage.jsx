@@ -2,6 +2,8 @@ import React from 'react';
 import useAuth from './hooks/useAuth.js';
 import Dashboard from './pages/Dashboard.jsx';
 import LoadingSpinner from './components/LoadingSpinner.jsx';
+import { AuthProvider } from './contexts/AuthContext.jsx';
+import { ToastProvider } from './components/ToastContext.jsx';
 
 import './styles/global.css';
 import './styles/components.css';
