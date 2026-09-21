@@ -8,7 +8,7 @@ import * as refillService from '../services/refill.service.js';
 import * as stockIssueService from '../services/stockIssue.service.js';
 import * as maintenanceService from '../services/maintenance.service.js';
 import { formatDate, formatDateTime, getErrorMessage } from '../utils/formatters.js';
-import { MACHINE_STATUSES } from '../utils/constants.js';
+import { MACHINE_STATUSES, SLOTS_PER_MACHINE, SLOT_CAPACITY } from '../utils/constants.js';
 import StatusBadge from '../components/StatusBadge.jsx';
 import KpiCard from '../components/KpiCard.jsx';
 import DataTable from '../components/DataTable.jsx';
@@ -123,6 +123,14 @@ function MachineDetail() {
 
   if (!machine) return null;
 
+  const slots = machine.slots ?? Array.from({ length: SLOTS_PER_MACHINE }, (_, i) => {
+    const stock = Math.max(
+      0,
+      Math.min(SLOT_CAPACITY, (machine.current_stock ?? 0) - i * SLOT_CAPACITY)
+    );
+    return { slot: i + 1, capacity: SLOT_CAPACITY, stock };
+  });
+
   return (
     <div className="page">
       <div className="page-header" style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
@@ -147,6 +155,39 @@ function MachineDetail() {
               className={`stock-bar-fill ${(machine.stock_percentage ?? 0) <= 20 ? 'stock-low' : ''}`}
               style={{ width: `${machine.stock_percentage ?? 0}%` }}
             />
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">SLOTS</h2>
+          <span>{SLOTS_PER_MACHINE} slots × {SLOT_CAPACITY} pads</span>
+        </div>
+        <div className="card-body">
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {slots.map((s) => (
+              <div
+                key={s.slot}
+                style={{
+                  flex: '1 1 140px',
+                  border: '1px solid var(--border, #e2e8f0)',
+                  borderRadius: '12px',
+                  padding: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 600 }}>
+                  <span>Slot {s.slot}</span>
+                  <span>{s.stock} / {s.capacity}</span>
+                </div>
+                <div className="stock-bar" style={{ marginTop: '8px' }}>
+                  <div
+                    className={`stock-bar-fill ${s.stock === 0 ? 'stock-low' : ''}`}
+                    style={{ width: `${s.capacity ? (s.stock / s.capacity) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -252,7 +293,7 @@ function OverviewTab({ machine }) {
             </div>
             <div className="info-item">
               <span className="info-label">Capacity</span>
-              <span className="info-value">{machine.capacity}</span>
+              <span className="info-value">{machine.capacity} ({SLOTS_PER_MACHINE} slots × {SLOT_CAPACITY})</span>
             </div>
             <div className="info-item">
               <span className="info-label">Current Stock</span>

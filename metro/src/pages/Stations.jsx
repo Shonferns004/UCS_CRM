@@ -7,7 +7,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import * as metroLineService from '../services/metroLine.service.js';
 import * as stationService from '../services/station.service.js';
 import { getErrorMessage } from '../utils/formatters.js';
-import { ENTITY_STATUSES } from '../utils/constants.js';
+import { ENTITY_STATUSES, SLOTS_PER_MACHINE, SLOT_CAPACITY, MACHINE_CAPACITY } from '../utils/constants.js';
 import DataTable from '../components/DataTable.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import Modal from '../components/Modal.jsx';
@@ -317,6 +317,11 @@ function Stations() {
               rows="3"
             />
           </div>
+          {!editTarget && (
+            <p className="form-hint">
+              A machine with {SLOTS_PER_MACHINE} slots of {SLOT_CAPACITY} pads ({MACHINE_CAPACITY} total) is created automatically for this station.
+            </p>
+          )}
         </form>
       </Modal>
 

@@ -6,6 +6,7 @@ import useAuth from '../hooks/useAuth.js';
 import * as stationService from '../services/station.service.js';
 import * as metroLineService from '../services/metroLine.service.js';
 import { getErrorMessage, formatDate, getStockLevel } from '../utils/formatters.js';
+import { SLOTS_PER_MACHINE, SLOT_CAPACITY, MACHINE_CAPACITY } from '../utils/constants.js';
 import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
 import KpiCard from '../components/KpiCard.jsx';
@@ -76,7 +77,11 @@ function StationDetail() {
       ),
     },
     { key: 'location', label: 'Location' },
-    { key: 'capacity', label: 'Capacity' },
+    {
+      key: 'capacity',
+      label: 'Capacity',
+      render: (val) => `${val ?? MACHINE_CAPACITY} (${SLOTS_PER_MACHINE}×${SLOT_CAPACITY})`,
+    },
     { key: 'current_stock', label: 'Current Stock' },
     {
       key: 'stock_percentage',

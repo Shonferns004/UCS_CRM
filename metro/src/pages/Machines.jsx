@@ -8,7 +8,7 @@ import * as metroLineService from '../services/metroLine.service.js';
 import * as stationService from '../services/station.service.js';
 import * as machineService from '../services/machine.service.js';
 import { getErrorMessage, formatDate } from '../utils/formatters.js';
-import { MACHINE_STATUSES, MACHINE_TYPES } from '../utils/constants.js';
+import { MACHINE_STATUSES, MACHINE_TYPES, MACHINE_CAPACITY, SLOTS_PER_MACHINE, SLOT_CAPACITY } from '../utils/constants.js';
 import DataTable from '../components/DataTable.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import Modal from '../components/Modal.jsx';
@@ -23,7 +23,7 @@ function buildEmptyForm() {
     stationId: '',
     location: '',
     machineType: '',
-    capacity: '',
+    capacity: MACHINE_CAPACITY,
     currentStock: 0,
     lowStockThreshold: 10,
     installationDate: '',
@@ -169,7 +169,7 @@ function Machines() {
     { key: 'line_name', label: 'Line' },
     { key: 'station_name', label: 'Station' },
     { key: 'location', label: 'Location' },
-    { key: 'capacity', label: 'Capacity' },
+    { key: 'capacity', label: 'Capacity', render: (val) => `${val ?? MACHINE_CAPACITY} (${SLOTS_PER_MACHINE}×${SLOT_CAPACITY})` },
     { key: 'current_stock', label: 'Current Stock' },
     {
       key: 'stock_percentage',
@@ -230,7 +230,7 @@ function Machines() {
       stationId: row.station_id || '',
       location: row.location || '',
       machineType: row.machine_type || '',
-      capacity: row.capacity ?? '',
+      capacity: MACHINE_CAPACITY,
       currentStock: row.current_stock ?? 0,
       lowStockThreshold: row.low_stock_threshold ?? 10,
       installationDate: row.installation_date || '',
@@ -255,15 +255,11 @@ function Machines() {
     if (!form.machineId.trim()) errors.machineId = 'Machine ID is required';
     if (!form.lineId) errors.lineId = 'Please select a metro line';
     if (!form.stationId) errors.stationId = 'Please select a station';
-    const capacity = Number(form.capacity);
-    if (form.capacity === '' || isNaN(capacity)) {
-      errors.capacity = 'Capacity is required';
-    } else if (capacity <= 0) {
-      errors.capacity = 'Capacity must be greater than 0';
-    }
     const currentStock = Number(form.currentStock);
     if (form.currentStock === '' || isNaN(currentStock) || currentStock < 0) {
       errors.currentStock = 'Current stock must be 0 or more';
+    } else if (currentStock > MACHINE_CAPACITY) {
+      errors.currentStock = `Current stock cannot exceed capacity (${MACHINE_CAPACITY})`;
     }
     const threshold = Number(form.lowStockThreshold);
     if (form.lowStockThreshold === '' || isNaN(threshold) || threshold < 0) {
@@ -284,7 +280,7 @@ function Machines() {
         lineId: form.lineId,
         location: form.location.trim(),
         machineType: form.machineType,
-        capacity: Number(form.capacity),
+        capacity: MACHINE_CAPACITY,
         currentStock: Number(form.currentStock) || 0,
         lowStockThreshold: Number(form.lowStockThreshold) || 0,
         installationDate: form.installationDate,
@@ -443,7 +439,7 @@ function Machines() {
               className="form-input"
               value={form.location}
               onChange={(e) => handleFormChange('location', e.target.value)}
-              placeholder="e.g. Platform 1, Near Exit A"
+              placeholder="e.g. Near Exit A"
             />
           </div>
           <div className="form-group">
@@ -464,16 +460,13 @@ function Machines() {
           <div className="form-group">
             <label className="form-label">Capacity</label>
             <input
-              type="number"
+              type="text"
               className="form-input"
-              value={form.capacity}
-              onChange={(e) => handleFormChange('capacity', e.target.value)}
-              placeholder="e.g. 100"
-              min="1"
+              value={`${MACHINE_CAPACITY} pads (${SLOTS_PER_MACHINE} slots × ${SLOT_CAPACITY})`}
+              readOnly
+              disabled
             />
-            {formErrors.capacity && (
-              <span className="form-error">{formErrors.capacity}</span>
-            )}
+            <span className="form-hint">Fixed for every machine.</span>
           </div>
           <div className="form-group">
             <label className="form-label">Current Stock</label>

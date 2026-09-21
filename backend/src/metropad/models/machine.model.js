@@ -1,4 +1,5 @@
 import { requireDb, normalizeError } from '../config/supabase.js'
+import { withMachineSpec } from '../config/machineSpec.js'
 
 const MACHINE_SELECT = 'id, machine_id, station_id, line_id, location, machine_type, capacity, current_stock, low_stock_threshold, installation_date, status, remark, last_refill_at, last_maintenance_at, created_at, updated_at'
 
@@ -20,14 +21,14 @@ export const enrichRows = async (machines) => {
     return machines.map((m) => {
       const s = sMap[m.station_id] || {}
       const l = lMap[m.line_id] || {}
-      return {
+      return withMachineSpec({
         ...m,
         station_name: s.name || null,
         station_code: s.station_code || null,
         line_name: l.name || null,
         line_code: l.code || null,
         stock_percentage: stockPercentage(m),
-      }
+      })
     })
   }
   return enrichAsync()
@@ -138,6 +139,15 @@ export const findByMachineId = async (machineId) => {
     .maybeSingle()
   if (error) throw normalizeError(error)
   return data
+}
+
+export const findByStationId = async (stationId) => {
+  const { data, error } = await requireDb()
+    .from('machines')
+    .select('*')
+    .eq('station_id', stationId)
+  if (error) throw normalizeError(error)
+  return data || []
 }
 
 export const create = async ({

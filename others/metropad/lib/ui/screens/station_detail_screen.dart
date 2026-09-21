@@ -8,9 +8,13 @@ import '../../core/mumbai_metro.dart';
 import '../../core/theme.dart';
 import '../../models/machine.dart';
 import '../../models/metro.dart';
+import '../../services/machine_service.dart';
 import '../../services/metro_service.dart';
+import '../../services/stock_service.dart';
+import '../../state/app_state.dart';
 import '../layout/main_layout.dart';
 import '../widgets/common.dart';
+import '../widgets/modals.dart';
 import '../widgets/status_badge.dart';
 
 class StationDetailScreen extends StatefulWidget {
@@ -88,6 +92,8 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                       _header(s!),
                       const SizedBox(height: 12),
                       _stats(s),
+                      const SizedBox(height: 12),
+                      _actionsCard(),
                       const SizedBox(height: 12),
                       _machinesCard(),
                       const SizedBox(height: 12),
@@ -207,6 +213,417 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
     );
   }
 
+  Widget _actionsCard() {
+    if (!AppState.auth.canManage) return const SizedBox.shrink();
+    final hasMachine = _machines.isNotEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Actions',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            if (!hasMachine) ...[
+              const Text(
+                'No machine installed at this station yet. Add a machine (2 slots × 25 pads) to record refills, maintenance and stock issues.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.textLight),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _addMachine,
+                  icon: const Icon(LucideIcons.plus, size: 18),
+                  label: const Text('Add Machine'),
+                ),
+              ),
+            ] else
+              Row(
+                children: [
+                  Expanded(
+                    child: _actionButton(
+                      icon: LucideIcons.refreshCw,
+                      label: 'Add Refill',
+                      onTap: _addRefill,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _actionButton(
+                      icon: LucideIcons.wrench,
+                      label: 'Maintenance',
+                      onTap: _addMaintenance,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _actionButton(
+                      icon: LucideIcons.triangleAlert,
+                      label: 'Stock Issue',
+                      onTap: _addStockIssue,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addMachine() async {
+    final s = _station;
+    if (s == null) return;
+    final msg = await apiRun(context, () async {
+      await MachineService.create(Machine(
+        id: '',
+        machineId:
+            'M-${DateTime.now().microsecondsSinceEpoch.toRadixString(36).toUpperCase()}',
+        stationId: s.id,
+        lineId: s.lineId,
+        location: s.name,
+        machineType: 'Standard',
+        capacity: AppConstants.machineCapacity,
+        currentStock: 0,
+        lowStockThreshold: AppConstants.lowStockThreshold,
+        installationDate:
+            DateTime.now().toIso8601String().substring(0, 10),
+        status: 'ACTIVE',
+      ));
+    }, success: 'Machine added');
+    if (!mounted) return;
+    if (msg == null) {
+      _load();
+    } else {
+      _snack(msg);
+    }
+  }
+
+  Widget _actionButton({
+    required IconData icon,
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        minimumSize: const Size(0, 64),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(height: 4),
+          Text(label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Machine? get _machine => _machines.isNotEmpty ? _machines.first : null;
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _addRefill() async {
+    final m = _machine;
+    if (m == null) {
+      _snack('No machine installed at this station.');
+      return;
+    }
+    final cash = TextEditingController();
+    final qty = TextEditingController();
+    await showFormModal(
+      context,
+      title: 'Add Refill',
+      builder: (ctx, setState) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Add Refill',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            FormFieldWrap(
+              label: 'Amount Collected (₹)',
+              child: TextField(
+                controller: cash,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(hintText: 'e.g. 250'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FormFieldWrap(
+              label: 'Refill Quantity (pads)',
+              required: true,
+              child: TextField(
+                controller: qty,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(hintText: 'e.g. 25'),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: () async {
+                    final c = double.tryParse(cash.text.trim()) ?? 0;
+                    final q = int.tryParse(qty.text.trim());
+                    if (q == null || q < 0) {
+                      _snack('Enter a valid refill quantity');
+                      return;
+                    }
+                    final capacity = (m.capacity ?? AppConstants.machineCapacity)
+                        .toInt();
+                    final remaining = capacity - (m.currentStock ?? 0).toInt();
+                    if (q > remaining) {
+                      _snack('Refill exceeds capacity. Max $remaining pads.');
+                      return;
+                    }
+                    final msg = await apiRun(context, () async {
+                      await RefillService.create({
+                        'machineId': m.id,
+                        'stationId': m.stationId ?? _station?.id,
+                        'cashCollected': c,
+                        'refillQuantity': q,
+                        'refillDate':
+                            DateTime.now().toIso8601String().substring(0, 10),
+                      });
+                    }, success: 'Refill recorded');
+                    if (!mounted) return;
+                    if (msg == null) {
+                      Navigator.pop(ctx);
+                      _load();
+                    } else {
+                      _snack(msg);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _addMaintenance() async {
+    final m = _machine;
+    if (m == null) {
+      _snack('No machine installed at this station.');
+      return;
+    }
+    final problem = TextEditingController();
+    final technician = TextEditingController();
+    final remark = TextEditingController();
+    String priority = 'MEDIUM';
+    await showFormModal(
+      context,
+      title: 'Add Maintenance',
+      builder: (ctx, setState) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Add Maintenance',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            FormFieldWrap(
+              label: 'Problem',
+              required: true,
+              child: TextField(
+                controller: problem,
+                decoration: const InputDecoration(hintText: 'Describe the issue'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FormFieldWrap(
+              label: 'Priority',
+              child: DropdownButtonFormField<String>(
+                initialValue: priority,
+                items: [
+                  for (final p in AppConstants.maintenancePriorities)
+                    DropdownMenuItem(value: p, child: Text(humanizeLabel(p))),
+                ],
+                onChanged: (v) => setState(() => priority = v ?? priority),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FormFieldWrap(
+              label: 'Technician',
+              child: TextField(controller: technician),
+            ),
+            const SizedBox(height: 12),
+            FormFieldWrap(
+              label: 'Remark',
+              child: TextField(controller: remark),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: () async {
+                    if (problem.text.trim().isEmpty) {
+                      _snack('Problem is required');
+                      return;
+                    }
+                    final msg = await apiRun(context, () async {
+                      await MaintenanceService.create({
+                        'machineId': m.id,
+                        'stationId': m.stationId ?? _station?.id,
+                        'problem': problem.text.trim(),
+                        'priority': priority,
+                        'technician': technician.text.trim(),
+                        'remark': remark.text.trim(),
+                        'reportedDate':
+                            DateTime.now().toIso8601String().substring(0, 10),
+                      });
+                    }, success: 'Maintenance added');
+                    if (!mounted) return;
+                    if (msg == null) {
+                      Navigator.pop(ctx);
+                      _load();
+                    } else {
+                      _snack(msg);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _addStockIssue() async {
+    final m = _machine;
+    if (m == null) {
+      _snack('No machine installed at this station.');
+      return;
+    }
+    final expected = TextEditingController();
+    final actual = TextEditingController();
+    final reason = TextEditingController();
+    String issueType = AppConstants.issueTypes.first;
+    await showFormModal(
+      context,
+      title: 'Add Stock Issue',
+      builder: (ctx, setState) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Add Stock Issue',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            FormFieldWrap(
+              label: 'Issue Type',
+              child: DropdownButtonFormField<String>(
+                initialValue: issueType,
+                items: [
+                  for (final t in AppConstants.issueTypes)
+                    DropdownMenuItem(value: t, child: Text(humanizeLabel(t))),
+                ],
+                onChanged: (v) => setState(() => issueType = v ?? issueType),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: FormFieldWrap(
+                    label: 'Expected Stock',
+                    child: TextField(
+                      controller: expected,
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FormFieldWrap(
+                    label: 'Actual Stock',
+                    child: TextField(
+                      controller: actual,
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FormFieldWrap(
+              label: 'Reason',
+              child: TextField(controller: reason),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: () async {
+                    final exp = int.tryParse(expected.text.trim());
+                    final act = int.tryParse(actual.text.trim());
+                    final missing =
+                        (exp != null && act != null && exp > act) ? exp - act : 0;
+                    final msg = await apiRun(context, () async {
+                      await StockIssueService.create({
+                        'machineId': m.id,
+                        'stationId': m.stationId ?? _station?.id,
+                        'issueType': issueType,
+                        'expectedStock': exp,
+                        'actualStock': act,
+                        'missingQuantity': missing,
+                        'reason': reason.text.trim(),
+                        'reportDate':
+                            DateTime.now().toIso8601String().substring(0, 10),
+                      });
+                    }, success: 'Issue reported');
+                    if (!mounted) return;
+                    if (msg == null) {
+                      Navigator.pop(ctx);
+                      _load();
+                    } else {
+                      _snack(msg);
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _machinesCard() {
     return Card(
       child: Padding(
@@ -236,38 +653,85 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
     final label = m.location.trim().isEmpty
         ? 'Machine ${index + 1}'
         : m.location.trim();
+    final slots = AppConstants.slotStock(m.currentStock);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(LucideIcons.cpu,
-                size: 18, color: AppColors.primary),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                Text(
-                  '${formatNumber(m.currentStock)} / ${formatNumber(m.capacity)} pads',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textLight),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              ],
-            ),
+                child: const Icon(LucideIcons.cpu,
+                    size: 18, color: AppColors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: const TextStyle(
+                            fontSize: 13.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${AppConstants.slotsPerMachine} slots × ${AppConstants.slotCapacity} pads · ${formatNumber(m.currentStock)}/${formatNumber(m.capacity)}',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textLight),
+                    ),
+                  ],
+                ),
+              ),
+              if (m.status.isNotEmpty) StatusBadge(m.status),
+            ],
           ),
-          if (m.status.isNotEmpty) StatusBadge(m.status),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (var i = 0; i < slots.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                _slotChip(i, slots[i]),
+              ],
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _slotChip(int index, int stock) {
+    final full = stock >= AppConstants.slotCapacity;
+    final color = stock == 0
+        ? AppColors.textLight
+        : (full ? AppColors.success : AppColors.primary);
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Slot ${index + 1}',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color)),
+            Text('$stock/${AppConstants.slotCapacity}',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: color)),
+          ],
+        ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import * as StationModel from '../models/station.model.js'
 import * as MetroLineModel from '../models/metroLine.model.js'
 import { AppError } from '../middleware/errorHandler.js'
 import * as AuditService from './audit.service.js'
+import { MACHINE_CAPACITY } from '../config/machineSpec.js'
 
 const VALID_MACHINE_STATUSES = ['ACTIVE', 'INACTIVE', 'OFFLINE', 'MAINTENANCE']
 
@@ -30,10 +31,9 @@ export const createMachine = async (data, user) => {
     throw new AppError('machineId is required', 400)
   }
 
-  const capacity = Number(data.capacity)
-  if (!Number.isInteger(capacity) || capacity <= 0) {
-    throw new AppError('capacity must be a positive integer', 400)
-  }
+  // Every station has exactly one machine with a fixed capacity of 50 pads
+  // (2 slots x 25 pads). Capacity is not user-editable.
+  const capacity = MACHINE_CAPACITY
 
   const currentStock = data.currentStock !== undefined ? Number(data.currentStock) : 0
   if (!Number.isInteger(currentStock) || currentStock < 0) {
@@ -50,6 +50,11 @@ export const createMachine = async (data, user) => {
   const station = await StationModel.findById(data.stationId)
   if (!station) {
     throw new AppError('Station not found', 400)
+  }
+
+  const stationMachines = await MachineModel.findByStationId(data.stationId)
+  if (stationMachines.length > 0) {
+    throw new AppError('Station already has a machine', 409)
   }
 
   const line = await MetroLineModel.findById(data.lineId)
@@ -86,10 +91,8 @@ export const updateMachine = async (id, data, user) => {
     throw new AppError('Machine not found', 404)
   }
 
-  const capacity = data.capacity !== undefined ? Number(data.capacity) : existing.capacity
-  if (!Number.isInteger(capacity) || capacity <= 0) {
-    throw new AppError('capacity must be a positive integer', 400)
-  }
+  // Capacity is fixed for every machine (2 slots x 25 pads).
+  const capacity = MACHINE_CAPACITY
 
   const currentStock = data.currentStock !== undefined ? Number(data.currentStock) : existing.current_stock
   if (!Number.isInteger(currentStock) || currentStock < 0) {
@@ -107,6 +110,12 @@ export const updateMachine = async (id, data, user) => {
     const station = await StationModel.findById(data.stationId)
     if (!station) {
       throw new AppError('Station not found', 400)
+    }
+    if (data.stationId !== existing.station_id) {
+      const stationMachines = await MachineModel.findByStationId(data.stationId)
+      if (stationMachines.length > 0) {
+        throw new AppError('Station already has a machine', 409)
+      }
     }
   }
 

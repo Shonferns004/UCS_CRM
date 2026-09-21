@@ -145,8 +145,8 @@ class Station {
 
   Map<String, dynamic> toJson() => {
         'name': name,
-        'station_code': stationCode,
-        'line_id': lineId,
+        'stationCode': stationCode,
+        'lineId': lineId,
         'description': description,
         'status': status,
       };

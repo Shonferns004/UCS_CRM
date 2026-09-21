@@ -5,6 +5,19 @@ class AppConstants {
   static const int pricePerPad = 5;
   static const int lowStockThreshold = 10;
 
+  // Every station has exactly one machine with 2 slots of 25 pads each.
+  static const int slotsPerMachine = 2;
+  static const int slotCapacity = 25;
+  static const int machineCapacity = slotsPerMachine * slotCapacity;
+
+  static List<int> slotStock(num? currentStock) {
+    final stock = (currentStock ?? 0).toInt();
+    return [
+      for (var i = 0; i < slotsPerMachine; i++)
+        (stock - i * slotCapacity).clamp(0, slotCapacity),
+    ];
+  }
+
   static const List<String> machineStatuses = [
     'ACTIVE', 'INACTIVE', 'OFFLINE', 'MAINTENANCE',
   ];

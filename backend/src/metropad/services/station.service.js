@@ -1,7 +1,9 @@
 import * as StationModel from '../models/station.model.js'
 import * as MetroLineModel from '../models/metroLine.model.js'
+import * as MachineModel from '../models/machine.model.js'
 import { AppError } from '../middleware/errorHandler.js'
 import * as AuditService from './audit.service.js'
+import { MACHINE_CAPACITY } from '../config/machineSpec.js'
 
 export const getAllStations = async (filters = {}) => {
   return StationModel.findAll(filters)
@@ -33,8 +35,30 @@ export const createStation = async (data, user) => {
     status: data.status || 'ACTIVE',
     createdBy: user?.id,
   })
+
+  // Every station gets exactly one machine (2 slots x 25 pads = 50 capacity).
+  let machine = null
+  try {
+    machine = await MachineModel.create({
+      machineId: `M-${station.station_code}`,
+      stationId: station.id,
+      lineId: station.line_id,
+      location: station.name,
+      machineType: 'Standard',
+      capacity: MACHINE_CAPACITY,
+      currentStock: 0,
+      status: 'ACTIVE',
+      createdBy: user?.id,
+    })
+    await AuditService.logAction(user, 'CREATE', 'MACHINE', machine.id, null, machine)
+  } catch (err) {
+    // Keep data consistent: remove the station if its machine could not be created.
+    await StationModel.remove(station.id).catch(() => {})
+    throw err
+  }
+
   await AuditService.logAction(user, 'CREATE', 'STATION', station.id, null, station)
-  return station
+  return { ...station, machine }
 }
 
 export const updateStation = async (id, data, user) => {

@@ -158,7 +158,7 @@ class _RefillsScreenState extends State<RefillsScreen> {
     if (!context.mounted) return;
     final qty = TextEditingController();
     final remark = TextEditingController();
-    String? machineId = machines.isNotEmpty ? machines.first.id : null;
+    Machine? selected = machines.isNotEmpty ? machines.first : null;
     await showFormModal(
       context,
       title: 'Add Refill',
@@ -174,7 +174,7 @@ class _RefillsScreenState extends State<RefillsScreen> {
               label: 'Machine',
               required: true,
               child: DropdownButtonFormField<String>(
-                initialValue: machineId,
+                initialValue: selected?.id,
                 isExpanded: true,
                 items: [
                   for (final m in machines)
@@ -183,7 +183,8 @@ class _RefillsScreenState extends State<RefillsScreen> {
                       child: Text(m.machineId),
                     ),
                 ],
-                onChanged: (v) => setState(() => machineId = v),
+                onChanged: (v) => setState(() =>
+                    selected = machines.where((m) => m.id == v).firstOrNull),
               ),
             ),
             const SizedBox(height: 12),
@@ -209,7 +210,7 @@ class _RefillsScreenState extends State<RefillsScreen> {
                 FilledButton(
                   onPressed: () async {
                     final q = int.tryParse(qty.text.trim());
-                    if (machineId == null || q == null || q <= 0) {
+                    if (selected == null || q == null || q <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Select machine & valid quantity')),
                       );
@@ -217,10 +218,11 @@ class _RefillsScreenState extends State<RefillsScreen> {
                     }
                     final msg = await apiRun(context, () async {
                       await RefillService.create({
-                        'machine_id': machineId,
-                        'refill_quantity': q,
+                        'machineId': selected!.id,
+                        'stationId': selected!.stationId,
+                        'refillQuantity': q,
                         'remark': remark.text.trim(),
-                        'refill_date':
+                        'refillDate':
                             DateTime.now().toIso8601String().substring(0, 10),
                       });
                     }, success: 'Refill recorded');
