@@ -50,3 +50,6 @@ aws/main.md
 **/google-services.json
 **/GoogleService-Info.plist
 
+/client/windows
+/client/android
+

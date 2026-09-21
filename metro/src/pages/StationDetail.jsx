@@ -6,7 +6,7 @@ import useAuth from '../hooks/useAuth.js';
 import * as stationService from '../services/station.service.js';
 import * as metroLineService from '../services/metroLine.service.js';
 import { getErrorMessage, formatDate, getStockLevel } from '../utils/formatters.js';
-import { SLOTS_PER_MACHINE, SLOT_CAPACITY, MACHINE_CAPACITY } from '../utils/constants.js';
+import { MACHINE_CAPACITY } from '../utils/constants.js';
 import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
 import KpiCard from '../components/KpiCard.jsx';
@@ -78,25 +78,19 @@ function StationDetail() {
     },
     { key: 'location', label: 'Location' },
     {
-      key: 'capacity',
-      label: 'Capacity',
-      render: (val) => `${val ?? MACHINE_CAPACITY} (${SLOTS_PER_MACHINE}×${SLOT_CAPACITY})`,
-    },
-    { key: 'current_stock', label: 'Current Stock' },
-    {
-      key: 'stock_percentage',
-      label: 'Stock %',
-      render: (val, row) => (
+      key: 'stock',
+      label: 'Stock',
+      render: (_, row) => (
         <div className="stock-percentage-cell">
           <div className="stock-bar">
             <div
               className={`stock-bar-fill ${stockBarClass(row)}`}
               style={{
-                width: `${Math.min(100, Math.max(0, Number(val) || 0))}%`,
+                width: `${Math.min(100, Math.max(0, Number(row.stock_percentage) || 0))}%`,
               }}
             />
           </div>
-          <span>{val ?? 0}%</span>
+          <span>{(row.current_stock ?? 0)} of {row.capacity ?? MACHINE_CAPACITY}</span>
         </div>
       ),
     },

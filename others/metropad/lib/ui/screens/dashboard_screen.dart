@@ -374,7 +374,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     cell: (c, e) => cellText(e.machineId)),
                 TableColumn<StationStock>('Stock',
                     cell: (c, e) => cellText(
-                        '${(e.currentStock ?? 0).toInt()}/${(e.capacity ?? 0).toInt()}')),
+                        '${(e.currentStock ?? 0).toInt()} of ${(e.capacity ?? 0).toInt()}')),
                 TableColumn<StationStock>('Status',
                     cell: (c, e) => _stockStatusBadge(e.stockStatus)),
               ],
