@@ -180,7 +180,7 @@ const buildFallbackFromTransactions = async ({ startDate, endDate, lineId, stati
   const records = []
   const seen = new Set()
 
-  for (const mach of machines) {
+  for (const mach of machines || []) {
     const st = stationMap[mach.station_id] || {}
     const ln = lineMap[mach.line_id] || {}
     for (const date of allDates) {

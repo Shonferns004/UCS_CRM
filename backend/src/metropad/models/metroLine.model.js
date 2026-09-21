@@ -31,8 +31,8 @@ const attachCounts = async (lines) => {
   const activeCount = {}
   const inactiveCount = {}
 
-  for (const s of stations) stationCount[s.line_id] = (stationCount[s.line_id] || 0) + 1
-  for (const m of machines) {
+  for (const s of stations || []) stationCount[s.line_id] = (stationCount[s.line_id] || 0) + 1
+  for (const m of machines || []) {
     machineCount[m.line_id] = (machineCount[m.line_id] || 0) + 1
     if (m.status === 'ACTIVE') activeCount[m.line_id] = (activeCount[m.line_id] || 0) + 1
     else if (m.status === 'INACTIVE') inactiveCount[m.line_id] = (inactiveCount[m.line_id] || 0) + 1
@@ -98,7 +98,7 @@ export const findById = async (id) => {
       .select('id, station_id, status')
       .in('station_id', stationIds)
     if (mErr) throw normalizeError(mErr)
-    machineAgg = machines.reduce((acc, m) => {
+    machineAgg = (machines || []).reduce((acc, m) => {
       acc[m.station_id] = acc[m.station_id] || { machine_count: 0, active_machine_count: 0 }
       acc[m.station_id].machine_count++
       if (m.status === 'ACTIVE') acc[m.station_id].active_machine_count++
