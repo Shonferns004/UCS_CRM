@@ -90,6 +90,17 @@ class ApiService {
     return (body is List) ? body : (body['reminders'] ?? []);
   }
 
+  static Future<Map<String, dynamic>?> fetchReminderById(String id) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl/reminders/$id'),
+      headers: await _headers(),
+    );
+    if (res.statusCode == 404) return null;
+    await _check(res);
+    final body = jsonDecode(res.body);
+    return body is Map<String, dynamic> ? body : null;
+  }
+
   static Future<List<dynamic>> fetchNotifications() async {
     final res = await http.get(
       Uri.parse('$baseUrl/reminders/notifications'),
@@ -166,5 +177,15 @@ class ApiService {
     await _check(res);
     final body = jsonDecode(res.body);
     return body is Map<String, dynamic> ? body : <String, dynamic>{};
+  }
+
+  /// Snooze a reminder by [minutes]; the backend resumes alerts afterwards.
+  static Future<void> snoozeReminder(String reminderId, int minutes) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/reminders/$reminderId/snooze'),
+      headers: await _headers(),
+      body: jsonEncode({'minutes': minutes}),
+    );
+    await _check(res);
   }
 }

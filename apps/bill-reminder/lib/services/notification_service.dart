@@ -5,6 +5,29 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'api_service.dart';
 
+const String kReminderChannelId = 'bill_reminder_channel';
+const String kSnooze10 = 'snooze_10';
+const String kSnooze60 = 'snooze_60';
+
+const List<AndroidNotificationAction> kSnoozeActions = [
+  AndroidNotificationAction(kSnooze10, 'Snooze 10 min', showsUserInterface: false),
+  AndroidNotificationAction(kSnooze60, 'Snooze 1 hour', showsUserInterface: false),
+];
+
+@pragma('vm:entry-point')
+Future<void> notificationTapBackground(NotificationResponse response) async {
+  final payload = response.payload;
+  final actionId = response.actionId;
+  if (payload == null || actionId == null) return;
+  final parts = payload.split('|');
+  final reminderId = parts.length > 1 ? parts[1] : '';
+  if (reminderId.isEmpty) return;
+  final minutes = actionId == kSnooze60 ? 60 : 10;
+  try {
+    await ApiService.snoozeReminder(reminderId, minutes);
+  } catch (_) {}
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
@@ -29,12 +52,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     body.isEmpty ? title : body,
     const NotificationDetails(
       android: AndroidNotificationDetails(
-        'bill_reminder_channel',
+        kReminderChannelId,
         'Bill Reminder Alerts',
         channelDescription: 'Reminder alerts for bills, renewals and due dates',
         icon: '@mipmap/ic_launcher',
         importance: Importance.high,
         priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        category: AndroidNotificationCategory.reminder,
+        actions: kSnoozeActions,
       ),
       iOS: DarwinNotificationDetails(),
     ),
@@ -71,6 +98,22 @@ class NotificationService {
           iOS: DarwinInitializationSettings(),
         ),
         onDidReceiveNotificationResponse: _onLocalNotificationTap,
+        onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
+      );
+    } catch (_) {}
+
+    try {
+      final androidPlugin = _localNotifications
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          kReminderChannelId,
+          'Bill Reminder Alerts',
+          description: 'Reminder alerts for bills, renewals and due dates',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+        ),
       );
     } catch (_) {}
 
@@ -111,12 +154,16 @@ class NotificationService {
       body.isEmpty ? title : body,
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'bill_reminder_channel',
+          kReminderChannelId,
           'Bill Reminder Alerts',
           channelDescription: 'Reminder alerts for bills, renewals and due dates',
           icon: '@mipmap/ic_launcher',
           importance: Importance.high,
           priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+          category: AndroidNotificationCategory.reminder,
+          actions: kSnoozeActions,
         ),
         iOS: DarwinNotificationDetails(),
       ),
@@ -127,6 +174,15 @@ class NotificationService {
   void _onLocalNotificationTap(NotificationResponse response) {
     final payload = response.payload;
     if (payload == null) return;
+    final actionId = response.actionId;
+    if (actionId == kSnooze10 || actionId == kSnooze60) {
+      final parts = payload.split('|');
+      final reminderId = parts.length > 1 ? parts[1] : '';
+      if (reminderId.isNotEmpty) {
+        ApiService.snoozeReminder(reminderId, actionId == kSnooze60 ? 60 : 10).catchError((_) {});
+      }
+      return;
+    }
     _openReminder(payload);
   }
 
