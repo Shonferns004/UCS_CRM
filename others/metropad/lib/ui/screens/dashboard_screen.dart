@@ -172,14 +172,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         value: '${s.totalMachines}',
         icon: Icons.memory,
         color: AppColors.primary,
-        onClick: () => _go('machines'),
       ),
       KpiCard(
         title: 'Active Machines',
         value: '${s.activeMachines}',
         icon: Icons.check_circle,
         color: AppColors.success,
-        onClick: () => _go('machines'),
       ),
       KpiCard(
         title: 'Refills (This Month)',
@@ -193,21 +191,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         value: '${s.lowStockMachines}',
         icon: Icons.warning_amber,
         color: AppColors.warning,
-        onClick: () => _go('pad-stock'),
+        onClick: () => _go('refills'),
       ),
       KpiCard(
         title: 'Inactive Machines',
         value: '${s.inactiveMachines}',
         icon: Icons.block,
         color: AppColors.danger,
-        onClick: () => _go('machines'),
       ),
       KpiCard(
         title: 'Maintenance Due',
         value: '${s.maintenanceMachines}',
         icon: Icons.build,
         color: AppColors.orange,
-        onClick: () => _go('maintenance'),
       ),
       KpiCard(
         title: 'Metro Lines',
@@ -296,14 +292,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   trailing: StatusBadge(stockLevelNum(item.machine.stockPercentage) == 'LOW_STOCK'
                       ? 'LOW_STOCK'
                       : item.machine.status),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => MachineDetailScreen(id: item.machine.id),
-                      ),
-                    );
-                  },
+                  onTap: () => _go('refills'),
                 ),
           ],
         ),

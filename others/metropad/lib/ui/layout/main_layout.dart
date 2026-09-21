@@ -126,12 +126,11 @@ class BottomNavBar extends StatelessWidget {
   const BottomNavBar({super.key, required this.selected});
 
   static const List<_NavItem> _tabs = [
-    _NavItem('Machines', 'machines', Icons.memory_outlined),
-    _NavItem('Pad Stock', 'pad-stock', Icons.inventory_2_outlined),
-    _NavItem('Maintenance', 'maintenance', Icons.build_outlined),
-    _NavItem('Monthly Data', 'monthly-data', Icons.bar_chart_outlined),
-    _NavItem('Reports', 'reports', Icons.description_outlined),
-    _NavItem('Audit Logs', 'audit-logs', Icons.history_outlined),
+    _NavItem('Dashboard', 'dashboard', Icons.dashboard_outlined),
+    _NavItem('Metro Lines', 'metro-lines', Icons.directions_transit_outlined),
+    _NavItem('Stations', 'stations', Icons.location_on_outlined),
+    _NavItem('Refill Management', 'refills', Icons.refresh_outlined),
+    _NavItem('Stock Issues', 'stock-issues', Icons.warning_amber_outlined),
   ];
 
   void _go(BuildContext context, String route) {
@@ -144,12 +143,7 @@ class BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = AppState.auth.user;
-    final isAdmin = user?.role == 'ADMIN';
-
-    final items = _tabs
-        .where((t) => t.route != 'audit-logs' || isAdmin)
-        .toList();
+    final items = _tabs;
 
     return Material(
       color: AppColors.white,
