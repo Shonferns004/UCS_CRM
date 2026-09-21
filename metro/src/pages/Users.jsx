@@ -38,8 +38,9 @@ function Users({ compact = false }) {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    if (compact) return;
     reset();
-  }, [debouncedSearch, reset]);
+  }, [debouncedSearch, reset, compact]);
 
   const params = useMemo(() => {
     const p = { page, limit };
@@ -48,8 +49,8 @@ function Users({ compact = false }) {
   }, [debouncedSearch, page, limit]);
 
   const { data: usersData, loading, error, refetch } = useApi(
-    () => userService.getAll(params),
-    [JSON.stringify(params)]
+    () => (compact ? Promise.resolve(null) : userService.getAll(params)),
+    [JSON.stringify(params), compact]
   );
 
   const meta = usersData?.meta || {};
@@ -252,20 +253,24 @@ function Users({ compact = false }) {
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        loading={loading}
-        emptyMessage="No users found"
-        pagination={{
-          currentPage: page,
-          totalPages,
-          totalItems: shownTotal,
-          limit,
-          onLimitChange: setLimit,
-        }}
-        onPageChange={setPage}
-      />
+      {!compact && (
+        <>
+          <DataTable
+            columns={columns}
+            data={rows}
+            loading={loading}
+            emptyMessage="No users found"
+            pagination={{
+              currentPage: page,
+              totalPages,
+              totalItems: shownTotal,
+              limit,
+              onLimitChange: setLimit,
+            }}
+            onPageChange={setPage}
+          />
+        </>
+      )}
 
       <Modal
         isOpen={modalOpen}
@@ -339,48 +344,52 @@ function Users({ compact = false }) {
         </form>
       </Modal>
 
-      <Modal
-        isOpen={!!pwdTarget}
-        onClose={() => setPwdTarget(null)}
-        title={`Reset Password — ${pwdTarget?.name || ''}`}
-        size="sm"
-        footer={
-          <>
-            <button className="btn btn-secondary" onClick={() => setPwdTarget(null)}>
-              Cancel
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleResetPassword}
-              disabled={pwdSaving || !pwdForm.password}
-            >
-              {pwdSaving ? 'Saving...' : 'Reset Password'}
-            </button>
-          </>
-        }
-      >
-        <div className="form-group">
-          <label className="form-label">New Password</label>
-          <input
-            type="password"
-            className="form-input"
-            value={pwdForm.password}
-            onChange={(e) => setPwdForm({ password: e.target.value })}
-            placeholder="Minimum 8 characters"
-          />
-          {pwdErrors.password && <span className="form-error">{pwdErrors.password}</span>}
-        </div>
-      </Modal>
+      {!compact && (
+        <>
+          <Modal
+            isOpen={!!pwdTarget}
+            onClose={() => setPwdTarget(null)}
+            title={`Reset Password — ${pwdTarget?.name || ''}`}
+            size="sm"
+            footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => setPwdTarget(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleResetPassword}
+                  disabled={pwdSaving || !pwdForm.password}
+                >
+                  {pwdSaving ? 'Saving...' : 'Reset Password'}
+                </button>
+              </>
+            }
+          >
+            <div className="form-group">
+              <label className="form-label">New Password</label>
+              <input
+                type="password"
+                className="form-input"
+                value={pwdForm.password}
+                onChange={(e) => setPwdForm({ password: e.target.value })}
+                placeholder="Minimum 8 characters"
+              />
+              {pwdErrors.password && <span className="form-error">{pwdErrors.password}</span>}
+            </div>
+          </Modal>
 
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Delete User"
-        message={`Are you sure you want to delete user "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-        confirmVariant="danger"
-      />
+          <ConfirmDialog
+            isOpen={!!deleteTarget}
+            onClose={() => setDeleteTarget(null)}
+            onConfirm={handleDelete}
+            title="Delete User"
+            message={`Are you sure you want to delete user "${deleteTarget?.name}"? This action cannot be undone.`}
+            confirmLabel={deleting ? 'Deleting...' : 'Delete'}
+            confirmVariant="danger"
+          />
+        </>
+      )}
     </div>
   );
 }
