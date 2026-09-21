@@ -3,10 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Base URL override via `--dart-define=API_URL=https://host/api/metropad`.
-/// Default targets the Android emulator's host localhost (10.0.2.2).
 const String apiBaseUrl = String.fromEnvironment(
   'API_URL',
-  defaultValue: 'http://10.0.2.2:5000/api/metropad',
+  defaultValue: 'https://api.beingsevak.org/api/metropad',
 );
 
 const String tokenStorageKey = 'mpc_token';
@@ -24,8 +23,9 @@ class ApiClient {
   ApiClient._() {
     _dio = Dio(BaseOptions(
       baseUrl: apiBaseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 30),
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 60),
       headers: {'Content-Type': 'application/json'},
     ));
     _dio.interceptors.add(InterceptorsWrapper(
@@ -38,6 +38,19 @@ class ApiClient {
         handler.next(options);
       },
       onError: (error, handler) async {
+        if (error.type == DioExceptionType.connectionTimeout ||
+            error.type == DioExceptionType.receiveTimeout ||
+            error.type == DioExceptionType.sendTimeout) {
+          handler.resolve(Response(
+            requestOptions: error.requestOptions,
+            data: {
+              'success': false,
+              'message':
+                  'Request timed out. Check that you have internet and that the server URL is reachable.',
+            },
+          ));
+          return;
+        }
         if (error.response?.statusCode == 401) {
           final path = error.requestOptions.path;
           if (!path.contains('/login')) {
