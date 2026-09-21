@@ -210,14 +210,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         value: '${s.totalMetroLines}',
         icon: Icons.directions_transit,
         color: AppColors.purple,
-        onClick: () => _go('metro-lines'),
+        onClick: () => _go('network'),
       ),
       KpiCard(
         title: 'Stations',
         value: '${s.totalStations}',
         icon: Icons.location_on,
         color: AppColors.teal,
-        onClick: () => _go('stations'),
+        onClick: () => _go('network'),
       ),
     ];
     return GridView.count(

@@ -6,6 +6,7 @@ import '../screens/screens.dart';
 
 const Map<String, String> titleMap = {
   'dashboard': 'Dashboard',
+  'network': 'Metro Network',
   'metro-lines': 'Metro Lines',
   'stations': 'Stations',
   'machines': 'Machines',
@@ -127,8 +128,7 @@ class BottomNavBar extends StatelessWidget {
 
   static const List<_NavItem> _tabs = [
     _NavItem('Dashboard', 'dashboard', Icons.dashboard_outlined),
-    _NavItem('Metro Lines', 'metro-lines', Icons.directions_transit_outlined),
-    _NavItem('Stations', 'stations', Icons.location_on_outlined),
+    _NavItem('Metro Network', 'network', Icons.map_outlined),
     _NavItem('Refill Management', 'refills', Icons.refresh_outlined),
     _NavItem('Stock Issues', 'stock-issues', Icons.warning_amber_outlined),
   ];
