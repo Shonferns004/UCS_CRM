@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../state/app_state.dart';
@@ -44,7 +45,7 @@ class ToastHost extends StatelessWidget {
                           const SizedBox(width: 6),
                           InkWell(
                             onTap: () => AppState.toasts.removeToast(t.id),
-                            child: const Icon(Icons.close, size: 16, color: Colors.white70),
+                            child: const Icon(LucideIcons.x, size: 16, color: Colors.white70),
                           ),
                         ],
                       ),
@@ -74,13 +75,13 @@ class ToastHost extends StatelessWidget {
   IconData _icon(String type) {
     switch (type) {
       case 'success':
-        return Icons.check_circle_outline;
+        return LucideIcons.checkCircle;
       case 'error':
-        return Icons.error_outline;
+        return LucideIcons.circleAlert;
       case 'warning':
-        return Icons.warning_amber_rounded;
+        return LucideIcons.triangleAlert;
       default:
-        return Icons.info_outline;
+        return LucideIcons.info;
     }
   }
 }

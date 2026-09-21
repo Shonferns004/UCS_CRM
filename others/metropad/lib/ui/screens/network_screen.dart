@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
@@ -138,8 +139,8 @@ class _NetworkScreenState extends State<NetworkScreen> {
                   ),
                   Icon(
                     expanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
+                        ? LucideIcons.chevronUp
+                        : LucideIcons.chevronDown,
                     color: AppColors.textLight,
                   ),
                 ],

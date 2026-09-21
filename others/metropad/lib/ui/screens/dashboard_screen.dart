@@ -1,4 +1,5 @@
 import 'package:fl_chart/fl_chart.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -7,7 +8,9 @@ import '../../core/api_client.dart';
 import '../../core/mumbai_metro.dart';
 import '../../core/theme.dart';
 import '../../models/dashboard.dart';
+import '../../models/stock.dart';
 import '../../services/dashboard_service.dart';
+import '../../services/stock_service.dart';
 import '../../state/app_state.dart';
 import '../layout/main_layout.dart';
 import '../widgets/common.dart';
@@ -25,6 +28,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _loading = true;
   Object? _error;
   DashboardOverview? _overview;
+  StockSummary? _stock;
+  List<StationStock> _stationStock = [];
   String _selectedLine = 'all';
 
   @override
@@ -39,10 +44,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _error = null;
     });
     try {
-      final overview = await DashboardService.getOverview();
+      final results = await Future.wait<Object>([
+        DashboardService.getOverview(),
+        StockService.getSummary(),
+        StockService.getStationWise(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _overview = overview;
+        _overview = results[0] as DashboardOverview;
+        _stock = results[1] as StockSummary?;
+        _stationStock = results[2] as List<StationStock>;
         _loading = false;
       });
     } catch (e) {
@@ -84,6 +95,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _kpis(),
                   const SizedBox(height: 16),
                   _alertsRow(),
+                  const SizedBox(height: 16),
+                  _padStockCard(),
                   const SizedBox(height: 16),
                   _recentRefills(),
                   const SizedBox(height: 16),
@@ -170,52 +183,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
       KpiCard(
         title: 'Total Machines',
         value: '${s.totalMachines}',
-        icon: Icons.memory,
+        icon: LucideIcons.cpu,
         color: AppColors.primary,
       ),
       KpiCard(
         title: 'Active Machines',
         value: '${s.activeMachines}',
-        icon: Icons.check_circle,
+        icon: LucideIcons.checkCircle,
         color: AppColors.success,
       ),
       KpiCard(
         title: 'Refills (This Month)',
         value: '${s.padsRefilledThisMonth}',
-        icon: Icons.refresh,
+        icon: LucideIcons.refreshCw,
         color: AppColors.info,
         onClick: () => _go('refills'),
       ),
       KpiCard(
         title: 'Low Stock Alerts',
         value: '${s.lowStockMachines}',
-        icon: Icons.warning_amber,
+        icon: LucideIcons.triangleAlert,
         color: AppColors.warning,
         onClick: () => _go('refills'),
       ),
       KpiCard(
         title: 'Inactive Machines',
         value: '${s.inactiveMachines}',
-        icon: Icons.block,
+        icon: LucideIcons.circleStop,
         color: AppColors.danger,
       ),
       KpiCard(
         title: 'Maintenance Due',
         value: '${s.maintenanceMachines}',
-        icon: Icons.build,
+        icon: LucideIcons.wrench,
         color: AppColors.orange,
       ),
       KpiCard(
         title: 'Metro Lines',
         value: '${s.totalMetroLines}',
-        icon: Icons.directions_transit,
+        icon: LucideIcons.train,
         color: AppColors.purple,
         onClick: () => _go('network'),
       ),
       KpiCard(
         title: 'Stations',
         value: '${s.totalStations}',
-        icon: Icons.location_on,
+        icon: LucideIcons.mapPin,
         color: AppColors.teal,
         onClick: () => _go('network'),
       ),
@@ -238,14 +251,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         _alertCard(
           'Low Stock Alerts',
-          Icons.warning_amber,
+          LucideIcons.triangleAlert,
           AppColors.warning,
           lowStock,
         ),
         const SizedBox(height: 16),
         _alertCard(
           'Attention Machines',
-          Icons.error,
+          LucideIcons.circleX,
           AppColors.danger,
           attention,
         ),
@@ -284,7 +297,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.memory, size: 18),
+                  leading: const Icon(LucideIcons.cpu, size: 18),
                   title: Text(item.machine.machineId,
                       style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.w600)),
@@ -304,6 +317,139 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (pct == null || pct <= 0) return 'EMPTY';
     if (pct <= 10) return 'LOW_STOCK';
     return 'NORMAL';
+  }
+
+  Widget _padStockCard() {
+    final s = _stock;
+    if (s == null) return const SizedBox.shrink();
+    final stats = [
+      _stockStat('Remaining Central', s.remainingCentral, 'pads', LucideIcons.database),
+      _stockStat('In Machines', s.totalMachinePads, 'pads', LucideIcons.archive),
+      _stockStat('Distributed', s.totalDistributed, 'pads', LucideIcons.arrowDownLeft),
+      _stockStat('Active Machines', s.activeMachines, 'count', LucideIcons.checkCircle),
+    ];
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(LucideIcons.package,
+                      color: AppColors.primary, size: 20),
+                ),
+                const SizedBox(width: 10),
+                const Text('Pad Stock',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                Text('${_stationStock.length} machines',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textLight)),
+              ],
+            ),
+            const SizedBox(height: 14),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 2.4,
+              children: stats,
+            ),
+            const SizedBox(height: 16),
+            const Text('Station-wise stock',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
+            DataTableWidget<StationStock>(
+              items: _stationStock,
+              columns: [
+                TableColumn<StationStock>('Station',
+                    cell: (c, e) => cellText(e.stationName, bold: true)),
+                TableColumn<StationStock>('Line',
+                    cell: (c, e) => cellText(e.lineCode)),
+                TableColumn<StationStock>('Machine',
+                    cell: (c, e) => cellText(e.machineId)),
+                TableColumn<StationStock>('Stock',
+                    cell: (c, e) => cellText(
+                        '${(e.currentStock ?? 0).toInt()}/${(e.capacity ?? 0).toInt()}')),
+                TableColumn<StationStock>('Status',
+                    cell: (c, e) => _stockStatusBadge(e.stockStatus)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stockStat(String label, num? value, String unit, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.sidebarHover,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textLight)),
+                Text(
+                  '${value?.toInt() ?? 0} ${unit == 'count' ? '' : unit}'.trim(),
+                  style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stockStatusBadge(String status) {
+    final color = switch (status) {
+      'EMPTY' => AppColors.danger,
+      'LOW' => AppColors.warning,
+      _ => AppColors.success,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
   }
 
   Widget _recentRefills() {
@@ -524,7 +670,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 child: GestureDetector(
                                   onTap: () => _showStation(metro.stations[sid]!),
                                   child: Icon(
-                                    Icons.location_on,
+                                    LucideIcons.mapPin,
                                     size: 26,
                                     color: colorFromHex(
                                         metroColors[lineId] ?? '#4f46e5'),

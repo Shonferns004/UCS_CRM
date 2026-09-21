@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/constants.dart';
 import '../../core/formatters.dart';
@@ -68,7 +69,7 @@ class StockIssuesScreen extends StatelessWidget {
           '',
           cell: (c, r) => RowActions([
             IconActionButton(
-              Icons.more_vert,
+              LucideIcons.moreVertical,
               onTap: () => _actions(c, r),
             ),
           ]),
@@ -196,7 +197,7 @@ class StockIssuesScreen extends StatelessWidget {
               const Divider(height: 1),
               for (final s in ['INVESTIGATING', 'RESOLVED', 'CLOSED'])
                 ListTile(
-                  leading: Icon(Icons.circle,
+leading: Icon(LucideIcons.circle,
                       color: statusColor(s), size: 12),
                   title: Text('Set status: ${humanizeLabel(s)}'),
                   onTap: () async {

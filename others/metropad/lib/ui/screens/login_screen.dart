@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -95,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.directions_transit,
+                        Icon(LucideIcons.train,
                             color: Colors.white, size: 40),
                         SizedBox(height: 12),
                         Text(
@@ -148,7 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.error_outline,
+                                const Icon(LucideIcons.circleAlert,
                                     color: AppColors.danger, size: 18),
                                 const SizedBox(width: 8),
                                 Expanded(
@@ -168,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: const InputDecoration(
                             labelText: 'Email',
                             hintText: 'admin@metropadcare.com',
-                            prefixIcon: Icon(Icons.mail_outline, size: 20),
+                            prefixIcon: Icon(LucideIcons.mail, size: 20),
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -178,12 +179,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           onSubmitted: (_) => _submit(),
                           decoration: InputDecoration(
                             labelText: 'Password',
-                            prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                            prefixIcon: const Icon(LucideIcons.lock, size: 20),
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscure
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
+                                    ? LucideIcons.eye
+                                    : LucideIcons.eyeOff,
                                 size: 20,
                               ),
                               onPressed: () =>
