@@ -1,20 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Menu, Bell, ChevronDown, Settings, LogOut, Search } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Menu, Bell, ChevronDown, LogOut } from 'lucide-react';
 
 const titleMap = {
   '/dashboard': ['Dashboard', 'Overview'],
-  '/metro-lines': ['Metro Lines', 'Metro Management'],
-  '/stations': ['Stations', 'Metro Management'],
-  '/machines': ['Machines', 'Machine Management'],
-  '/refills': ['Refill Management', 'Machine Management'],
-  '/stock-issues': ['Stock Issues', 'Machine Management'],
-  '/maintenance': ['Maintenance', 'Machine Management'],
-  '/monthly-data': ['Monthly Data', 'Analytics'],
-  '/reports': ['Reports', 'Analytics'],
-  '/users': ['Users', 'Administration'],
-  '/audit-logs': ['Audit Logs', 'Administration'],
-  '/settings': ['Settings', 'System'],
 };
 
 const roleLabelMap = {
@@ -28,7 +17,6 @@ function Header({ user, onLogout, onToggleSidebar }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const dropdownRef = useRef(null);
   const notifRef = useRef(null);
-  const navigate = useNavigate();
   const location = useLocation();
 
   const pathname = location.pathname;
@@ -63,11 +51,7 @@ function Header({ user, onLogout, onToggleSidebar }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    const val = e.currentTarget.search.value?.trim();
-    if (val) navigate(`/machines?search=${encodeURIComponent(val)}`);
-  };
+  const handleSearchSubmit = null;
 
   return (
     <header className="header">
@@ -83,12 +67,6 @@ function Header({ user, onLogout, onToggleSidebar }) {
         <span className="header-overline">{breadcrumb}</span>
       </div>
       <div className="header-right">
-        <form className="header-search" onSubmit={handleSearchSubmit}>
-          <span className="header-search-icon">
-            <Search size={15} strokeWidth={2} />
-          </span>
-          <input name="search" type="text" placeholder="Search machines, stations..." />
-        </form>
         <div className="header-notif" ref={notifRef}>
           <button
             className="header-icon-btn"
@@ -129,17 +107,6 @@ function Header({ user, onLogout, onToggleSidebar }) {
                 <div className="header-dropdown-profile-role">{roleLabel}</div>
               </div>
             </div>
-            <div className="header-dropdown-divider" />
-            <button
-              className="header-dropdown-item"
-              onClick={() => {
-                setDropdownOpen(false);
-                navigate('/settings');
-              }}
-            >
-              <Settings size={16} strokeWidth={1.9} />
-              Settings
-            </button>
             <div className="header-dropdown-divider" />
             <button
               className="header-dropdown-item danger"

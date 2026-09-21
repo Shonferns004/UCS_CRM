@@ -30,7 +30,7 @@ export const isTableMissing = (err) => {
 const buildJoinQuery = (query) => {
   return query
     .select(
-      `${MONTHLY_DATA_SELECT}, metro_lines(line_name, color), stations(station_code, station_name), machines(machine_id, model), users(name)`
+      `${MONTHLY_DATA_SELECT}, metro_lines(line_name, color), stations(station_code, station_name), machines(machine_id, model)`
     )
 }
 
@@ -79,11 +79,9 @@ export const findRecords = async ({ yearMonth, lineId, stationId, machineId, sta
     station_name: r.stations?.station_name || null,
     machine_code: r.machines?.machine_id || null,
     machine_model: r.machines?.model || null,
-    created_by_name: r.users?.name || null,
     metro_lines: undefined,
     stations: undefined,
     machines: undefined,
-    users: undefined,
   }))
 
   return rows
