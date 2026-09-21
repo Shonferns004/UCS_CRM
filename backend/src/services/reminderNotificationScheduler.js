@@ -15,6 +15,7 @@ import {
   listDeviceTokens,
   hasAlertBeenSent,
   markAlertSent,
+  createNotification,
 } from '../models/reminderModel.js';
 
 const cronJobs = [];
@@ -43,6 +44,12 @@ function parseDate(v) {
 function computeAlert(reminder, threshold, today) {
   const completedOrDeleted = reminder.completed_at || reminder.is_deleted;
   if (completedOrDeleted) return null;
+
+  // Respect snooze: skip until snooze_until passes, then resume daily alerts.
+  if (reminder.snooze_until) {
+    const until = new Date(reminder.snooze_until);
+    if (!isNaN(until.getTime()) && until.getTime() > today.getTime()) return null;
+  }
 
   const todayStart = dateOnly(today);
   const due = parseDate(reminder.due_date);
@@ -77,8 +84,11 @@ async function pushToDevices(title, body, type, reminderId) {
     try {
       await messaging.send({
         token,
-        notification: { title: cleanTitle, body: cleanBody },
-        data: { type, reminderId: String(reminderId) },
+        // Data-only so the app builds the notification and can attach
+        // Snooze action buttons (system-rendered FCM notifications can't).
+        data: { type, reminderId: String(reminderId), title: cleanTitle, body: cleanBody },
+        android: { priority: 'high' },
+        apns: { payload: { aps: { sound: 'default', 'content-available': 1 } } },
       });
       sent += 1;
     } catch (err) {
@@ -117,6 +127,20 @@ export async function runReminderAlertCycle() {
       const title = alertType === 'OVERDUE' ? 'OVERDUE' : alertType === 'DUE_TODAY' ? 'DUE TODAY' : 'DUE SOON';
       const label = alertType === 'OVERDUE' ? 'overdue' : alertType === 'DUE_TODAY' ? 'due today' : 'due soon';
       const body = `${r.title}${r.due_date ? ` — ${label} (${String(r.due_date).slice(0, 10)})` : ` — ${label}`}`;
+
+      // Record the alert so the in-app Alerts list shows it (FCM push is best-effort).
+      try {
+        await createNotification({
+          reminder_id: r.id,
+          title,
+          body,
+          level: alertType,
+          read: false,
+        });
+      } catch (e) {
+        console.error('Reminder notification log error:', e.message);
+      }
+
       await pushToDevices(title, body, alertType, r.id);
     }
   } catch (error) {

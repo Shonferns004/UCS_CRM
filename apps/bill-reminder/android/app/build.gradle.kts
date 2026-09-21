@@ -5,9 +5,9 @@ plugins {
 }
 
 // The Google Services plugin activates automatically once the Firebase
-// google-services.json file is placed in the android/ folder.
-val gmsJson = rootProject.file("google-services.json")
-if (gmsJson.exists()) {
+// google-services.json file is present (standard Flutter location: android/app/).
+val gmsCandidates = listOf(rootProject.file("google-services.json"), file("google-services.json"))
+if (gmsCandidates.any { it.exists() }) {
     apply(plugin = "com.google.gms.google-services")
 }
 

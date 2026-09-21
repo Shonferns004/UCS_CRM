@@ -226,3 +226,15 @@ export const markAlertSent = async (reminderId, alertType, sentDate) => {
   if (error) throw error;
   return data;
 };
+
+// Clear today's alert-log rows for a reminder so the scheduler can re-alert
+// once a snooze expires (the daily dedupe would otherwise suppress it).
+export const clearAlertLogForReminder = async (reminderId, sentDate) => {
+  const { error } = await db
+    .from(ALERT_LOG_TABLE)
+    .delete()
+    .eq('reminder_id', reminderId)
+    .eq('sent_date', sentDate);
+  if (error) throw error;
+  return true;
+};

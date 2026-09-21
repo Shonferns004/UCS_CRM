@@ -18,6 +18,7 @@ import {
   registerDeviceToken,
   removeDeviceToken,
   listDeviceTokens,
+  clearAlertLogForReminder,
 } from '../models/reminderModel.js';
 
 export const CATEGORIES = [
@@ -420,6 +421,15 @@ export const snoozeReminder = async (req, res) => {
     const snoozeUntil = new Date(Date.now() + m * 60000).toISOString();
     const reminder = await updateReminder(req.params.id, { snooze_until: snoozeUntil, status: 'Snoozed' });
 
+    // Allow the scheduler to re-alert once the snooze expires today.
+    try {
+      const d = new Date();
+      const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      await clearAlertLogForReminder(before.id, todayKey);
+    } catch (e) {
+      // non-fatal
+    }
+
     const changedBy = await validateUser(req, res);
     try {
       await createReminderHistory({
@@ -447,7 +457,7 @@ export const listNotifications = async (req, res) => {
   try {
     const onlyUnread = req.query.unread === 'true';
     const notifications = await getAllNotifications(onlyUnread);
-    return res.json(notifications);
+    return res.json(notifications.map((n) => ({ ...n, alert_type: n.alert_type ?? n.level })));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -555,8 +565,14 @@ export const sendTestPush = async (req, res) => {
       try {
         await messaging.send({
           token,
-          notification: { title: '🎉 Bill Reminder — Test Push', body: 'Notifications are working end to end!' },
-          data: { type: 'test', reminderId: '' },
+          data: {
+            type: 'test',
+            reminderId: '',
+            title: '🎉 Bill Reminder — Test Push',
+            body: 'Notifications are working end to end!',
+          },
+          android: { priority: 'high' },
+          apns: { payload: { aps: { sound: 'default', 'content-available': 1 } } },
         });
         sent += 1;
       } catch (e) {

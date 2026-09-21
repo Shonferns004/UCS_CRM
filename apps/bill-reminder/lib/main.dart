@@ -37,7 +37,6 @@ class BillReminderApp extends StatefulWidget {
 class _BillReminderAppState extends State<BillReminderApp> {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool? _loggedIn;
-  Reminder? _pending;
 
   @override
   void initState() {
@@ -65,21 +64,16 @@ class _BillReminderAppState extends State<BillReminderApp> {
       final message = await FirebaseMessaging.instance.getInitialMessage();
       if (message == null) return;
       final id = message.data['reminderId'];
-      if (id == null) return;
-      final data = await ApiService.fetchReminders();
-      Reminder? match;
-      for (final e in data) {
-        final r = Reminder.fromJson(Map<String, dynamic>.from(e as Map));
-        if (r.id != null && r.id.toString() == id.toString()) {
-          match = r;
-          break;
-        }
-      }
-      if (match != null && mounted) {
-        setState(() => _pending = match);
-      }
+      if (id == null || id.toString().isEmpty) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _navigatorKey.currentState?.pushNamed('/detail', arguments: {'id': id.toString()});
+      });
     } catch (_) {}
   }
+
+  Widget _notFound() => const Scaffold(
+        body: Center(child: Text('Reminder not found')),
+      );
 
   Future<void> _logout() async {
     try {
@@ -104,14 +98,25 @@ class _BillReminderAppState extends State<BillReminderApp> {
         ),
       ),
       routes: {
-        '/detail': (_) {
-          final r = _pending;
-          if (r == null) {
-            return const Scaffold(
-              body: Center(child: Text('Reminder not found')),
-            );
-          }
-          return DetailPage(reminder: r);
+        '/detail': (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          final id = (args is Map && args['id'] != null) ? args['id'].toString() : null;
+          if (id == null || id.isEmpty) return _notFound();
+          return FutureBuilder<Map<String, dynamic>?>(
+            future: ApiService.fetchReminderById(id),
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final data = snap.data;
+              if (data == null) return _notFound();
+              return DetailPage(
+                reminder: Reminder.fromJson(Map<String, dynamic>.from(data)),
+              );
+            },
+          );
         },
       },
       home: _loggedIn == null
