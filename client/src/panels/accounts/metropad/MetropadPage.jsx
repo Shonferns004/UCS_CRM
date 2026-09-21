@@ -51,7 +51,6 @@ function MetropadGate() {
 }
 
 export default function MetropadPage() {
-  const { user } = useAuth();
   return (
     <ToastProvider>
       <AuthProvider>
