@@ -12,7 +12,6 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorState from '../components/ErrorState.jsx';
 import LoadingSpinner from '../components/LoadingSpinner.jsx';
 import MonthlyData from './MonthlyData.jsx';
-import Reports from './Reports.jsx';
 import Users from './Users.jsx';
 import {
   SoapDispenserDroplet,
@@ -163,11 +162,6 @@ function Dashboard() {
       {/* MONTHLY DATA */}
       <section className="dash-section">
         <MonthlyData />
-      </section>
-
-      {/* REPORTS */}
-      <section className="dash-section">
-        <Reports />
       </section>
     </div>
   );
