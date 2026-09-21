@@ -8,6 +8,7 @@ import * as stationService from '../services/station.service.js';
 import * as dashboardService from '../services/dashboard.service.js';
 import * as stockService from '../services/stock.service.js';
 import { getErrorMessage, formatDateTime, getStockLevel, formatNumber } from '../utils/formatters.js';
+import { MACHINE_CAPACITY } from '../utils/constants.js';
 import { metroLines, metroStations, DISPLAY_LINE_IDS } from '../data/mumbaiMetro.js';
 import KpiCard from '../components/KpiCard.jsx';
 import FilterBar from '../components/FilterBar.jsx';
@@ -121,19 +122,6 @@ function MetroMap({ activeLineId, fullscreen = false, stationStatus = {} }) {
         );
       })}
     </MapContainer>
-  );
-}
-
-function StockBar({ percent }) {
-  const pct = Math.max(0, Math.min(100, Number(percent) || 0));
-  const tone = pct <= 30 ? 'danger' : pct <= 60 ? 'warning' : 'success';
-  return (
-    <div className="stock-bar-cell">
-      <div className={`stock-bar ${tone}`}>
-        <div className="stock-bar-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <span className={`stock-bar-value ${tone}`}>{pct}%</span>
-    </div>
   );
 }
 
@@ -305,12 +293,23 @@ function Dashboard() {
       width: '150px',
       render: (val, row) => <Link to={machineLink(row)} onClick={(e) => e.stopPropagation()}>{val || row.machine_code}</Link>,
     },
-    { key: 'capacity', label: 'Capacity', render: (val) => <span className="cell-muted">{val ?? 0}</span> },
-    { key: 'current_stock', label: 'Current Stock', render: (val) => <span className="cell-strong">{val ?? 0}</span> },
     {
-      key: 'stock_percentage',
-      label: 'Stock %',
-      render: (val) => <StockBar percent={val} />,
+      key: 'stock',
+      label: 'Stock',
+      render: (_, row) => {
+        const pct = Math.min(100, Math.max(0, Number(row.stock_percentage) || 0));
+        const tone = pct <= 30 ? 'danger' : pct <= 60 ? 'warning' : 'success';
+        return (
+          <div className="stock-bar-cell">
+            <div className={`stock-bar ${tone}`}>
+              <div className="stock-bar-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <span className={`stock-bar-value ${tone}`}>
+              {(row.current_stock ?? 0)} of {row.capacity ?? MACHINE_CAPACITY}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: 'last_refill_at',
@@ -356,12 +355,23 @@ function Dashboard() {
         </span>
       ),
     },
-    { key: 'capacity', label: 'Capacity', render: (val) => <span className="cell-muted">{val ?? 0}</span> },
-    { key: 'current_stock', label: 'Current Stock', render: (val) => <span className="cell-strong">{val ?? 0}</span> },
     {
-      key: 'stock_percentage',
-      label: 'Stock %',
-      render: (val) => <StockBar percent={val} />,
+      key: 'stock',
+      label: 'Stock',
+      render: (_, row) => {
+        const pct = Math.min(100, Math.max(0, Number(row.stock_percentage) || 0));
+        const tone = pct <= 30 ? 'danger' : pct <= 60 ? 'warning' : 'success';
+        return (
+          <div className="stock-bar-cell">
+            <div className={`stock-bar ${tone}`}>
+              <div className="stock-bar-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <span className={`stock-bar-value ${tone}`}>
+              {(row.current_stock ?? 0)} of {row.capacity ?? MACHINE_CAPACITY}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: 'last_refill_at',

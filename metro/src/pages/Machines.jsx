@@ -169,12 +169,23 @@ function Machines() {
     { key: 'line_name', label: 'Line' },
     { key: 'station_name', label: 'Station' },
     { key: 'location', label: 'Location' },
-    { key: 'capacity', label: 'Capacity', render: (val) => `${val ?? MACHINE_CAPACITY} (${SLOTS_PER_MACHINE}×${SLOT_CAPACITY})` },
-    { key: 'current_stock', label: 'Current Stock' },
     {
-      key: 'stock_percentage',
-      label: 'Stock %',
-      render: (val) => `${val ?? 0}%`,
+      key: 'stock',
+      label: 'Stock',
+      render: (_, row) => {
+        const pct = Math.min(100, Math.max(0, Number(row.stock_percentage) || 0));
+        const tone = pct <= 30 ? 'danger' : pct <= 60 ? 'warning' : 'success';
+        return (
+          <div className="stock-bar-cell">
+            <div className={`stock-bar ${tone}`}>
+              <div className="stock-bar-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <span className={`stock-bar-value ${tone}`}>
+              {(row.current_stock ?? 0)} of {row.capacity ?? MACHINE_CAPACITY}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: 'status',

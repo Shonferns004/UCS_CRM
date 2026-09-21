@@ -700,7 +700,6 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
     final label = m.location.trim().isEmpty
         ? 'Machine ${index + 1}'
         : m.location.trim();
-    final slots = AppConstants.slotStock(m.currentStock);
     return InkWell(
       onLongPress: () => _machineActions(m),
       borderRadius: BorderRadius.circular(12),
@@ -750,14 +749,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              for (var i = 0; i < slots.length; i++) ...[
-                if (i > 0) const SizedBox(width: 8),
-                _slotChip(i, slots[i]),
-              ],
-            ],
-          ),
+          _stockChip(m),
         ],
       ),
       ),
@@ -793,34 +785,34 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
     );
   }
 
-  Widget _slotChip(int index, int stock) {
-    final full = stock >= AppConstants.slotCapacity;
+  Widget _stockChip(Machine m) {
+    final stock = (m.currentStock ?? 0).toInt();
+    final full = stock >= AppConstants.machineCapacity;
     final color = stock == 0
         ? AppColors.textLight
         : (full ? AppColors.success : AppColors.primary);
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Slot ${index + 1}',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: color)),
-            Text('$stock/${AppConstants.slotCapacity}',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: color)),
-          ],
-        ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('Stock',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: color)),
+          Text('$stock of ${AppConstants.machineCapacity}',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color)),
+        ],
       ),
     );
   }
