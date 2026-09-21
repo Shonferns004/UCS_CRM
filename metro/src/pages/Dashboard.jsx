@@ -1,14 +1,11 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState } from 'react';
 import useApi from '../hooks/useApi.js';
 import useAuth from '../hooks/useAuth.js';
 import useToast from '../hooks/useToast.js';
-import * as metroLineService from '../services/metroLine.service.js';
-import * as stationService from '../services/station.service.js';
 import * as dashboardService from '../services/dashboard.service.js';
 import * as stockService from '../services/stock.service.js';
-import { getErrorMessage, formatDateTime, formatDateShort, formatNumber } from '../utils/formatters.js';
+import { getErrorMessage, formatDateShort, formatNumber } from '../utils/formatters.js';
 import KpiCard from '../components/KpiCard.jsx';
-import FilterBar from '../components/FilterBar.jsx';
 import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
 import EmptyState from '../components/EmptyState.jsx';
@@ -21,11 +18,8 @@ import {
   SoapDispenserDroplet,
   TrainFront,
   MapPin,
-  Cpu,
   CheckCircle2,
-  Power,
   Boxes,
-  Wrench,
   Droplets,
   ShieldCheck,
   Sparkles,
@@ -36,46 +30,9 @@ function Dashboard() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
-  const [lineId, setLineId] = useState('');
-  const [stationId, setStationId] = useState('');
-  const [status, setStatus] = useState('');
-
-  const filters = useMemo(() => {
-    const p = {};
-    if (lineId) p.lineId = lineId;
-    if (stationId) p.stationId = stationId;
-    if (status) p.status = status;
-    return p;
-  }, [lineId, stationId, status]);
-
-  const filterKey = JSON.stringify(filters);
-
-  const { data: linesData, loading: linesLoading } = useApi(
-    () => metroLineService.getAll({ limit: 100 }),
-    []
-  );
-
-  const lineOptions = useMemo(() => {
-    const lines = linesData?.lines || [];
-    return lines.map((l) => ({ value: l.id, label: `${l.name} (${l.code})` }));
-  }, [linesData]);
-
-  const { data: stationsData, loading: stationsLoading } = useApi(
-    () => (lineId ? stationService.getAll({ lineId, limit: 200 }) : Promise.resolve(null)),
-    [lineId]
-  );
-
-  const stationOptions = useMemo(() => {
-    if (!stationsData?.stations) return [];
-    return stationsData.stations.map((s) => ({
-      value: s.id,
-      label: s.name,
-    }));
-  }, [stationsData]);
-
   const { data: overview, loading: dashLoading, error: dashError, refetch: refetchDashboard } = useApi(
-    () => dashboardService.getOverview(filters),
-    [filterKey]
+    () => dashboardService.getOverview({}),
+    []
   );
 
   const stats = overview?.stats ?? null;
@@ -83,43 +40,7 @@ function Dashboard() {
   const refillsLoading = dashLoading;
   const refillsError = dashError;
 
-  const handleFilterChange = useCallback((key, value) => {
-    if (key === 'lineId') {
-      setLineId(value);
-      setStationId('');
-    } else if (key === 'stationId') {
-      setStationId(value);
-    } else if (key === 'status') {
-      setStatus(value);
-    }
-  }, []);
-
-  const handleClearFilters = useCallback(() => {
-    setLineId('');
-    setStationId('');
-    setStatus('');
-  }, []);
-
-  const dashboardFilters = [
-    { key: 'lineId', type: 'select', value: lineId, label: 'All Metro Lines', options: lineOptions },
-    { key: 'stationId', type: 'select', value: stationId, label: 'All Stations', options: stationOptions },
-    {
-      key: 'status',
-      type: 'select',
-      value: status,
-      label: 'All Statuses',
-      options: [
-        { value: 'ACTIVE', label: 'Active' },
-        { value: 'INACTIVE', label: 'Inactive' },
-        { value: 'OFFLINE', label: 'Offline' },
-        { value: 'MAINTENANCE', label: 'Maintenance' },
-      ],
-    },
-  ];
-
   const activePercentage = stats?.activePercentage ?? 0;
-  const isLive = !dashLoading && !dashError;
-  const lastUpdated = refillsData?.refills?.[0]?.refill_date || null;
 
   const refillsColumns = [
     {
@@ -140,11 +61,7 @@ function Dashboard() {
   const kpiCards = [
     { title: 'Total Metro Lines', value: stats?.totalMetroLines ?? 0, icon: <TrainFront size={20} strokeWidth={1.9} />, color: 'blue', subtitle: 'Lines' },
     { title: 'Total Stations', value: stats?.totalStations ?? 0, icon: <MapPin size={20} strokeWidth={1.9} />, color: 'purple', subtitle: 'Stations' },
-    { title: 'Total Machines', value: stats?.totalMachines ?? 0, icon: <Cpu size={20} strokeWidth={1.9} />, color: 'teal', subtitle: 'Machines' },
     { title: 'Active Machines', value: stats?.activeMachines ?? 0, icon: <CheckCircle2 size={20} strokeWidth={1.9} />, color: 'green', subtitle: `${activePercentage}% active` },
-    { title: 'Inactive Machines', value: stats?.inactiveMachines ?? 0, icon: <Power size={20} strokeWidth={1.9} />, color: 'red', subtitle: 'Inactive' },
-    { title: 'Low Stock Machines', value: stats?.lowStockMachines ?? 0, icon: <Boxes size={20} strokeWidth={1.9} />, color: 'orange', subtitle: 'Low stock' },
-    { title: 'Machines Under Maintenance', value: stats?.maintenanceMachines ?? 0, icon: <Wrench size={20} strokeWidth={1.9} />, color: 'indigo', subtitle: 'Under maintenance' },
     { title: 'Pads Refilled This Month', value: stats?.padsRefilledThisMonth ?? 0, icon: <Droplets size={20} strokeWidth={1.9} />, color: 'pink', subtitle: 'Refilled' },
   ];
 
@@ -200,26 +117,6 @@ function Dashboard() {
         </div>
       </section>
 
-      {/* FILTER TOOLBAR */}
-      <section className="dash-toolbar">
-        <FilterBar
-          filters={dashboardFilters}
-          onChange={handleFilterChange}
-          onClear={handleClearFilters}
-          loading={linesLoading || stationsLoading}
-        />
-        <div className="dash-live">
-          <div className="dash-live-updated">
-            <span className="dash-live-label">Last Updated</span>
-            <strong>{lastUpdated ? formatDateTime(lastUpdated) : '—'}</strong>
-          </div>
-          <span className={`dash-live-pill${isLive ? '' : ' offline'}`}>
-            <span className="dash-live-dot" />
-            {isLive ? 'LIVE' : 'OFFLINE'}
-          </span>
-        </div>
-      </section>
-
       {/* KPI GRID */}
       <section className="kpi-grid">
         {kpiCards.map((card) => (
@@ -229,6 +126,13 @@ function Dashboard() {
 
       {/* PAD STOCK SUMMARY */}
       <StockSummaryStrip />
+
+      {/* USERS (ADMIN) — quick add */}
+      {isAdmin && (
+        <section className="dash-section">
+          <Users compact />
+        </section>
+      )}
 
       {/* RECENT REFILLS */}
       <section className="dash-card">
@@ -265,13 +169,6 @@ function Dashboard() {
       <section className="dash-section">
         <Reports />
       </section>
-
-      {/* USERS (ADMIN) */}
-      {isAdmin && (
-        <section className="dash-section">
-          <Users compact />
-        </section>
-      )}
     </div>
   );
 }
