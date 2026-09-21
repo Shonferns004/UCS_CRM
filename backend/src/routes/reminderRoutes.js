@@ -16,6 +16,9 @@ import {
   getReminderSettings,
   saveReminderSettings,
   importReminders,
+  addDeviceToken,
+  deleteDeviceToken,
+  sendTestPush,
 } from '../controllers/reminderController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
@@ -32,6 +35,8 @@ router.get('/:id/notifications', ANY_AUTH, notificationsForReminder);
 
 router.post('/', ANY_AUTH, addReminder);
 router.post('/import', ANY_AUTH, importReminders);
+router.post('/device-token', ANY_AUTH, addDeviceToken);
+router.post('/test-push', ANY_AUTH, sendTestPush);
 router.post('/settings', ANY_AUTH, saveReminderSettings);
 router.post('/notifications/mark-all-read', ANY_AUTH, markAllRead);
 router.post('/notifications/:id', ANY_AUTH, markRead);
@@ -40,6 +45,7 @@ router.post('/:id/snooze', ANY_AUTH, snoozeReminder);
 
 router.put('/:id', ANY_AUTH, editReminder);
 router.delete('/:id', ANY_AUTH, removeReminder);
+router.delete('/device-token/:token', ANY_AUTH, deleteDeviceToken);
 router.delete('/notifications/:id', ANY_AUTH, removeNotification);
 
 export default router;

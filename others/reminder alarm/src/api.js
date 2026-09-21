@@ -67,8 +67,11 @@ export async function updateReminder(id, payload) {
 export async function deleteReminder(id) {
   return request('DELETE', `reminders/${id}`)
 }
-export async function completeReminder(id, amount) {
-  return request('POST', `reminders/${id}/complete`, amount != null ? { amount } : undefined)
+export async function completeReminder(id, opts) {
+  const body = {}
+  if (opts?.amount != null && opts.amount !== '') body.amount = opts.amount
+  if (opts?.paid_at) body.paid_at = opts.paid_at
+  return request('POST', `reminders/${id}/complete`, Object.keys(body).length ? body : undefined)
 }
 export async function snoozeReminder(id, minutes) {
   return request('POST', `reminders/${id}/snooze`, { minutes })

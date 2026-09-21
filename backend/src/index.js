@@ -94,6 +94,7 @@ import { ensureAuthSessionSchema } from './bootstrap/ensureAuthSessionSchema.js'
 import { ensureNoticeSchema } from './bootstrap/ensureNoticeSchema.js';
 import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema.js';
 import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
+import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 
@@ -912,8 +913,10 @@ if (!process.env.VERCEL) {
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureNotificationLogTypes().catch(e => console.error('ensureNotificationLogTypes failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
+    await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/dbHealthWatchdog.js');
+    import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
   });
   const { initRealtime } = await import('./socket.js');
   initRealtime(server);

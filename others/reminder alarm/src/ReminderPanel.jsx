@@ -8,7 +8,7 @@ import {
   fetchReminderHistory,
   importReminders,
 } from './api'
-import { exportToCSV, exportToExcel, daysLeft } from './helpers'
+import { exportToCSV, exportToExcel, daysLeft, todayStr } from './helpers'
 import {
   requestNotificationPermission, playAlarmSound, sendBrowserNotification,
   isDismissed, dismissAlarmKey, isSnoozed, getAlarmType, computeEffectiveDueDate
@@ -73,6 +73,7 @@ function PanelInner() {
   const [showComplete, setShowComplete] = useState(false)
   const [completeId, setCompleteId] = useState(null)
   const [completeAmount, setCompleteAmount] = useState('')
+  const [completeDate, setCompleteDate] = useState('')
   const [alarmToasts, setAlarmToasts] = useState([])
   const firedRef = useRef(new Set())
 
@@ -141,12 +142,16 @@ function PanelInner() {
   async function handleComplete(id) {
     setCompleteId(id)
     setCompleteAmount('')
+    setCompleteDate(todayStr())
     setShowComplete(true)
   }
 
   async function doComplete() {
     try {
-      const res = await completeReminder(completeId, completeAmount || undefined)
+      const res = await completeReminder(completeId, {
+        amount: completeAmount || undefined,
+        paid_at: completeDate ? `${completeDate}T00:00:00` : undefined,
+      })
       await refresh()
       toast(res.message || 'Reminder completed', 'success')
       dismissAlarm(`${completeId}-OVERDUE`)
@@ -156,6 +161,7 @@ function PanelInner() {
     setShowComplete(false)
     setCompleteId(null)
     setCompleteAmount('')
+    setCompleteDate('')
   }
 
   async function handleSnooze(id, minutes) {
@@ -263,8 +269,17 @@ function PanelInner() {
                 onChange={e => setCompleteAmount(e.target.value)}
                 style={{ width: '100%', boxSizing: 'border-box' }}
               />
+              <label className="rem-label" style={{ marginTop: 10 }}>Paid Date</label>
+              <input
+                className="rem-input"
+                type="date"
+                value={completeDate}
+                max={todayStr()}
+                onChange={e => setCompleteDate(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box' }}
+              />
               <div style={{ fontSize: 11, color: 'var(--rem-ink-soft)', marginTop: 6 }}>
-                Date & time will be recorded automatically.
+                Renewal date will be recalculated from this paid date.
               </div>
             </div>
             <div className="modal-foot">

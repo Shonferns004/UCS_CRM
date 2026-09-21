@@ -6,6 +6,13 @@ import {
   FREQUENCY_OPTIONS,
   PRIORITIES,
   REMIND_BEFORE_OPTIONS,
+  FREQUENCY_FORM_OPTIONS,
+  REMIND_DAYS_BEFORE_OPTIONS,
+  fieldsToFreqOption,
+  freqOptionToFields,
+  computeNextDue,
+  computeRenewal,
+  todayStr,
   formatDateTime,
   formatDate,
 } from './helpers';
@@ -57,6 +64,9 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
     frequency_interval: '',
     day_of_month: '',
     month_of_year: '',
+    frequency: 'ONE_TIME',
+    remind_days_before: '0',
+    last_paid_date: '',
     priority: 'Medium',
     status: 'Upcoming',
     alarm_enabled: false,
@@ -76,12 +86,17 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
       if (isEdit) {
         const mapped = {};
         Object.keys(emptyForm).forEach((k) => {
+          if (k === 'frequency' || k === 'last_paid_date') return;
           mapped[k] = reminder[k] != null ? reminder[k] : emptyForm[k];
         });
+        mapped.frequency = fieldsToFreqOption(reminder.frequency_type, reminder.frequency_interval);
+        mapped.last_paid_date = '';
+        if (reminder.paid_at) mapped.last_paid_date = String(reminder.paid_at).slice(0, 10);
+        mapped.remind_days_before = reminder.remind_days_before == null ? '0' : String(reminder.remind_days_before);
         setForm(mapped);
         originalRef.current = { ...mapped };
       } else {
-        setForm({ ...emptyForm });
+        setForm({ ...emptyForm, due_date: todayStr() });
         originalRef.current = null;
       }
     }
@@ -91,11 +106,62 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const refreshDueAndRenewal = useCallback(({ frequency, lastPaid, dueDate, remindDays }) => {
+    setForm((prev) => {
+      const freqOpt = FREQUENCY_FORM_OPTIONS.find(o => o.value === frequency);
+      const type = freqOpt ? freqOpt.type : 'ONE_TIME';
+      let nextDue = prev.due_date;
+      if (type !== 'ONE_TIME' && lastPaid) {
+        const computed = computeNextDue(lastPaid, type, freqOpt.interval, todayStr());
+        if (computed) nextDue = computed;
+      }
+      return {
+        ...prev,
+        due_date: nextDue,
+        renewal_date: computeRenewal(nextDue, remindDays === '' ? '' : remindDays),
+      };
+    });
+  }, []);
+
   if (!open) return null;
 
   const handleChange = (key) => (e) => {
     const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     set(key, val);
+  };
+
+  const handleFrequencyChange = (e) => {
+    const val = e.target.value;
+    set('frequency', val);
+    refreshDueAndRenewal({
+      frequency: val,
+      lastPaid: form.last_paid_date,
+      dueDate: form.due_date,
+      remindDays: form.remind_days_before,
+    });
+  };
+
+  const handleLastPaidChange = (e) => {
+    const val = e.target.value;
+    set('last_paid_date', val);
+    refreshDueAndRenewal({
+      frequency: form.frequency,
+      lastPaid: val,
+      dueDate: form.due_date,
+      remindDays: form.remind_days_before,
+    });
+  };
+
+  const handleDueDateChange = (e) => {
+    const val = e.target.value;
+    set('due_date', val);
+    set('renewal_date', computeRenewal(val, form.remind_days_before));
+  };
+
+  const handleRemindDaysChange = (e) => {
+    const val = e.target.value;
+    set('remind_days_before', val);
+    set('renewal_date', computeRenewal(form.due_date, val));
   };
 
   const handleSave = async () => {
@@ -126,25 +192,38 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
 
     if (!payload.title) payload.title = form.title;
 
-    // Map friendly frequency options to structured backend values.
-    const freqMap = {
-      MONTH_2: ['MONTH', 2],
-      MONTH_3: ['MONTH', 3],
-      MONTH_6: ['MONTH', 6],
-    };
-    const rawFreq = payload.frequency_type || form.frequency_type || '';
-    if (rawFreq === 'CUSTOM') {
-      payload.frequency_type = payload.frequency_type || 'MONTH';
-      payload.frequency_type = 'MONTH';
-    } else if (freqMap[rawFreq]) {
-      payload.frequency_type = freqMap[rawFreq][0];
-      payload.frequency_interval = freqMap[rawFreq][1];
-    } else if (rawFreq && !['ONE_TIME', 'DAY', 'WEEK', 'MONTH', 'YEAR'].includes(rawFreq)) {
-      payload.frequency_type = 'ONE_TIME';
+    // Strip UI-only keys (not real DB columns).
+    delete payload.frequency;
+    delete payload.last_paid_date;
+
+    // Structured frequency from the friendly dropdown.
+    const freqOpt = freqOptionToFields(form.frequency || (isEdit ? fieldsToFreqOption(form.frequency_type, form.frequency_interval) : 'ONE_TIME'));
+    payload.frequency_type = freqOpt.frequency_type;
+    payload.frequency_interval = freqOpt.frequency_interval;
+    if (!payload.frequency_type || payload.frequency_type === 'ONE_TIME') payload.frequency_interval = null;
+
+    // Remind-N-days-before (renewal/alert lead time).
+    const remindDays = form.remind_days_before === '' || form.remind_days_before == null ? null : Number(form.remind_days_before);
+    payload.remind_days_before = remindDays;
+
+    // Last paid date -> paid_at (start of day, local time). Only overwrite
+    // on edit if the user actually changed the date (preserves real timestamp).
+    const origLastPaid = originalRef.current?.last_paid_date || '';
+    if (!isEdit || form.last_paid_date !== origLastPaid) {
+      if (form.last_paid_date) {
+        payload.paid_at = `${form.last_paid_date}T00:00:00`;
+      } else {
+        payload.paid_at = null;
+      }
     }
-    if ((payload.frequency_type === 'MONTH' || payload.frequency_type === 'YEAR') && payload.frequency_interval === undefined) {
-      payload.frequency_interval = Number(form.frequency_interval) || 1;
+
+    // If frequency set + last paid present but due not computed, compute next due.
+    if (!form.due_date && form.last_paid_date && freqOpt.frequency_type !== 'ONE_TIME') {
+      const nextDue = computeNextDue(form.last_paid_date, freqOpt.frequency_type, freqOpt.frequency_interval, todayStr());
+      payload.due_date = nextDue;
+      payload.renewal_date = computeRenewal(nextDue, remindDays);
     }
+
     if (payload.amount != null && payload.amount !== '') {
       payload.amount = Number(payload.amount);
     } else if (payload.amount === '' || payload.amount === null) {
@@ -242,6 +321,27 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
               />
             </div>
 
+            {/* Frequency */}
+            <div className="form-row">
+              <label>Recurrence / Frequency</label>
+              <select className="rem-select" value={form.frequency} onChange={handleFrequencyChange}>
+                {FREQUENCY_FORM_OPTIONS.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Last Paid Date */}
+            <div className="form-row">
+              <label>Last Paid Date</label>
+              <input
+                className="rem-input"
+                type="date"
+                value={form.last_paid_date}
+                onChange={handleLastPaidChange}
+              />
+            </div>
+
             {/* Due Date */}
             <div className="form-row">
               <label>Due Date</label>
@@ -249,8 +349,18 @@ export function ReminderFormModal({ open, reminder, onClose, onSaved, onDelete }
                 className="rem-input"
                 type="date"
                 value={form.due_date}
-                onChange={handleChange('due_date')}
+                onChange={handleDueDateChange}
               />
+            </div>
+
+            {/* Remind before (days) */}
+            <div className="form-row">
+              <label>Renew Alert Before (Days)</label>
+              <select className="rem-select" value={form.remind_days_before} onChange={handleRemindDaysChange}>
+                {REMIND_DAYS_BEFORE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
 
             {/* Renewal Date */}

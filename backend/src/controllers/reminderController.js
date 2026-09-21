@@ -15,6 +15,9 @@ import {
   clearNotification,
   getSettings,
   upsertSettings,
+  registerDeviceToken,
+  removeDeviceToken,
+  listDeviceTokens,
 } from '../models/reminderModel.js';
 
 export const CATEGORIES = [
@@ -173,7 +176,7 @@ function clean(data) {
     if (c[k] === '') c[k] = null;
   });
 
-  ['frequency_interval', 'day_of_month', 'month_of_year', 'reminder_minutes_before']
+['frequency_interval', 'day_of_month', 'month_of_year', 'reminder_minutes_before', 'remind_days_before']
     .forEach((k) => {
       if (c[k] === undefined || c[k] === null || c[k] === '') c[k] = null;
       if (c[k] !== null) c[k] = Number(c[k]) || null;
@@ -271,7 +274,7 @@ export const editReminder = async (req, res) => {
         writable[k] = !!v;
         continue;
       }
-      if (['frequency_interval', 'day_of_month', 'month_of_year', 'reminder_minutes_before'].includes(k)) {
+      if (['frequency_interval', 'day_of_month', 'month_of_year', 'reminder_minutes_before', 'remind_days_before'].includes(k)) {
         writable[k] = v === undefined || v === null || v === '' ? null : (Number(v) || null);
         continue;
       }
@@ -287,7 +290,7 @@ export const editReminder = async (req, res) => {
       writable[k] = v === '' || v === null ? null : v;
     }
 
-    if (writable.amount != null && writable.amount !== '' && !before.paid_at) {
+    if (writable.amount != null && writable.amount !== '' && !before.paid_at && isUndefined(body.paid_at)) {
       writable.paid_at = new Date().toISOString();
     }
 
@@ -364,7 +367,13 @@ export const completeReminder = async (req, res) => {
         updates.due_date = nextDue;
         updates.completed_at = null;
         updates.status = 'Upcoming';
-        if (before.renewal_date) updates.renewal_date = before.renewal_date;
+        // renewal_date = due_date - remind_days_before (alert/lead time)
+        const remindDays = parseInt(before.remind_days_before, 10);
+        updates.renewal_date = remindDays > 0
+          ? new Date(new Date(`${nextDue}T00:00:00`).getTime() - remindDays * 86400000)
+              .toISOString().slice(0, 10)
+          : null;
+        if (before.renewal_date) updates.renewal_date = updates.renewal_date || before.renewal_date;
       }
     }
 
@@ -505,6 +514,56 @@ export const saveReminderSettings = async (req, res) => {
     }
     const saved = await upsertSettings(settings);
     return res.json({ message: 'Settings saved successfully', settings: saved });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const addDeviceToken = async (req, res) => {
+  try {
+    const { token, device_type } = req.body || {};
+    if (!token || !String(token).trim()) {
+      return res.status(400).json({ message: 'Device token is required' });
+    }
+    const saved = await registerDeviceToken(String(token).trim(), device_type || 'flutter');
+    return res.json({ message: 'Device registered for reminders', device: saved });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteDeviceToken = async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token) return res.status(400).json({ message: 'Device token is required' });
+    await removeDeviceToken(token);
+    return res.json({ message: 'Device token removed' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const sendTestPush = async (req, res) => {
+  try {
+    const { messaging } = await import('../config/firebase.js');
+    const tokens = await listDeviceTokens();
+    if (!tokens.length || !messaging) {
+      return res.status(400).json({ message: 'No device tokens registered yet — open the app and grant notification permission first.' });
+    }
+    let sent = 0;
+    for (const token of tokens) {
+      try {
+        await messaging.send({
+          token,
+          notification: { title: '🎉 Bill Reminder — Test Push', body: 'Notifications are working end to end!' },
+          data: { type: 'test', reminderId: '' },
+        });
+        sent += 1;
+      } catch (e) {
+        console.error('test push error:', e.message);
+      }
+    }
+    return res.json({ message: `Test push sent to ${sent} device(s)`, sent });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
