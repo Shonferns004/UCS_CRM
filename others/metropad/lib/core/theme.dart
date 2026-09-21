@@ -64,6 +64,7 @@ ThemeData buildAppTheme() {
       foregroundColor: AppColors.text,
       elevation: 0,
       scrolledUnderElevation: 0.5,
+      surfaceTintColor: Colors.transparent,
       titleTextStyle: TextStyle(
         color: AppColors.text,
         fontSize: 18,
@@ -78,17 +79,17 @@ ThemeData buildAppTheme() {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: AppColors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: AppColors.borderDark),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.border),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: AppColors.borderDark),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.border),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
       ),
     ),
@@ -96,8 +97,9 @@ ThemeData buildAppTheme() {
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.primary,
         foregroundColor: AppColors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
         textStyle: const TextStyle(fontWeight: FontWeight.w600),
       ),
     ),
@@ -105,21 +107,46 @@ ThemeData buildAppTheme() {
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.text,
         side: const BorderSide(color: AppColors.borderDark),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       ),
     ),
     cardTheme: CardThemeData(
       color: AppColors.white,
       elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         side: const BorderSide(color: AppColors.border),
       ),
     ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: AppColors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: AppColors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+    ),
+    chipTheme: base.chipTheme.copyWith(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      side: const BorderSide(color: AppColors.border),
+    ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      insetPadding: const EdgeInsets.all(16),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: AppColors.primary,
+      foregroundColor: AppColors.white,
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
   );
 }

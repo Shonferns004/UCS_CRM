@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/theme.dart';
 
@@ -45,7 +46,7 @@ class KpiCard extends StatelessWidget {
                     child: Icon(icon, color: color, size: 20),
                   ),
                   if (onClick != null)
-                    const Icon(Icons.arrow_outward, size: 16, color: AppColors.textLight),
+                    const Icon(LucideIcons.arrowUpRight, size: 16, color: AppColors.textLight),
                 ],
               ),
               const SizedBox(height: 12),
@@ -176,7 +177,7 @@ class EmptyState extends StatelessWidget {
   final String message;
   const EmptyState({
     super.key,
-    this.icon = Icons.inbox_outlined,
+    this.icon = LucideIcons.inbox,
     this.title = 'Nothing here',
     this.message = 'No records to show.',
   });
@@ -217,7 +218,7 @@ class ErrorState extends StatelessWidget {
         padding: const EdgeInsets.all(32),
         child: Column(
           children: [
-            const Icon(Icons.error_outline, size: 44, color: AppColors.danger),
+            const Icon(LucideIcons.circleAlert, size: 44, color: AppColors.danger),
             const SizedBox(height: 12),
             Text(message,
                 textAlign: TextAlign.center,
@@ -226,7 +227,7 @@ class ErrorState extends StatelessWidget {
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(LucideIcons.refreshCw),
                 label: const Text('Retry'),
               ),
             ],

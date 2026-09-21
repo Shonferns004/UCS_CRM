@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/api_client.dart';
 import '../../services/base_service.dart';
@@ -117,7 +118,7 @@ class _PagedListScreenState<T> extends State<PagedListScreen<T>> {
               await widget.onAdd!(context);
               _load();
             },
-            icon: const Icon(Icons.add, size: 18),
+            icon: const Icon(LucideIcons.plus, size: 18),
             label: Text(widget.addLabel ?? 'Add'),
           ),
       ],

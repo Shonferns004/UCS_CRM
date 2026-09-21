@@ -159,16 +159,39 @@ class DashboardOverview {
 
   factory DashboardOverview.fromJson(Map<String, dynamic> json) {
     List<MachineAlert> parseList(dynamic v) {
+      if (v is Map) {
+        final list = v['machines'];
+        final count = asInt(v['count']) ?? 0;
+        if (list is List) {
+          return list.map((e) {
+            final entry = (e as Map).cast<String, dynamic>();
+            return MachineAlert(
+              machine: Machine.fromJson(entry),
+              stockPercentage: asNum(entry['stock_percentage']) ?? 0,
+              count: count,
+            );
+          }).toList();
+        }
+      }
+      if (v is List) {
+        return v.map((e) {
+          final entry = (e as Map).cast<String, dynamic>();
+          return MachineAlert(
+            machine: Machine.fromJson(entry),
+            stockPercentage: asNum(entry['stock_percentage']) ?? 0,
+            count: asInt(entry['count']) ?? 0,
+          );
+        }).toList();
+      }
+      return const [];
+    }
+
+    List<RefillLite> parseRefills(dynamic v) {
+      if (v is Map) v = v['refills'];
       if (v is! List) return const [];
-      return v.map((e) {
-        final entry = (e as Map).cast<String, dynamic>();
-        final m = entry['machines'];
-        return MachineAlert(
-          machine: m is Map ? Machine.fromJson(m.cast<String, dynamic>()) : Machine.fromJson(entry),
-          stockPercentage: asNum(entry['stock_percentage']) ?? 0,
-          count: asInt(entry['count']) ?? 0,
-        );
-      }).toList();
+      return v
+          .map((e) => RefillLite.fromJson((e as Map).cast<String, dynamic>()))
+          .toList();
     }
 
     return DashboardOverview(
@@ -177,11 +200,7 @@ class DashboardOverview {
       ),
       lowStock: parseList(json['lowStock']),
       attention: parseList(json['attention']),
-      refills: (json['refills'] as List?)
-              ?.map((e) =>
-                  RefillLite.fromJson((e as Map).cast<String, dynamic>()))
-              .toList() ??
-          const [],
+      refills: parseRefills(json['refills']),
     );
   }
 }
@@ -213,7 +232,7 @@ class RefillLite {
       lineName: asStr(json['line_name']),
       refillDate: asStr(json['refill_date']),
       refillQuantity: asNum(json['refill_quantity']) ?? 0,
-      currentStock: asNum(json['current_stock']) ?? 0,
+      currentStock: asNum(json['current_stock']) ?? asNum(json['new_stock']) ?? 0,
     );
   }
 }

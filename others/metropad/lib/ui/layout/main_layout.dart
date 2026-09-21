@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../state/app_state.dart';
@@ -44,7 +45,7 @@ class AppScaffold extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.home_outlined),
+          icon: const Icon(LucideIcons.home),
           tooltip: 'Dashboard',
           onPressed: () {
             Navigator.of(context).pushAndRemoveUntil(
@@ -85,7 +86,7 @@ class _UserMenuButton extends StatelessWidget {
       builder: (context, _) {
         final user = AppState.auth.user;
         return PopupMenuButton<String>(
-          icon: const Icon(Icons.account_circle_outlined),
+          icon: const Icon(LucideIcons.circleUser),
           tooltip: 'Account',
           onSelected: (v) async {
             if (v == 'logout') {
@@ -127,10 +128,10 @@ class BottomNavBar extends StatelessWidget {
   const BottomNavBar({super.key, required this.selected});
 
   static const List<_NavItem> _tabs = [
-    _NavItem('Dashboard', 'dashboard', Icons.dashboard_outlined),
-    _NavItem('Metro Network', 'network', Icons.map_outlined),
-    _NavItem('Refill Management', 'refills', Icons.refresh_outlined),
-    _NavItem('Stock Issues', 'stock-issues', Icons.warning_amber_outlined),
+    _NavItem('Dashboard', 'dashboard', LucideIcons.layoutDashboard),
+    _NavItem('Metro Network', 'network', LucideIcons.map),
+    _NavItem('Refill Management', 'refills', LucideIcons.refreshCw),
+    _NavItem('Stock Issues', 'stock-issues', LucideIcons.triangleAlert),
   ];
 
   void _go(BuildContext context, String route) {
@@ -141,46 +142,63 @@ class BottomNavBar extends StatelessWidget {
     );
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
     final items = _tabs;
 
-    return Material(
-      color: AppColors.white,
-      elevation: 8,
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 18,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
       child: SafeArea(
         top: false,
-        child: Container(
-          decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: AppColors.border)),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           child: Row(
             children: [
               for (final t in items)
                 Expanded(
                   child: InkWell(
                     onTap: () => _go(context, t.route),
+                    borderRadius: BorderRadius.circular(14),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            t.icon,
-                            size: 22,
-                            color: t.route == selected
-                                ? AppColors.primary
-                                : AppColors.textLight,
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: t.route == selected
+                                  ? AppColors.primary50
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Icon(
+                              t.icon,
+                              size: 20,
+                              color: t.route == selected
+                                  ? AppColors.primary
+                                  : AppColors.textLight,
+                            ),
                           ),
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 4),
                           Text(
                             t.label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: 10.5,
                               fontWeight: t.route == selected
-                                  ? FontWeight.w600
+                                  ? FontWeight.w700
                                   : FontWeight.w500,
                               color: t.route == selected
                                   ? AppColors.primary

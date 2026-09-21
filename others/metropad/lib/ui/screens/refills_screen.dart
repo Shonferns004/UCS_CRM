@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/api_client.dart';
 import '../../core/constants.dart';
@@ -62,7 +63,7 @@ class _RefillsScreenState extends State<RefillsScreen> {
         if (AppState.auth.canManage)
           FilledButton.icon(
             onPressed: () => _addRefill(context),
-            icon: const Icon(Icons.add, size: 18),
+            icon: const Icon(LucideIcons.plus, size: 18),
             label: const Text('Add Refill'),
           ),
       ],

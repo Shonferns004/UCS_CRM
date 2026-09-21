@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../core/constants.dart';
 import '../../core/theme.dart';
@@ -110,11 +111,11 @@ class _FilterBarState extends State<FilterBar> {
                     decoration: InputDecoration(
                       isDense: true,
                       hintText: 'Search ${f.label}...',
-                      prefixIcon: const Icon(Icons.search, size: 18),
+                      prefixIcon: const Icon(LucideIcons.search, size: 18),
                       suffixIcon: _searchControllers[f.key]!.text.isEmpty
                           ? null
                           : IconButton(
-                              icon: const Icon(Icons.close, size: 16),
+                              icon: const Icon(LucideIcons.x, size: 16),
                               onPressed: () => _set(f.key, null, fromSearch: true),
                             ),
                     ),
@@ -148,7 +149,7 @@ class _FilterBarState extends State<FilterBar> {
             if (hasActive)
               TextButton.icon(
                 onPressed: _clear,
-                icon: const Icon(Icons.filter_alt_off, size: 16),
+                icon: const Icon(LucideIcons.filterX, size: 16),
                 label: const Text('Clear Filters'),
               ),
           ],
@@ -204,14 +205,14 @@ class PaginationBar extends StatelessWidget {
           const SizedBox(width: 12),
           IconButton(
             onPressed: page <= 1 ? null : () => onPageChange(page - 1),
-            icon: const Icon(Icons.chevron_left),
+            icon: const Icon(LucideIcons.chevronLeft),
             color: page <= 1 ? AppColors.borderDark : AppColors.text,
           ),
           Text('$page / $totalPages',
               style: const TextStyle(fontSize: 13, color: AppColors.textLight)),
           IconButton(
             onPressed: page >= totalPages ? null : () => onPageChange(page + 1),
-            icon: const Icon(Icons.chevron_right),
+            icon: const Icon(LucideIcons.chevronRight),
             color: page >= totalPages ? AppColors.borderDark : AppColors.text,
           ),
         ],
