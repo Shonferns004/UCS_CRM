@@ -22,6 +22,6 @@ const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 }, fileFilt
 const router = Router()
 router.use(protect)
 router.post('/validate', upload.single('file'), controller.validateFile)
-router.post('/confirm', authorize('ADMIN', 'OPERATIONS'), controller.confirmImport)
+router.post('/confirm', authorize('ADMIN', 'OPERATOR'), controller.confirmImport)
 
 export default router

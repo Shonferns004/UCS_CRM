@@ -3,7 +3,7 @@ import * as UserModel from '../models/user.model.js'
 import { AppError } from '../middleware/errorHandler.js'
 import * as AuditService from './audit.service.js'
 
-const VALID_ROLES = ['ADMIN', 'OPERATIONS', 'VIEWER']
+const VALID_ROLES = ['ADMIN', 'OPERATOR', 'VIEWER']
 const SALT_ROUNDS = 10
 
 const safeUser = ({ id, name, email, role, is_active, created_at, updated_at }) => ({

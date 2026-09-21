@@ -10,6 +10,6 @@ export const MACHINE_TYPES = ['Standard', 'Compact']
 export const SLOTS_PER_MACHINE = 2
 export const SLOT_CAPACITY = 25
 export const MACHINE_CAPACITY = SLOTS_PER_MACHINE * SLOT_CAPACITY
-export const ROLES = ['ADMIN', 'OPERATIONS', 'VIEWER']
+export const ROLES = ['ADMIN', 'OPERATOR', 'VIEWER']
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 export const PAGE_SIZES = [10, 20, 50, 100]

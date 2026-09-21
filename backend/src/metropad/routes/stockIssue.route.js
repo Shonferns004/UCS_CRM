@@ -8,7 +8,7 @@ router.use(protect)
 router.get('/', controller.getAll)
 router.get('/:id', controller.getById)
 router.get('/machine/:machineId', controller.getByMachine)
-router.post('/', authorize('ADMIN', 'OPERATIONS'), controller.create)
-router.patch('/:id/status', authorize('ADMIN', 'OPERATIONS'), controller.updateStatus)
+router.post('/', authorize('ADMIN', 'OPERATOR'), controller.create)
+router.patch('/:id/status', authorize('ADMIN', 'OPERATOR'), controller.updateStatus)
 
 export default router
