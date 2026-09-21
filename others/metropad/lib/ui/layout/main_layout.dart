@@ -44,16 +44,22 @@ class AppScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(LucideIcons.home),
-          tooltip: 'Dashboard',
-          onPressed: () {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const DashboardScreen()),
-              (route) => false,
-            );
-          },
-        ),
+        leading: showBack
+            ? IconButton(
+                icon: const Icon(LucideIcons.chevronLeft),
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context).maybePop(),
+              )
+            : IconButton(
+                icon: const Icon(LucideIcons.home),
+                tooltip: 'Dashboard',
+                onPressed: () {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const DashboardScreen()),
+                    (route) => false,
+                  );
+                },
+              ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
