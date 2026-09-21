@@ -1,0 +1,81 @@
+.mp-root {
+  --color-primary: #4f46e5;
+  --color-primary-light: #6366f1;
+  --color-primary-dark: #4338ca;
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+  --color-bg: #f8fafc;
+  --color-bg-white: #ffffff;
+  --color-sidebar: #ffffff;
+  --color-sidebar-hover: #f1f5f9;
+  --color-text: #1e293b;
+  --color-text-light: #64748b;
+  --color-text-white: #ffffff;
+  --color-border: #e2e8f0;
+  --color-border-dark: #cbd5e1;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 12px 30px rgba(0, 0, 0, 0.12);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --transition: all 0.2s ease;
+}
+
+.mp-root * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+
+
+.mp-root a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.mp-root button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.mp-root input, .mp-root select, .mp-root textarea {
+  font-family: inherit;
+}
+
+.mp-root ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.mp-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mp-root ::-webkit-scrollbar-thumb {
+  background: var(--color-border-dark);
+  border-radius: 9999px;
+}
+
+.mp-root ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.mp-root img {
+  max-width: 100%;
+  height: auto;
+}
+
+.mp-root table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.mp-root ul {
+  list-style: none;
+}

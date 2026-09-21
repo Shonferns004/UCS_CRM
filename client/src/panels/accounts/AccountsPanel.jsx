@@ -39,12 +39,15 @@ import AttendancePage from './pages/Attendance'
 import SimSection from './components/SimSection'
 import Certificates from './pages/Certificates'
 import BeneficiariesPanel from '../beneficiaries/BeneficiariesPanel'
+import MetropadPage from './metropad/MetropadPage'
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10"/></svg> },
   { id: 'receipt-generator', path: '/accounts/receipt-generator', label: 'Receipts',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
+  { id: 'metropad', path: '/accounts/metropad', label: 'Metropad',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/></svg> },
 ]
 
 const NAV_GROUPS = [
@@ -534,6 +537,7 @@ export default function AccountsPanel() {
             <Route path="old-data" element={<OldData />} />
             <Route path="sim/*" element={<SimSection />} />
             <Route path="beneficiaries/*" element={<BeneficiariesPanel base="/accounts/beneficiaries" />} />
+            <Route path="metropad" element={<MetropadPage />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>
