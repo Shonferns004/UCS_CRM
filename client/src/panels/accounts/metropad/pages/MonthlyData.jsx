@@ -58,7 +58,7 @@ function statusLabel(key) {
 function MonthlyData() {
   const { addToast } = useToast();
   const { hasRole } = useAuth();
-  const canWrite = hasRole('ADMIN', 'OPERATIONS');
+  const canWrite = hasRole('ADMIN', 'OPERATOR');
 
   const [year, setYear] = useState(currentYear);
   const [month, setMonth] = useState(currentMonth);

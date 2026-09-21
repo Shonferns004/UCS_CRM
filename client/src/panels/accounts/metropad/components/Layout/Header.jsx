@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+﻿import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Menu, Bell, ChevronDown, LogOut } from 'lucide-react';
 
@@ -8,7 +8,7 @@ const titleMap = {
 
 const roleLabelMap = {
   ADMIN: 'Administrator',
-  OPERATIONS: 'Operator',
+  OPERATOR: 'Operator',
   VIEWER: 'Viewer',
 };
 

@@ -7,6 +7,6 @@ router.use(protect)
 
 router.get('/', controller.getMonthlyData)
 router.get('/records', controller.getMonthlyRecords)
-router.post('/records', authorize('ADMIN', 'OPERATIONS'), controller.createMonthlyRecord)
+router.post('/records', authorize('ADMIN', 'OPERATOR'), controller.createMonthlyRecord)
 
 export default router

@@ -6,7 +6,7 @@ const router = Router()
 router.use(protect)
 
 router.get('/', controller.getMonthly)
-router.post('/', authorize('ADMIN', 'OPERATIONS'), controller.create)
-router.delete('/:id', authorize('ADMIN', 'OPERATIONS'), controller.remove)
+router.post('/', authorize('ADMIN', 'OPERATOR'), controller.create)
+router.delete('/:id', authorize('ADMIN', 'OPERATOR'), controller.remove)
 
 export default router
