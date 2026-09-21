@@ -301,6 +301,37 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
     }
   }
 
+  Future<void> _deleteMachine(Machine m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Delete machine?'),
+        content: const Text(
+            'This removes the machine from this station. Refill and issue records stay in history.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final msg = await apiRun(context, () async {
+      await MachineService.remove(m.id);
+    }, success: 'Machine deleted');
+    if (!mounted) return;
+    if (msg == null) {
+      _load();
+    } else {
+      _snack(msg);
+    }
+  }
+
   Widget _actionButton({
     required IconData icon,
     required String label,
@@ -338,6 +369,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
       _snack('No machine installed at this station.');
       return;
     }
+    final isNew = (m.currentStock ?? 0) == 0;
     final cash = TextEditingController();
     final qty = TextEditingController();
     await showFormModal(
@@ -350,23 +382,38 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
           children: [
             const Text('Add Refill',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            FormFieldWrap(
-              label: 'Amount Collected (₹)',
-              child: TextField(
-                controller: cash,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(hintText: 'e.g. 250'),
-              ),
+            const SizedBox(height: 6),
+            Text(
+              'Machine holds ${AppConstants.machineCapacity} pads (${AppConstants.slotsPerMachine} slots × ${AppConstants.slotCapacity}).',
+              style: const TextStyle(fontSize: 12, color: AppColors.textLight),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
+            if (!isNew) ...[
+              FormFieldWrap(
+                label: 'Amount Collected (₹)',
+                child: TextField(
+                  controller: cash,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (v) {
+                    final amt = double.tryParse(v.trim());
+                    if (amt != null && amt > 0) {
+                      qty.text =
+                          (amt / AppConstants.pricePerPad).round().toString();
+                    }
+                  },
+                  decoration: const InputDecoration(hintText: 'e.g. 150'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             FormFieldWrap(
-              label: 'Refill Quantity (pads)',
+              label: isNew ? 'Stock to Add (pads)' : 'Refill Quantity (pads)',
               required: true,
               child: TextField(
                 controller: qty,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(hintText: 'e.g. 25'),
+                decoration: const InputDecoration(hintText: 'e.g. 50'),
               ),
             ),
             const SizedBox(height: 20),
@@ -380,19 +427,19 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 const SizedBox(width: 10),
                 FilledButton(
                   onPressed: () async {
-                    final c = double.tryParse(cash.text.trim()) ?? 0;
                     final q = int.tryParse(qty.text.trim());
-                    if (q == null || q < 0) {
-                      _snack('Enter a valid refill quantity');
+                    if (q == null || q <= 0) {
+                      _snack('Enter a valid quantity');
                       return;
                     }
-                    final capacity = (m.capacity ?? AppConstants.machineCapacity)
-                        .toInt();
-                    final remaining = capacity - (m.currentStock ?? 0).toInt();
-                    if (q > remaining) {
-                      _snack('Refill exceeds capacity. Max $remaining pads.');
+                    if (q > AppConstants.machineCapacity) {
+                      _snack(
+                          'Machine holds only ${AppConstants.machineCapacity} pads.');
                       return;
                     }
+                    final c = isNew
+                        ? 0.0
+                        : (double.tryParse(cash.text.trim()) ?? 0);
                     final msg = await apiRun(context, () async {
                       await RefillService.create({
                         'machineId': m.id,
@@ -680,7 +727,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                             fontSize: 13.5, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
                     Text(
-                      '${AppConstants.slotsPerMachine} slots × ${AppConstants.slotCapacity} pads · ${formatNumber(m.currentStock)}/${formatNumber(m.capacity)}',
+                      'Holds ${AppConstants.machineCapacity} pads · ${AppConstants.slotsPerMachine} slots × ${AppConstants.slotCapacity}',
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.textLight),
                     ),
@@ -688,6 +735,15 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 ),
               ),
               if (m.status.isNotEmpty) StatusBadge(m.status),
+              if (AppState.auth.canManage) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Delete machine',
+                  onPressed: () => _deleteMachine(m),
+                  icon: const Icon(LucideIcons.trash2,
+                      size: 18, color: AppColors.textLight),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 8),

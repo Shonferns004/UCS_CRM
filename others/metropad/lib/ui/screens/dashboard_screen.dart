@@ -302,21 +302,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.w600)),
                   subtitle: Text(item.machine.stationName),
-                  trailing: StatusBadge(stockLevelNum(item.machine.stockPercentage) == 'LOW_STOCK'
-                      ? 'LOW_STOCK'
-                      : item.machine.status),
+                  trailing: StatusBadge(item.machine.status),
                   onTap: () => _go('refills'),
                 ),
           ],
         ),
       ),
     );
-  }
-
-  String stockLevelNum(num? pct) {
-    if (pct == null || pct <= 0) return 'EMPTY';
-    if (pct <= 10) return 'LOW_STOCK';
-    return 'NORMAL';
   }
 
   Widget _padStockCard() {
