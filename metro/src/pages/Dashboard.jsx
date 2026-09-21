@@ -180,6 +180,8 @@ function Dashboard() {
   const stats = overview?.stats ?? null;
   const lowStockData = overview?.lowStock ?? null;
   const attentionData = overview?.attention ?? null;
+  const lowStockMachines = Array.isArray(lowStockData?.machines) ? lowStockData.machines : [];
+  const attentionMachines = Array.isArray(attentionData?.machines) ? attentionData.machines : [];
   const refillsData = overview?.refills ?? null;
   const statsLoading = dashLoading;
   const lowStockLoading = dashLoading;
@@ -241,10 +243,9 @@ function Dashboard() {
   /* Build per-station status from live machine data for the map markers */
   const stationStatus = useMemo(() => {
     const statusMap = {};
-    const allMachines = [
-      ...(lowStockData?.machines || []),
-      ...(attentionData?.machines || []),
-    ];
+    const lowStockMachines = Array.isArray(lowStockData?.machines) ? lowStockData.machines : [];
+    const attentionMachines = Array.isArray(attentionData?.machines) ? attentionData.machines : [];
+    const allMachines = [...lowStockMachines, ...attentionMachines];
     const byName = {};
     allMachines.forEach((m) => {
       const key = normalize(m.station_name) || m.station_id;
@@ -586,11 +587,11 @@ function Dashboard() {
             </header>
             {lowStockLoading ? (
               <LoadingSpinner message="Loading low stock alerts..." />
-            ) : (lowStockData?.machines?.length ?? 0) > 0 ? (
+            ) : lowStockMachines.length > 0 ? (
               <div className="table-wrapper">
                 <DataTable
                   columns={lowStockColumns}
-                  data={lowStockData.machines}
+                  data={lowStockMachines}
                   emptyMessage="No low stock alerts"
                   onRowClick={(row) => navigate(machineLink(row))}
                 />
@@ -616,11 +617,11 @@ function Dashboard() {
             </header>
             {attentionLoading ? (
               <LoadingSpinner message="Loading attention machines..." />
-            ) : (attentionData?.machines?.length ?? 0) > 0 ? (
+            ) : attentionMachines.length > 0 ? (
               <div className="table-wrapper">
                 <DataTable
                   columns={attentionColumns}
-                  data={attentionData.machines}
+                  data={attentionMachines}
                   emptyMessage="No machines requiring attention"
                   onRowClick={(row) => navigate(machineLink(row))}
                 />

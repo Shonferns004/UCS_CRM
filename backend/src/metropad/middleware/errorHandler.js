@@ -19,7 +19,7 @@ export const errorHandler = (err, req, res, next) => {
   let message = err.message || 'Internal server error'
   let errors = err.errors || undefined
 
-  console.error(`[ERROR] ${req.method} ${req.originalUrl} —`, err.message)
+  console.error(`[ERROR] ${req.method} ${req.originalUrl} —`, err.stack || err.message)
 
   if (err.isOperational) {
     return res.status(statusCode).json({
@@ -50,6 +50,9 @@ export const errorHandler = (err, req, res, next) => {
   } else if (err.code === '22P02') {
     statusCode = 400
     message = 'Invalid data format'
+  } else {
+    statusCode = 500
+    message = 'Internal server error'
   }
 
   return res.status(statusCode).json({
