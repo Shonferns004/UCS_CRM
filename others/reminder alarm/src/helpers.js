@@ -33,6 +33,87 @@ export const SNOOZE_OPTIONS = [
   { value: 60, label: '1 hour' },
 ]
 
+export const FREQUENCY_FORM_OPTIONS = [
+  { value: 'ONE_TIME', label: 'One Time', type: 'ONE_TIME', interval: 1 },
+  { value: 'MONTH', label: 'Monthly', type: 'MONTH', interval: 1 },
+  { value: 'MONTH_3', label: 'Quarterly (3 Months)', type: 'MONTH', interval: 3 },
+  { value: 'MONTH_6', label: 'Half-Yearly (6 Months)', type: 'MONTH', interval: 6 },
+  { value: 'YEAR', label: 'Yearly', type: 'YEAR', interval: 1 },
+]
+
+export function fieldsToFreqOption(frequencyType, frequencyInterval) {
+  const i = Number(frequencyInterval) || 1
+  if (!frequencyType || frequencyType === 'ONE_TIME') return 'ONE_TIME'
+  if (frequencyType === 'MONTH' || frequencyType === 'MONTH_3' || frequencyType === 'MONTH_6' || /^MONTH_\d+$/.test(frequencyType)) {
+    if (i === 1) return 'MONTH'
+    if (i === 3) return 'MONTH_3'
+    if (i === 6) return 'MONTH_6'
+    return 'MONTH'
+  }
+  if (frequencyType === 'YEAR' || frequencyType === 'YEARLY') return 'YEAR'
+  return 'ONE_TIME'
+}
+
+export function freqOptionToFields(freqValue) {
+  const opt = FREQUENCY_FORM_OPTIONS.find(o => o.value === freqValue) || FREQUENCY_FORM_OPTIONS[0]
+  return { frequency_type: opt.type, frequency_interval: opt.interval }
+}
+
+export const REMIND_DAYS_BEFORE_OPTIONS = [
+  { value: 0, label: 'At due date' },
+  { value: 5, label: '5 days before' },
+  { value: 10, label: '10 days before' },
+  { value: 15, label: '15 days before' },
+  { value: 20, label: '20 days before' },
+  { value: 30, label: '30 days before' },
+]
+
+function parseISODate(dStr) {
+  const s = String(dStr).slice(0, 10).split('-')
+  if (s.length !== 3) return null
+  const d = new Date(Number(s[0]), Number(s[1]) - 1, Number(s[2]))
+  return isNaN(d.getTime()) ? null : d
+}
+
+function lastDayOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+}
+
+function toISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function computeNextDue(anchorDate, freqType, interval = 1, refDate = todayStr()) {
+  if (!anchorDate || !freqType || freqType === 'ONE_TIME') return anchorDate || ''
+  const anchor = parseISODate(anchorDate)
+  const ref = parseISODate(refDate) || todayObj()
+  if (!anchor) return ''
+  let d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())
+  let n = 0
+  const guard = 2000
+  if (freqType === 'MONTH') {
+    while (d < ref && n++ < guard) {
+      const day = Math.min(d.getDate(), lastDayOfMonth(new Date(d.getFullYear(), d.getMonth() + interval, 1)))
+      d = new Date(d.getFullYear(), d.getMonth() + interval, day)
+    }
+  } else if (freqType === 'YEAR') {
+    while (d < ref && n++ < guard) {
+      d = new Date(d.getFullYear() + interval, d.getMonth(), Math.min(d.getDate(), lastDayOfMonth(new Date(d.getFullYear() + interval, d.getMonth(), 1))))
+    }
+  } else {
+    return anchorDate || ''
+  }
+  return toISODate(d)
+}
+
+export function computeRenewal(dueDate, remindDays) {
+  if (!dueDate || !Number(remindDays)) return ''
+  const due = parseISODate(dueDate)
+  if (!due) return ''
+  const r = new Date(due.getFullYear(), due.getMonth(), due.getDate() - Number(remindDays))
+  return toISODate(r)
+}
+
 export const REMIND_BEFORE_OPTIONS = [
   { value: 0, label: 'At due time' },
   { value: 5, label: '5 minutes before' },

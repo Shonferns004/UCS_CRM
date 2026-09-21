@@ -4,6 +4,7 @@ import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon, nor
 import { computeEffectiveDueDate } from './notifications'
 import { Icon } from './components'
 import { toast } from './Toast'
+import './allreminders.css'
 
 
 const STATUS_OPTIONS = ['Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Upcoming', 'Completed', 'Snoozed']
@@ -270,15 +271,6 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     else if (kind === 'delete') onDelete?.(dbItem)
   }
 
-  const actionBtnStyle = {
-    padding: 4,
-    width: 28,
-    height: 28,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  }
-
   const hasFilters = search || ownerFilter || statusFilter || activeFilter
   const isViewFilter = activeFilter && VIEW_FILTERS[activeFilter]
   const catDropdownVal = activeFilter && !isViewFilter ? activeFilter : ''
@@ -291,12 +283,12 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
 
   return (
     <>
-      <div className="card-block" style={{ marginTop: 20 }}>
+      <div className="card-block ar-page" style={{ marginTop: 20 }}>
         <div className="tb">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Icon name="bell" size={18} />
+            <span className="ar-head-ic"><Icon name="bell" size={16} /></span>
             <h3>{activeLabel}</h3>
-            <span className="pill pill-upcoming">{itemCount} reminder{itemCount !== 1 ? 's' : ''}</span>
+            <span className="pill pill-upcoming ar-count">{itemCount} reminder{itemCount !== 1 ? 's' : ''}</span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {hasFilters && (
@@ -311,13 +303,16 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
         </div>
 
         <div className="toolbar">
-          <input
-            type="text"
-            className="rem-input search-input"
-            placeholder="Search reminders..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <div className="ar-search">
+            <Icon name="search" size={14} />
+            <input
+              type="text"
+              className="rem-input search-input"
+              placeholder="Search reminders..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
           <select className="rem-select" value={catDropdownVal} onChange={e => handleCategoryChange(e.target.value)}>
             <option value="">All Categories</option>
             {categories.map(c => (
@@ -360,7 +355,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
             </thead>
             <tbody>
               {displayRows.length === 0 ? (
-                <tr>
+                <tr className="ar-empty-row">
                   <td colSpan={9}>
                     <div className="empty-state">
                       <Icon name="bell" size={40} color="var(--rem-ink-soft)" />
@@ -374,10 +369,12 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                   return (
                     <tr className="rem-group-row" key={`g-${i}-${row.label}`}>
                       <td colSpan={9}>
-                        <span className="rem-heading-label">{row.label}</span>
-                        {typeof row.count === 'number' && (
-                          <span className="pill pill-upcoming" style={{ marginLeft: 8 }}>{row.count} reminder{row.count !== 1 ? 's' : ''}</span>
-                        )}
+                        <div className="ar-group-bar">
+                          <span className="rem-heading-label">{row.label}</span>
+                          {typeof row.count === 'number' && (
+                            <span className="pill pill-upcoming">{row.count} reminder{row.count !== 1 ? 's' : ''}</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -395,29 +392,29 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                 const status = it._status
                 return (
                   <tr key={`i-${it._seq}`}>
-                    <td>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                    <td data-label="Category">
+                      <span className="ar-cat">
                         <Icon name={categoryIcon(it.category)} size={14} />
-                        {normalizeCategory(it.category)}
+                        <span>{normalizeCategory(it.category)}</span>
                       </span>
                     </td>
                     <td>
                       <div
-                        style={{ fontWeight: 600, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        className="ar-title"
                         title={it.title || ''}
                       >
                         {it.title || '—'}
                       </div>
                       {it.notes && (
-                        <div style={{ fontSize: 11, color: 'var(--rem-ink-soft)', marginTop: 2 }}>{it.notes}</div>
+                        <div className="ar-notes">{it.notes}</div>
                       )}
                     </td>
-                    <td>{it.owner || '—'}</td>
-                    <td>{it.due || '—'}</td>
-                    <td>{it.renewal || '—'}</td>
-                    <td>{it.lastPaid || '—'}</td>
-                    <td>{it.paidAmount || '—'}</td>
-                    <td>
+                    <td data-label="Owner"><span className="ar-val">{it.owner || '—'}</span></td>
+                    <td data-label="Due Date"><span className="ar-val">{it.due || '—'}</span></td>
+                    <td data-label="Renewal Date"><span className="ar-val">{it.renewal || '—'}</span></td>
+                    <td data-label="Last Paid Date"><span className="ar-val">{it.lastPaid || '—'}</span></td>
+                    <td data-label="Paid Amount"><span className="ar-val ar-val-amt">{it.paidAmount || '—'}</span></td>
+                    <td data-label="Status">
                       <span className="status-badge">
                         <span className={`status-dot ${status === 'Overdue' ? 'dot-overdue' : status === 'Due Today' || status === 'Due Tomorrow' ? 'dot-due-today' : status === 'Due Soon' ? 'dot-due-soon' : status === 'Completed' ? 'dot-completed' : status === 'Snoozed' ? 'dot-snoozed' : 'dot-upcoming'}`} />
                         <span className={`pill ${statusPillClass(status)}`}>{status}</span>
@@ -425,13 +422,13 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                     </td>
                     <td>
                       <div className="cell-actions">
-                        <button className="rem-btn sm" style={actionBtnStyle} title="Edit reminder" onClick={() => handleAction(it, 'edit')}>
+                        <button className="ar-action" title="Edit reminder" onClick={() => handleAction(it, 'edit')}>
                           <Icon name="edit" size={14} />
                         </button>
-                        <button className="rem-btn sm" style={actionBtnStyle} title="View history" onClick={() => handleAction(it, 'history')}>
+                        <button className="ar-action" title="View history" onClick={() => handleAction(it, 'history')}>
                           <Icon name="history" size={14} />
                         </button>
-                        <button className="rem-btn sm danger" style={actionBtnStyle} title="Delete reminder" onClick={() => handleAction(it, 'delete')}>
+                        <button className="ar-action danger" title="Delete reminder" onClick={() => handleAction(it, 'delete')}>
                           <Icon name="trash" size={14} />
                         </button>
                       </div>

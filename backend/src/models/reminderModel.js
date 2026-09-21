@@ -4,6 +4,8 @@ const TABLE = 'reminders';
 const HISTORY_TABLE = 'reminder_history';
 const NOTIFICATION_TABLE = 'reminder_notifications';
 const SETTINGS_TABLE = 'reminder_settings';
+const DEVICE_TOKEN_TABLE = 'reminder_device_tokens';
+const ALERT_LOG_TABLE = 'reminder_alert_log';
 
 export const createReminder = async (data, userId) => {
   const { data: result, error } = await db
@@ -174,6 +176,51 @@ export const upsertSettings = async (settings) => {
   const { data, error } = await db
     .from(SETTINGS_TABLE)
     .insert([{ ...settings, updated_at: new Date().toISOString() }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+// ---- Reminder mobile push (Bill Reminder Flutter app) ----
+
+export const registerDeviceToken = async (token, deviceType = 'flutter') => {
+  const { data, error } = await db
+    .from(DEVICE_TOKEN_TABLE)
+    .upsert({ token, device_type: deviceType, updated_at: new Date().toISOString() }, { onConflict: 'token' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const removeDeviceToken = async (token) => {
+  const { error } = await db.from(DEVICE_TOKEN_TABLE).delete().eq('token', token);
+  if (error) throw error;
+  return { message: 'Device token removed' };
+};
+
+export const listDeviceTokens = async () => {
+  const { data, error } = await db.from(DEVICE_TOKEN_TABLE).select('token');
+  if (error) throw error;
+  return (data || []).map((r) => r.token);
+};
+
+export const hasAlertBeenSent = async (reminderId, alertType, sentDate) => {
+  const { data, error } = await db
+    .from(ALERT_LOG_TABLE)
+    .select('id')
+    .eq('reminder_id', reminderId)
+    .eq('alert_type', alertType)
+    .eq('sent_date', sentDate);
+  if (error) throw error;
+  return (data || []).length > 0;
+};
+
+export const markAlertSent = async (reminderId, alertType, sentDate) => {
+  const { data, error } = await db
+    .from(ALERT_LOG_TABLE)
+    .insert({ reminder_id: reminderId, alert_type: alertType, sent_date: sentDate })
     .select()
     .single();
   if (error) throw error;
