@@ -12,7 +12,7 @@ const getLines = async () => {
 }
 
 const getMachinesByStation = async (stationIds) => {
-  if (!stationIds.length) return {}
+  if (!stationIds.length) return []
   const { data, error } = await requireDb()
     .from('machines')
     .select('id, station_id, machine_id, location, machine_type, capacity, current_stock, low_stock_threshold, status, last_refill_at, last_maintenance_at, installation_date')
@@ -63,9 +63,9 @@ export const findAll = async ({ search, status, lineId, page = 1, limit = 20 } =
   const { data, error } = await dataQuery.order('line_id', { ascending: true }).order('name', { ascending: true }).range(offset, offset + lim - 1)
   if (error) throw normalizeError(error)
 
-  const machines = await getMachinesByStation(data.map((s) => s.id))
+  const machines = await getMachinesByStation((data || []).map((s) => s.id))
   const stationAgg = {}
-  for (const m of machines) {
+  for (const m of machines || []) {
     const id = m.station_id
     stationAgg[id] = stationAgg[id] || { machine_count: 0, active_machine_count: 0, total_stock: 0 }
     stationAgg[id].machine_count++

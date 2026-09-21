@@ -152,7 +152,7 @@ export const getStationReport = async (filters = {}) => {
   const lineMap = Object.fromEntries(linesRes.data.map((l) => [l.id, l]))
 
   const machineByStation = {}
-  for (const m of machines) {
+  for (const m of machines || []) {
     machineByStation[m.station_id] = machineByStation[m.station_id] || { count: 0, active: 0, inactive: 0, stock: 0 }
     machineByStation[m.station_id].count++
     if (m.status === 'ACTIVE') machineByStation[m.station_id].active++
@@ -161,21 +161,21 @@ export const getStationReport = async (filters = {}) => {
   }
 
   const refillAgg = {}
-  for (const r of refills.data) {
+  for (const r of refills.data || []) {
     refillAgg[r.station_id] = refillAgg[r.station_id] || { count: 0, sum: 0 }
     refillAgg[r.station_id].count++
     refillAgg[r.station_id].sum += Number(r.refill_quantity) || 0
   }
 
   const issueAgg = {}
-  for (const i of issues.data) {
+  for (const i of issues.data || []) {
     issueAgg[i.station_id] = issueAgg[i.station_id] || { missing: 0, open: 0 }
     issueAgg[i.station_id].missing += Number(i.missing_quantity) || 0
     if (!['RESOLVED', 'CLOSED'].includes(i.status)) issueAgg[i.station_id].open++
   }
 
   const maintAgg = {}
-  for (const r of maint.data) {
+  for (const r of maint.data || []) {
     if (!['RESOLVED', 'CLOSED'].includes(r.status)) maintAgg[r.station_id] = (maintAgg[r.station_id] || 0) + 1
   }
 
@@ -223,7 +223,7 @@ export const getMachineReport = async (filters = {}) => {
 
   const agg = (res, qtyCol) => {
     const map = {}
-    for (const r of res.data) {
+    for (const r of res.data || []) {
       map[r.machine_id] = map[r.machine_id] || { count: 0, sum: 0 }
       map[r.machine_id].count++
       if (qtyCol) map[r.machine_id].sum += Number(r[qtyCol]) || 0
@@ -298,7 +298,7 @@ export const getMetroLineReport = async (filters = {}) => {
   if (issues.error) throw normalizeError(issues.error)
 
   const lineMachines = {}
-  for (const m of machinesRes.data) {
+  for (const m of machinesRes.data || []) {
     lineMachines[m.line_id] = lineMachines[m.line_id] || { count: 0, active: 0, inactive: 0, stock: 0 }
     lineMachines[m.line_id].count++
     if (m.status === 'ACTIVE') lineMachines[m.line_id].active++
@@ -307,19 +307,19 @@ export const getMetroLineReport = async (filters = {}) => {
   }
 
   const stationCount = {}
-  for (const s of stationsRes.data) stationCount[s.line_id] = (stationCount[s.line_id] || 0) + 1
+  for (const s of stationsRes.data || []) stationCount[s.line_id] = (stationCount[s.line_id] || 0) + 1
 
   const refillByLine = {}
   const issueByLine = {}
   const machineLineMap = Object.fromEntries(machinesRes.data.map((m) => [m.id, m.line_id]))
-  for (const r of refills.data) {
+  for (const r of refills.data || []) {
     const lid = machineLineMap[r.machine_id]
     if (!lid) continue
     refillByLine[lid] = refillByLine[lid] || { count: 0, sum: 0 }
     refillByLine[lid].count++
     refillByLine[lid].sum += Number(r.refill_quantity) || 0
   }
-  for (const i of issues.data) {
+  for (const i of issues.data || []) {
     const lid = machineLineMap[i.machine_id]
     if (!lid) continue
     issueByLine[lid] = (issueByLine[lid] || 0) + (Number(i.missing_quantity) || 0)

@@ -70,7 +70,7 @@ export const validateImport = async (buffer, filename) => {
 
   const existingMachines = await requireDb().from('machines').select('machine_id')
   if (existingMachines.error) throw normalizeError(existingMachines.error)
-  for (const row of existingMachines.data) {
+  for (const row of existingMachines.data || []) {
     machineIdCache.add(String(row.machine_id).trim().toUpperCase())
   }
 
