@@ -307,7 +307,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
       builder: (dctx) => AlertDialog(
         title: const Text('Delete machine?'),
         content: const Text(
-            'This removes the machine from this station. Refill and issue records stay in history.'),
+            'This permanently deletes the machine and its refill, issue and maintenance records.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dctx, false),
@@ -701,7 +701,10 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
         ? 'Machine ${index + 1}'
         : m.location.trim();
     final slots = AppConstants.slotStock(m.currentStock);
-    return Padding(
+    return InkWell(
+      onLongPress: () => _machineActions(m),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -756,6 +759,36 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
             ],
           ),
         ],
+      ),
+      ),
+    );
+  }
+
+  void _machineActions(Machine m) {
+    if (!AppState.auth.canManage) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.trash2,
+                  size: 20, color: AppColors.danger),
+              title: const Text('Delete Machine',
+                  style: TextStyle(color: AppColors.danger)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteMachine(m);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

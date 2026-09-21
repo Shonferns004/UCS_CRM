@@ -1,4 +1,5 @@
 import { requireDb, normalizeError } from '../config/supabase.js'
+import { purgeMachine } from './machine.model.js'
 
 const LINE_SELECT = 'id, code, name, description, status, created_at, updated_at'
 
@@ -158,20 +159,50 @@ export const updateStatus = async (id, status) => {
   return data
 }
 
+const LINE_CHILD_TABLES = [
+  'refill_records',
+  'stock_issues',
+  'maintenance_records',
+  'cash_collections',
+  'monthly_data',
+]
+
 export const remove = async (id) => {
-  const { count, error: cErr } = await requireDb()
+  const db = requireDb()
+
+  const { data: stations, error: sErr } = await db
     .from('stations')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .eq('line_id', id)
-  if (cErr) throw normalizeError(cErr)
-  if (count > 0) {
-    throw Object.assign(new Error('Cannot delete line: stations still reference this line'), {
-      statusCode: 409,
-      isOperational: true,
-    })
+  if (sErr) throw normalizeError(sErr)
+
+  for (const station of stations || []) {
+    const { data: machines, error: mErr } = await db
+      .from('machines')
+      .select('id')
+      .eq('station_id', station.id)
+    if (mErr) throw normalizeError(mErr)
+    for (const m of machines || []) {
+      await purgeMachine(m.id)
+    }
+    for (const table of LINE_CHILD_TABLES) {
+      const { error } = await db.from(table).delete().eq('station_id', station.id)
+      if (error) throw normalizeError(error)
+    }
+    const { error: machErr } = await db
+      .from('machines')
+      .delete()
+      .eq('station_id', station.id)
+    if (machErr) throw normalizeError(machErr)
   }
 
-  const { data, error } = await requireDb()
+  const { error: stErr } = await db.from('stations').delete().eq('line_id', id)
+  if (stErr) throw normalizeError(stErr)
+
+  const { error: mdErr } = await db.from('monthly_data').delete().eq('line_id', id)
+  if (mdErr) throw normalizeError(mdErr)
+
+  const { data, error } = await db
     .from('metro_lines')
     .delete()
     .eq('id', id)

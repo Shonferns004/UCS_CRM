@@ -192,6 +192,7 @@ class _LineDetailScreenState extends State<LineDetailScreen> {
         ],
       ),
       onTap: () => _openStation(s),
+      onLongPress: () => _stationActions(s),
     );
   }
 
@@ -205,6 +206,148 @@ class _LineDetailScreenState extends State<LineDetailScreen> {
         ),
       ),
     ).then((_) => _load());
+  }
+
+  void _stationActions(Station s) {
+    if (!AppState.auth.canManage) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.pencil, size: 20),
+              title: const Text('Edit Station'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editStation(s);
+              },
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.trash2,
+                  size: 20, color: AppColors.danger),
+              title: const Text('Delete Station',
+                  style: TextStyle(color: AppColors.danger)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteStation(s);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editStation(Station s) async {
+    final name = TextEditingController(text: s.name);
+    await showFormModal(
+      context,
+      title: 'Edit Station',
+      builder: (ctx, setState) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Edit Station',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            FormFieldWrap(
+              label: 'Station Name',
+              required: true,
+              child: TextField(
+                controller: name,
+                textCapitalization: TextCapitalization.words,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: () async {
+                    final n = name.text.trim();
+                    if (n.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Station name is required')),
+                      );
+                      return;
+                    }
+                    final msg = await apiRun(context, () async {
+                      await StationService.update(
+                        s.id,
+                        Station(
+                          id: s.id,
+                          name: n,
+                          stationCode: s.stationCode,
+                          lineId: s.lineId,
+                          lineName: s.lineName,
+                          lineCode: s.lineCode,
+                          description: s.description,
+                          status: s.status,
+                        ),
+                      );
+                    }, success: 'Station updated');
+                    if (!mounted) return;
+                    if (msg == null) {
+                      Navigator.pop(ctx);
+                      _load();
+                    } else {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text(msg)));
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteStation(Station s) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Delete station?'),
+        content: Text(
+            'This permanently deletes "${s.name}", its machine and their records.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final msg = await apiRun(context, () async {
+      await StationService.remove(s.id);
+    }, success: 'Station deleted');
+    if (!mounted) return;
+    if (msg == null) {
+      _load();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
   String _genCode(String prefix) =>
