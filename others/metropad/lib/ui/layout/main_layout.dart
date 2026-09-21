@@ -11,9 +11,7 @@ const Map<String, String> titleMap = {
   'metro-lines': 'Metro Lines',
   'stations': 'Stations',
   'machines': 'Machines',
-  'refills': 'Refill Management',
   'pad-stock': 'Pad Stock',
-  'stock-issues': 'Stock Issues',
   'maintenance': 'Maintenance',
   'monthly-data': 'Monthly Data',
   'reports': 'Reports',
@@ -135,9 +133,7 @@ class BottomNavBar extends StatelessWidget {
 
   static const List<_NavItem> _tabs = [
     _NavItem('Dashboard', 'dashboard', LucideIcons.layoutDashboard),
-    _NavItem('Metro Network', 'network', LucideIcons.map),
-    _NavItem('Refill Management', 'refills', LucideIcons.refreshCw),
-    _NavItem('Stock Issues', 'stock-issues', LucideIcons.triangleAlert),
+    _NavItem('Metro Network', 'network', LucideIcons.trainFront),
   ];
 
   void _go(BuildContext context, String route) {
