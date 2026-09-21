@@ -866,3 +866,9 @@
 .dash-section > .page {
   gap: 18px;
 }
+
+.users-compact-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}

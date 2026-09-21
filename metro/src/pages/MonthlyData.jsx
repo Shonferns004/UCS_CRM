@@ -66,6 +66,7 @@ function MonthlyData() {
   const [toDate, setToDate] = useState('');
   const [lineId, setLineId] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [tab, setTab] = useState('records');
 
   const yearOptions = useMemo(() => {
     const opts = [];
@@ -240,25 +241,44 @@ function MonthlyData() {
             </div>
           ) : (
             <>
-              <div className="card">
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">Records — {MONTHS[month - 1]} {year}</h2>
-                    <p className="card-subtitle">{formatNumber(rows.length)} daily machine records</p>
-                  </div>
-                </div>
-                <DataTable columns={recordColumns} data={rows} loading={loading} emptyMessage="No records" />
+              <div className="report-tabs">
+                <button
+                  className={`tab${tab === 'records' ? ' active' : ''}`}
+                  onClick={() => setTab('records')}
+                >
+                  Records
+                </button>
+                <button
+                  className={`tab${tab === 'summary' ? ' active' : ''}`}
+                  onClick={() => setTab('summary')}
+                >
+                  Station-wise Summary
+                </button>
               </div>
 
-              <div className="card">
-                <div className="card-header">
-                  <div>
-                    <h2 className="card-title">Station-wise Summary</h2>
-                    <p className="card-subtitle">{formatNumber(stationWise.length)} stations</p>
+              {tab === 'records' && (
+                <div className="card">
+                  <div className="card-header">
+                    <div>
+                      <h2 className="card-title">Records — {MONTHS[month - 1]} {year}</h2>
+                      <p className="card-subtitle">{formatNumber(rows.length)} daily machine records</p>
+                    </div>
                   </div>
+                  <DataTable columns={recordColumns} data={rows} loading={loading} emptyMessage="No records" />
                 </div>
-                <DataTable columns={statusColumns} data={stationWise} loading={loading} emptyMessage="No station data" />
-              </div>
+              )}
+
+              {tab === 'summary' && (
+                <div className="card">
+                  <div className="card-header">
+                    <div>
+                      <h2 className="card-title">Station-wise Summary</h2>
+                      <p className="card-subtitle">{formatNumber(stationWise.length)} stations</p>
+                    </div>
+                  </div>
+                  <DataTable columns={statusColumns} data={stationWise} loading={loading} emptyMessage="No station data" />
+                </div>
+              )}
             </>
           )}
         </>

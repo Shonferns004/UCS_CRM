@@ -269,7 +269,7 @@ function Dashboard() {
       {/* USERS (ADMIN) */}
       {isAdmin && (
         <section className="dash-section">
-          <Users />
+          <Users compact />
         </section>
       )}
     </div>
