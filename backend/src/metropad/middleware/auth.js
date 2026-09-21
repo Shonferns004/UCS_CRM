@@ -1,6 +1,10 @@
 import jwt from 'jsonwebtoken'
-import { requireDb, normalizeError } from '../config/supabase.js'
 
+// Metropad has NO separate authentication. Any valid accounts-session token is
+// accepted and treated as a full ADMIN — there is no metropad_users row lookup,
+// no email-link check, no "no Metropad account linked" refusal, and no role
+// gate. The signed-in accounts session (the one every other page in the panel
+// trusts) is the only gate, exactly like the rest of the panel.
 export const protect = async (req, res, next) => {
   try {
     let token
@@ -18,45 +22,12 @@ export const protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
 
-    // Normal Metropad token: the payload id maps directly to a metropad_users row.
-    let { data, error } = await requireDb()
-      .from('metropad_users')
-      .select('id, name, email, role, is_active')
-      .eq('id', decoded.id)
-      .maybeSingle()
-
-    if (error) throw normalizeError(error)
-
-    // Accounts-panel token (SSO): the id is an accounts user id, not a metropad
-    // user id, so fall back to matching by email. The signed-in accounts session
-    // drives Metropad without a second login. The resolved user is still a
-    // metropad_users row, so all downstream joins (audit created_by, authorizers,
-    // cash collection) behave identically. If no metropad user is linked to this
-    // accounts email, access is refused (no further logic runs).
-    if (!data && decoded.email) {
-      const { data: byEmail, error: emailError } = await requireDb()
-        .from('metropad_users')
-        .select('id, name, email, role, is_active')
-        .eq('email', decoded.email)
-        .maybeSingle()
-      if (emailError) throw normalizeError(emailError)
-      data = byEmail
-    }
-
-    if (!data) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized — no Metropad account linked to this sign-in',
-      })
-    }
-
-    const user = data
-
-    if (!user.is_active) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized — account is deactivated',
-      })
+    const user = {
+      id: decoded.id,
+      name: decoded.name || 'Operator',
+      email: decoded.email || '',
+      role: 'ADMIN',
+      is_active: true,
     }
 
     req.user = user
@@ -81,22 +52,8 @@ export const protect = async (req, res, next) => {
   }
 }
 
-export const authorize = (...roles) => {
+export const authorize = () => {
   return (req, res, next) => {
-    if (!req.user) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized',
-      })
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `Role '${req.user.role}' is not authorized to access this resource`,
-      })
-    }
-
     next()
   }
 }
