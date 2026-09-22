@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Route, Routes, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { RemProvider, useRem, useUcs } from './store'
 import { REM_HOME } from './config'
@@ -7,7 +7,8 @@ import ToastContainer, { toast } from './Toast'
 import {
   deleteReminder, completeReminder, snoozeReminder,
 } from './api'
-import { exportToCSV, exportToExcel, todayStr } from './helpers'
+import { exportToCSV, exportToExcel, todayStr, daysLeft } from './helpers'
+import { isPaid } from './PaymentReminderBanner'
 import {
   requestNotificationPermission, playAlarmSound, sendBrowserNotification,
   isDismissed, dismissAlarmKey, isSnoozed, getAlarmType, computeEffectiveDueDate
@@ -96,14 +97,18 @@ function alarmCheck(reminders, settings, onFire) {
   }
 }
 
-function Tabs() {
+function Tabs({ counts = {} }) {
+  const overdue = counts.overdue || 0
+  const pending = counts.pending || 0
   return (
     <nav className="rem-tabs" role="tablist">
       <NavLink to={DASH_PATH} className={({ isActive }) => `rem-tab ${isActive ? 'active' : ''}`}>
         <Icon name="dashboard" size={15} /> Dashboard
+        {overdue > 0 && <span className="tab-badge red">{overdue}</span>}
       </NavLink>
       <NavLink end to={REM_HOME} className={({ isActive }) => `rem-tab ${isActive ? 'active' : ''}`}>
         <Icon name="list" size={15} /> All Reminders
+        {pending > 0 && <span className="tab-badge blue">{pending}</span>}
       </NavLink>
       <NavLink to={SETTINGS_PATH} className={({ isActive }) => `rem-tab ${isActive ? 'active' : ''}`}>
         <Icon name="settings" size={15} /> Reminder Settings
@@ -138,6 +143,29 @@ function PanelInner() {
   const { user: accountsUser } = useUcs()
   const [alarmToasts, setAlarmToasts] = useState([])
   const firedRef = useRef(new Set())
+  const [nowLabel, setNowLabel] = useState(() => new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }))
+
+  const tabCounts = useMemo(() => {
+    let overdue = 0
+    let pending = 0
+    for (const r of reminders) {
+      if (r.is_deleted) continue
+      if (isPaid(r) || r.completed_at) continue
+      const eff = computeEffectiveDueDate(r)
+      const dl = eff ? daysLeft(eff) : daysLeft(r.due_date)
+      if (dl === null) { pending++; continue }
+      if (dl < 0) overdue++
+      pending++
+    }
+    return { overdue, pending }
+  }, [reminders])
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNowLabel(new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }))
+    }, 30000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => { refresh(); refreshNotifications(); /* eslint-disable */ }, [])
 
@@ -244,7 +272,15 @@ function PanelInner() {
     <div className="rem-app">
       <ToastContainer />
       <div className="rem-toolbar">
-        <Tabs />
+        <div className="rem-brandbar">
+          <span className="rem-brandbar-mark"><Icon name="money" size={16} /></span>
+          <span className="rem-brandbar-txt">
+            <span className="rem-brandbar-title">Bill Reminder</span>
+            <span className="rem-brandbar-sub">Payment Command Center</span>
+          </span>
+          <span className="rem-brandbar-date">{nowLabel}</span>
+        </div>
+        <Tabs counts={tabCounts} />
         <div className="rem-actions">
           {onDashboard ? null : (
             <>
