@@ -23,19 +23,29 @@ export const getAllReminders = async (includeDeleted = false) => {
   const { data, error } = await q;
   if (error) throw error;
   const rows = data || [];
-  // Deduplicate exact copies (rows sharing every field), keeping the lowest id.
-  // This guards against migration 109 having been run more than once.
+  // Deduplicate rows that describe the same reminder (same title + category +
+  // owner, compared case-insensitively after collapsing whitespace/dashes),
+  // keeping the row with the most data (due date / amount / due-date text),
+  // tie-broken by lowest id. Guards against migrations/imports being run more
+  // than once, which would otherwise double every reminder across all clients.
+  const norm = (s) => String(s || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[^a-z0-9\s-]/g, '');
+  const score = (r) =>
+    (r.due_date ? 4 : 0) +
+    (Number(r.amount) > 0 ? 2 : 0) +
+    (r.due_date_display ? 1 : 0);
   const seen = new Map();
   for (const r of rows) {
-    const key = [
-      String(r.title || ''),
-      String(r.category || ''),
-      String(r.owner || ''),
-      String(r.due_date_display || ''),
-      String(r.renewal_date_display || ''),
-      String(r.notes || ''),
-    ].join('||');
-    if (!seen.has(key) || r.id < seen.get(key).id) seen.set(key, r);
+    const key = `${norm(r.title)}||${norm(r.category)}||${norm(r.owner)}`;
+    const prev = seen.get(key);
+    if (!prev) { seen.set(key, r); continue; }
+    const sa = score(prev), sb = score(r);
+    if (sa !== sb) seen.set(key, sa > sb ? prev : r);
+    else seen.set(key, r.id < prev.id ? r : prev);
   }
   return Array.from(seen.values());
 };

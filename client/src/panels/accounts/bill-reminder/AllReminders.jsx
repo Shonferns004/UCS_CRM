@@ -77,14 +77,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       return String(d)
     }
     const activeReminders = reminders.filter(r => !r.is_deleted)
+    const normTxt = (s) => String(s || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(/[\u2013\u2014]/g, '-').replace(/[^a-z0-9\s-]/g, '')
     const seenIds = new Set()
     const seenKeys = new Set()
     const uniqueReminders = activeReminders.filter(r => {
       if (seenIds.has(r.id)) return false
       seenIds.add(r.id)
-      const normCat = normalizeCategory(r.category).toLowerCase()
-      const normOwner = (r.owner || '').toLowerCase()
-      const normTitle = (r.title || '').toLowerCase()
+      const normCat = normTxt(normalizeCategory(r.category))
+      const normOwner = normTxt(r.owner)
+      const normTitle = normTxt(r.title)
       const key = `${normTitle}||${normCat}||${normOwner}`
       if (seenKeys.has(key)) return false
       seenKeys.add(key)
@@ -93,6 +94,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
     const dbItems = uniqueReminders.map(r => {
       const computed = (r.status === 'Completed' || r.status === 'Snoozed') ? r.status : (r.derivedStatus || r.status || 'Upcoming')
       const grp = normalizeCategory(r.category)
+      const effDue = r.due_date || computeEffectiveDueDate(r)
       return {
         category: grp,
         _group: grp,
@@ -101,15 +103,15 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
         _dbStatus: computed,
         title: r.title || '',
         owner: r.owner || '',
-        due: fmtDate(r.due_date) || '',
-        due_date: r.due_date || null,
+        due: fmtDate(effDue) || '',
+        due_date: effDue || null,
         renewal: fmtDate(r.renewal_date) || '',
         renewal_date: r.renewal_date || null,
         lastPaid: r.paid_at ? fmtDate(r.paid_at) : '',
         paidAmount: r.amount ? `₹${r.amount}` : '',
         frequency: r.frequency_type || '',
         notes: r.notes || '',
-        due_date_display: fmtDate(r.due_date) || '',
+        due_date_display: r.due_date_display || fmtDate(r.due_date) || '',
         display_frequency: r.frequency_type || '',
         amount: r.amount,
         transaction_id: r.transaction_id || '',

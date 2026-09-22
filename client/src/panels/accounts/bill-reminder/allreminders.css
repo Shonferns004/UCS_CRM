@@ -1,121 +1,135 @@
+/* ================================================================== */
+/*  All Reminders — premium list page                                  */
+/* ================================================================== */
+
 .panel-accounts .rem-app .ar-page{
-  --ar-mute: #94a3b8;
-  --ar-softline: #eef2f7;
+  border-radius: 16px;
 }
 
-.panel-accounts .rem-app .ar-page .card-block .tb{
+/* ---- Card header ---- */
+.panel-accounts .rem-app .ar-page .tb{
   padding: 15px 18px;
+  background:
+    radial-gradient(800px 90px at 0% 0%, rgba(37, 99, 235, .05), transparent 55%),
+    var(--rem-white);
 }
-
 .panel-accounts .rem-app .ar-page .tb h3{
   font-size: 15px;
   font-weight: 800;
-  margin: 0;
+  letter-spacing: -.01em;
 }
-
 .panel-accounts .rem-app .ar-head-ic{
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 9px;
-  background: var(--rem-blue-soft);
-  color: var(--rem-blue);
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 3px 10px -3px rgba(37, 99, 235, .55);
+}
+.panel-accounts .rem-app .ar-page .ar-count{
+  font-size: 10px;
+  font-weight: 700;
 }
 
-.panel-accounts .rem-app .ar-count{
-  margin-left: 2px;
+/* ---- Toolbar ---- */
+.panel-accounts .rem-app .ar-page .toolbar{
+  padding: 12px 18px;
+  background: #fbfdff;
 }
-
 .panel-accounts .rem-app .ar-search{
   position: relative;
   flex: 1;
-  min-width: 200px;
+  min-width: 190px;
+  max-width: 320px;
 }
-
 .panel-accounts .rem-app .ar-search > svg{
   position: absolute;
   left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  color: #94a3b8;
+  color: var(--rem-ink-soft);
   pointer-events: none;
-  z-index: 1;
 }
-
 .panel-accounts .rem-app .ar-search .search-input{
   width: 100%;
-  min-width: 0;
   box-sizing: border-box;
-  padding-left: 32px;
+  padding-left: 34px;
+  font-size: 12.5px;
+}
+.panel-accounts .rem-app .ar-search .search-input:focus{
+  background: #fff;
 }
 
-.panel-accounts .rem-app .ar-page .toolbar{
-  background: #fbfdff;
-  padding: 13px 18px;
-}
-
+/* ---- Table ---- */
 .panel-accounts .rem-app .ar-page .rem-table{
   min-width: 940px;
 }
-
 .panel-accounts .rem-app .ar-page .rem-table thead th{
-  background: var(--rem-white);
-  color: #94a3b8;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(180deg, #f6f9fe, #eef2f7);
+  color: #64748b;
   font-size: 9.5px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: .06em;
-  padding: 10px 12px;
+  letter-spacing: .07em;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--rem-line);
   white-space: nowrap;
   user-select: none;
 }
-
 .panel-accounts .rem-app .ar-page .rem-table tbody td{
-  padding: 10px 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--ar-softline);
   white-space: nowrap;
   color: var(--rem-ink);
   vertical-align: middle;
+  font-size: 12px;
 }
-
+.panel-accounts .rem-app .ar-page .rem-table tbody tr:nth-child(even){
+  background: #fafcff;
+}
 .panel-accounts .rem-app .ar-page .rem-table tbody tr:hover{
   background: var(--rem-blue-soft);
 }
-
 .panel-accounts .rem-app .ar-page .rem-table tbody tr.rem-group-row:hover,.panel-accounts .rem-app .ar-page .rem-table tbody tr.rem-subgroup-row:hover{
   background: transparent;
 }
-
 .panel-accounts .rem-app .ar-page .rem-table tbody tr.rem-group-row td{
-  background: transparent;
-  color: var(--rem-ink);
-  font-weight: 600;
-  padding: 16px 12px 6px;
+  background: linear-gradient(180deg, #eef4ff, #e6effe);
+  color: var(--rem-blue-dark);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 9px 12px 7px;
+  border-top: 1px solid #dbeafe;
+  border-bottom: 1px solid #dbeafe;
 }
-
 .panel-accounts .rem-app .ar-page .rem-table tbody tr.rem-subgroup-row td{
   background: #f8fafc;
   color: var(--rem-ink-soft);
   font-weight: 600;
+  font-size: 10.5px;
   padding: 6px 12px 6px 28px;
 }
 
+/* ---- Group bar pill ---- */
 .panel-accounts .rem-app .ar-group-bar{
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--rem-blue-soft);
-  border: 1px solid #dbeafe;
+  background: var(--rem-white);
+  border: 1px solid #cbdaf5;
   color: var(--rem-blue-dark);
-  padding: 6px 14px;
-  border-radius: 10px;
+  padding: 5px 13px;
+  border-radius: 99px;
   width: fit-content;
+  box-shadow: 0 1px 3px -1px rgba(37, 99, 235, .25);
 }
-
 .panel-accounts .rem-app .ar-group-bar .rem-heading-label{
   font-size: 10px;
   font-weight: 800;
@@ -123,6 +137,7 @@
   letter-spacing: .08em;
 }
 
+/* ---- Cell content ---- */
 .panel-accounts .rem-app .ar-cat{
   display: inline-flex;
   align-items: center;
@@ -130,31 +145,32 @@
   min-width: 0;
   white-space: nowrap;
 }
-
 .panel-accounts .rem-app .ar-cat > svg{
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 4px;
   box-sizing: border-box;
   border-radius: 7px;
   background: var(--rem-blue-soft);
   color: var(--rem-blue);
 }
-
+.panel-accounts .rem-app .ar-cat > svg[data-paid]{
+  background: var(--rem-green-soft);
+  color: var(--rem-green);
+}
 .panel-accounts .rem-app .ar-cat > span{
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .panel-accounts .rem-app .ar-title{
   font-weight: 650;
   max-width: 250px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--rem-ink);
 }
-
 .panel-accounts .rem-app .ar-notes{
   margin-top: 2px;
   font-size: 10.5px;
@@ -163,20 +179,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .panel-accounts .rem-app .ar-val{
   min-width: 0;
+  font-size: 12px;
 }
-
 .panel-accounts .rem-app .ar-val-amt{
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
+/* ---- Row actions ---- */
 .panel-accounts .rem-app .ar-page .cell-actions{
   display: flex;
   gap: 4px;
 }
-
 .panel-accounts .rem-app .ar-action{
   width: 28px;
   height: 28px;
@@ -191,29 +207,33 @@
   cursor: pointer;
   transition: all .13s ease;
 }
-
 .panel-accounts .rem-app .ar-action:hover{
   color: var(--rem-blue);
   border-color: var(--rem-blue);
   background: var(--rem-blue-soft);
+  box-shadow: 0 2px 8px -3px rgba(37, 99, 235, .45);
+  transform: translateY(-1px);
 }
-
 .panel-accounts .rem-app .ar-action.danger:hover{
   color: var(--rem-red);
   border-color: var(--rem-red);
   background: var(--rem-red-soft);
+  box-shadow: 0 2px 8px -3px rgba(220, 38, 38, .45);
 }
 
+/* ---- Pagination ---- */
 .panel-accounts .rem-app .ar-page .pagination{
-  padding: 12px 18px;
+  padding: 13px 18px;
   border-top: 1px solid var(--rem-line);
+  background: #fbfdff;
+  font-size: 11.5px;
+  color: var(--rem-ink-soft);
 }
-
 .panel-accounts .rem-app .ar-page .page-btn{
   min-width: 30px;
   height: 30px;
   padding: 0 8px;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid var(--rem-line);
   background: #fff;
   font-size: 12px;
@@ -221,28 +241,38 @@
   cursor: pointer;
   transition: all .12s ease;
 }
-
 .panel-accounts .rem-app .ar-page .page-btn:hover:not(:disabled){
   border-color: var(--rem-blue);
   color: var(--rem-blue);
 }
-
 .panel-accounts .rem-app .ar-page .page-btn.active{
-  background: var(--rem-blue);
-  border-color: var(--rem-blue);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border-color: transparent;
   color: #fff;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, .30);
+  box-shadow: 0 3px 10px -3px rgba(37, 99, 235, .55);
 }
-
 .panel-accounts .rem-app .ar-page .page-btn:disabled{
   opacity: .4;
   cursor: not-allowed;
 }
 
+/* ---- Empty state ---- */
 .panel-accounts .rem-app .ar-page .empty-state{
   padding: 48px 20px;
   text-align: center;
+}
+.panel-accounts .rem-app .ar-page .empty-state .big{
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--rem-ink);
+}
+.panel-accounts .rem-app .ar-page .empty-state .small{
+  font-size: 12px;
+  color: var(--rem-ink-soft);
+}
+.panel-accounts .rem-app .ar-page .ar-empty-row td{
+  padding: 32px 16px;
 }
 
 @media (max-width: 900px) {
@@ -271,7 +301,7 @@
     margin: 0;
     background: #fff;
     border: 1px solid var(--rem-line);
-    border-radius: 12px;
+    border-radius: 13px;
     box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
     overflow: hidden;
   }
@@ -297,6 +327,8 @@
   .panel-accounts .rem-app .ar-page .rem-table tbody tr.rem-group-row td,.panel-accounts .rem-app .ar-page .rem-table tbody tr.ar-empty-row td{
     display: block;
     padding: 2px 0;
+    border: none;
+    background: transparent;
   }
 
   .panel-accounts .rem-app .ar-page .rem-table tbody tr.rem-group-row:hover{
@@ -377,5 +409,19 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     padding: 10px 10px 4px;
+  }
+  .panel-accounts .rem-app .ar-page .tb{
+    padding: 12px 14px;
+  }
+  .panel-accounts .rem-app .ar-page .toolbar{
+    padding: 10px 12px;
+  }
+  .panel-accounts .rem-app .ar-search{
+    max-width: none;
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .panel-accounts .rem-app .ar-page .pagination{
+    padding: 11px 12px;
   }
 }
