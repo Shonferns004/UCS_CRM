@@ -46,7 +46,7 @@ export const createBeneficiary = async (data) => {
 export const getBeneficiaryById = async (id) => {
   const { data, error } = await db
     .from('beneficiaries')
-    .select('*, ngos(name, code), beneficiary_categories!beneficiary_category_assignments(id, name, description)')
+    .select('*, ngos(name, code)')
     .eq('id', id)
     .single();
   if (error) return null;
