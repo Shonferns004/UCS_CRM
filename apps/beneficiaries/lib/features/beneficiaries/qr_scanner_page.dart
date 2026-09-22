@@ -1,6 +1,10 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/widgets/app_skeleton.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
 import 'beneficiary_detail_page.dart';
 
@@ -48,9 +52,11 @@ class _QrScannerPageState extends State<QrScannerPage> {
         MaterialPageRoute(builder: (_) => BeneficiaryDetailPage(beneficiary: result)),
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Not found: ${barcode.rawValue}'), backgroundColor: AppTheme.error),
+if (!mounted) return;
+      showAppSnackbar(
+        context,
+        'Not found: ${barcode.rawValue}',
+        error: true,
       );
       _controller?.start();
       setState(() => _isProcessing = false);
@@ -63,16 +69,22 @@ class _QrScannerPageState extends State<QrScannerPage> {
     setState(() {});
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _onDetect,
-          ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            MobileScanner(
+              controller: _controller,
+              onDetect: _onDetect,
+            ),
 
           // Overlay
           CustomPaint(
@@ -92,14 +104,14 @@ class _QrScannerPageState extends State<QrScannerPage> {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
                     ),
                     const Expanded(
                       child: Text('Scan QR / Barcode', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
                     ),
                     IconButton(
                       onPressed: _toggleFlash,
-                      icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off, color: Colors.white),
+                      icon: Icon(_isFlashOn ? LucideIcons.flashlight : LucideIcons.flashlightOff, color: Colors.white),
                     ),
                   ],
                 ),
@@ -127,13 +139,20 @@ class _QrScannerPageState extends State<QrScannerPage> {
             ),
           ),
 
-          if (_isProcessing)
+if (_isProcessing)
             const Center(
-              child: CircularProgressIndicator(color: Colors.white),
+              child: SkeletonBox(
+                width: 140,
+                height: 10,
+                borderRadius: 5,
+                baseColor: Colors.white24,
+                shineColor: Colors.white,
+              ),
             ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
 
@@ -183,3 +202,4 @@ class _ScannerOverlayPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+

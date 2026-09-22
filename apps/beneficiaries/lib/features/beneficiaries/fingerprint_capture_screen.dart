@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import 'fingerprint_enroll_panel.dart';
 
@@ -22,30 +22,45 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isVerification ? 'Verify Fingerprint' : 'Enroll Fingerprint'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
+        title: Text(
+          widget.isVerification ? 'Verify Fingerprint' : 'Enroll Fingerprint',
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+        ),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.outline),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: AppTheme.cardShadow,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.beneficiaryName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                Text(widget.beneficiaryName,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
-                Text(widget.beneficiaryCode, style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+                Text(widget.beneficiaryCode,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppTheme.textSecondary)),
+                const SizedBox(height: 8),
+                Text(
+                  widget.isVerification
+                      ? 'Ask the beneficiary to place their finger on the '
+                          'scanner to confirm their identity.'
+                      : 'Scan the beneficiary\'s fingers to enroll their '
+                          'biometric profile.',
+                  style: const TextStyle(
+                      fontSize: 13, color: AppTheme.textSecondary, height: 1.5),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           FingerprintEnrollPanel(
             beneficiaryCode: widget.beneficiaryCode,
             beneficiaryName: widget.beneficiaryName,

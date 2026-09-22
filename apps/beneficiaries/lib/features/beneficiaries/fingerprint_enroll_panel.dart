@@ -1,5 +1,10 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
+import 'dart:async';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
 
@@ -67,6 +72,9 @@ class FingerprintEnrollPanel extends StatefulWidget {
 class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
   static const int targetFingerprints = 3;
   static const double matchThreshold = 40;
+  static const double qualityThreshold = 55;
+  static const int maxCaptureAttempts = 3;
+  static const Duration autoAdvanceDelay = Duration(milliseconds: 1500);
 
   // Only thumb, index and middle fingers are captured (left/right variants).
   static const List<String> fingerOptions = [
@@ -87,6 +95,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
   String? _lastError;
   bool _errored = false;
   String? _qualityScore;
+  Timer? _autoAdvanceTimer;
 
   @override
   void initState() {
@@ -97,6 +106,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
 
   @override
   void dispose() {
+    _autoAdvanceTimer?.cancel();
     FingerprintService.dispose();
     super.dispose();
   }
@@ -127,12 +137,15 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
     await _startCaptureRaw();
   }
 
-  /// Cancel an in-progress scan and return to idle state.
+/// Cancel an in-progress scan and return to idle state.
   Future<void> _cancelCapture() async {
+    _autoAdvanceTimer?.cancel();
+    _autoAdvanceTimer = null;
     await FingerprintService.stopCapture();
     if (!mounted) return;
     setState(() {
       _capturing = false;
+      _captureComplete = false;
       _errored = false;
       _lastError = null;
       _statusMessage = 'Scanning cancelled. Choose a finger and scan again.';
@@ -146,7 +159,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
       _qualityScore = null;
       _errored = false;
       _lastError = null;
-      _statusMessage = 'Place finger on the scanner (capture 1 of 2)...';
+      _statusMessage = 'Place finger on the scanner...';
     });
 
     final finger = _selectedFinger;
@@ -178,72 +191,61 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
       return;
     }
 
-    final first = await FingerprintService.capture(
-      deviceType: BiometricDeviceType.secugenHamsterPro20,
-    );
-    if (!mounted) return;
+    // Single-scan acceptance: one capture is enough when the scanner
+    // reports a good quality score. Low-quality scans auto-retry a few
+    // times with friendly guidance instead of a hard failure.
+    CaptureResult? accepted;
+    for (var attempt = 1; attempt <= maxCaptureAttempts; attempt++) {
+      if (attempt > 1) {
+        setState(() => _statusMessage = 'Quality too low - press the finger flat and steady, trying again (attempt $attempt of $maxCaptureAttempts)...');
+      }
 
-    if (!first.success) {
-      setState(() {
-        _capturing = false;
-        _errored = true;
-        _lastError = first.error;
-        _statusMessage = first.error ?? 'Raw capture failed';
-      });
-      return;
-    }
-
-    if (!first.isRawCapture) {
-      setState(() {
-        _capturing = false;
-        _errored = true;
-        _lastError = 'No raw image returned. The SecuGen FDx SDK may not be bundled.';
-        _statusMessage = 'Raw capture incomplete';
-      });
-      return;
-    }
-
-    setState(() => _statusMessage = 'Remove finger. Place again (capture 2 of 2)...');
-    final second = await FingerprintService.capture(
-      deviceType: BiometricDeviceType.secugenHamsterPro20,
-    );
-    if (!mounted) return;
-
-    double? selfScore;
-    if (first.template.isNotEmpty && second.template.isNotEmpty) {
-      final check = await FingerprintService.sourceafisVerify(
-        first.template,
-        second.template,
+      final result = await FingerprintService.capture(
+        deviceType: BiometricDeviceType.secugenHamsterPro20,
       );
-      final s = check['score'];
-      if (s is num) selfScore = s.toDouble();
+      if (!mounted) return;
+
+      if (!result.success) {
+        setState(() {
+          _capturing = false;
+          _errored = true;
+          _lastError = result.error;
+          _statusMessage = result.error ?? 'Scan failed';
+        });
+        return;
+      }
+
+      if (!result.isRawCapture) {
+        setState(() {
+          _capturing = false;
+          _errored = true;
+          _lastError = 'No raw image returned. The SecuGen FDx SDK may not be bundled.';
+          _statusMessage = 'Raw capture incomplete';
+        });
+        return;
+      }
+
+      final quality = double.tryParse(result.qualityScore) ?? 0;
+      if (quality > 0 && quality < qualityThreshold) {
+        continue; // auto re-scan with a clearer prompt
+      }
+      accepted = result;
+      break;
     }
 
-    if (!second.success) {
+    if (accepted == null) {
       setState(() {
         _capturing = false;
         _errored = true;
-        _lastError = second.error ?? 'Second capture failed';
-        _statusMessage = 'Enrollment failed — retry';
-      });
-      return;
-    }
-
-    if (selfScore == null || selfScore < 40) {
-      setState(() {
-        _capturing = false;
-        _errored = true;
-        _lastError = selfScore == null
-            ? 'Could not compare the two scans. Retry.'
-            : 'The two scans did not match (score ${selfScore.toStringAsFixed(1)}). '
-                'Keep the SAME finger flat and steady for both scans, then retry.';
+        _lastError = 'Could not get a clear scan after $maxCaptureAttempts attempts. '
+            'Clean the sensor and press the finger flat and steady, then retry.';
         _statusMessage = 'Enrollment failed';
       });
       return;
     }
 
     setState(() => _statusMessage = 'Checking if this fingerprint is already enrolled...');
-    final isDuplicate = await _isDuplicateFingerprint(first.template);
+    final isDuplicate = await _isDuplicateFingerprint(accepted.template);
     if (!mounted) return;
     if (isDuplicate) {
       setState(() {
@@ -257,21 +259,42 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
       return;
     }
 
+    final acceptedResult = accepted;
     setState(() {
       _capturing = false;
       _captureComplete = true;
-      _qualityScore = first.qualityScore;
+      _qualityScore = acceptedResult.qualityScore;
       _errored = false;
       _lastError = null;
-      _statusMessage = 'Fingerprint captured (2/2) — saving...';
+      _statusMessage = 'Fingerprint captured - saving...';
     });
 
-    await _saveBiometric(first);
+    await _saveBiometric(acceptedResult);
+    _scheduleNextCapture();
+  }
+
+  /// Automatically start the next un-enrolled finger after a short pause,
+  /// so the operator only needs to swap fingers on the scanner.
+  void _scheduleNextCapture() {
+    if (!mounted || _enrolledFingers.length >= targetFingerprints) return;
+    final next =
+        fingerOptions.where((f) => !_enrolledFingers.contains(f)).toList();
+    if (next.isEmpty) return;
+
+    setState(() {
+      _capturing = true;
+      _captureComplete = false;
+      _statusMessage = 'Next: ${_fingerLabel(next.first)} - place that finger on the scanner...';
+    });
+    _autoAdvanceTimer?.cancel();
+    _autoAdvanceTimer = Timer(autoAdvanceDelay, () {
+      if (mounted && _capturing) _startCaptureRaw();
+    });
   }
 
   Future<void> _saveBiometric(CaptureResult result) async {
     if (widget.collectOnly) {
-      // Buffer locally — enrollment is posted with registration.
+      // Buffer locally â€” enrollment is posted with registration.
       if (!mounted) return;
       if (_selectedFinger != null) {
         final savedFinger = _selectedFinger!;
@@ -295,12 +318,10 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
           _statusMessage = _enrolledFingers.length >= targetFingerprints
               ? 'All $targetFingerprints fingerprints scanned.'
               : 'Fingerprint ${_enrolledFingers.length} of $targetFingerprints scanned. '
-                  'Next: ${next.isNotEmpty ? _fingerLabel(next.first) : 'Done'} — tap another finger to change it.';
+                  'Next: ${next.isNotEmpty ? _fingerLabel(next.first) : 'Done'} â€” tap another finger to change it.';
         });
-        widget.onCaptured?.call(List.unmodifiable(_captured));
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Fingerprint captured'), backgroundColor: AppTheme.success),
-        );
+widget.onCaptured?.call(List.unmodifiable(_captured));
+        showAppSnackbar(context, 'Fingerprint captured', success: true);
       }
       return;
     }
@@ -337,12 +358,10 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
           _statusMessage = _enrolledFingers.length >= targetFingerprints
               ? 'All $targetFingerprints fingerprints saved.'
               : 'Fingerprint ${_enrolledFingers.length} of $targetFingerprints saved. '
-                  'Next: ${next.isNotEmpty ? _fingerLabel(next.first) : 'Done'} — tap another finger to change it.';
+                  'Next: ${next.isNotEmpty ? _fingerLabel(next.first) : 'Done'} â€” tap another finger to change it.';
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fingerprint saved'), backgroundColor: AppTheme.success),
-      );
+showAppSnackbar(context, 'Fingerprint saved', success: true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -350,9 +369,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
         _lastError = e.toString().replaceFirst('Exception: ', '');
         _statusMessage = 'Failed to save';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save: $e'), backgroundColor: AppTheme.error),
-      );
+showAppSnackbar(context, 'Failed to save: $e', error: true);
     }
   }
 
@@ -394,7 +411,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.outline),
       ),
       child: Column(
@@ -412,7 +429,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
           const SizedBox(height: 4),
           Text(
             widget.collectOnly
-                ? 'Scan $targetFingerprints fingers first — registration unlocks afterwards.'
+                ? 'Scan $targetFingerprints fingers first â€” registration unlocks afterwards.'
                 : 'Scan up to $targetFingerprints fingers for this beneficiary.',
             style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
@@ -428,7 +445,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
                   : _capturing
                       ? AppTheme.secondary.withAlpha(15)
                       : AppTheme.surface.withAlpha(40),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: _captureComplete
                     ? AppTheme.success
@@ -440,7 +457,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
             child: Column(
               children: [
                 Icon(
-                  _captureComplete ? Icons.check_circle : Icons.fingerprint,
+                  _captureComplete ? LucideIcons.checkCircle : LucideIcons.fingerprint,
                   size: 44,
                   color: _captureComplete
                       ? AppTheme.success
@@ -488,7 +505,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
                 disabledColor: AppTheme.success.withAlpha(30),
                 onSelected: alreadyDone ? null : (v) => setState(() => _selectedFinger = v ? finger : null),
                 avatar: alreadyDone
-                    ? const Icon(Icons.check_circle, size: 18, color: AppTheme.success)
+                    ? const Icon(LucideIcons.checkCircle, size: 18, color: AppTheme.success)
                     : null,
                 selectedColor: AppTheme.secondary.withAlpha(40),
               );
@@ -497,14 +514,28 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
           const SizedBox(height: 16),
 
           // Scan button (hidden once all fingerprints are captured)
-          if (_enrolledFingers.length < targetFingerprints)
+if (_enrolledFingers.length < targetFingerprints)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _capturing ? null : _startCapture,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlueSoft,
+                  foregroundColor: AppColors.addBeneficiaryText,
+                  disabledBackgroundColor:
+                      AppColors.primaryBlueSoft.withValues(alpha: 0.5),
+                  disabledForegroundColor:
+                      AppColors.addBeneficiaryText.withValues(alpha: 0.5),
+                ),
                 icon: _capturing
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.fingerprint, size: 20),
+                    ? const SkeletonBox(
+                        width: 16,
+                        height: 16,
+                        borderRadius: 5,
+                        baseColor: Color(0x262563EB),
+                        shineColor: Color(0xFF2563EB),
+                      )
+                    : const Icon(LucideIcons.fingerprint, size: 20),
                 label: Text(
                   _capturing
                       ? 'Scanning...'
@@ -519,7 +550,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: _cancelCapture,
-                icon: const Icon(Icons.cancel_outlined, size: 18),
+                icon: const Icon(LucideIcons.xCircle, size: 18),
                 label: const Text('Cancel Scanning'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppTheme.error,
@@ -536,13 +567,13 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: AppTheme.error.withAlpha(12),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppTheme.error),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.error_outline, color: AppTheme.error, size: 20),
+                  const Icon(LucideIcons.alertCircle, color: AppTheme.error, size: 20),
                   const SizedBox(width: 10),
                   Expanded(child: Text(_lastError!, style: const TextStyle(color: AppTheme.error, fontSize: 12.5))),
                 ],
@@ -551,7 +582,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
           ],
 
           // Done button (enabled only after all fingerprints are scanned,
-// not used in collect-only mode — the parent form owns the action)
+// not used in collect-only mode â€” the parent form owns the action)
           if (!widget.collectOnly && _enrolledFingers.isNotEmpty) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -565,7 +596,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
                       ? AppTheme.success
                       : AppTheme.secondary,
                 ),
-                icon: const Icon(Icons.check, size: 18),
+                icon: const Icon(LucideIcons.check, size: 18),
                 label: Text(_enrolledFingers.length >= targetFingerprints
                     ? 'Done & Register'
                     : 'Done & Register (${_enrolledFingers.length}/$targetFingerprints)'),
@@ -577,3 +608,4 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
     );
   }
 }
+
