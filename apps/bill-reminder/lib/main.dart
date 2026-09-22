@@ -11,16 +11,24 @@ import 'pages/login_page.dart';
 import 'pages/main_shell.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
+import 'theme.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+void _applySystemUi(Brightness brightness) {
+  final isLight = brightness == Brightness.light;
+  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
     statusBarBrightness: Brightness.dark,
-    systemNavigationBarColor: Colors.white,
-    systemNavigationBarIconBrightness: Brightness.dark,
+    systemNavigationBarColor: isLight ? Colors.white : const Color(0xFF131415),
+    systemNavigationBarIconBrightness:
+        isLight ? Brightness.dark : Brightness.light,
   ));
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  _applySystemUi(
+      WidgetsBinding.instance.platformDispatcher.platformBrightness);
   try {
     await Firebase.initializeApp();
   } catch (_) {}
@@ -66,7 +74,8 @@ class _BillReminderAppState extends State<BillReminderApp> {
       final id = message.data['reminderId'];
       if (id == null || id.toString().isEmpty) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _navigatorKey.currentState?.pushNamed('/detail', arguments: {'id': id.toString()});
+        _navigatorKey.currentState
+            ?.pushNamed('/detail', arguments: {'id': id.toString()});
       });
     } catch (_) {}
   }
@@ -89,14 +98,11 @@ class _BillReminderAppState extends State<BillReminderApp> {
       title: 'Bill Reminder',
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFf5f7fa),
-        fontFamilyFallback: const ['Roboto'],
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF2563eb),
-        ),
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
+      builder: (context, child) =>
+          _SystemUiScope(child: child ?? const SizedBox.shrink()),
       routes: {
         '/detail': (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
@@ -129,5 +135,24 @@ class _BillReminderAppState extends State<BillReminderApp> {
                   setState(() => _loggedIn = true);
                 }),
     );
+  }
+}
+
+/// Keeps system status/navigation bar styles in sync with the active theme
+/// (follows the phone's light/dark setting via [ThemeMode.system]).
+class _SystemUiScope extends StatefulWidget {
+  final Widget child;
+  const _SystemUiScope({required this.child});
+
+  @override
+  State<_SystemUiScope> createState() => _SystemUiScopeState();
+}
+
+class _SystemUiScopeState extends State<_SystemUiScope> {
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    _applySystemUi(brightness);
+    return widget.child;
   }
 }

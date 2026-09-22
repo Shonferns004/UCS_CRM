@@ -39,8 +39,9 @@ class CategoriesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
@@ -61,11 +62,7 @@ class CategoriesPage extends StatelessWidget {
                     width: double.infinity,
                     padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 18, 20, 24),
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF0f172a), Color(0xFF1e3a8a)],
-                      ),
+                      gradient: kHeaderGradient,
                       borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
                     ),
                     child: Column(
@@ -94,7 +91,7 @@ class CategoriesPage extends StatelessWidget {
                                 Icon(group.icon, size: 15, color: group.color),
                                 const SizedBox(width: 8),
                                 Text(group.label,
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: AppColors.inkSoft)),
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: p.inkSoft)),
                               ],
                             ),
                           ),
@@ -149,6 +146,7 @@ class _CategoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final meta = categoryMeta(catId);
     double monthly = 0, paid = 0, overdueAmt = 0;
     int overdueCount = 0;
@@ -175,7 +173,7 @@ class _CategoryCard extends StatelessWidget {
     final pct = monthly > 0 ? (paid / monthly).clamp(0.0, 1.0).toDouble() : 0.0;
 
     return Material(
-      color: Colors.white,
+      color: p.card,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
@@ -184,7 +182,7 @@ class _CategoryCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.line),
+            border: Border.all(color: p.line),
           ),
           child: Row(
             children: [
@@ -200,22 +198,22 @@ class _CategoryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(meta.label,
-                      style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                      style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: p.ink)),
                     const SizedBox(height: 3),
                     Row(
                       children: [
                         Text('${reminders.length} reminders',
-                          style: const TextStyle(fontSize: 12, color: AppColors.inkMute)),
+                          style: TextStyle(fontSize: 12, color: p.inkMute)),
                         if (overdueCount > 0) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFdc2626).withValues(alpha: 0.08),
+                              color: p.danger.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text('$overdueCount overdue',
-                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFFdc2626))),
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: p.danger)),
                           ),
                         ],
                       ],
@@ -226,7 +224,7 @@ class _CategoryCard extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: pct,
                         minHeight: 4,
-                        backgroundColor: AppColors.line,
+                        backgroundColor: p.line,
                         valueColor: AlwaysStoppedAnimation(meta.color),
                       ),
                     ),
@@ -238,16 +236,16 @@ class _CategoryCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(formatCompactINR(monthly),
-                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: p.ink)),
                   const SizedBox(height: 2),
                   Text(overdueAmt > 0 ? '${formatCompactINR(overdueAmt)} due' : 'fully paid',
                     style: TextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.w700,
-                      color: overdueAmt > 0 ? const Color(0xFFdc2626) : const Color(0xFF16a34a),
+                      color: overdueAmt > 0 ? p.danger : p.green,
                     )),
                   const SizedBox(height: 6),
-                  const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.inkMute),
+                  Icon(LucideIcons.chevronRight, size: 16, color: p.inkMute),
                 ],
               ),
             ],

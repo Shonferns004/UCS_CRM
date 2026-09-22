@@ -65,8 +65,9 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
@@ -142,11 +143,11 @@ class DashboardPage extends StatelessWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(
-child: _gradientHeader(context,
-                  totalCount: totalCount,
-                  owners: owners.length,
-                  syncedAt: controller.syncedAt,
-                ),
+                  child: _gradientHeader(context,
+                    totalCount: totalCount,
+                    owners: owners.length,
+                    syncedAt: controller.syncedAt,
+                  ),
                 ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -159,7 +160,7 @@ child: _gradientHeader(context,
                             value: '$overdue',
                             sub: formatINR(overdueAmt),
                             icon: LucideIcons.alertOctagon,
-                            color: const Color(0xFFdc2626),
+                            color: p.danger,
                             onTap: () => onOpenDetail(reminders.first),
                           ),
                         ),
@@ -200,7 +201,7 @@ child: _gradientHeader(context,
                             value: '$paidThisMonth',
                             sub: formatINR(monthlyPaid),
                             icon: LucideIcons.checkCircle2,
-                            color: const Color(0xFF16a34a),
+                            color: p.green,
                             onTap: () => onOpenDetail(reminders.first),
                           ),
                         ),
@@ -260,11 +261,7 @@ child: _gradientHeader(context,
     return Container(
       padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 18, 20, 26),
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0f172a), Color(0xFF1e3a8a)],
-        ),
+        gradient: kHeaderGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),
       child: Column(
@@ -360,32 +357,33 @@ class _MonthlySummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final monthLabel = DateFormat('MMMM yyyy').format(DateTime.now());
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: p.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: p.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(LucideIcons.pieChart, size: 16, color: AppColors.blue),
+              Icon(LucideIcons.pieChart, size: 16, color: p.blue),
               const SizedBox(width: 8),
-              const Text('Monthly Summary',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.ink)),
+              Text('Monthly Summary',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: p.ink)),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.blue.withValues(alpha: 0.08),
+                  color: p.blue.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(monthLabel,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.blue)),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: p.blue)),
               ),
             ],
           ),
@@ -396,10 +394,10 @@ class _MonthlySummary extends StatelessWidget {
                 width: 74,
                 height: 74,
                 child: CustomPaint(
-                  painter: _RingPainter(progress: paidPct, color: const Color(0xFF16a34a), bgColor: AppColors.line),
+                  painter: _RingPainter(progress: paidPct, color: p.green, bgColor: p.line),
                   child: Center(
                     child: Text('${(paidPct * 100).round()}%',
-                      style: GoogleFonts.hankenGrotesk(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                      style: GoogleFonts.hankenGrotesk(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
                   ),
                 ),
               ),
@@ -409,25 +407,25 @@ class _MonthlySummary extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(paidPct >= 1 ? 'All cleared this month' : 'On track to clear this month',
-                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: p.ink)),
                     const SizedBox(height: 4),
                     Text('${formatINR(monthlyPaid)} of ${formatINR(monthlyTotal)} billed',
-                      style: const TextStyle(fontSize: 12.5, color: AppColors.inkMute)),
+                      style: TextStyle(fontSize: 12.5, color: p.inkMute)),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          const Divider(color: AppColors.line, height: 1),
+          Divider(color: p.line, height: 1),
           const SizedBox(height: 14),
           Row(
             children: [
-              _finCard('PAID', monthlyPaid, const Color(0xFF16a34a), LucideIcons.checkCircle2),
+              _finCard('PAID', monthlyPaid, p.green, LucideIcons.checkCircle2, p),
               const SizedBox(width: 8),
-              _finCard('PENDING', monthlyPending, const Color(0xFFd97706), LucideIcons.clock),
+              _finCard('PENDING', monthlyPending, const Color(0xFFd97706), LucideIcons.clock, p),
               const SizedBox(width: 8),
-              _finCard('OVERDUE', monthlyOverdue, const Color(0xFFdc2626), LucideIcons.alertTriangle),
+              _finCard('OVERDUE', monthlyOverdue, p.danger, LucideIcons.alertTriangle, p),
             ],
           ),
         ],
@@ -435,14 +433,14 @@ class _MonthlySummary extends StatelessWidget {
     );
   }
 
-  Widget _finCard(String label, double amount, Color color, IconData icon) {
+  Widget _finCard(String label, double amount, Color color, IconData icon, AppPalette p) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.06),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.18)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,7 +456,7 @@ class _MonthlySummary extends StatelessWidget {
             const SizedBox(height: 6),
             Text(formatCompactINR(amount),
               maxLines: 1,
-              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: p.ink)),
           ],
         ),
       ),
@@ -474,6 +472,7 @@ class _UpcomingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final map = <String, List<Reminder>>{};
     for (final r in reminders) {
       final key = categoryLabel(r.category);
@@ -485,30 +484,30 @@ class _UpcomingSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: p.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: p.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(LucideIcons.calendarRange, size: 16, color: AppColors.blue),
+              Icon(LucideIcons.calendarRange, size: 16, color: p.blue),
               const SizedBox(width: 8),
-              const Text('Upcoming · 30 days',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.ink)),
+              Text('Upcoming · 30 days',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: p.ink)),
               const Spacer(),
               Text('${reminders.length} · ${formatCompactINR(total)}',
-                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.inkMute)),
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: p.inkMute)),
             ],
           ),
           const SizedBox(height: 12),
           if (reminders.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
               child: Text('Nothing due in the next 30 days',
-                style: TextStyle(fontSize: 13, color: AppColors.inkMute)),
+                style: TextStyle(fontSize: 13, color: p.inkMute)),
             )
           else
             for (final e in groups.take(6)) _UpRow(groupKey: e.key, items: e.value, daysLeftFor: daysLeftFor),
@@ -526,6 +525,7 @@ class _UpRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final dl = daysLeftFor(items.first);
     final amt = items.fold<double>(0, (s, r) => s + parseAmountFromNotes(r.notes, r.amount));
     final cat = categoryMeta(items.first.category);
@@ -534,7 +534,7 @@ class _UpRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppColors.bg,
+        color: p.bg,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -551,10 +551,10 @@ class _UpRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(groupKey,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: p.ink)),
                 Text(owners,
                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: AppColors.inkMute)),
+                  style: TextStyle(fontSize: 11, color: p.inkMute)),
               ],
             ),
           ),
@@ -562,22 +562,22 @@ class _UpRow extends StatelessWidget {
             Container(
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: p.bg, borderRadius: BorderRadius.circular(10)),
               child: Text('${items.length}',
-                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: AppColors.inkSoft)),
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: p.inkSoft)),
             ),
           Text(formatCompactINR(amt),
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.ink)),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: p.ink)),
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: dl <= 3 ? const Color(0xFFFFedd5) : const Color(0xFFdbeafe),
+              color: dl <= 3 ? const Color(0xFFea580c).withValues(alpha: 0.12) : p.blue.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text('${dl}d',
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
-                color: dl <= 3 ? const Color(0xFFea580c) : const Color(0xFF2563eb))),
+                color: dl <= 3 ? const Color(0xFFea580c) : p.blue)),
           ),
         ],
       ),
@@ -593,12 +593,13 @@ class _RenewalSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: p.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: p.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -607,11 +608,11 @@ class _RenewalSection extends StatelessWidget {
             children: [
               const Icon(LucideIcons.refreshCcw, size: 16, color: Color(0xFF7c3aed)),
               const SizedBox(width: 8),
-              const Text('Renewal Tracker',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.ink)),
+              Text('Renewal Tracker',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: p.ink)),
               const Spacer(),
               Text('${renewals.length}',
-                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.inkMute)),
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: p.inkMute)),
             ],
           ),
           const SizedBox(height: 12),
@@ -631,15 +632,15 @@ class _RenewalSection extends StatelessWidget {
                         children: [
                           Text(r.title,
                             maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: p.ink)),
                           Text('${categoryLabel(r.category)} · ${r.owner ?? '—'}',
                             maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11, color: AppColors.inkMute)),
+                            style: TextStyle(fontSize: 11, color: p.inkMute)),
                         ],
                       ),
                     ),
                     Text(dateShort(r.renewalDate),
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.inkSoft)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: p.inkSoft)),
                     const SizedBox(width: 8),
                     const StatusPill(status: 'Due Soon', dense: true),
                   ],

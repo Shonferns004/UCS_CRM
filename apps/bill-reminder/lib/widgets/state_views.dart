@@ -22,8 +22,9 @@ class KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Material(
-      color: Colors.white,
+      color: p.card,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
@@ -32,11 +33,11 @@ class KpiCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.line, width: 1),
+            border: Border.all(color: p.line, width: 1),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [color.withValues(alpha: 0.07), Colors.white],
+              colors: [color.withValues(alpha: 0.07), p.card],
             ),
           ),
           child: Column(
@@ -51,24 +52,24 @@ class KpiCard extends StatelessWidget {
                     child: Icon(icon, size: 17, color: color),
                   ),
                   const Spacer(),
-                  const Icon(LucideIcons.chevronRight, size: 15, color: AppColors.inkMute),
+                  Icon(LucideIcons.chevronRight, size: 15, color: p.inkMute),
                 ],
               ),
               const SizedBox(height: 12),
               Text(value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.ink,
-                  fontFeatures: [FontFeature.tabularFigures()],
+                  color: p.ink,
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 )),
               const SizedBox(height: 2),
               Text(label,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.inkSoft)),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: p.inkSoft)),
               if (sub != null) ...[
                 const SizedBox(height: 3),
                 Text(sub!,
-                  style: const TextStyle(fontSize: 11, color: AppColors.inkMute)),
+                  style: TextStyle(fontSize: 11, color: p.inkMute)),
               ],
             ],
           ),
@@ -86,6 +87,7 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -95,18 +97,18 @@ class EmptyState extends StatelessWidget {
             Container(
               width: 72,
               height: 72,
-              decoration: const BoxDecoration(color: AppColors.bg, shape: BoxShape.circle),
-              child: Icon(icon, size: 32, color: AppColors.inkMute),
+              decoration: BoxDecoration(color: p.bg, shape: BoxShape.circle),
+              child: Icon(icon, size: 32, color: p.inkMute),
             ),
             const SizedBox(height: 16),
             Text(title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.inkSoft)),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: p.inkSoft)),
             if (subtitle != null) ...[
               const SizedBox(height: 6),
               Text(subtitle!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: AppColors.inkMute)),
+                style: TextStyle(fontSize: 13, color: p.inkMute)),
             ],
           ],
         ),
@@ -122,26 +124,27 @@ class ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(LucideIcons.cloudOff, size: 44, color: AppColors.inkMute),
+            Icon(LucideIcons.cloudOff, size: 44, color: p.inkMute),
             const SizedBox(height: 14),
-            const Text('Could not load reminders',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.inkSoft)),
+            Text('Could not load reminders',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: p.inkSoft)),
             const SizedBox(height: 6),
             Text(message,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, color: AppColors.inkMute)),
+              style: TextStyle(fontSize: 13, color: p.inkMute)),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(LucideIcons.refreshCw, size: 16),
               label: const Text('Retry'),
-              style: FilledButton.styleFrom(backgroundColor: AppColors.blue),
+              style: FilledButton.styleFrom(backgroundColor: p.blue, foregroundColor: p.onBlue),
             ),
           ],
         ),
@@ -155,7 +158,8 @@ class SkeletonList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = AppColors.inkMute.withValues(alpha: 0.12);
+    final p = AppPalette.of(context);
+    final color = p.inkMute.withValues(alpha: 0.12);
     return SingleChildScrollView(
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
@@ -165,9 +169,9 @@ class SkeletonList extends StatelessWidget {
             Container(
               height: 68,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: p.card,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.line),
+                border: Border.all(color: p.line),
               ),
               padding: const EdgeInsets.all(10),
               child: Row(

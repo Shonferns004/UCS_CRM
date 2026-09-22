@@ -40,6 +40,7 @@ import SimSection from './components/SimSection'
 import Certificates from './pages/Certificates'
 import BeneficiariesPanel from '../beneficiaries/BeneficiariesPanel'
 import MetropadPage from './metropad/MetropadPage'
+import BillReminderPage from './bill-reminder/BillReminderPage'
 
 const NAV_TOP = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead and Audit',
@@ -48,6 +49,9 @@ const NAV_TOP = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
   { id: 'metropad', path: '/accounts/metropad', label: 'Metropad',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/></svg> },
+  { id: 'bill-reminder', path: '/accounts/bill-reminder', label: 'Bill Reminder',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+    match: (p) => p.startsWith('/accounts/bill-reminder') },
 ]
 
 const NAV_GROUPS = [
@@ -538,6 +542,7 @@ export default function AccountsPanel() {
             <Route path="sim/*" element={<SimSection />} />
             <Route path="beneficiaries/*" element={<BeneficiariesPanel base="/accounts/beneficiaries" />} />
             <Route path="metropad" element={<MetropadPage />} />
+            <Route path="bill-reminder/*" element={<BillReminderPage />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>

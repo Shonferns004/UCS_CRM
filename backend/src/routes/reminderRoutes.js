@@ -19,6 +19,7 @@ import {
   addDeviceToken,
   deleteDeviceToken,
   sendTestPush,
+  createTestEntry,
 } from '../controllers/reminderController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
@@ -37,6 +38,7 @@ router.post('/', ANY_AUTH, addReminder);
 router.post('/import', ANY_AUTH, importReminders);
 router.post('/device-token', ANY_AUTH, addDeviceToken);
 router.post('/test-push', ANY_AUTH, sendTestPush);
+router.post('/test-entry', ANY_AUTH, createTestEntry);
 router.post('/settings', ANY_AUTH, saveReminderSettings);
 router.post('/notifications/mark-all-read', ANY_AUTH, markAllRead);
 router.post('/notifications/:id', ANY_AUTH, markRead);

@@ -1,0 +1,1543 @@
+/* ================================================================== */
+/*  Payment & Renewal Management Dashboard — premium finance UI       */
+/* ================================================================== */
+
+.panel-accounts .rem-app .dash-container{
+  display: block;
+}
+
+/* ---- Page header ---- */
+.panel-accounts .rem-app .dash-header{
+  margin-bottom: 18px;
+}
+.panel-accounts .rem-app .dash-header h2{
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: .015em;
+  color: var(--rem-ink);
+}
+.panel-accounts .rem-app .dash-header p{
+  margin: 5px 0 0;
+  font-size: 12.5px;
+  color: var(--rem-ink-soft);
+}
+
+/* ---- Shared card system ---- */
+.panel-accounts .rem-app .card,.panel-accounts .rem-app .dash-section{
+  background: var(--rem-white);
+  border: 1px solid var(--rem-line);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 10px 28px -24px rgba(15, 23, 42, .25);
+  overflow: hidden;
+}
+.panel-accounts .rem-app .card-head{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--rem-line);
+}
+.panel-accounts .rem-app .card-head h3{
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -.005em;
+  color: var(--rem-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.panel-accounts .rem-app .card-head h3 > svg{
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--rem-blue-soft);
+  color: var(--rem-blue);
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .spacer{
+  flex: 1;
+}
+.panel-accounts .rem-app .count-chip{
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+  padding: 3px 10px;
+  border-radius: 99px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ---- Two-column row layout ---- */
+.panel-accounts .rem-app .dash-row{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+.panel-accounts .rem-app .dash-row > *{
+  flex: 1 1 calc(50% - 8px);
+  min-width: 0;
+}
+.panel-accounts .rem-app .dash-row > .full{
+  flex: 1 1 100%;
+}
+
+/* ================================================================== */
+/*  KPI cards                                                         */
+/* ================================================================== */
+.panel-accounts .rem-app .dash-kpis{
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.panel-accounts .rem-app .kpi-card{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 15px 16px 12px;
+  background: var(--rem-white);
+  border: 1px solid var(--rem-line);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 10px 28px -24px rgba(15, 23, 42, .25);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+  overflow: hidden;
+}
+.panel-accounts .rem-app .kpi-card:hover{
+  transform: translateY(-2px);
+  border-color: #c9d6ea;
+  box-shadow: 0 6px 18px -10px rgba(15, 23, 42, .28);
+}
+.panel-accounts .rem-app .kpi-card::after{
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0), rgba(37, 99, 235, .18));
+}
+.panel-accounts .rem-app .kpi-top{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.panel-accounts .rem-app .kpi-ico{
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .kpi-ring{
+  --pct: 0%;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: conic-gradient(#10b981 var(--pct), var(--rem-line) var(--pct) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .kpi-ring-inner{
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--rem-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.panel-accounts .rem-app .kpi-ring-inner span{
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #10b981;
+  line-height: 1;
+}
+.panel-accounts .rem-app .kpi-label{
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--rem-ink-soft);
+}
+.panel-accounts .rem-app .kpi-num{
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--rem-ink);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-accounts .rem-app .kpi-num.kpi-num-danger{
+  color: var(--rem-red);
+}
+.panel-accounts .rem-app .kpi-sub{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--rem-ink-soft);
+  margin-top: 1px;
+}
+.panel-accounts .rem-app .kpi-count{
+  font-weight: 700;
+  color: var(--rem-ink-soft);
+  background: var(--rem-gray-soft);
+  padding: 1px 7px;
+  border-radius: 99px;
+}
+.panel-accounts .rem-app .kpi-bar{
+  height: 4px;
+  border-radius: 99px;
+  background: var(--rem-line);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.panel-accounts .rem-app .kpi-bar i{
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  transition: width .5s ease;
+}
+
+/* ================================================================== */
+/*  Monthly Summary hero                                              */
+/* ================================================================== */
+.panel-accounts .rem-app .dash-hero .card-head{
+  border-bottom: none;
+}
+.panel-accounts .rem-app .hero-middle{
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px 4px;
+}
+.panel-accounts .rem-app .hero-ring{
+  --pct: 0%;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: conic-gradient(#10b981 var(--pct), var(--rem-line) var(--pct) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .hero-ring-inner{
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--rem-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.panel-accounts .rem-app .hero-ring-inner span{
+  font-size: 13px;
+  font-weight: 800;
+  color: #10b981;
+  line-height: 1;
+}
+.panel-accounts .rem-app .hero-caption{
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.panel-accounts .rem-app .hero-caption-title{
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--rem-ink);
+}
+.panel-accounts .rem-app .hero-caption-sub{
+  font-size: 11px;
+  color: var(--rem-ink-soft);
+}
+.panel-accounts .rem-app .fin-cards{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+.panel-accounts .rem-app .fin-card{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--rem-line);
+  border-left: 3px solid var(--rem-line);
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.panel-accounts .rem-app .fin-card:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -10px rgba(15, 23, 42, .3);
+}
+.panel-accounts .rem-app .fin-card-paid{
+  background: var(--rem-green-soft);
+  border-color: #bbf7d0;
+  border-left-color: #10b981;
+}
+.panel-accounts .rem-app .fin-card-pending{
+  background: var(--rem-amber-soft);
+  border-color: #fde68a;
+  border-left-color: #f59e0b;
+}
+.panel-accounts .rem-app .fin-card-overdue{
+  background: var(--rem-red-soft);
+  border-color: #fecaca;
+  border-left-color: #ef4444;
+}
+.panel-accounts .rem-app .fin-card-icon{
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .fin-card-paid .fin-card-icon{ background: #10b981; color: #fff; }
+.panel-accounts .rem-app .fin-card-pending .fin-card-icon{ background: #f59e0b; color: #fff; }
+.panel-accounts .rem-app .fin-card-overdue .fin-card-icon{ background: #ef4444; color: #fff; }
+.panel-accounts .rem-app .fin-card-label{
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--rem-ink-soft);
+}
+.panel-accounts .rem-app .fin-card-amount{
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--rem-ink);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ================================================================== */
+/*  Calendar                                                          */
+/* ================================================================== */
+.panel-accounts .rem-app .cal-today{
+  flex-shrink: 0;
+  border: 1px solid var(--rem-line);
+  background: var(--rem-white);
+  color: var(--rem-blue);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all .14s ease;
+}
+.panel-accounts .rem-app .cal-today:hover{
+  border-color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+}
+.panel-accounts .rem-app .dash-cal{
+  padding: 14px 16px 10px;
+}
+.panel-accounts .rem-app .cal-head{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: #f1f5f9;
+}
+.panel-accounts .rem-app .cal-title{
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  user-select: none;
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .cal-nav{
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  border: none;
+  background: var(--rem-white);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #475569;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .1);
+  transition: all .14s ease;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.panel-accounts .rem-app .cal-nav:hover{
+  background: var(--rem-blue);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
+  transform: scale(1.06);
+}
+.panel-accounts .rem-app .cal-grid{
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.panel-accounts .rem-app .cal-dow{
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #94a3b8;
+  padding: 4px 0 7px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.panel-accounts .rem-app .cal-day{
+  text-align: center;
+  padding: 4px 0 3px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 10px;
+  cursor: pointer;
+  position: relative;
+  min-height: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: all .14s ease;
+  color: #1e293b;
+  user-select: none;
+}
+.panel-accounts .rem-app .cal-day:hover{
+  background: #f1f5f9;
+  color: var(--rem-blue);
+}
+.panel-accounts .rem-app .cal-day.other-month{
+  color: #cbd5e1;
+  font-weight: 400;
+}
+.panel-accounts .rem-app .cal-day.other-month:hover{
+  color: #94a3b8;
+  background: transparent;
+}
+.panel-accounts .rem-app .cal-day.has-dots{
+  font-weight: 600;
+}
+.panel-accounts .rem-app .cal-day .cal-dots{
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+.panel-accounts .rem-app .cal-day .cal-dot{
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+.panel-accounts .rem-app .cal-day.today{
+  font-weight: 700;
+  background: var(--rem-blue);
+  color: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, .35);
+}
+.panel-accounts .rem-app .cal-day.today:hover{
+  background: var(--rem-blue-dark);
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(37, 99, 235, .45);
+}
+.panel-accounts .rem-app .cal-day.today .cal-dot{
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .6);
+}
+.panel-accounts .rem-app .cal-legend{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+  padding: 9px 4px 4px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--rem-ink-soft);
+}
+.panel-accounts .rem-app .cal-legend span{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.panel-accounts .rem-app .cal-legend .cal-dot{
+  width: 7px;
+  height: 7px;
+  border-radius: 2.5px;
+}
+.panel-accounts .rem-app .cal-dot.red{ background: #ef4444; }
+.panel-accounts .rem-app .cal-dot.yellow{ background: #f59e0b; }
+.panel-accounts .rem-app .cal-dot.blue{ background: #3b82f6; }
+.panel-accounts .rem-app .cal-dot.green{ background: #10b981; }
+
+/* Calendar day detail */
+.panel-accounts .rem-app .cal-detail{
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--rem-line);
+}
+.panel-accounts .rem-app .cal-detail h4{
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rem-ink);
+}
+.panel-accounts .rem-app .cal-detail-item{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  transition: background .12s ease;
+}
+.panel-accounts .rem-app .cal-detail-item:hover{
+  background: var(--rem-blue-soft);
+}
+.panel-accounts .rem-app .cal-detail-item > svg{
+  flex-shrink: 0;
+  color: var(--rem-blue);
+}
+.panel-accounts .rem-app .cal-detail-total{
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--rem-line);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--rem-ink);
+  background: var(--rem-white);
+  border-radius: 8px;
+}
+
+/* ================================================================== */
+/*  Category filter strip                                             */
+/* ================================================================== */
+.panel-accounts .rem-app .dash-filters{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--rem-white);
+  border: 1px solid var(--rem-line);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 10px 28px -24px rgba(15, 23, 42, .25);
+}
+.panel-accounts .rem-app .dash-filters-label{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--rem-ink-soft);
+  margin-right: 4px;
+}
+.panel-accounts .rem-app .pill-f{
+  border: 1px solid var(--rem-line);
+  background: var(--rem-white);
+  color: var(--rem-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 13px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all .13s ease;
+  font-family: inherit;
+}
+.panel-accounts .rem-app .pill-f:hover{
+  border-color: var(--rem-blue);
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+}
+.panel-accounts .rem-app .pill-f.active{
+  background: var(--rem-blue);
+  border-color: var(--rem-blue);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
+}
+
+/* ================================================================== */
+/*  Category section cards + tiles                                    */
+/* ================================================================== */
+.panel-accounts .rem-app .cat-sections{
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.panel-accounts .rem-app .cat-sec{
+  display: flex;
+  flex-direction: column;
+}
+.panel-accounts .rem-app .cat-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+  padding: 14px 16px 16px;
+}
+.panel-accounts .rem-app .cat-tile{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  min-height: 116px;
+  min-width: 0;
+  padding: 9px 7px 10px;
+  border: 1px solid var(--rem-line);
+  border-radius: 14px;
+  background: var(--rem-white);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, opacity .2s ease, filter .2s ease;
+}
+.panel-accounts .rem-app .cat-tile:hover{
+  transform: translateY(-2px);
+  border-color: var(--rem-blue);
+  box-shadow: 0 8px 20px -12px rgba(37, 99, 235, .35);
+}
+.panel-accounts .rem-app .cat-tile.dim{
+  opacity: .4;
+  filter: grayscale(.7);
+  pointer-events: auto;
+}
+.panel-accounts .rem-app .cat-tile.dim:hover{
+  opacity: .7;
+  filter: grayscale(.3);
+}
+.panel-accounts .rem-app .dash-cat-tile-status{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  justify-content: center;
+  min-height: 15px;
+}
+.panel-accounts .rem-app .tile-st{
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1.5px 6px;
+  border-radius: 99px;
+  white-space: nowrap;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-accounts .rem-app .cat-ico{
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .04);
+}
+.panel-accounts .rem-app .cat-label{
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--rem-ink);
+  text-align: center;
+  line-height: 1.25;
+  width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.panel-accounts .rem-app .cat-count{
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* ================================================================== */
+/*  Upcoming payments                                                 */
+/* ================================================================== */
+.panel-accounts .rem-app .up-tabs{
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px 4px;
+}
+.panel-accounts .rem-app .up-tab{
+  border: 1px solid var(--rem-line);
+  background: var(--rem-white);
+  color: var(--rem-ink-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all .13s ease;
+  font-family: inherit;
+}
+.panel-accounts .rem-app .up-tab:hover{
+  border-color: var(--rem-blue);
+  color: var(--rem-blue);
+}
+.panel-accounts .rem-app .up-tab.active{
+  background: var(--rem-blue);
+  border-color: var(--rem-blue);
+  color: #fff;
+}
+.panel-accounts .rem-app .up-list{
+  padding: 8px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.panel-accounts .rem-app .up-row{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--rem-white);
+  border: 1px solid var(--rem-line);
+  cursor: pointer;
+  transition: border-color .13s ease, box-shadow .13s ease, transform .13s ease;
+}
+.panel-accounts .rem-app .up-row:hover{
+  border-color: var(--rem-blue);
+  box-shadow: 0 6px 16px -10px rgba(37, 99, 235, .35);
+  transform: translateY(-1px);
+}
+.panel-accounts .rem-app .up-row.urgent{
+  border-color: #fecaca;
+  background: #fffafa;
+}
+.panel-accounts .rem-app .up-row.urgent:hover{
+  border-color: var(--rem-red);
+  box-shadow: 0 6px 16px -10px rgba(220, 38, 38, .35);
+}
+.panel-accounts .rem-app .up-row-icon{
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--rem-blue-soft);
+  color: var(--rem-blue);
+}
+.panel-accounts .rem-app .up-row.urgent .up-row-icon{
+  background: var(--rem-red-soft);
+  color: var(--rem-red);
+}
+.panel-accounts .rem-app .up-row-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.panel-accounts .rem-app .up-row-top{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.panel-accounts .rem-app .up-row-name{
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--rem-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.panel-accounts .rem-app .up-row-amt{
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .up-row-meta{
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.panel-accounts .rem-app .up-row-owners{
+  font-size: 9.5px;
+  color: var(--rem-ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.panel-accounts .rem-app .up-row-count{
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+  padding: 1px 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .up-row-days{
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+  padding: 1px 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .up-row-days.warn{
+  color: var(--rem-red);
+  background: var(--rem-red-soft);
+}
+.panel-accounts .rem-app .up-more{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 6px 10px;
+  margin-top: 2px;
+  background: none;
+  border: 1px dashed var(--rem-line);
+  border-radius: 8px;
+  color: var(--rem-ink-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .13s ease;
+  font-family: inherit;
+}
+.panel-accounts .rem-app .up-more:hover{
+  border-color: var(--rem-blue);
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+}
+
+/* ================================================================== */
+/*  Renewal tracker                                                   */
+/* ================================================================== */
+.panel-accounts .rem-app .rn-list{
+  padding: 10px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.panel-accounts .rem-app .rn-row{
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 13px;
+  border: 1px solid var(--rem-line);
+  border-left: 3px solid var(--rem-blue);
+  border-radius: 10px;
+  background: var(--rem-white);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease;
+}
+.panel-accounts .rem-app .rn-row:hover{
+  border-color: var(--rem-blue);
+  box-shadow: 0 6px 16px -10px rgba(37, 99, 235, .35);
+  transform: translateY(-1px);
+}
+.panel-accounts .rem-app .rn-row.expired{
+  border-left-color: var(--rem-red);
+  background: #fffbfb;
+}
+.panel-accounts .rem-app .rn-row.expired:hover{
+  border-color: var(--rem-red);
+  box-shadow: 0 6px 16px -10px rgba(220, 38, 38, .35);
+}
+.panel-accounts .rem-app .rn-row.urgent{
+  border-left-color: var(--rem-amber);
+  background: #fffcf5;
+}
+.panel-accounts .rem-app .rn-row.urgent:hover{
+  border-color: var(--rem-amber);
+  box-shadow: 0 6px 16px -10px rgba(217, 119, 6, .35);
+}
+.panel-accounts .rem-app .rn-icon{
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--rem-blue-soft);
+  color: var(--rem-blue);
+}
+.panel-accounts .rem-app .rn-row.expired .rn-icon{
+  background: var(--rem-red-soft);
+  color: var(--rem-red);
+}
+.panel-accounts .rem-app .rn-row.urgent .rn-icon{
+  background: var(--rem-amber-soft);
+  color: var(--rem-amber);
+}
+.panel-accounts .rem-app .rn-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.panel-accounts .rem-app .rn-name{
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-accounts .rem-app .rn-meta{
+  font-size: 9.5px;
+  color: var(--rem-ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-accounts .rem-app .rn-right{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .rn-date{
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .rn-badge{
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .rn-badge.red{
+  background: var(--rem-red-soft);
+  color: var(--rem-red);
+}
+.panel-accounts .rem-app .rn-badge.amber{
+  background: var(--rem-amber-soft);
+  color: var(--rem-amber);
+}
+.panel-accounts .rem-app .rn-badge.blue{
+  background: var(--rem-blue-soft);
+  color: var(--rem-blue);
+}
+
+/* ================================================================== */
+/*  Empty state                                                       */
+/* ================================================================== */
+.panel-accounts .rem-app .dash-empty{
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--rem-ink-soft);
+  font-size: 11.5px;
+}
+.panel-accounts .rem-app .dash-empty .big{
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  margin-bottom: 3px;
+}
+
+/* ================================================================== */
+/*  Bill Chart                                                        */
+/* ================================================================== */
+.panel-accounts .rem-app .bc-card .sec-head{
+  padding: 14px 18px 10px;
+  border-bottom: none;
+  align-items: center;
+}
+.panel-accounts .rem-app .sec-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rem-line);
+}
+.panel-accounts .rem-app .sec-head h3{
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-accounts .rem-app .sec-head .sec-count{
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+.panel-accounts .rem-app .bc-head-icon{
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--rem-blue-soft);
+  color: var(--rem-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .bc-total{
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid var(--rem-line);
+  padding: 3px 12px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .bc-card .dash-tabs{
+  padding: 0 18px 12px;
+  border-bottom: none;
+  gap: 6px;
+}
+.panel-accounts .rem-app .dash-tabs{
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--rem-line);
+  padding: 0 16px;
+}
+.panel-accounts .rem-app .dash-tab{
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rem-ink-soft);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all .12s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .bc-card .dash-tab{
+  border-radius: 99px;
+  border: 1px solid var(--rem-line);
+  padding: 4px 13px;
+}
+.panel-accounts .rem-app .bc-card .dash-tab.active{
+  background: var(--rem-blue);
+  border-color: var(--rem-blue);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
+}
+.panel-accounts .rem-app .bc-card .dash-tab:hover{
+  border-color: var(--rem-blue);
+  color: var(--rem-blue);
+}
+.panel-accounts .rem-app .bc-body{
+  padding: 4px 18px 18px;
+}
+.panel-accounts .rem-app .bc-empty{
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--rem-ink-soft);
+  font-size: 12px;
+}
+
+/* ================================================================== */
+/*  Checklist (Your Checklist / attention strip)                      */
+/* ================================================================== */
+.panel-accounts .rem-app .cl-attention{
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 14px;
+  background: var(--rem-amber-soft);
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+}
+.panel-accounts .rem-app .cl-attention > svg{
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--rem-amber);
+}
+.panel-accounts .rem-app .cl-attention-text{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.panel-accounts .rem-app .cl-attention-title{
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--rem-amber);
+  line-height: 1.3;
+}
+.panel-accounts .rem-app .cl-attention-near{
+  font-size: 11px;
+  color: var(--rem-ink-soft);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.panel-accounts .rem-app .cl-attention-dismiss{
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--rem-line);
+  background: var(--rem-white);
+  color: var(--rem-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .12s ease;
+  font-family: inherit;
+}
+.panel-accounts .rem-app .cl-attention-dismiss:hover{
+  border-color: var(--rem-amber);
+  color: var(--rem-amber);
+}
+.panel-accounts .rem-app .cl-card{
+  display: flex;
+  flex-direction: column;
+  padding: 11px 14px;
+}
+.panel-accounts .rem-app .cl-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rem-line);
+}
+.panel-accounts .rem-app .cl-title{
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--rem-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.panel-accounts .rem-app .cl-count{
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+  padding: 3px 10px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cl-search{
+  position: relative;
+  margin: 10px 0 8px;
+}
+.panel-accounts .rem-app .cl-search-icon{
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--rem-ink-soft);
+  pointer-events: none;
+}
+.panel-accounts .rem-app .cl-search-input{
+  width: 100%;
+  box-sizing: border-box;
+  background: #f8fafc;
+  border: 1px solid var(--rem-line);
+  border-radius: 10px;
+  padding: 7px 30px 7px 32px;
+  font-size: 12px;
+  color: var(--rem-ink);
+  outline: none;
+  font-family: inherit;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.panel-accounts .rem-app .cl-search-input:hover{ border-color: #cbd5e1; }
+.panel-accounts .rem-app .cl-search-input:focus{ background: #fff; border-color: var(--rem-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.panel-accounts .rem-app .cl-search-input::placeholder{ color: var(--rem-ink-soft); }
+.panel-accounts .rem-app .cl-search-clear{
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--rem-ink-soft);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.panel-accounts .rem-app .cl-search-clear:hover{ color: var(--rem-blue); background: var(--rem-blue-soft); }
+.panel-accounts .rem-app .cl-list{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.panel-accounts .rem-app .cl-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--rem-white);
+  border: 1px solid var(--rem-line);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  cursor: pointer;
+  transition: border-color .13s ease, box-shadow .13s ease, transform .13s ease;
+}
+.panel-accounts .rem-app .cl-item:hover{
+  border-color: var(--rem-blue);
+  box-shadow: 0 6px 16px -10px rgba(37, 99, 235, .35);
+  transform: translateY(-1px);
+}
+.panel-accounts .rem-app .cl-item-icon{
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cl-item-body{
+  flex: 1;
+  min-width: 0;
+}
+.panel-accounts .rem-app .cl-item-name{
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--rem-ink);
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.panel-accounts .rem-app .cl-item-meta{
+  font-size: 10px;
+  color: var(--rem-ink-soft);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.panel-accounts .rem-app .cl-item-meta > span:first-child{ min-width: 0; overflow-wrap: anywhere; }
+.panel-accounts .rem-app .cl-item-amount{
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  border: 1px solid var(--rem-line);
+  background: #f8fafc;
+  border-radius: 99px;
+  padding: 2px 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cl-item-foot{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+.panel-accounts .rem-app .cl-badge{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.panel-accounts .rem-app .cl-badge::before{
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cl-badge-overdue{ background: var(--rem-red-soft); color: var(--rem-red); }
+.panel-accounts .rem-app .cl-badge-today{ background: var(--rem-amber-soft); color: var(--rem-amber); }
+.panel-accounts .rem-app .cl-badge-tomorrow{ background: var(--rem-amber-soft); color: var(--rem-amber); }
+.panel-accounts .rem-app .cl-badge-week{ background: var(--rem-blue-soft); color: var(--rem-blue); }
+.panel-accounts .rem-app .cl-badge-month{ background: var(--rem-blue-soft); color: var(--rem-blue); }
+.panel-accounts .rem-app .cl-badge-future{ background: #f1f5f9; color: #475569; }
+.panel-accounts .rem-app .cl-badge-none{ background: #f1f5f9; color: var(--rem-ink-soft); }
+.panel-accounts .rem-app .cl-empty{
+  padding: 14px 12px;
+  text-align: center;
+  color: var(--rem-ink-soft);
+  font-size: 12px;
+}
+.panel-accounts .rem-app .cl-viewall{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 12px;
+  background: none;
+  border: 1px solid var(--rem-line);
+  border-radius: 10px;
+  color: var(--rem-blue);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s ease;
+}
+.panel-accounts .rem-app .cl-viewall:hover{
+  border-color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+}
+
+/* ================================================================== */
+/*  Category modal                                                    */
+/* ================================================================== */
+.panel-accounts .rem-app .cat-modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 20px;
+}
+.panel-accounts .rem-app .cat-modal{
+  background: var(--rem-white);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .28);
+  overflow: hidden;
+}
+.panel-accounts .rem-app .cat-modal-head{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--rem-line);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+.panel-accounts .rem-app .cat-modal-head h3{
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--rem-ink);
+  flex: 1;
+  min-width: 0;
+}
+.panel-accounts .rem-app .cat-modal-count{
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rem-blue);
+  background: var(--rem-blue-soft);
+  padding: 3px 10px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cat-modal-close{
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--rem-line);
+  color: var(--rem-ink-soft);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s ease;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cat-modal-close:hover{
+  background: #fee2e2;
+  color: var(--rem-red);
+}
+.panel-accounts .rem-app .cat-modal-body{
+  padding: 8px 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+.panel-accounts .rem-app .cat-modal-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 10px;
+  transition: background .12s ease;
+}
+.panel-accounts .rem-app .cat-modal-item:hover{
+  background: #f8fafc;
+}
+.panel-accounts .rem-app .cat-modal-item-icon{
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.panel-accounts .rem-app .cat-modal-item-body{
+  flex: 1;
+  min-width: 0;
+}
+.panel-accounts .rem-app .cat-modal-item-title{
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--rem-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-accounts .rem-app .cat-modal-item-meta{
+  font-size: 10.5px;
+  color: var(--rem-ink-soft);
+  margin-top: 2px;
+}
+
+/* ================================================================== */
+/*  Responsive                                                        */
+/* ================================================================== */
+@media (max-width: 1180px) {
+  .panel-accounts .rem-app .dash-kpis{
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .panel-accounts .rem-app .dash-row > *{
+    flex: 1 1 100%;
+  }
+}
+@media (max-width: 920px) {
+  .panel-accounts .rem-app .dash-row > *{
+    flex: 1 1 100%;
+  }
+  .panel-accounts .rem-app .dash-header h2{ font-size: 17px; }
+  .panel-accounts .rem-app .kpi-num{ font-size: 19px; }
+}
+@media (max-width: 640px) {
+  .panel-accounts .rem-app .dash-header{ margin-bottom: 14px; }
+  .panel-accounts .rem-app .dash-header p{ font-size: 11px; }
+  .panel-accounts .rem-app .dash-kpis{
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .panel-accounts .rem-app .kpi-card{ padding: 13px 14px 10px; }
+  .panel-accounts .rem-app .kpi-top{ margin-bottom: 2px; }
+  .panel-accounts .rem-app .kpi-ring{ width: 40px; height: 40px; }
+  .panel-accounts .rem-app .kpi-ring-inner{ width: 31px; height: 31px; }
+  .panel-accounts .rem-app .card-head{ padding: 11px 13px; }
+  .panel-accounts .rem-app .card-head h3{ font-size: 12.5px; }
+  .panel-accounts .rem-app .dash-row{ gap: 12px; margin-bottom: 14px; }
+  .panel-accounts .rem-app .hero-middle{ padding: 6px 13px 2px; gap: 12px; }
+  .panel-accounts .rem-app .hero-ring{ width: 52px; height: 52px; }
+  .panel-accounts .rem-app .hero-ring-inner{ width: 40px; height: 40px; }
+  .panel-accounts .rem-app .hero-ring-inner span{ font-size: 11px; }
+  .panel-accounts .rem-app .fin-cards{ grid-template-columns: 1fr; padding: 10px 13px 13px; gap: 8px; }
+  .panel-accounts .rem-app .dash-cal{ padding: 10px 10px 8px; }
+  .panel-accounts .rem-app .cal-grid{ gap: 1px; }
+  .panel-accounts .rem-app .cal-day{ font-size: 10px; min-height: 27px; padding: 3px 0; border-radius: 8px; }
+  .panel-accounts .rem-app .cal-dow{ font-size: 8px; padding: 3px 0 5px; }
+  .panel-accounts .rem-app .cal-day .cal-dot{ width: 3px; height: 3px; }
+  .panel-accounts .rem-app .cal-head{ padding: 6px 8px; margin-bottom: 9px; gap: 6px; }
+  .panel-accounts .rem-app .cal-title{ font-size: 12px; }
+  .panel-accounts .rem-app .cal-nav{ width: 25px; height: 25px; }
+  .panel-accounts .rem-app .cal-legend{ font-size: 8.5px; gap: 5px 10px; padding: 7px 2px 2px; }
+  .panel-accounts .rem-app .cal-detail{ padding: 9px 12px 12px; }
+  .panel-accounts .rem-app .cal-detail-item{ font-size: 10.5px; gap: 6px; padding: 5px 6px; }
+  .panel-accounts .rem-app .cal-detail-item > svg{ display: none; }
+  .panel-accounts .rem-app .dash-filters{ padding: 10px 12px; gap: 6px; margin-bottom: 12px; }
+  .panel-accounts .rem-app .pill-f{ font-size: 10.5px; padding: 4px 11px; }
+  .panel-accounts .rem-app .dash-filters-label{ font-size: 9.5px; }
+  .panel-accounts .rem-app .cat-sections{ gap: 12px; margin-bottom: 14px; }
+  .panel-accounts .rem-app .cat-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 11px 12px 12px; }
+  .panel-accounts .rem-app .cat-tile{ min-height: 100px; padding: 8px 5px 9px; border-radius: 12px; }
+  .panel-accounts .rem-app .cat-ico{ width: 32px; height: 32px; }
+  .panel-accounts .rem-app .cat-label{ font-size: 10px; }
+  .panel-accounts .rem-app .dash-cat-tile-status .tile-st{ font-size: 7.5px; padding: 1px 5px; }
+  .panel-accounts .rem-app .up-tabs{ padding: 8px 12px 3px; gap: 4px; }
+  .panel-accounts .rem-app .up-tab{ font-size: 10px; padding: 3px 10px; }
+  .panel-accounts .rem-app .up-list{ padding: 7px 12px 12px; gap: 5px; }
+  .panel-accounts .rem-app .up-row{ padding: 7px 8px; gap: 8px; }
+  .panel-accounts .rem-app .up-row-icon{ width: 24px; height: 24px; }
+  .panel-accounts .rem-app .up-row-name{ font-size: 11px; }
+  .panel-accounts .rem-app .up-row-amt{ font-size: 10.5px; }
+  .panel-accounts .rem-app .up-row-owners{ font-size: 9px; }
+  .panel-accounts .rem-app .up-row-count,.panel-accounts .rem-app .up-row-days{ font-size: 8px; padding: 1px 5px; }
+  .panel-accounts .rem-app .up-more{ font-size: 10px; padding: 5px 8px; }
+  .panel-accounts .rem-app .rn-list{ padding: 8px 10px 12px; gap: 6px; }
+  .panel-accounts .rem-app .rn-row{ padding: 7px 8px 7px 11px; gap: 8px; }
+  .panel-accounts .rem-app .rn-icon{ width: 24px; height: 24px; }
+  .panel-accounts .rem-app .rn-name{ font-size: 11px; }
+  .panel-accounts .rem-app .rn-meta{ font-size: 9px; }
+  .panel-accounts .rem-app .rn-date{ font-size: 10px; }
+  .panel-accounts .rem-app .rn-badge{ font-size: 8px; padding: 1.5px 7px; }
+  .panel-accounts .rem-app .cl-card{ padding: 10px 12px; }
+  .panel-accounts .rem-app .cl-search{ margin: 9px 0 7px; }
+  .panel-accounts .rem-app .cl-search-input{ font-size: 12px; padding: 6px 28px 6px 30px; }
+  .panel-accounts .rem-app .cl-item{ padding: 7px 8px; gap: 8px; flex-wrap: wrap; }
+  .panel-accounts .rem-app .cl-item-icon{ order: 1; width: 26px; height: 26px; }
+  .panel-accounts .rem-app .cl-item-body{ order: 2; flex: 1 1 calc(100% - 44px); }
+  .panel-accounts .rem-app .cl-item-name{ font-size: 11.5px; }
+  .panel-accounts .rem-app .cl-item-meta{ font-size: 9.5px; }
+  .panel-accounts .rem-app .cl-item-foot{ flex-wrap: wrap; }
+  .panel-accounts .rem-app .cl-item-amount{ margin-left: auto; font-size: 10px; }
+  .panel-accounts .rem-app .cl-attention{ flex-wrap: wrap; gap: 7px; }
+  .panel-accounts .rem-app .cl-attention-dismiss{ margin-left: auto; }
+  .panel-accounts .rem-app .cat-modal{ max-width: 100%; border-radius: 14px 14px 0 0; max-height: 90vh; }
+  .panel-accounts .rem-app .cat-modal-overlay{ padding: 0; align-items: flex-end; }
+  .panel-accounts .rem-app .cat-modal-head{ padding: 13px 16px; }
+  .panel-accounts .rem-app .cat-modal-body{ padding: 6px 10px; }
+  .panel-accounts .rem-app .sec-head{ padding: 10px 13px; }
+  .panel-accounts .rem-app .bc-card .sec-head{ padding: 12px 14px 9px; }
+  .panel-accounts .rem-app .bc-card .dash-tabs{ padding: 0 14px 10px; }
+  .panel-accounts .rem-app .bc-card .bc-body{ padding: 4px 14px 14px; }
+}
