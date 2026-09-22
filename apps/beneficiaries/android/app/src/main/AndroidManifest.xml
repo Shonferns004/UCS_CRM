@@ -52,72 +52,6 @@
                 android:resource="@xml/usb_device_filter"/>
         </activity>
 
-        <!-- Mantra MFS100 RD Service -->
-        <service
-            android:name="com.mantra.mfs100.rdservice.RDService"
-            android:exported="true"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE">
-            <intent-filter>
-                <action android:name="com.mantra.rdservice.RDService"/>
-            </intent-filter>
-        </service>
-
-        <!-- Mantra MFS110 RD Service -->
-        <service
-            android:name="com.mantra.mfs110.rdservice.RDService"
-            android:exported="true"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE">
-            <intent-filter>
-                <action android:name="com.mantra.rdservice.RDService"/>
-            </intent-filter>
-        </service>
-
-        <!-- Morpho MSO1300 RD Service -->
-        <service
-            android:name="com.scl.rdservice.RDService"
-            android:exported="true"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE">
-            <intent-filter>
-                <action android:name="com.scl.rdservice.RDService"/>
-            </intent-filter>
-        </service>
-
-        <!-- Startek FM2200 / ACPL RD Service -->
-        <service
-            android:name="com.acpl.rdservice.RDService"
-            android:exported="true"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE">
-            <intent-filter>
-                <action android:name="com.acpl.rdservice.RDService"/>
-            </intent-filter>
-        </service>
-
-        <!-- SecuGen RD Service -->
-        <service
-            android:name="com.secugen.rdservice.RDService"
-            android:exported="true"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE">
-            <intent-filter>
-                <action android:name="com.secugen.rdservice.RDService"/>
-            </intent-filter>
-        </service>
-
-        <!-- Precision RD Service -->
-        <service
-            android:name="com.precision.rdservice.RDService"
-            android:exported="true"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE">
-            <intent-filter>
-                <action android:name="com.precision.rdservice.RDService"/>
-            </intent-filter>
-        </service>
-
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -128,13 +62,5 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- Query installed RD Service packages -->
-        <package android:name="com.mantra.mfs100.rdservice"/>
-        <package android:name="com.mantra.mfs110.rdservice"/>
-        <package android:name="com.scl.rdservice"/>
-        <package android:name="com.acpl.rdservice"/>
-        <package android:name="com.secugen.rdservice"/>
-        <package android:name="com.precision.rdservice"/>
-        <package android:name="com.zkteco.rdservice"/>
     </queries>
 </manifest>

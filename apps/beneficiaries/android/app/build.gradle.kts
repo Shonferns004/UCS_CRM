@@ -49,4 +49,6 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("com.machinezoo.sourceafis:sourceafis:3.18.1")
+    implementation(files("libs/FDxSDKProFDAndroid.jar"))
+    implementation(files("libs/AlCamera.jar"))
 }
