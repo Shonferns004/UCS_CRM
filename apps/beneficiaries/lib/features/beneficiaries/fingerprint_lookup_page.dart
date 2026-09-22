@@ -35,6 +35,12 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     });
   }
 
+  @override
+  void dispose() {
+    FingerprintService.stopCapture();
+    super.dispose();
+  }
+
   Future<void> _checkDevice() async {
     setState(() {
       _checkingDevice = true;
@@ -93,6 +99,18 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
         _matchedBeneficiary = null;
       });
     }
+  }
+
+  /// Stop the active scan and return to the idle state.
+  Future<void> _cancelScanning() async {
+    await FingerprintService.stopCapture();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _error = null;
+      _matchedBeneficiary = null;
+      _status = 'Scanning cancelled';
+    });
   }
 
   /// Own-system flow: raw USB capture -> on-device SourceAFIS 1:N match.
@@ -263,6 +281,18 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                       : const Icon(Icons.fingerprint, size: 18),
                   label: Text(_loading ? 'Scanning...' : 'Scan Another Finger'),
                 ),
+                if (_loading) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _cancelScanning,
+                    icon: const Icon(Icons.cancel_outlined, size: 18),
+                    label: const Text('Cancel Scanning'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.error,
+                      side: const BorderSide(color: AppTheme.error),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

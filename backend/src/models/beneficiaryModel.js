@@ -121,6 +121,12 @@ export const getBeneficiaryOverview = async () => {
   const { count: newThisMonth } = await db.from('beneficiaries').select('id', { count: 'exact', head: true })
     .gte('created_at', thisMonth.toISOString());
 
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { count: kitCollectedToday } = await db.from('beneficiaries').select('id', { count: 'exact', head: true })
+    .eq('kit_collected', true)
+    .gte('kit_collected_at', todayStart.toISOString());
+
   const { count: programsCount } = await db.from('bnf_programs').select('id', { count: 'exact', head: true });
   const { count: distributionsCount } = await db.from('benefit_distributions').select('id', { count: 'exact', head: true });
 
@@ -130,6 +136,7 @@ export const getBeneficiaryOverview = async () => {
     inactive: inactive || 0,
     pending_fingerprint: pendingFingerprint || 0,
     new_this_month: newThisMonth || 0,
+    kit_collected_today: kitCollectedToday || 0,
     programs: programsCount || 0,
     benefits_distributed: distributionsCount || 0,
   };

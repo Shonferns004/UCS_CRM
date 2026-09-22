@@ -65,20 +65,17 @@ class FingerprintEnrollPanel extends StatefulWidget {
 }
 
 class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
-  static const int targetFingerprints = 4;
+  static const int targetFingerprints = 3;
   static const double matchThreshold = 40;
 
+  // Only thumb, index and middle fingers are captured (left/right variants).
   static const List<String> fingerOptions = [
     'RIGHT_THUMB',
-    'RIGHT_INDEX',
-    'RIGHT_MIDDLE',
-    'RIGHT_RING',
-    'RIGHT_LITTLE',
     'LEFT_THUMB',
+    'RIGHT_INDEX',
     'LEFT_INDEX',
+    'RIGHT_MIDDLE',
     'LEFT_MIDDLE',
-    'LEFT_RING',
-    'LEFT_LITTLE',
   ];
 
   final List<String> _enrolledFingers = [];

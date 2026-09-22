@@ -26,7 +26,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   List<CapturedFingerprint> _captured = [];
   bool _fingersReady = false;
 
-  static const int requiredFingers = 4;
+  static const int requiredFingers = 3;
 
   @override
   void dispose() {
@@ -54,7 +54,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     if (!_fingersReady) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Scan all 4 fingerprints before registering'),
+          content: Text('Scan all 3 fingerprints before registering'),
           backgroundColor: AppTheme.warning,
         ),
       );
@@ -100,6 +100,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(code != null ? 'Beneficiary registered: $code' : 'Beneficiary registered'), backgroundColor: AppTheme.success),
       );
+      // Go straight to the home page after successful registration.
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -220,7 +222,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 16),
 
-            // Register button — enabled only after 4 fingerprints are scanned
+            // Register button — enabled only after 3 fingerprints are scanned
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -240,41 +242,9 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             if (!_fingersReady) ...[
               const SizedBox(height: 8),
               const Text(
-                'Register is unlocked only after all 4 fingerprints are scanned.',
+                'Register is unlocked only after all 3 fingerprints are scanned.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-              ),
-            ],
-
-            if (created != null && created['beneficiary_code'] != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.success.withAlpha(15),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.success),
-                ),
-                child: Column(
-                  children: [
-                    const Text('Registered successfully',
-                        style: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text('Beneficiary Code: ${created['beneficiary_code']}',
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () => Navigator.of(context)
-                            .popUntil((route) => route.isFirst),
-                        style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text('Done'),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ],

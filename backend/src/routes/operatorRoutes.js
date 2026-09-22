@@ -3,7 +3,8 @@ import { authenticateRole, authenticate } from '../middleware/authMiddleware.js'
 import {
   addOperatorEvent, editOperatorEvent, getOperatorEvent,
   listOperatorEventsController, removeOperatorEvent, assignEvent,
-  operatorDashboard, listOperatorDayAssignments,
+  operatorDashboard, saveSelfAssignment, uploadOperatorSelfie,
+  listOperatorDayAssignments,
 } from '../controllers/operatorController.js';
 
 const router = Router();
@@ -11,6 +12,10 @@ const router = Router();
 // Any authenticated worker can view their own dashboard / assignments.
 router.get('/dashboard', authenticate, operatorDashboard);
 router.get('/assignments', authenticate, listOperatorDayAssignments);
+
+// Worker saves their own day's assignment + selfie (no admin needed).
+router.post('/self-assign', authenticate, saveSelfAssignment);
+router.post('/selfie', authenticate, uploadOperatorSelfie);
 
 // Operator event CRUD (admin / ngo / accounts).
 router.get('/events', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), listOperatorEventsController);

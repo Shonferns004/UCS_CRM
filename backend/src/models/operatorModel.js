@@ -80,3 +80,38 @@ export const getTodayAssignment = async (operatorId, date) => {
   if (error && error.code !== 'PGRST116') throw error;
   return data || null;
 };
+
+// Upsert the operator's own assignment for one day (no event required).
+export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url }) => {
+  const { data, error } = await db
+    .from('operator_assignments')
+    .upsert(
+      {
+        operator_id: operatorId,
+        state: state || null,
+        city: city || null,
+        event_id: event_id || null,
+        assignment_date,
+        selfie_url: selfie_url || null,
+      },
+      { onConflict: 'operator_id,assignment_date,event_id' }
+    )
+    .select('*, operator_events(*)')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+// Demo event used when no real event exists yet (for testing the dropdown).
+export const demoOperatorEvent = {
+  id: null,
+  title: 'Demo Event',
+  description: 'Sample event for testing',
+  event_date: new Date().toISOString().split('T')[0],
+  start_time: '10:00',
+  end_time: '17:00',
+  location: 'Test Venue',
+  state: null,
+  city: null,
+  selfie_url: null,
+};
