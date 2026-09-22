@@ -179,6 +179,18 @@ class ApiService {
     return body is Map<String, dynamic> ? body : <String, dynamic>{};
   }
 
+  /// Create a test reminder entry (due today) and make the backend notify
+  /// devices immediately, so the full mark-as-paid flow can be exercised.
+  static Future<Map<String, dynamic>> createTestEntry() async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/reminders/test-entry'),
+      headers: await _headers(),
+    );
+    await _check(res);
+    final body = jsonDecode(res.body);
+    return body is Map<String, dynamic> ? body : <String, dynamic>{};
+  }
+
   /// Snooze a reminder by [minutes]; the backend resumes alerts afterwards.
   static Future<void> snoozeReminder(String reminderId, int minutes) async {
     final res = await http.post(

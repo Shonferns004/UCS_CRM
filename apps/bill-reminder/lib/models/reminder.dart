@@ -23,6 +23,8 @@ class Reminder {
   final String? createdAt;
   final double? amount;
   final String? paidAt;
+  final String? transactionId;
+  final String? paidBy;
   final int? remindDaysBefore;
 
   // Derived meta from the API (computeDueMeta).
@@ -55,6 +57,8 @@ class Reminder {
     this.createdAt,
     this.amount,
     this.paidAt,
+    this.transactionId,
+    this.paidBy,
     this.remindDaysBefore,
     this.daysLeft,
     this.daysOverdue,
@@ -87,6 +91,8 @@ class Reminder {
       createdAt: json['created_at']?.toString(),
       amount: json['amount'] != null ? double.tryParse('${json['amount']}') : null,
       paidAt: json['paid_at']?.toString(),
+      transactionId: json['transaction_id']?.toString(),
+      paidBy: json['paid_by']?.toString(),
       remindDaysBefore: json['remind_days_before'] != null ? int.tryParse('${json['remind_days_before']}') : null,
       daysLeft: json['daysLeft'] != null ? int.tryParse('${json['daysLeft']}') : null,
       daysOverdue: json['daysOverdue'] != null ? int.tryParse('${json['daysOverdue']}') : null,

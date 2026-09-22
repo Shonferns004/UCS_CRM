@@ -2,38 +2,199 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-class AppColors {
-  static const bg = Color(0xFFf4f6fb);
-  static const card = Colors.white;
-  static const ink = Color(0xFF0f172a);
-  static const inkSoft = Color(0xFF475569);
-  static const inkMute = Color(0xFF94a3b8);
-  static const line = Color(0xFFe6eaf2);
-  static const navy = Color(0xFF0f172a);
-  static const blue = Color(0xFF2563eb);
+/// GPay-style palette resolved from the active [Theme].
+/// Light follows system light mode, dark follows system dark mode.
+class AppPalette extends ThemeExtension<AppPalette> {
+  final Color bg;
+  final Color card;
+  final Color field;
+  final Color ink;
+  final Color inkSoft;
+  final Color inkMute;
+  final Color line;
+  final Color blue;
+  final Color onBlue;
+  final Color green;
+  final Color danger;
+  final Color navy;
+
+  const AppPalette({
+    required this.bg,
+    required this.card,
+    required this.field,
+    required this.ink,
+    required this.inkSoft,
+    required this.inkMute,
+    required this.line,
+    required this.blue,
+    required this.onBlue,
+    required this.green,
+    required this.danger,
+    required this.navy,
+  });
+
+  static const light = AppPalette(
+    bg: Color(0xFFFAFBFD),
+    card: Color(0xFFFFFFFF),
+    field: Color(0xFFF0F4F8),
+    ink: Color(0xFF1F1F1F),
+    inkSoft: Color(0xFF5F6368),
+    inkMute: Color(0xFF9AA0A6),
+    line: Color(0xFFE8EAED),
+    blue: Color(0xFF1A73E8),
+    onBlue: Color(0xFFFFFFFF),
+    green: Color(0xFF1B873F),
+    danger: Color(0xFFD93025),
+    navy: Color(0xFF0F172A),
+  );
+
+  static const dark = AppPalette(
+    bg: Color(0xFF131415),
+    card: Color(0xFF1E2022),
+    field: Color(0xFF2A2C2E),
+    ink: Color(0xFFF1F3F4),
+    inkSoft: Color(0xFF9AA0A6),
+    inkMute: Color(0xFF80868B),
+    line: Color(0xFF2C2F33),
+    blue: Color(0xFF8AB4F8),
+    onBlue: Color(0xFF202124),
+    green: Color(0xFF34A853),
+    danger: Color(0xFFF28B82),
+    navy: Color(0xFF0F172A),
+  );
+
+  static AppPalette of(BuildContext context) =>
+      Theme.of(context).extension<AppPalette>() ?? AppPalette.light;
+
+  @override
+  AppPalette copyWith({
+    Color? bg,
+    Color? card,
+    Color? field,
+    Color? ink,
+    Color? inkSoft,
+    Color? inkMute,
+    Color? line,
+    Color? blue,
+    Color? onBlue,
+    Color? green,
+    Color? danger,
+    Color? navy,
+  }) {
+    return AppPalette(
+      bg: bg ?? this.bg,
+      card: card ?? this.card,
+      field: field ?? this.field,
+      ink: ink ?? this.ink,
+      inkSoft: inkSoft ?? this.inkSoft,
+      inkMute: inkMute ?? this.inkMute,
+      line: line ?? this.line,
+      blue: blue ?? this.blue,
+      onBlue: onBlue ?? this.onBlue,
+      green: green ?? this.green,
+      danger: danger ?? this.danger,
+      navy: navy ?? this.navy,
+    );
+  }
+
+  @override
+  AppPalette lerp(AppPalette? other, double t) {
+    if (other is! AppPalette) return this;
+    return AppPalette(
+      bg: Color.lerp(bg, other.bg, t)!,
+      card: Color.lerp(card, other.card, t)!,
+      field: Color.lerp(field, other.field, t)!,
+      ink: Color.lerp(ink, other.ink, t)!,
+      inkSoft: Color.lerp(inkSoft, other.inkSoft, t)!,
+      inkMute: Color.lerp(inkMute, other.inkMute, t)!,
+      line: Color.lerp(line, other.line, t)!,
+      blue: Color.lerp(blue, other.blue, t)!,
+      onBlue: Color.lerp(onBlue, other.onBlue, t)!,
+      green: Color.lerp(green, other.green, t)!,
+      danger: Color.lerp(danger, other.danger, t)!,
+      navy: Color.lerp(navy, other.navy, t)!,
+    );
+  }
 }
+
+class AppTheme {
+  static ThemeData get light => _build(AppPalette.light, Brightness.light);
+  static ThemeData get dark => _build(AppPalette.dark, Brightness.dark);
+
+  static ThemeData _build(AppPalette p, Brightness b) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF1A73E8),
+      brightness: b,
+    ).copyWith(
+      primary: p.blue,
+      onPrimary: p.onBlue,
+      primaryContainer: p.blue.withValues(alpha: 0.14),
+      surface: p.card,
+      onSurface: p.ink,
+      outline: p.line,
+      error: p.danger,
+    );
+    return ThemeData(
+      useMaterial3: true,
+      brightness: b,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: p.bg,
+      fontFamilyFallback: const ['Roboto'],
+      extensions: <ThemeExtension<dynamic>>[p],
+      dividerTheme: DividerThemeData(color: p.line, thickness: 1, space: 1),
+      inputDecorationTheme: InputDecorationTheme(
+        hintStyle: TextStyle(fontSize: 13.5, color: p.inkMute),
+        labelStyle: TextStyle(fontSize: 14, color: p.inkSoft),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: p.line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: p.blue, width: 1.4),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: b == Brightness.light
+            ? const Color(0xFF1F1F1F)
+            : const Color(0xFF3C4043),
+        contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+}
+
+/// Shared GPay-blue header gradient used across page headers and login.
+const LinearGradient kHeaderGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFF174EA6), Color(0xFF1A73E8)],
+);
 
 class CategoryMeta {
   final String label;
   final IconData icon;
   final Color color;
-  final Color bg;
-  final Color iconBg;
-  const CategoryMeta(this.label, this.icon, this.color, this.bg, this.iconBg);
+  const CategoryMeta(this.label, this.icon, this.color);
+
+  Color get bg => color.withValues(alpha: 0.10);
+  Color get iconBg => color.withValues(alpha: 0.16);
 }
 
 final Map<String, CategoryMeta> kCategories = {
-  'PROPERTY_MAINTENANCE': const CategoryMeta('Property Maintenance', LucideIcons.home, Color(0xFF2563eb), Color(0xFFeff6ff), Color(0xFFdbeafe)),
-  'BMC_TAX': const CategoryMeta('BMC Tax', LucideIcons.wallet, Color(0xFF16a34a), Color(0xFFf0fdf4), Color(0xFFdcfce7)),
-  'RENT_TDS': const CategoryMeta('Rent & TDS', LucideIcons.fileText, Color(0xFFd97706), Color(0xFFfffbeb), Color(0xFFfef3c7)),
-  'INSURANCE': const CategoryMeta('Insurance', LucideIcons.heartPulse, Color(0xFFdc2626), Color(0xFFfef2f2), Color(0xFFfee2e2)),
-  'MEDICAL_EXPENSES': const CategoryMeta('Medical Expenses', LucideIcons.hospital, Color(0xFFec4899), Color(0xFFfdf2f8), Color(0xFFfce7f3)),
-  'EDUCATION': const CategoryMeta('Education', LucideIcons.bookOpen, Color(0xFF0891b2), Color(0xFFecfeff), Color(0xFFcffafe)),
-  'VI_BILL': const CategoryMeta('VI Bills', LucideIcons.wifi, Color(0xFF4f46e5), Color(0xFFeef2ff), Color(0xFFe0e7ff)),
-  'WEBSITE_DOMAIN': const CategoryMeta('Website Domain', LucideIcons.globe, Color(0xFFea580c), Color(0xFFfff7ed), Color(0xFFffedd5)),
-  'VEHICLE_INSURANCE': const CategoryMeta('Vehicle Insurance', LucideIcons.car, Color(0xFFca8a04), Color(0xFFfefce8), Color(0xFFfef9c3)),
-  'ELECTRICITY': const CategoryMeta('Electricity', LucideIcons.zap, Color(0xFF0d9488), Color(0xFFf0fdfa), Color(0xFFccfbf1)),
-  'OTHER_BILL': const CategoryMeta('Website Services', LucideIcons.folderOpen, Color(0xFF475569), Color(0xFFf8fafc), Color(0xFFe2e8f0)),
+  'PROPERTY_MAINTENANCE': const CategoryMeta('Property Maintenance', LucideIcons.home, Color(0xFF2563eb)),
+  'BMC_TAX': const CategoryMeta('BMC Tax', LucideIcons.wallet, Color(0xFF16a34a)),
+  'RENT_TDS': const CategoryMeta('Rent & TDS', LucideIcons.fileText, Color(0xFFd97706)),
+  'INSURANCE': const CategoryMeta('Insurance', LucideIcons.heartPulse, Color(0xFFdc2626)),
+  'MEDICAL_EXPENSES': const CategoryMeta('Medical Expenses', LucideIcons.hospital, Color(0xFFec4899)),
+  'EDUCATION': const CategoryMeta('Education', LucideIcons.bookOpen, Color(0xFF0891b2)),
+  'VI_BILL': const CategoryMeta('VI Bills', LucideIcons.wifi, Color(0xFF4f46e5)),
+  'WEBSITE_DOMAIN': const CategoryMeta('Website Domain', LucideIcons.globe, Color(0xFFea580c)),
+  'VEHICLE_INSURANCE': const CategoryMeta('Vehicle Insurance', LucideIcons.car, Color(0xFFca8a04)),
+  'ELECTRICITY': const CategoryMeta('Electricity', LucideIcons.zap, Color(0xFF0d9488)),
+  'OTHER_BILL': const CategoryMeta('Website Services', LucideIcons.folderOpen, Color(0xFF475569)),
 };
 
 class GroupMeta {
@@ -56,27 +217,28 @@ final List<GroupMeta> kGroups = [
 class StatusMeta {
   final String label;
   final Color color;
-  final Color soft;
-  const StatusMeta(this.label, this.color, this.soft);
+  const StatusMeta(this.label, this.color);
+
+  Color get soft => color.withValues(alpha: 0.16);
 }
 
 StatusMeta statusMeta(String status) {
   switch (status.toLowerCase()) {
     case 'overdue':
-      return const StatusMeta('Overdue', Color(0xFFdc2626), Color(0xFFfee2e2));
+      return const StatusMeta('Overdue', Color(0xFFdc2626));
     case 'due today':
-      return const StatusMeta('Due Today', Color(0xFFea580c), Color(0xFFffedd5));
+      return const StatusMeta('Due Today', Color(0xFFea580c));
     case 'due tomorrow':
-      return const StatusMeta('Due Tomorrow', Color(0xFFd97706), Color(0xFFfef3c7));
+      return const StatusMeta('Due Tomorrow', Color(0xFFd97706));
     case 'due soon':
-      return const StatusMeta('Due Soon', Color(0xFFd97706), Color(0xFFfef3c7));
+      return const StatusMeta('Due Soon', Color(0xFFd97706));
     case 'completed':
     case 'paid':
-      return const StatusMeta('Paid', Color(0xFF16a34a), Color(0xFFdcfce7));
+      return const StatusMeta('Paid', Color(0xFF16a34a));
     case 'upcoming':
-      return const StatusMeta('Upcoming', Color(0xFF2563eb), Color(0xFFdbeafe));
+      return const StatusMeta('Upcoming', Color(0xFF2563eb));
     default:
-      return const StatusMeta('Pending', Color(0xFF64748b), Color(0xFFf1f5f9));
+      return const StatusMeta('Pending', Color(0xFF64748b));
   }
 }
 
@@ -102,7 +264,7 @@ const Map<String, Color> kPriorityColors = {
 
 Color priorityColor(String? p) => kPriorityColors[p] ?? const Color(0xFF64748b);
 
-CategoryMeta categoryMeta(String? key) => kCategories[key] ?? const CategoryMeta('Other', LucideIcons.bell, Color(0xFF64748b), Color(0xFFf8fafc), Color(0xFFe2e8f0));
+CategoryMeta categoryMeta(String? key) => kCategories[key] ?? const CategoryMeta('Other', LucideIcons.bell, Color(0xFF64748b));
 
 String categoryLabel(String? key) => categoryMeta(key).label;
 

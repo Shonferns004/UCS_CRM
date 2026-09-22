@@ -30,8 +30,9 @@ class NotificationsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
@@ -47,11 +48,7 @@ class NotificationsPage extends StatelessWidget {
                   child: Container(
                     padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 18, 20, 24),
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF0f172a), Color(0xFF1e3a8a)],
-                      ),
+                      gradient: kHeaderGradient,
                       borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
                     ),
                     child: Column(
@@ -118,6 +115,7 @@ class NotificationsPage extends StatelessWidget {
   }
 
   Widget _alertCard(BuildContext context, NotificationItem n) {
+    final p = AppPalette.of(context);
     Reminder? remind;
     if (n.reminderId != null) {
       for (final r in controller.reminders) {
@@ -125,14 +123,14 @@ class NotificationsPage extends StatelessWidget {
       }
     }
     final typeColor = n.alertType == 'overdue'
-        ? const Color(0xFFdc2626)
+        ? p.danger
         : n.alertType == 'due_today'
             ? const Color(0xFFea580c)
             : n.alertType == 'due_soon'
                 ? const Color(0xFFd97706)
                 : n.alertType == 'renewal'
                     ? const Color(0xFF7c3aed)
-                    : const Color(0xFF2563eb);
+                    : p.blue;
 
     return Dismissible(
       key: ValueKey(n.id ?? n.message),
@@ -142,19 +140,19 @@ class NotificationsPage extends StatelessWidget {
         padding: const EdgeInsets.only(right: 20),
         alignment: Alignment.centerRight,
         decoration: BoxDecoration(
-          color: const Color(0xFFdc2626),
+          color: p.danger,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: const Icon(LucideIcons.trash2, size: 20, color: Colors.white),
+        child: Icon(LucideIcons.trash2, size: 20, color: p.onBlue),
       ),
       onDismissed: (_) => _delete(context, n),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: p.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: n.read ? AppColors.line : typeColor.withValues(alpha: 0.45), width: n.read ? 1 : 1.2),
+          border: Border.all(color: n.read ? p.line : typeColor.withValues(alpha: 0.45), width: n.read ? 1 : 1.2),
         ),
         child: InkWell(
           onTap: () {
@@ -184,7 +182,7 @@ class NotificationsPage extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 13.5,
                               fontWeight: n.read ? FontWeight.w600 : FontWeight.w800,
-                              color: AppColors.ink,
+                              color: p.ink,
                             )),
                         ),
                         if (!n.read) Container(width: 8, height: 8, decoration: BoxDecoration(color: typeColor, shape: BoxShape.circle)),
@@ -193,12 +191,12 @@ class NotificationsPage extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(n.message ?? '',
                       maxLines: 2, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12.5, height: 1.3, color: AppColors.inkMute)),
+                      style: TextStyle(fontSize: 12.5, height: 1.3, color: p.inkMute)),
                     const SizedBox(height: 6),
                     Row(
                       children: [
                         Text(_formatTime(n.createdAt),
-                          style: const TextStyle(fontSize: 11, color: AppColors.inkSoft)),
+                          style: TextStyle(fontSize: 11, color: p.inkSoft)),
                         const Spacer(),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
