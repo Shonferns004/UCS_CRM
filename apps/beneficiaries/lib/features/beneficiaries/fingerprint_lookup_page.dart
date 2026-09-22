@@ -1,7 +1,3 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
@@ -23,51 +19,8 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   /// Cached raw-format templates for on-device 1:N matching.
   List<Map<String, dynamic>>? _templateCache;
   bool _refreshingTemplates = false;
-  ui.Image? _previewImage;
-  Map<String, dynamic>? _lastMatchDiag;
   Map<String, dynamic>? _matchedBeneficiary;
   double? _matchScore;
-
-  @override
-  void dispose() {
-    _previewImage?.dispose();
-    super.dispose();
-  }
-
-  Widget _diagRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-          Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _setPreview(CaptureResult r) async {
-    if (r.rawImage.isEmpty || r.width <= 0 || r.height <= 0) return;
-    try {
-      final raw = base64Decode(r.rawImage);
-      final rgba = Uint8List(raw.length * 4);
-      var i = 0;
-      for (var j = 0; j < raw.length; j++) {
-        final v = raw[j];
-        rgba[i++] = v;
-        rgba[i++] = v;
-        rgba[i++] = v;
-        rgba[i++] = 255;
-      }
-      final c = Completer<ui.Image>();
-      ui.decodeImageFromPixels(rgba, r.width, r.height, ui.PixelFormat.rgba8888, c.complete);
-      final img = await c.future;
-      if (!mounted) return;
-      _previewImage?.dispose();
-      setState(() => _previewImage = img);
-    } catch (_) {}
-  }
 
   Future<void> _findBeneficiary() async {
     setState(() {
@@ -97,7 +50,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     final result = await FingerprintService.capture(
       deviceType: BiometricDeviceType.secugenHamsterPro20,
     );
-    await _setPreview(result);
     if (!result.success) {
       throw Exception(result.error ?? 'Fingerprint capture failed');
     }
@@ -119,38 +71,8 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       candidates.map((c) => c['template'].toString()).toList(),
     );
     final matches = (identify['matches'] as List?) ?? [];
-    final topScores = (identify['top_scores'] as List?) ?? [];
-    if (mounted) {
-      setState(() {
-        _lastMatchDiag = {
-          'probe_template_len': result.template.length,
-          'candidate_count': candidates.length,
-          'dpi': result.dpi,
-          'quality': result.qualityScore,
-          'image_size': '${result.width}x${result.height}',
-          'top_scores': topScores,
-          'match_threshold': 40,
-        };
-      });
-    }
     if (matches.isEmpty) {
-      final diagLines = topScores
-          .map((t) {
-            final m = Map<String, dynamic>.from(t as Map);
-            final idx = (m['index'] as num).toInt();
-            final len = idx < candidates.length
-                ? candidates[idx]['template'].toString().length
-                : 0;
-            return '  candidate[$idx] len=$len score=${(m['score'] as num).toStringAsFixed(2)}';
-          })
-          .join('\n');
-      throw Exception(
-        'No beneficiary matched this fingerprint.\n'
-        'Probe quality=${result.qualityScore}%  probe template len=${result.template.length}  candidates=${candidates.length}\n'
-        'Top scores:\n$diagLines\n'
-        'Check the captured image — if it does not clearly show a fingerprint, '
-        'center your finger and try a clearer scan.',
-      );
+      throw Exception('No beneficiary found with this fingerprint. Try again.');
     }
 
     matches.sort((a, b) => ((b as Map)['score'] as num).compareTo((a as Map)['score'] as num));
@@ -279,63 +201,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                     _error!,
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 12, color: AppTheme.error, height: 1.5),
-                  ),
-                ],
-                if (_lastMatchDiag != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppTheme.secondary.withAlpha(10),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.secondary.withAlpha(80)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('MATCH DIAGNOSTICS',
-                            style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
-                        const SizedBox(height: 6),
-                        _diagRow('Quality', '${_lastMatchDiag!['quality']}%'),
-                        _diagRow('Probe template len', '${_lastMatchDiag!['probe_template_len']}'),
-                        _diagRow('Candidates', '${_lastMatchDiag!['candidate_count']}'),
-                        _diagRow('Image size', '${_lastMatchDiag!['image_size']} @ ${_lastMatchDiag!['dpi']} dpi'),
-                        const SizedBox(height: 6),
-                        const Text('TOP SCORES (threshold 40)',
-                            style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
-                        const SizedBox(height: 4),
-                        ...((_lastMatchDiag!['top_scores'] as List?) ?? []).map((t) {
-                          final m = Map<String, dynamic>.from(t as Map);
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 1),
-                            child: Text(
-                              '  candidate[${(m['index'] as num).toInt()}]  score=${(m['score'] as num).toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppTheme.textSecondary),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                ],
-                if (_previewImage != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Captured image',
-                    style: const TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.outline),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: RawImage(
-                      image: _previewImage,
-                      width: 220,
-                      height: 176,
-                      fit: BoxFit.contain,
-                    ),
                   ),
                 ],
                 const SizedBox(height: 24),
