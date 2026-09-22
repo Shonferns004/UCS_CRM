@@ -20,11 +20,7 @@ import {
   FileText,
   IndianRupee,
   Droplets,
-  CheckCircle2,
-  CircleX,
   Wrench,
-  PackageOpen,
-  TriangleAlert,
   FileDown,
   FileSpreadsheet,
   Plus,
@@ -64,11 +60,7 @@ const KPI_ICONS = {
   records: { icon: <FileText size={17} strokeWidth={1.9} />, color: 'blue' },
   cash: { icon: <IndianRupee size={17} strokeWidth={1.9} />, color: 'amber' },
   pads: { icon: <Droplets size={17} strokeWidth={1.9} />, color: 'pink' },
-  working: { icon: <CheckCircle2 size={17} strokeWidth={1.9} />, color: 'mint' },
-  notWorking: { icon: <CircleX size={17} strokeWidth={1.9} />, color: 'red' },
   maintenance: { icon: <Wrench size={17} strokeWidth={1.9} />, color: 'lavender' },
-  empty: { icon: <PackageOpen size={17} strokeWidth={1.9} />, color: 'beige' },
-  problems: { icon: <TriangleAlert size={17} strokeWidth={1.9} />, color: 'coral' },
 };
 
 function issueLabel(key) {
@@ -82,7 +74,7 @@ function statusLabel(key) {
 function MonthlyKpiSkeleton() {
   return (
     <div className="monthly-kpi-grid">
-      {Array.from({ length: 8 }).map((_, i) => (
+      {Array.from({ length: 4 }).map((_, i) => (
         <div className="skeleton monthly-kpi-sk" key={i} />
       ))}
     </div>
@@ -168,7 +160,6 @@ function MonthlyData() {
   const stationWise = recordsData?.stationWise || [];
 
   const statusTotals = summary.machineStatusCounts || {};
-  const issueTotals = summary.issueTypes || {};
 
   const statusColumns = [
     { key: 'line_name', label: 'Line', render: (val, row) => <LineBadge name={val} code={null} size="sm" /> },
@@ -184,7 +175,6 @@ function MonthlyData() {
     { key: 'record_date', label: 'Date', width: 96, render: (val) => <span className="no-wrap cell-strong">{formatDate(val)}</span> },
     { key: 'line_name', label: 'Line', width: 140, render: (val, row) => <LineBadge name={val} code={null} size="sm" /> },
     { key: 'station_name', label: 'Station', render: (val, row) => val || row.station_code || '—' },
-    { key: 'machine_code', label: 'Machine', width: 180, render: (val) => <span className="machine-cell" title={val}>{val || '—'}</span> },
     { key: 'cash_collected', label: 'Cash', width: 100, render: (val) => <span className="cell-strong">₹{formatNumber(val ?? 0)}</span> },
     { key: 'pads_refilled', label: 'Pads', width: 80, render: (val) => formatNumber(val ?? 0) },
     {
@@ -279,11 +269,7 @@ function MonthlyData() {
           <KpiCard title="Total Records" value={formatNumber(summary.totalRecords ?? 0)} icon={KPI_ICONS.records.icon} color={KPI_ICONS.records.color} />
           <KpiCard title="Cash Collected" value={`₹${formatNumber(summary.totalCashCollected ?? 0)}`} icon={KPI_ICONS.cash.icon} color={KPI_ICONS.cash.color} />
           <KpiCard title="Pads Refilled" value={formatNumber(summary.totalPadsRefilled ?? 0)} icon={KPI_ICONS.pads.icon} color={KPI_ICONS.pads.color} />
-          <KpiCard title="Working" value={formatNumber(statusTotals.WORKING ?? 0)} icon={KPI_ICONS.working.icon} color={KPI_ICONS.working.color} />
-          <KpiCard title="Not Working" value={formatNumber((statusTotals.NOT_WORKING ?? 0) + (statusTotals.OTHER_ISSUE ?? 0))} icon={KPI_ICONS.notWorking.icon} color={KPI_ICONS.notWorking.color} />
           <KpiCard title="Maintenance" value={formatNumber(statusTotals.MAINTENANCE ?? 0)} icon={KPI_ICONS.maintenance.icon} color={KPI_ICONS.maintenance.color} />
-          <KpiCard title="Empty / Low Stock" value={formatNumber(statusTotals.EMPTY ?? 0)} icon={KPI_ICONS.empty.icon} color={KPI_ICONS.empty.color} />
-          <KpiCard title="Problem Records" value={formatNumber(Object.values(issueTotals).reduce((t, v) => t + v, 0))} icon={KPI_ICONS.problems.icon} color={KPI_ICONS.problems.color} />
         </div>
       )}
 

@@ -141,6 +141,11 @@
   color: #c75b83;
 }
 
+.mp-root .hero-cta {
+  margin-top: 14px;
+  display: flex;
+}
+
 .mp-root .hero-art {
   position: absolute;
   right: 8%;
@@ -319,7 +324,7 @@
 /* ---------- Pad stock summary ---------- */
 .mp-root .stock-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 0 18px 18px;
 }
@@ -460,7 +465,7 @@
 
 .mp-root .monthly-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 0 18px 14px;
 }
@@ -598,11 +603,11 @@
   }
 
   .mp-root .stock-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .mp-root .monthly-kpi-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
