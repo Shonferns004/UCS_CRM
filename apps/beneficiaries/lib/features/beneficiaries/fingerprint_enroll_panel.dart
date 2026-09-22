@@ -3,19 +3,61 @@ import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
 
+/// A single captured fingerprint (buffered before the beneficiary exists).
+class CapturedFingerprint {
+  final String fingerPosition;
+  final String rawImage;
+  final String template;
+  final int width;
+  final int height;
+  final double dpi;
+  final String qualityScore;
+
+  const CapturedFingerprint({
+    required this.fingerPosition,
+    required this.rawImage,
+    required this.template,
+    required this.width,
+    required this.height,
+    required this.dpi,
+    required this.qualityScore,
+  });
+
+  Map<String, dynamic> toEnrollBody() => {
+        'device_type': 'SECUGEN_RAW',
+        'device_name': 'SecuGen Hamster Pro 20 (Raw USB)',
+        'image_b64': rawImage,
+        'template_b64': template,
+        'width': width,
+        'height': height,
+        'dpi': dpi,
+        'quality_score': qualityScore,
+        'finger_position': fingerPosition,
+      };
+}
+
 /// Compact fingerprint enrollment used directly on the registration page.
 /// Captures up to [targetFingerprints] fingers, rejects already-enrolled
 /// fingerprints, and calls [onDone] when the user taps Done.
+///
+/// When [collectOnly] is true the panel buffers the captures locally and
+/// reports them through [onCaptured] (used before the beneficiary is created,
+/// so enrollments are posted together with registration). Otherwise each
+/// capture is enrolled via the API immediately.
 class FingerprintEnrollPanel extends StatefulWidget {
-  final String beneficiaryCode;
-  final String beneficiaryName;
-  final VoidCallback onDone;
+  final String? beneficiaryCode;
+  final String? beneficiaryName;
+  final bool collectOnly;
+  final VoidCallback? onDone;
+  final ValueChanged<List<CapturedFingerprint>>? onCaptured;
 
   const FingerprintEnrollPanel({
     super.key,
-    required this.beneficiaryCode,
-    required this.beneficiaryName,
-    required this.onDone,
+    this.beneficiaryCode,
+    this.beneficiaryName,
+    this.collectOnly = false,
+    this.onDone,
+    this.onCaptured,
   });
 
   @override
@@ -40,6 +82,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
   ];
 
   final List<String> _enrolledFingers = [];
+  final List<CapturedFingerprint> _captured = [];
   String? _selectedFinger;
   bool _capturing = false;
   bool _captureComplete = false;
@@ -218,6 +261,41 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
   }
 
   Future<void> _saveBiometric(CaptureResult result) async {
+    if (widget.collectOnly) {
+      // Buffer locally — enrollment is posted with registration.
+      if (!mounted) return;
+      if (_selectedFinger != null) {
+        final savedFinger = _selectedFinger!;
+        setState(() {
+          if (!_enrolledFingers.contains(savedFinger)) {
+            _enrolledFingers.add(savedFinger);
+            _captured.add(CapturedFingerprint(
+              fingerPosition: savedFinger,
+              rawImage: result.rawImage,
+              template: result.template,
+              width: result.width,
+              height: result.height,
+              dpi: result.dpi,
+              qualityScore: result.qualityScore,
+            ));
+          }
+          // Auto-advance to the next un-enrolled finger.
+          final next =
+              fingerOptions.where((f) => !_enrolledFingers.contains(f)).toList();
+          _selectedFinger = next.isNotEmpty ? next.first : null;
+          _statusMessage = _enrolledFingers.length >= targetFingerprints
+              ? 'All $targetFingerprints fingerprints scanned.'
+              : 'Fingerprint ${_enrolledFingers.length} of $targetFingerprints scanned. '
+                  'Next: ${next.isNotEmpty ? _fingerLabel(next.first) : 'Done'} — tap another finger to change it.';
+        });
+        widget.onCaptured?.call(List.unmodifiable(_captured));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fingerprint captured'), backgroundColor: AppTheme.success),
+        );
+      }
+      return;
+    }
+
     try {
       await ApiService.post(
         '/biometrics/enroll',
@@ -323,8 +401,12 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
             ],
           ),
           const SizedBox(height: 4),
-          Text('Scan up to $targetFingerprints fingers for this beneficiary.',
-              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          Text(
+            widget.collectOnly
+                ? 'Scan $targetFingerprints fingers first — registration unlocks afterwards.'
+                : 'Scan up to $targetFingerprints fingers for this beneficiary.',
+            style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          ),
           const SizedBox(height: 16),
 
           // Scan status box
@@ -443,8 +525,9 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
             ),
           ],
 
-          // Done button (enabled only after all fingerprints are scanned)
-          if (_enrolledFingers.isNotEmpty) ...[
+          // Done button (enabled only after all fingerprints are scanned,
+// not used in collect-only mode — the parent form owns the action)
+          if (!widget.collectOnly && _enrolledFingers.isNotEmpty) ...[
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
