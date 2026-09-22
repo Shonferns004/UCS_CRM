@@ -81,6 +81,7 @@ import benefitRoutes from './routes/benefitRoutes.js';
 import distributionRoutes from './routes/distributionRoutes.js';
 import biometricRoutes from './routes/biometricRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import operatorRoutes from './routes/operatorRoutes.js';
 import metropadRouter from './metropad/router.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
@@ -97,6 +98,7 @@ import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
+import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
 
 dotenv.config();
 
@@ -257,6 +259,7 @@ app.use('/api/benefits', benefitRoutes);
 app.use('/api/distributions', distributionRoutes);
 app.use('/api/biometrics', biometricRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/operator', operatorRoutes);
 app.use('/api/metropad', metropadRouter);
 
 app.get('/api/deploy-test', (req, res) => {
@@ -913,6 +916,7 @@ if (!process.env.VERCEL) {
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
     await ensureNotificationLogTypes().catch(e => console.error('ensureNotificationLogTypes failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
+    await ensureOperatorSchema().catch(e => console.error('ensureOperatorSchema failed:', e?.message || e));
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/dbHealthWatchdog.js');

@@ -1,7 +1,7 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile
+  searchByQRToken, searchByMobile, markKitCollected
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
 import { getDisabilities } from '../models/beneficiaryDisabilityModel.js';
@@ -98,6 +98,29 @@ export const getBeneficiaryByCodeController = async (req, res) => {
   }
 };
 
+export const markBeneficiaryKitCollected = async (req, res) => {
+  try {
+    const beneficiary = await getBeneficiaryById(req.params.id);
+    if (!beneficiary) return res.status(404).json({ message: 'Beneficiary not found' });
+    if (beneficiary.kit_collected) {
+      return res.status(400).json({ message: 'Kit already collected for this beneficiary', beneficiary });
+    }
+    const collectedBy = req.user?.name || req.user?.email || 'system';
+    const updated = await markKitCollected(beneficiary.id, collectedBy);
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: beneficiary.id,
+      beneficiary_id: beneficiary.id, action: 'KIT_COLLECTED',
+      details: { beneficiary_code: beneficiary.beneficiary_code },
+      performed_by: collectedBy,
+    });
+
+    return res.json({ message: 'Kit marked as collected', beneficiary: updated });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const updateBeneficiaryController = async (req, res) => {
   try {
     const updates = { ...req.body };
@@ -129,12 +152,12 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_collected } = req.query;
     const result = await listBeneficiaries({
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city,
+      category_id, state, city, kit_collected,
     });
     return res.json(result);
   } catch (error) {

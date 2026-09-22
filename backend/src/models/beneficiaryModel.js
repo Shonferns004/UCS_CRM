@@ -75,7 +75,7 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_collected }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
   if (search) {
@@ -85,6 +85,9 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
   if (state) query = query.eq('state', state);
   if (city) query = query.eq('city', city);
+  if (kit_collected !== undefined && kit_collected !== null) {
+    query = query.eq('kit_collected', kit_collected === true || kit_collected === 'true');
+  }
 
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
@@ -159,4 +162,21 @@ export const searchByMobile = async (mobile) => {
     .limit(5);
   if (error) throw error;
   return data || [];
+};
+
+export const markKitCollected = async (id, collectedBy) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('beneficiaries')
+    .update({
+      kit_collected: true,
+      kit_collected_at: now,
+      kit_collected_by: collectedBy || 'system',
+      updated_at: now,
+    })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
 };

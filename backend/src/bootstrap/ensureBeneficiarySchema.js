@@ -30,6 +30,18 @@ await db._pool.query(
     'ALTER TABLE biometric_credentials ADD COLUMN IF NOT EXISTS template_metadata JSONB'
   ).catch(() => {});
 
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_collected BOOLEAN NOT NULL DEFAULT FALSE"
+  ).catch(() => {});
+
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_collected_at TIMESTAMPTZ"
+  ).catch(() => {});
+
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_collected_by TEXT"
+  ).catch(() => {});
+
   // Beneficiary Categories seed
   const categories = [
     ['Visually Impaired', 'Beneficiaries with visual impairment'],
