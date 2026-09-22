@@ -353,10 +353,17 @@ export const completeReminder = async (req, res) => {
     if (!before || before.is_deleted) return res.status(404).json({ message: 'Reminder not found' });
 
     const now = new Date();
-    const { amount, paid_at } = req.body || {};
+    const { amount, paid_at, transaction_id, paid_by } = req.body || {};
     const updates = { completed_at: now.toISOString(), status: 'Completed' };
     if (amount != null && amount !== '') updates.amount = Number(amount);
     updates.paid_at = paid_at || now.toISOString();
+    if (transaction_id != null && String(transaction_id).trim()) {
+      updates.transaction_id = String(transaction_id).trim();
+    }
+    const payer = paid_by != null && String(paid_by).trim()
+      ? String(paid_by).trim()
+      : await validateUser(req, res);
+    if (payer) updates.paid_by = payer;
 
     const settings = await getSettings();
     const autoNext = settings ? settings.auto_create_next_recurring !== false : true;
@@ -385,6 +392,12 @@ export const completeReminder = async (req, res) => {
       status: { old: before.status || 'Upcoming', new: updates.status },
     };
     if (nextDue) changedCols.due_date = { old: before.due_date, new: nextDue };
+    if (updates.transaction_id) {
+      changedCols.transaction_id = { old: before.transaction_id || null, new: updates.transaction_id };
+    }
+    if (updates.paid_by) {
+      changedCols.paid_by = { old: before.paid_by || null, new: updates.paid_by };
+    }
     try {
       await createReminderHistory({
         reminder_id: before.id,
@@ -582,6 +595,50 @@ export const sendTestPush = async (req, res) => {
       }
     }
     return res.json({ message: `Test push sent to ${sent} device(s)`, sent });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const createTestEntry = async (req, res) => {
+  try {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const seq = Math.floor(1000 + Math.random() * 9000);
+    const title = seq === 0 ? 'Test Entry' : `Test Entry #${seq}`;
+
+    const body = clean({
+      title,
+      description: 'Auto-created test entry for the bill reminder flow.',
+      category: null,
+      owner: 'Self',
+      due_date: today,
+      renewal_date: null,
+      frequency_type: 'ONE_TIME',
+      amount: 99,
+      priority: 'Medium',
+      alarm_enabled: true,
+      reminder_enabled: true,
+      notification_enabled: true,
+      notes: null,
+    });
+
+    const reminder = await createReminder(body, await validateUser(req, res));
+
+    // Trigger the alert cycle immediately so a real notification fires for
+    // this freshly-created test entry (FCM push + in-app alert).
+    try {
+      const { runReminderAlertCycle } = await import('../services/reminderNotificationScheduler.js');
+      await runReminderAlertCycle();
+    } catch (e) {
+      console.error('test-entry alert cycle error:', e.message);
+    }
+
+    const meta = computeDueMeta(reminder);
+    return res.status(201).json({
+      message: `Test entry "${title}" created and notified`,
+      reminder: { ...reminder, ...meta },
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -82,6 +82,19 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _createTestEntry() async {
+    setState(() => _refreshing = true);
+    try {
+      final r = await ApiService.createTestEntry();
+      await widget.controller.refresh();
+      if (mounted) _snack('${r['message'] ?? 'Test entry created'} — check Alerts');
+    } catch (e) {
+      if (mounted) _snack('Failed: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
   Future<void> _reRegister() async {
     setState(() => _refreshing = true);
     RemindersController.registerFcmToken();
@@ -98,8 +111,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -113,11 +127,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 Container(
                   padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 18, 20, 26),
                   decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF0f172a), Color(0xFF1e3a8a)],
-                    ),
+                    gradient: kHeaderGradient,
                     borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
                   ),
                   child: Column(
@@ -140,11 +150,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       _card([
                         _tile(
                           icon: LucideIcons.userCog,
-                          iconBg: const Color(0xFF2563eb),
+                          iconBg: p.blue,
                           title: 'Signed in as',
                           subtitle: 'Super Admin (UFS House)',
                         ),
-                        const Divider(height: 1, color: AppColors.line),
+                        Divider(height: 1, color: p.line),
                         _tile(
                           icon: LucideIcons.clock3,
                           iconBg: const Color(0xFF64748b),
@@ -171,7 +181,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               : _statusDot(_fcmRegistered == true),
                         ),
                         if (_fcmRegistered != true) ...[
-                          const Divider(height: 1, color: AppColors.line),
+                          Divider(height: 1, color: p.line),
                           InkWell(
                             onTap: _reRegister,
                             child: Padding(
@@ -182,16 +192,16 @@ class _SettingsPageState extends State<SettingsPage> {
                                   if (_refreshing)
                                     const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
                                   else
-                                    const Icon(LucideIcons.refreshCw, size: 14, color: AppColors.blue),
+                                    Icon(LucideIcons.refreshCw, size: 14, color: p.blue),
                                   const SizedBox(width: 8),
-                                  const Text('Re-register push token',
-                                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.blue)),
+                                  Text('Re-register push token',
+                                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: p.blue)),
                                 ],
                               ),
                             ),
                           ),
                         ],
-                      const Divider(height: 1, color: AppColors.line),
+                        Divider(height: 1, color: p.line),
                         _tile(
                           icon: LucideIcons.keyRound,
                           iconBg: const Color(0xFF475569),
@@ -202,7 +212,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           isToken: true,
                           trailing: IconButton(
                             onPressed: _copyToken,
-                            icon: const Icon(LucideIcons.copy, size: 15, color: AppColors.inkMute),
+                            icon: Icon(LucideIcons.copy, size: 15, color: p.inkMute),
                             tooltip: 'Copy token',
                           ),
                         ),
@@ -212,7 +222,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       _card([
                         _tile(
                           icon: LucideIcons.send,
-                          iconBg: const Color(0xFF2563eb),
+                          iconBg: p.blue,
                           title: 'Send test push',
                           subtitle: 'Instantly notifies this phone via FCM',
                           onTap: _sendTestPush,
@@ -220,7 +230,20 @@ class _SettingsPageState extends State<SettingsPage> {
                               ? const SizedBox(
                                   width: 16, height: 16,
                                   child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.inkMute),
+                              : Icon(LucideIcons.chevronRight, size: 16, color: p.inkMute),
+                        ),
+                        Divider(height: 1, color: p.line),
+                        _tile(
+                          icon: LucideIcons.plusCircle,
+                          iconBg: p.green,
+                          title: 'Create test entry',
+                          subtitle: 'Adds a due-today reminder & notifies — test the slide-to-pay flow',
+                          onTap: _createTestEntry,
+                          trailing: _refreshing
+                              ? const SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : Icon(LucideIcons.chevronRight, size: 16, color: p.inkMute),
                         ),
                       ]),
                       const SizedBox(height: 20),
@@ -232,10 +255,10 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: 'Reminders',
                           subtitle: '${c.reminders.length} active · ${c.notifications.length} alerts',
                         ),
-                        const Divider(height: 1, color: AppColors.line),
+                        Divider(height: 1, color: p.line),
                         _tile(
                           icon: LucideIcons.refreshCw,
-                          iconBg: const Color(0xFF16a34a),
+                          iconBg: p.green,
                           title: 'Last synced',
                           subtitle: c.syncedAt != null ? DateFormat('d MMM yyyy, h:mm a').format(c.syncedAt!) : 'Not yet',
                           onTap: _sync,
@@ -250,17 +273,17 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: 'Bill Reminder',
                           subtitle: 'Version 1.0.0 · Android',
                         ),
-                        const Divider(height: 1, color: AppColors.line),
+                        Divider(height: 1, color: p.line),
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: Row(
                             children: [
-                              const Icon(LucideIcons.globe, size: 15, color: AppColors.inkMute),
+                              Icon(LucideIcons.globe, size: 15, color: p.inkMute),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(ApiService.baseUrl,
                                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12, color: AppColors.inkMute)),
+                                  style: TextStyle(fontSize: 12, color: p.inkMute)),
                               ),
                             ],
                           ),
@@ -273,8 +296,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: FilledButton.icon(
                           onPressed: widget.onLogout,
                           style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFFdc2626).withValues(alpha: 0.1),
-                            foregroundColor: const Color(0xFFdc2626),
+                            backgroundColor: p.danger.withValues(alpha: 0.1),
+                            foregroundColor: p.danger,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           icon: const Icon(LucideIcons.logOut, size: 18),
@@ -283,9 +306,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      const Center(
+                      Center(
                         child: Text('Managed from the Bill Reminder web admin',
-                          style: TextStyle(fontSize: 11, color: AppColors.inkMute)),
+                          style: TextStyle(fontSize: 11, color: p.inkMute)),
                       ),
                     ],
                   ),
@@ -299,19 +322,21 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _section(String title) {
+    final p = AppPalette.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(title,
-        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1, color: AppColors.inkMute)),
+        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1, color: p.inkMute)),
     );
   }
 
   Widget _card(List<Widget> children) {
+    final p = AppPalette.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: p.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: p.line),
       ),
       child: Column(children: children),
     );
@@ -326,6 +351,7 @@ class _SettingsPageState extends State<SettingsPage> {
     VoidCallback? onTap,
     bool isToken = false,
   }) {
+    final p = AppPalette.of(context);
     return InkWell(
       onTap: onTap ?? () {},
       child: Padding(
@@ -343,13 +369,13 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                  Text(title, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: p.ink)),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     overflow: TextOverflow.ellipsis,
                     maxLines: isToken ? 2 : 1,
-                    style: TextStyle(fontSize: isToken ? 10.5 : 12, color: AppColors.inkMute),
+                    style: TextStyle(fontSize: isToken ? 10.5 : 12, color: p.inkMute),
                   ),
                 ],
               ),
@@ -362,13 +388,15 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _statusDot(bool ok) {
+    final p = AppPalette.of(context);
+    final color = ok ? p.green : p.danger;
     return Container(
       width: 9,
       height: 9,
       decoration: BoxDecoration(
-        color: ok ? const Color(0xFF16a34a) : const Color(0xFFdc2626),
+        color: color,
         shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: (ok ? const Color(0xFF16a34a) : const Color(0xFFdc2626)).withValues(alpha: 0.4), blurRadius: 6, spreadRadius: 1)],
+        boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 6, spreadRadius: 1)],
       ),
     );
   }

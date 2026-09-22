@@ -80,8 +80,9 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -144,11 +145,7 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 18, 20, 22),
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0f172a), Color(0xFF1e3a8a)],
-        ),
+        gradient: kHeaderGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),
       child: Column(
@@ -197,9 +194,9 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
         child: FractionallySizedBox(
           heightFactor: 0.88,
           child: Container(
-            decoration: const BoxDecoration(
-              color: AppColors.bg,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: AppPalette.of(sheetContext).bg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             clipBehavior: Clip.antiAlias,
             child: Column(
@@ -209,7 +206,7 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.line,
+                    color: AppPalette.of(sheetContext).line,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -267,35 +264,37 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
   }
 
   Widget _searchField() {
+    final p = AppPalette.of(context);
     return TextField(
       onChanged: (v) => setState(() => _query = v),
-      style: const TextStyle(fontSize: 14),
+      style: TextStyle(fontSize: 14, color: p.ink),
       decoration: InputDecoration(
         hintText: 'Search title, owner, category…',
-        hintStyle: const TextStyle(fontSize: 13.5, color: AppColors.inkMute),
-        prefixIcon: const Icon(LucideIcons.search, size: 19, color: AppColors.inkMute),
+        hintStyle: const TextStyle(fontSize: 13.5),
+        prefixIcon: Icon(LucideIcons.search, size: 19, color: p.inkMute),
         suffixIcon: _query.isNotEmpty
             ? IconButton(
-                icon: const Icon(LucideIcons.x, size: 17, color: AppColors.inkMute),
+                icon: Icon(LucideIcons.x, size: 17, color: p.inkMute),
                 onPressed: () => setState(() => _query = ''),
               )
             : null,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: p.field,
         contentPadding: const EdgeInsets.symmetric(vertical: 12),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.line),
+          borderSide: BorderSide(color: p.line),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.blue, width: 1.4),
+          borderSide: BorderSide(color: p.blue, width: 1.4),
         ),
       ),
     );
   }
 
   Widget _filterChips() {
+    final p = AppPalette.of(context);
     const filters = [
       ('all', 'All'),
       ('overdue', 'Overdue'),
@@ -314,17 +313,17 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: ChoiceChip(
-                  label: Text(label),
-                  labelStyle: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: _filter == key ? Colors.white : AppColors.inkSoft,
-                  ),
+                  label: Text(label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _filter == key ? p.onBlue : p.inkSoft,
+                    )),
                   selected: _filter == key,
                   onSelected: (_) => setState(() => _filter = key),
-                  selectedColor: AppColors.blue,
-                  backgroundColor: Colors.white,
-                  side: BorderSide(color: _filter == key ? AppColors.blue : AppColors.line),
+                  selectedColor: p.blue,
+                  backgroundColor: p.card,
+                  side: BorderSide(color: _filter == key ? p.blue : p.line),
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                   showCheckmark: false,
                 ),
@@ -336,13 +335,14 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
   }
 
   Widget _sortRow() {
+    final p = AppPalette.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: Row(
         children: [
-          const Icon(LucideIcons.arrowUpDown, size: 14, color: AppColors.inkMute),
+          Icon(LucideIcons.arrowUpDown, size: 14, color: p.inkMute),
           const SizedBox(width: 6),
-          const Text('Sort', style: TextStyle(fontSize: 12, color: AppColors.inkMute)),
+          Text('Sort', style: TextStyle(fontSize: 12, color: p.inkMute)),
           const SizedBox(width: 10),
           for (final (i, label) in const [(0, 'Soonest'), (1, 'Amount'), (2, 'Name')])
             Padding(
@@ -355,20 +355,21 @@ class _AllRemindersPageState extends State<AllRemindersPage> {
   }
 
   Widget _tinyToggle({required String label, required bool selected, required VoidCallback onTap}) {
+    final p = AppPalette.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: selected ? AppColors.blue.withValues(alpha: 0.1) : Colors.transparent,
+          color: selected ? p.blue.withValues(alpha: 0.1) : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: selected ? AppColors.blue.withValues(alpha: 0.4) : AppColors.line),
+          border: Border.all(color: selected ? p.blue.withValues(alpha: 0.4) : p.line),
         ),
         child: Text(label,
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
-            color: selected ? AppColors.blue : AppColors.inkMute,
+            color: selected ? p.blue : p.inkMute,
           )),
       ),
     );
