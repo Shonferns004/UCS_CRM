@@ -32,6 +32,8 @@ export async function ensureReminderPushSchema() {
 
     if (hasReminders) {
       await db._pool.query(`ALTER TABLE reminders ADD COLUMN IF NOT EXISTS remind_days_before integer`);
+      await db._pool.query(`ALTER TABLE reminders ADD COLUMN IF NOT EXISTS transaction_id text`);
+      await db._pool.query(`ALTER TABLE reminders ADD COLUMN IF NOT EXISTS paid_by text`);
     }
 
     for (const s of STATEMENTS) {

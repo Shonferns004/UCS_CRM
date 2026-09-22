@@ -45,6 +45,7 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final children = [
       DashboardPage(controller: _controller, onOpenDetail: _openDetail),
       AllRemindersPage(controller: _controller, onOpenDetail: _openDetail),
@@ -60,14 +61,14 @@ class _MainShellState extends State<MainShell> {
     ];
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: _LazyIndexedStack(index: _currentIndex, children: children),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: AppColors.line)),
+        decoration: BoxDecoration(
+          color: p.card,
+          border: Border(top: BorderSide(color: p.line)),
           boxShadow: [
-            BoxShadow(color: Color(0x140f172a), blurRadius: 16, offset: Offset(0, -4)),
+            BoxShadow(color: p.ink.withValues(alpha: 0.05), blurRadius: 16, offset: const Offset(0, -4)),
           ],
         ),
         child: SafeArea(
@@ -105,6 +106,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return InkWell(
       onTap: onTap,
       child: Column(
@@ -116,13 +118,13 @@ class _NavItem extends StatelessWidget {
             width: isActive ? 46 : 34,
             height: 30,
             decoration: BoxDecoration(
-              color: isActive ? AppColors.blue.withValues(alpha: 0.10) : Colors.transparent,
+              color: isActive ? p.blue.withValues(alpha: 0.12) : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
               icon,
               size: 20,
-              color: isActive ? AppColors.blue : AppColors.inkMute,
+              color: isActive ? p.blue : p.inkMute,
             ),
           ),
           const SizedBox(height: 3),
@@ -130,7 +132,7 @@ class _NavItem extends StatelessWidget {
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-              color: isActive ? AppColors.blue : AppColors.inkMute,
+              color: isActive ? p.blue : p.inkMute,
             )),
         ],
       ),

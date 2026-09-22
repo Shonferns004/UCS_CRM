@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../services/api_service.dart';
+import '../theme.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback onLogin;
@@ -59,14 +60,11 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0f172a), Color(0xFF1e3a8a)],
-          ),
+          gradient: kHeaderGradient,
         ),
         child: SafeArea(
           child: Center(
@@ -99,8 +97,9 @@ class _LoginPageState extends State<LoginPage> {
                   Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      color: p.card,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: p.ink.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 8))],
                     ),
                     child: Column(
                       children: [
@@ -108,14 +107,15 @@ class _LoginPageState extends State<LoginPage> {
                           controller: _emailCtrl,
                           keyboardType: TextInputType.emailAddress,
                           autocorrect: false,
+                          style: TextStyle(color: p.ink),
                           decoration: InputDecoration(
                             labelText: 'Email',
-                            labelStyle: GoogleFonts.manrope(color: const Color(0xFF43474d)),
-                            prefixIcon: const Icon(LucideIcons.mail, color: Color(0xFF74777e)),
+                            labelStyle: GoogleFonts.manrope(color: p.inkSoft),
+                            prefixIcon: Icon(LucideIcons.mail, color: p.inkMute),
                             filled: true,
-                            fillColor: const Color(0xFFf0f4f8),
+                            fillColor: p.field,
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
                             ),
                           ),
@@ -124,19 +124,20 @@ class _LoginPageState extends State<LoginPage> {
                         TextField(
                           controller: _passCtrl,
                           obscureText: _obscure,
+                          style: TextStyle(color: p.ink),
                           decoration: InputDecoration(
                             labelText: 'Password',
-                            labelStyle: GoogleFonts.manrope(color: const Color(0xFF43474d)),
-                            prefixIcon: const Icon(LucideIcons.lock, color: Color(0xFF74777e)),
+                            labelStyle: GoogleFonts.manrope(color: p.inkSoft),
+                            prefixIcon: Icon(LucideIcons.lock, color: p.inkMute),
                             suffixIcon: IconButton(
                               icon: Icon(_obscure ? LucideIcons.eye : LucideIcons.eyeOff,
-                                color: const Color(0xFF74777e), size: 20),
+                                color: p.inkMute, size: 20),
                               onPressed: () => setState(() => _obscure = !_obscure),
                             ),
                             filled: true,
-                            fillColor: const Color(0xFFf0f4f8),
+                            fillColor: p.field,
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
                             ),
                           ),
@@ -147,7 +148,7 @@ class _LoginPageState extends State<LoginPage> {
                           Align(
                             alignment: Alignment.centerLeft,
                             child: Text(_error!,
-                              style: const TextStyle(fontSize: 13, color: Color(0xFFba1a1a))),
+                              style: TextStyle(fontSize: 13, color: p.danger)),
                           ),
                         ],
                         const SizedBox(height: 22),
@@ -157,18 +158,18 @@ class _LoginPageState extends State<LoginPage> {
                           child: ElevatedButton(
                             onPressed: _loading ? null : _login,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2563eb),
-                              foregroundColor: Colors.white,
+                              backgroundColor: p.blue,
+                              foregroundColor: p.onBlue,
                               elevation: 0,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: _loading
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 20, height: 20,
                                     child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white,
+                                      strokeWidth: 2, color: p.onBlue,
                                     ),
                                   )
                                 : Text('Sign In', style: GoogleFonts.hankenGrotesk(

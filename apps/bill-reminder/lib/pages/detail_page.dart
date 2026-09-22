@@ -6,6 +6,7 @@ import '../models/reminder.dart';
 import '../services/api_service.dart';
 import '../services/reminders_controller.dart';
 import '../theme.dart';
+import '../widgets/slide_to_confirm.dart';
 import '../widgets/status_pill.dart';
 
 class DetailPage extends StatefulWidget {
@@ -25,25 +26,24 @@ class _DetailPageState extends State<DetailPage> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
-    final confirmed = await showDialog<bool>(
+    final txnId = await showDialog<String>(
       context: context,
-      builder: (d) => AlertDialog(
-        title: const Text('Mark as paid?'),
-        content: Text('Mark "${reminder.title}" as completed?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(d, true),
-            child: const Text('Yes, paid'),
-          ),
-        ],
-      ),
+      builder: (d) => _ConfirmPaidDialog(reminderTitle: reminder.title),
     );
-    if (confirmed != true || !mounted) return;
+    if (txnId == null || !mounted) {
+      setState(() {});
+      return;
+    }
 
     setState(() => _marking = true);
     try {
-      await ApiService.completeReminder('${reminder.id}');
+      await ApiService.completeReminder(
+        '${reminder.id}',
+        body: {
+          'transaction_id': txnId,
+          if (reminder.amount != null) 'amount': reminder.amount,
+        },
+      );
       final ctrl = widget.controller ?? RemindersController.instance;
       await ctrl?.refresh();
       if (mounted) navigator.pop();
@@ -60,6 +60,7 @@ class _DetailPageState extends State<DetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final meta = statusMeta(reminder.statusLabel);
     final cat = categoryMeta(reminder.category);
     final ownerColor = kOwnerColors[reminder.owner] ?? const Color(0xFF64748b);
@@ -81,13 +82,13 @@ class _DetailPageState extends State<DetailPage> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
             pinned: true,
             stretch: true,
-            backgroundColor: const Color(0xFF0f172a),
+            backgroundColor: p.navy,
             foregroundColor: Colors.white,
             expandedHeight: 210,
             flexibleSpace: FlexibleSpaceBar(
@@ -97,7 +98,7 @@ class _DetailPageState extends State<DetailPage> {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [ownerColor.withValues(alpha: 0.55), const Color(0xFF0f172a)],
+                    colors: [ownerColor.withValues(alpha: 0.55), p.navy],
                   ),
                 ),
                 child: SafeArea(
@@ -161,9 +162,9 @@ class _DetailPageState extends State<DetailPage> {
               margin: const EdgeInsets.symmetric(horizontal: 16),
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: p.card,
                 borderRadius: BorderRadius.circular(18),
-                boxShadow: const [BoxShadow(color: Color(0x110f172a), blurRadius: 18, offset: Offset(0, 6))],
+                boxShadow: [BoxShadow(color: p.ink.withValues(alpha: 0.06), blurRadius: 18, offset: const Offset(0, 6))],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,10 +176,11 @@ class _DetailPageState extends State<DetailPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Amount', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.inkMute, letterSpacing: 0.4)),
+                            Text('Amount',
+                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: p.inkMute, letterSpacing: 0.4)),
                             const SizedBox(height: 4),
                             Text(formatINRZero(reminder.amount),
-                              style: GoogleFonts.hankenGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                              style: GoogleFonts.hankenGrotesk(fontSize: 32, fontWeight: FontWeight.w800, color: p.ink)),
                           ],
                         ),
                       ),
@@ -200,7 +202,7 @@ class _DetailPageState extends State<DetailPage> {
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
-                                color: daysLeft != null && daysLeft < 0 ? const Color(0xFFdc2626) : AppColors.inkSoft)),
+                                color: daysLeft != null && daysLeft < 0 ? p.danger : p.inkSoft)),
                           ],
                         ],
                       ),
@@ -210,10 +212,10 @@ class _DetailPageState extends State<DetailPage> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        const Icon(LucideIcons.flag, size: 13, color: AppColors.inkMute),
+                        Icon(LucideIcons.flag, size: 13, color: p.inkMute),
                         const SizedBox(width: 6),
                         Text('Priority: ${reminder.priority}',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kPriorityColors[reminder.priority] ?? AppColors.inkSoft)),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: kPriorityColors[reminder.priority] ?? p.inkSoft)),
                       ],
                     ),
                   ],
@@ -228,15 +230,15 @@ class _DetailPageState extends State<DetailPage> {
               margin: const EdgeInsets.fromLTRB(16, 10, 16, 8),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: p.card,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.line),
+                border: Border.all(color: p.line),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Schedule',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                  Text('Schedule',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: p.ink)),
                   const SizedBox(height: 12),
                   _row(LucideIcons.calendarCheck2, 'Last Due', dateMedium(reminder.dueDate)),
                   _row(LucideIcons.bellRing, 'Renewal', dateMedium(reminder.renewalDate)),
@@ -244,6 +246,10 @@ class _DetailPageState extends State<DetailPage> {
                   _row(LucideIcons.hourglass, 'Remind before',
                       reminder.remindDaysBefore != null ? '${reminder.remindDaysBefore} day${reminder.remindDaysBefore == 1 ? '' : 's'}' : '—'),
                   _row(LucideIcons.checkCircle2, 'Last paid', dateMedium(reminder.paidAt)),
+                  if (reminder.transactionId != null)
+                    _row(LucideIcons.creditCard, 'Transaction', reminder.transactionId!),
+                  if (reminder.paidBy != null)
+                    _row(LucideIcons.user, 'Paid by', reminder.paidBy!),
                 ],
               ),
             ),
@@ -254,27 +260,27 @@ class _DetailPageState extends State<DetailPage> {
                 margin: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: p.card,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.line),
+                  border: Border.all(color: p.line),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (reminder.description?.isNotEmpty ?? false) ...[
-                      const Text('Description',
-                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                      Text('Description',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: p.ink)),
                       const SizedBox(height: 6),
                       Text(reminder.description!,
-                        style: const TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.inkSoft)),
+                        style: TextStyle(fontSize: 13.5, height: 1.5, color: p.inkSoft)),
                       const SizedBox(height: 14),
                     ],
                     if (reminder.notes?.isNotEmpty ?? false) ...[
-                      const Text('Notes',
-                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                      Text('Notes',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: p.ink)),
                       const SizedBox(height: 6),
                       Text(reminder.notes!,
-                        style: const TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.inkSoft)),
+                        style: TextStyle(fontSize: 13.5, height: 1.5, color: p.inkSoft)),
                     ],
                   ],
                 ),
@@ -284,23 +290,23 @@ class _DetailPageState extends State<DetailPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: FilledButton.icon(
-                  onPressed: _marking ? null : _markPaid,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF16a34a),
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFF16a34a).withValues(alpha: 0.55),
-                    minimumSize: const Size.fromHeight(52),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                  icon: _marking
-                      ? const SizedBox(
+                child: _marking
+                    ? Container(
+                        height: 52,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: p.green.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: SizedBox(
                           width: 18, height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-                      : const Icon(LucideIcons.checkCircle2, size: 20),
-                  label: const Text('Mark as paid',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
-                ),
+                          child: CircularProgressIndicator(strokeWidth: 2.2, color: p.green),
+                        ),
+                      )
+                    : SlideToConfirm(
+                        onConfirm: _markPaid,
+                        label: 'Slide to confirm payment',
+                      ),
               ),
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 20)),
@@ -320,22 +326,110 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Widget _row(IconData icon, String label, String? value) {
+    final p = AppPalette.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 7),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: AppColors.inkMute),
+          Icon(icon, size: 16, color: p.inkMute),
           const SizedBox(width: 10),
           SizedBox(
             width: 118,
-            child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.inkMute)),
+            child: Text(label, style: TextStyle(fontSize: 13, color: p.inkMute)),
           ),
           Expanded(
             child: Text(value ?? '—',
-              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: p.ink)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ConfirmPaidDialog extends StatefulWidget {
+  final String reminderTitle;
+  const _ConfirmPaidDialog({required this.reminderTitle});
+
+  @override
+  State<_ConfirmPaidDialog> createState() => _ConfirmPaidDialogState();
+}
+
+class _ConfirmPaidDialogState extends State<_ConfirmPaidDialog> {
+  final _txnCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _txnCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Dialog(
+      backgroundColor: p.card,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: p.green.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(LucideIcons.checkCircle2, color: p.green, size: 26),
+            ),
+            const SizedBox(height: 14),
+            Text('Yes, paid?',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: p.ink)),
+            const SizedBox(height: 6),
+            Text('Mark "${widget.reminderTitle}" as paid?',
+              style: TextStyle(fontSize: 13.5, color: p.inkSoft)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _txnCtrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              style: TextStyle(color: p.ink),
+              decoration: const InputDecoration(
+                labelText: 'Transaction ID',
+                hintText: 'e.g. UPI ref / bank txn id',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton(
+                onPressed: _txnCtrl.text.trim().isEmpty
+                    ? null
+                    : () => Navigator.pop(context, _txnCtrl.text.trim()),
+                style: FilledButton.styleFrom(
+                  backgroundColor: p.green,
+                  foregroundColor: p.onBlue,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Yes, paid', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
+              ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Back', style: TextStyle(color: p.inkSoft)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

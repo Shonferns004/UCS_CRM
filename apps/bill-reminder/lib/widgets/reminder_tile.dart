@@ -14,6 +14,7 @@ class ReminderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     final cat = categoryMeta(reminder.category);
     final amount = parseAmountFromNotes(reminder.notes, reminder.amount);
     final status = reminder.statusLabel;
@@ -34,10 +35,10 @@ class ReminderTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 5),
       elevation: 0,
-      color: AppColors.card,
+      color: p.card,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.line, width: 1),
+        side: BorderSide(color: p.line, width: 1),
       ),
       child: InkWell(
         onTap: onTap,
@@ -67,7 +68,7 @@ class ReminderTile extends StatelessWidget {
                       style: GoogleFonts.manrope(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.ink,
+                        color: p.ink,
                       )),
                     const SizedBox(height: 3),
                     Row(
@@ -83,17 +84,17 @@ class ReminderTile extends StatelessWidget {
                             child: Text(owner,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12, color: AppColors.inkMute)),
+                              style: TextStyle(fontSize: 12, color: p.inkMute)),
                           ),
                           const SizedBox(width: 8),
                         ],
-                        const Icon(LucideIcons.calendarClock, size: 13, color: AppColors.inkMute),
+                        Icon(LucideIcons.calendarClock, size: 13, color: p.inkMute),
                         const SizedBox(width: 4),
                         Flexible(
                           child: Text(dateLine,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: AppColors.inkMute)),
+                            style: TextStyle(fontSize: 12, color: p.inkMute)),
                         ),
                       ],
                     ),
@@ -106,11 +107,11 @@ class ReminderTile extends StatelessWidget {
                 children: [
                   if (amount > 0) ...[
                     Text(formatINR(amount),
-                      style: GoogleFonts.manrope(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                      style: GoogleFonts.manrope(fontSize: 13.5, fontWeight: FontWeight.w800, color: p.ink)),
                     const SizedBox(height: 4),
                   ],
                   if (daysPill != null) ...[
-                    _badge(daysPill),
+                    _badge(context, daysPill),
                     const SizedBox(height: 4),
                   ],
                   StatusPill(status: status, dense: true),
@@ -129,15 +130,16 @@ class ReminderTile extends StatelessWidget {
     return null;
   }
 
-  Widget _badge(String text) {
+  Widget _badge(BuildContext context, String text) {
+    final p = AppPalette.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: AppColors.blue.withValues(alpha: 0.1),
+        color: p.blue.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(text,
-        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: AppColors.blue)),
+        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: p.blue)),
     );
   }
 }
