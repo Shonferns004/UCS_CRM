@@ -114,20 +114,21 @@ class FingerprintService {
     'com.beingsevak.biometric',
   );
   static StreamSubscription? _eventSubscription;
+  static int _listenerCount = 0;
   static final StreamController<Map<String, dynamic>> _eventController =
       StreamController<Map<String, dynamic>>.broadcast();
 
   /// Stream of events from the native side (device connect/disconnect, capture progress)
   static Stream<Map<String, dynamic>> get onEvent => _eventController.stream;
 
-  /// Initialize the biometric plugin and listen for device events
+  /// Initialize the biometric plugin and listen for device events.
+  /// Reference-counted so multiple screens can init/dispose safely.
   static Future<void> initialize() async {
-    if (kIsWeb ||
-        defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.android) {
+    if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
       return;
     }
-    _eventSubscription?.cancel();
+    _listenerCount++;
+    if (_eventSubscription != null) return;
     _eventSubscription = const EventChannel('com.beingsevak.biometric/events')
         .receiveBroadcastStream()
         .listen((event) {
@@ -137,8 +138,11 @@ class FingerprintService {
         });
   }
 
-  /// Dispose resources
+  /// Release resources. Only tears down the native subscription when the last
+  /// consumer calls this.
   static void dispose() {
+    if (_listenerCount > 0) _listenerCount--;
+    if (_listenerCount > 0 || _eventSubscription == null) return;
     _eventSubscription?.cancel();
     _eventSubscription = null;
   }
