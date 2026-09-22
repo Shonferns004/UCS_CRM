@@ -516,12 +516,14 @@ export const saveReminderSettings = async (req, res) => {
     const ALLOWED_KEYS = [
       'user_key', 'default_reminder_time', 'default_alarm_enabled',
       'default_notification_enabled', 'browser_notifications', 'alarm_sound',
-      'alarm_volume', 'due_soon_days', 'auto_create_next', 'timezone'
+      'alarm_volume', 'due_soon_days', 'due_soon_threshold', 'auto_create_next', 'timezone'
     ];
     const settings = {};
     for (const k of ALLOWED_KEYS) {
       if (raw[k] !== undefined) settings[k] = raw[k];
     }
+    // Keep the scheduler's field in sync with the web panel's Due-Soon input.
+    if (settings.due_soon_days !== undefined) settings.due_soon_threshold = settings.due_soon_days;
     const saved = await upsertSettings(settings);
     return res.json({ message: 'Settings saved successfully', settings: saved });
   } catch (error) {

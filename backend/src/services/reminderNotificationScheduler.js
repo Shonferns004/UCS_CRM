@@ -111,7 +111,8 @@ export async function runReminderAlertCycle() {
   try {
     const reminders = await getAllReminders(false);
     const settings = await getSettings();
-    const threshold = parseInt(settings?.due_soon_threshold, 10) || 10;
+    // due_soon_days is the web-panel field; due_soon_threshold is the legacy name.
+    const threshold = parseInt(settings?.due_soon_threshold ?? settings?.due_soon_days, 10) || 10;
     const todayKey = dateKey();
     const today = new Date();
 
