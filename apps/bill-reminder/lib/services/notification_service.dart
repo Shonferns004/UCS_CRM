@@ -37,7 +37,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final localNotifications = FlutterLocalNotificationsPlugin();
   await localNotifications.initialize(
     const InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      android: AndroidInitializationSettings('@drawable/ic_stat_bill_reminder'),
       iOS: DarwinInitializationSettings(),
     ),
   );
@@ -55,7 +55,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         kReminderChannelId,
         'Bill Reminder Alerts',
         channelDescription: 'Reminder alerts for bills, renewals and due dates',
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_bill_reminder',
         importance: Importance.high,
         priority: Priority.high,
         playSound: true,
@@ -94,7 +94,7 @@ class NotificationService {
     try {
       await _localNotifications.initialize(
         const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          android: AndroidInitializationSettings('@drawable/ic_stat_bill_reminder'),
           iOS: DarwinInitializationSettings(),
         ),
         onDidReceiveNotificationResponse: _onLocalNotificationTap,
@@ -157,7 +157,7 @@ class NotificationService {
           kReminderChannelId,
           'Bill Reminder Alerts',
           channelDescription: 'Reminder alerts for bills, renewals and due dates',
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_stat_bill_reminder',
           importance: Importance.high,
           priority: Priority.high,
           playSound: true,

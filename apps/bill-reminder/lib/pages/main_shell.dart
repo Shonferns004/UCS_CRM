@@ -25,19 +25,21 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    RemindersController.instance = _controller;
     _controller.refresh();
     RemindersController.registerFcmToken();
   }
 
   @override
   void dispose() {
+    if (RemindersController.instance == _controller) RemindersController.instance = null;
     _controller.dispose();
     super.dispose();
   }
 
   void _openDetail(Reminder r) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => DetailPage(reminder: r),
+      builder: (_) => DetailPage(reminder: r, controller: _controller),
     ));
   }
 

@@ -188,4 +188,14 @@ class ApiService {
     );
     await _check(res);
   }
+
+  /// Mark a reminder as paid/completed on the server.
+  static Future<void> completeReminder(String reminderId, {Map<String, dynamic>? body}) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/reminders/$reminderId/complete'),
+      headers: await _headers(),
+      body: jsonEncode(body ?? const <String, dynamic>{}),
+    );
+    await _check(res);
+  }
 }
