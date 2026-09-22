@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
-import 'fingerprint_capture_screen.dart';
+import 'fingerprint_enroll_panel.dart';
 
 class AddBeneficiaryPage extends StatefulWidget {
   const AddBeneficiaryPage({super.key});
@@ -202,25 +202,16 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                     const SizedBox(height: 4),
                     Text('Beneficiary Code: ${created['beneficiary_code']}',
                         style: const TextStyle(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => FingerprintCaptureScreen(
-                              beneficiaryCode: created['beneficiary_code'],
-                              beneficiaryName: created['full_name'] ?? _fullNameController.text.trim(),
-                            ),
-                          ),
-                        ),
-                        icon: const Icon(Icons.fingerprint, size: 18),
-                        label: const Text('Enroll Fingerprint Now'),
-                      ),
-                    ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 16),
+              // Enroll fingerprints inline on the same page
+              FingerprintEnrollPanel(
+                beneficiaryCode: created['beneficiary_code'],
+                beneficiaryName: created['full_name'] ?? _fullNameController.text.trim(),
+                onDone: () => Navigator.of(context)
+                    .popUntil((route) => route.isFirst),
               ),
             ],
           ],
