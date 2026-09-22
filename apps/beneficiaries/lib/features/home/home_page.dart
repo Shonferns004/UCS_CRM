@@ -46,9 +46,15 @@ class _HomePageState extends State<HomePage> {
       final info = await FingerprintService.rawGetInfo();
       connected = info['connected'] == true;
       if (!connected) {
+        // Try to actually open the raw USB device — this is the connection
+        // path used by fingerprint capture.
+        final conn = await FingerprintService.rawConnect();
+        connected = conn['connected'] == true;
+      }
+      if (!connected) {
         final defaultDevice = await FingerprintService.getDefaultDevice();
-        if (defaultDevice != null) {
-          connected = defaultDevice.isAvailable;
+        if (defaultDevice != null && defaultDevice.isAvailable) {
+          connected = true;
         }
       }
     } catch (_) {
