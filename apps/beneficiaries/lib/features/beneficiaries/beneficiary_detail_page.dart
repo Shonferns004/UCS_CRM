@@ -14,6 +14,7 @@ class BeneficiaryDetailPage extends StatefulWidget {
 class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   late Map<String, dynamic> _b;
   bool _loading = false;
+  bool _markingKit = false;
 
   @override
   void initState() {
@@ -80,6 +81,32 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
       );
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _markKitCollected() async {
+    setState(() => _markingKit = true);
+    try {
+      final result = await ApiService.post('/beneficiaries/${_b['id']}/kit-collected');
+      if (!mounted) return;
+      setState(() {
+        final res = result['beneficiary'];
+        if (res is Map) {
+          _b = Map<String, dynamic>.from(res);
+        } else {
+          _b['kit_collected'] = true;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kit marked as collected'), backgroundColor: AppTheme.success),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.error),
+      );
+    } finally {
+      if (mounted) setState(() => _markingKit = false);
     }
   }
 
@@ -182,6 +209,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           ),
           const SizedBox(height: 12),
 
+          // Kit collection — swipe right to mark as collected
+          _buildKitCollectionCard(),
+          const SizedBox(height: 12),
+
           // Assistance history
           if ((_b['assistance'] as List?)?.isNotEmpty == true)
             Container(
@@ -215,6 +246,68 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     );
   }
 
+  Widget _buildKitCollectionCard() {
+    final collected = _b['kit_collected'] == true;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: collected ? AppTheme.success.withAlpha(15) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: collected ? AppTheme.success : AppTheme.outline,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                collected ? Icons.inventory : Icons.inventory_2_outlined,
+                size: 20,
+                color: collected ? AppTheme.success : AppTheme.secondary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Kit Collection',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: collected ? AppTheme.success : AppTheme.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (collected)
+            Row(
+              children: [
+                const Icon(Icons.check_circle, size: 16, color: AppTheme.success),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'Kit collected',
+                    style: TextStyle(fontSize: 13, color: AppTheme.success, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                if (_b['kit_collected_at'] != null)
+                  Text(
+                    '${_b['kit_collected_at']}'.substring(0, 10),
+                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                  ),
+              ],
+            )
+          else
+            _SwipeToConfirm(
+              onConfirmed: _markKitCollected,
+              busy: _markingKit,
+              label: 'Swipe right to mark kit collected',
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _infoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -227,6 +320,100 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           ),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
         ],
+      ),
+    );
+  }
+}
+
+/// A slide-to-confirm control. Once swiped fully to the right it calls
+/// [onConfirmed] (used to mark a kit as collected).
+class _SwipeToConfirm extends StatefulWidget {
+  final VoidCallback onConfirmed;
+  final bool busy;
+  final String label;
+
+  const _SwipeToConfirm({
+    required this.onConfirmed,
+    required this.busy,
+    required this.label,
+  });
+
+  @override
+  State<_SwipeToConfirm> createState() => _SwipeToConfirmState();
+}
+
+class _SwipeToConfirmState extends State<_SwipeToConfirm> {
+  bool _locked = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Dismissible(
+        key: const ValueKey('swipe-to-confirm'),
+        direction: DismissDirection.startToEnd,
+        dismissThresholds: const {DismissDirection.startToEnd: 0.45},
+        confirmDismiss: (_) async {
+          if (_locked || widget.busy) return false;
+          setState(() => _locked = true);
+          widget.onConfirmed();
+          return false;
+        },
+        background: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          color: AppTheme.success,
+          child: const Icon(Icons.check_circle, color: Colors.white, size: 24),
+        ),
+        child: Container(
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppTheme.success.withAlpha(30),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.success),
+          ),
+          child: widget.busy || _locked
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.success,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      _locked ? 'Marking kit collected...' : 'Marking...',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.success,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.chevron_right, color: AppTheme.success, size: 20),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        widget.label,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.success,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }

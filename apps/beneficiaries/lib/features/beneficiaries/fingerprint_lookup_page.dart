@@ -16,6 +16,11 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   String _status = 'Place a beneficiary finger on the scanner';
   String? _error;
 
+  /// Device connection state (from the native biometric plugin).
+  bool? _deviceConnected;
+  String? _deviceName;
+  bool _checkingDevice = true;
+
   /// Cached raw-format templates for on-device 1:N matching.
   List<Map<String, dynamic>>? _templateCache;
   Map<String, dynamic>? _matchedBeneficiary;
@@ -24,11 +29,53 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _findBeneficiary();
+      _checkDevice().then((_) {
+        if (mounted && _deviceConnected == true) _findBeneficiary();
+      });
+    });
+  }
+
+  Future<void> _checkDevice() async {
+    setState(() {
+      _checkingDevice = true;
+      _deviceConnected = null;
+    });
+    var connected = false;
+    String? name;
+    try {
+      final info = await FingerprintService.rawGetInfo();
+      connected = info['connected'] == true;
+      name = info['device_name']?.toString() ?? 'SecuGen Hamster Pro 20';
+      if (!connected) {
+        final defaultDevice = await FingerprintService.getDefaultDevice();
+        if (defaultDevice != null) {
+          connected = defaultDevice.isAvailable;
+          name = defaultDevice.displayName;
+        }
+      }
+    } catch (_) {
+      connected = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _checkingDevice = false;
+      _deviceConnected = connected;
+      _deviceName = name;
+      _status = connected
+          ? 'Place a beneficiary finger on the scanner'
+          : 'Fingerprint device is not connected';
+      if (!connected) {
+        _error = 'Device not connected. Please connect the SecuGen '
+            'Hamster Pro 20 and try again.';
+      }
     });
   }
 
   Future<void> _findBeneficiary() async {
+    if (_deviceConnected != true) {
+      await _checkDevice();
+      if (_deviceConnected != true) return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -51,6 +98,17 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   /// Own-system flow: raw USB capture -> on-device SourceAFIS 1:N match.
   Future<void> _findBeneficiaryRaw() async {
     await FingerprintService.rawConnect();
+    final info = await FingerprintService.rawGetInfo();
+    if (info['connected'] != true) {
+      if (!mounted) return;
+      setState(() {
+        _deviceConnected = false;
+        _status = 'Fingerprint device is not connected';
+        _error = 'Device not connected. Please connect the SecuGen '
+            'Hamster Pro 20 and try again.';
+      });
+      return;
+    }
     setState(() => _status = 'Place the finger on the scanner...');
     final result = await FingerprintService.capture(
       deviceType: BiometricDeviceType.secugenHamsterPro20,
@@ -98,19 +156,13 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       _status = 'Match found — opening profile...';
       _error = null;
     });
-    await Navigator.push(
+    // Replace the lookup route so pressing back returns to the home page.
+    await Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => BeneficiaryDetailPage(beneficiary: profile),
       ),
     );
-    if (!mounted) return;
-    setState(() {
-      _matchedBeneficiary = null;
-      _status = 'Place a beneficiary finger on the scanner';
-      _error = null;
-      _loading = false;
-    });
   }
 
   /// Fetch enrolled raw-format templates from the backend and cache them.
@@ -145,6 +197,10 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Device connection indicator
+          _buildDeviceIndicator(),
+          const SizedBox(height: 12),
+
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -194,7 +250,7 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                 ],
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed: _loading ? null : _findBeneficiary,
+                  onPressed: (_loading || _checkingDevice) ? null : _findBeneficiary,
                   icon: _loading
                       ? const SizedBox(
                           width: 18,
@@ -215,6 +271,62 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
             'Place the beneficiary finger flat on the scanner. The page scans automatically when opened and opens the matching profile.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeviceIndicator() {
+    if (_checkingDevice) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppTheme.outline),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('Checking fingerprint device...',
+                style: TextStyle(fontSize: 13)),
+          ],
+        ),
+      );
+    }
+    final connected = _deviceConnected == true;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: connected ? AppTheme.success.withAlpha(15) : AppTheme.error.withAlpha(15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: connected ? AppTheme.success : AppTheme.error),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            connected ? Icons.check_circle : Icons.error_outline,
+            color: connected ? AppTheme.success : AppTheme.error,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              connected
+                  ? 'Device Connected (${_deviceName ?? 'SecuGen Hamster Pro 20'})'
+                  : 'Device Not Connected',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: connected ? AppTheme.success : AppTheme.error,
+              ),
+            ),
           ),
         ],
       ),

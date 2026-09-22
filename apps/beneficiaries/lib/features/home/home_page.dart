@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
-import 'widgets/today_program_card.dart';
 import 'widgets/my_tasks_card.dart';
+import 'widgets/operator_dashboard_card.dart';
+import 'widgets/kit_collected_users_card.dart';
 import '../programs/programs_page.dart';
 import '../tasks/tasks_page.dart';
 import '../profile/profile_page.dart';
@@ -20,7 +21,6 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentTab = 0;
   Map<String, dynamic>? _volunteerData;
-  Map<String, dynamic>? _overview;
 
   @override
   void initState() {
@@ -30,9 +30,6 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadData() async {
     _volunteerData = await ApiService.getVolunteerData();
-    try {
-      _overview = await ApiService.get('/beneficiaries/overview');
-    } catch (_) {}
     if (mounted) setState(() {});
   }
 
@@ -42,7 +39,6 @@ class _HomePageState extends State<HomePage> {
       _buildHomeContent(),
       const ProgramsPage(),
       const TasksPage(),
-      ProfilePage(onLogout: widget.onLogout),
     ];
 
     return Scaffold(
@@ -68,11 +64,6 @@ class _HomePageState extends State<HomePage> {
             selectedIcon: Icon(Icons.task, color: AppTheme.secondary),
             label: 'Tasks',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outlined),
-            selectedIcon: Icon(Icons.person, color: AppTheme.secondary),
-            label: 'Profile',
-          ),
         ],
       ),
     );
@@ -89,7 +80,9 @@ class _HomePageState extends State<HomePage> {
 
     return SafeArea(
       child: RefreshIndicator(
-        onRefresh: _loadData,
+        onRefresh: () async {
+          await _loadData();
+        },
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -119,43 +112,34 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.account_circle,
+                    color: AppTheme.primary,
+                    size: 30,
+                  ),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ProfilePage(onLogout: widget.onLogout),
+                    ),
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+
+            const OperatorDashboardCard(),
+            const SizedBox(height: 12),
 
             // Beneficiaries section
             _buildBeneficiarySection(),
             const SizedBox(height: 16),
 
-            // Stats
-            if (_overview != null) ...[
-              Row(
-                children: [
-                  _statCard(
-                    'Total',
-                    '${_overview!['total_beneficiaries'] ?? 0}',
-                    AppTheme.secondary,
-                  ),
-                  const SizedBox(width: 12),
-                  _statCard(
-                    'Active',
-                    '${_overview!['active'] ?? 0}',
-                    AppTheme.success,
-                  ),
-                  const SizedBox(width: 12),
-                  _statCard(
-                    'Programs',
-                    '${_overview!['programs'] ?? 0}',
-                    AppTheme.primary,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            const TodayProgramCard(),
-            const SizedBox(height: 12),
             const MyTasksCard(),
+            const SizedBox(height: 16),
+
+            const KitCollectedUsersCard(),
           ],
         ),
       ),
@@ -248,39 +232,6 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 2),
             Text(
               sublabel,
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statCard(String label, String value, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.outline),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
               style: const TextStyle(
                 fontSize: 11,
                 color: AppTheme.textSecondary,

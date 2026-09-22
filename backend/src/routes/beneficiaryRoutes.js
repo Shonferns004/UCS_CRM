@@ -4,6 +4,7 @@ import {
   createNewBeneficiary, getBeneficiary, getBeneficiaryByCodeController,
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
+  markBeneficiaryKitCollected,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -41,6 +42,9 @@ router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), cr
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);
 router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBeneficiaryController);
 router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiaryByCodeController);
+
+// Kit collection — set from the operator fingerprint flow (worker role).
+router.post('/:id/kit-collected', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), markBeneficiaryKitCollected);
 
 // Audit
 router.get('/:id/audit', authenticateRole('super_admin', 'admin', 'ngo'), getAuditTrail);
