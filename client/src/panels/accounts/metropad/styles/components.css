@@ -579,3 +579,97 @@
 .mp-root .users-compact {
   display: contents;
 }
+
+/* ---------- Users drawer (side panel) ---------- */
+.mp-root .users-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  background: rgba(16, 33, 61, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.mp-root .users-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(760px, 94vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--mp-bg);
+  box-shadow: -20px 0 60px rgba(16, 33, 61, 0.25);
+  animation: mpDrawerIn 0.22s ease;
+}
+
+@keyframes mpDrawerIn {
+  from {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.mp-root .users-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--mp-card);
+  border-bottom: 1px solid var(--mp-line);
+}
+
+.mp-root .users-drawer-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--mp-ink);
+}
+
+.mp-root .users-drawer-title svg {
+  color: var(--mp-blue);
+}
+
+.mp-root .users-drawer-close {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #eef4fb;
+  color: #526f90;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mp-root .users-drawer-close:hover {
+  background: #e2edf9;
+  color: var(--mp-ink-2);
+}
+
+.mp-root .users-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 28px;
+}
+
+.mp-root .users-drawer .page {
+  gap: 12px;
+}
+
+.mp-root .users-drawer .page-header .page-title {
+  display: none;
+}
+
+.mp-root .users-drawer .page-header {
+  justify-content: flex-end;
+}

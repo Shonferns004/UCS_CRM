@@ -10,7 +10,7 @@ import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
 import ErrorState from '../components/ErrorState.jsx';
 import MonthlyData from './MonthlyData.jsx';
-import Users from './Users.jsx';
+import UsersDrawer from '../components/UsersDrawer.jsx';
 import {
   SoapDispenserDroplet,
   TrainFront,
@@ -24,12 +24,14 @@ import {
   Activity,
   ChevronRight,
   EllipsisVertical,
+  Users as UsersIcon,
 } from 'lucide-react';
 
 function Dashboard() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const monthlyRef = useRef(null);
+  const [usersOpen, setUsersOpen] = useState(false);
 
   const { data: overview, loading: dashLoading, error: dashError, refetch: refetchDashboard } = useApi(
     () => dashboardService.getOverview({}),
@@ -109,6 +111,13 @@ function Dashboard() {
                 <span className="hero-tag clean"><Sparkles size={12} strokeWidth={2} /> Clean</span>
                 <span className="hero-tag dignity"><Heart size={12} strokeWidth={2} /> Dignified</span>
               </div>
+              {isAdmin && (
+                <div className="hero-cta">
+                  <button className="btn btn-primary" onClick={() => setUsersOpen(true)}>
+                    <UsersIcon size={15} strokeWidth={2} /> Add User
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="hero-art" aria-hidden="true">
@@ -176,6 +185,8 @@ function Dashboard() {
           <MonthlyData />
         </div>
       </div>
+
+      <UsersDrawer isOpen={usersOpen} onClose={() => setUsersOpen(false)} />
     </div>
   );
 }
@@ -195,7 +206,7 @@ function StockSummaryStripSkeleton() {
         </div>
       </div>
       <div className="stock-grid">
-        {Array.from({ length: 7 }).map((_, i) => (
+        {Array.from({ length: 5 }).map((_, i) => (
           <div className="skeleton stock-tile-sk" key={i} />
         ))}
       </div>
@@ -223,8 +234,6 @@ function StockSummaryStrip({ isAdmin }) {
     { label: 'Remaining Central Stock', value: stock ? `${formatNumber(stock.remainingCentral)} pads` : '—', tone: 'mint' },
     { label: 'Price / Pad', value: stock ? `₹${formatNumber(stock.pricePerPad)}` : '—', tone: 'amber' },
     { label: 'Remaining Stock Value', value: stock ? `₹${formatNumber(stock.remainingCentralValue)}` : '—', tone: 'pink' },
-    { label: 'Pads Inside Machines', value: stock ? `${formatNumber(stock.totalMachinePads)} pads` : '—', tone: 'beige' },
-    { label: 'Value Inside Machines', value: stock ? `₹${formatNumber(stock.totalMachineValue)}` : '—', tone: 'cyan' },
   ];
 
   const openConfig = () => {
@@ -277,7 +286,6 @@ function StockSummaryStrip({ isAdmin }) {
             <button className="btn btn-outline" onClick={openConfig}>
               + Add Pads / Set Price
             </button>
-            <Users compact />
           </div>
         )}
       </header>
