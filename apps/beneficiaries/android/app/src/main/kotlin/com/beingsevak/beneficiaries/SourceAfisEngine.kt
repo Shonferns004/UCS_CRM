@@ -37,6 +37,16 @@ object SourceAfisEngine {
         require(pixels.size == expected) {
             "Image dimensions $width x $height do not match payload size ${pixels.size} (expected $expected)"
         }
+        var sum = 0L
+        var min = 255
+        var max = 0
+        for (i in pixels.indices) {
+            val v = pixels[i].toInt() and 0xFF
+            sum += v
+            if (v < min) min = v
+            if (v > max) max = v
+        }
+        Log.i(TAG, "extract: ${width}x${height} dpi=$dpi size=${pixels.size} mean=${sum / pixels.size} min=$min max=$max")
         val image = FingerprintImage(
             width,
             height,
@@ -44,7 +54,9 @@ object SourceAfisEngine {
             FingerprintImageOptions().dpi(if (dpi > 0) dpi else DEFAULT_DPI)
         )
         val template = FingerprintTemplate(image)
-        return Base64.encodeToString(template.toByteArray(), Base64.NO_WRAP)
+        val out = Base64.encodeToString(template.toByteArray(), Base64.NO_WRAP)
+        Log.i(TAG, "extract: templateBase64Len=${out.length}")
+        return out
     }
 
     /** 1:1 match. Returns matched flag and similarity score. */
@@ -54,35 +66,42 @@ object SourceAfisEngine {
         return (score >= threshold) to score
     }
 
-    /** 1:N match. Returns the index + score of every candidate above the threshold. */
-    fun identify(probeB64: String, candidates: List<String>, threshold: Double): List<Map<String, Any>> {
-        val matcher = FingerprintMatcher(FingerprintTemplate(Base64.decode(probeB64, Base64.DEFAULT)))
+    /** 1:N match. Returns matched results plus the top scores for diagnostics. */
+    fun identify(probeB64: String, candidates: List<String>, threshold: Double): Pair<List<Map<String, Any>>, List<Map<String, Any>>> {
+        val probeBytes = Base64.decode(probeB64, Base64.DEFAULT)
+        Log.i(TAG, "identify: probeTemplateLen=${probeBytes.size} candidates=${candidates.size} threshold=$threshold")
+        val matcher = FingerprintMatcher(FingerprintTemplate(probeBytes))
         val results = mutableListOf<Map<String, Any>>()
+        val scored = mutableListOf<Map<String, Any>>()
         candidates.forEachIndexed { index, candidateB64 ->
             try {
-                val score = matcher.match(FingerprintTemplate(Base64.decode(candidateB64, Base64.DEFAULT)))
+                val candidateBytes = Base64.decode(candidateB64, Base64.DEFAULT)
+                val score = matcher.match(FingerprintTemplate(candidateBytes))
+                Log.i(TAG, "identify: candidate[$index] len=${candidateBytes.size} score=$score")
+                scored.add(mapOf("index" to index, "score" to score))
                 if (score >= threshold) {
                     results.add(mapOf("index" to index, "score" to score))
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "skipping candidate $index", e)
+                Log.w(TAG, "identify: skipping candidate $index (len=${candidateB64.length})", e)
             }
         }
-        return results
+        val top = scored.sortedByDescending { (it["score"] as Double) }.take(3)
+        return results to top
     }
 
     // ─── Async bridge wrappers (run off the platform thread) ────────────
 
     fun extractAsync(call: MethodCall, result: MethodChannel.Result) {
-        runAsync({ result.success(extractResultPayload(call)) }, result)
+        runAsync({ extractResultPayload(call) }, result)
     }
 
     fun verifyAsync(call: MethodCall, result: MethodChannel.Result) {
-        runAsync({ result.success(verifyResultPayload(call)) }, result)
+        runAsync({ verifyResultPayload(call) }, result)
     }
 
     fun identifyAsync(call: MethodCall, result: MethodChannel.Result) {
-        runAsync({ result.success(identifyResultPayload(call)) }, result)
+        runAsync({ identifyResultPayload(call) }, result)
     }
 
     private fun extractResultPayload(call: MethodCall): Map<String, Any> {
@@ -105,7 +124,12 @@ object SourceAfisEngine {
         val probe = call.argument<String>("probe_template") ?: ""
         val candidates = call.argument<List<String>>("candidate_templates") ?: emptyList()
         val threshold = (call.argument<Number>("threshold") ?: DEFAULT_THRESHOLD).toDouble()
-        return mapOf("matches" to identify(probe, candidates, threshold), "count" to candidates.size)
+        val (matches, top) = identify(probe, candidates, threshold)
+        return mapOf(
+            "matches" to matches,
+            "count" to candidates.size,
+            "top_scores" to top,
+        )
     }
 
     private fun runAsync(task: () -> Any, result: MethodChannel.Result) {

@@ -32,11 +32,8 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
   String? _qualityScore;
   bool _showDiagnostics = false;
   Map<String, dynamic>? _diagnostics;
-  bool _checkingRd = false;
-  Map<String, dynamic>? _rdCheck;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
   bool _phoneAvailable = false;
-  bool _useRawCapture = false;
 
   @override
   void initState() {
@@ -126,9 +123,6 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
           _selectedDevice = null;
         });
         break;
-      case 'device_ready':
-        _detectDevices();
-        break;
       case 'capture_started':
         setState(() => _statusMessage = 'Place finger on the scanner...');
         break;
@@ -167,71 +161,32 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
 
   Future<void> _runDiagnostics() async {
     setState(() => _showDiagnostics = true);
-    _runRdCheck();
     final diag = await FingerprintService.diagnose();
     if (!mounted) return;
     setState(() => _diagnostics = diag);
   }
 
-  Future<void> _runRdCheck() async {
-    setState(() {
-      _rdCheck = null;
-      _checkingRd = true;
-      _showDiagnostics = true;
-    });
-    final result = await FingerprintService.checkRdService(forceRefresh: true);
-    if (!mounted) return;
-    setState(() {
-      _checkingRd = false;
-      _rdCheck = result;
-    });
-  }
-
   Future<void> _startCapture() async {
-    if (_useRawCapture) {
-      await _startCaptureRaw();
-      return;
-    }
-
-    var device = _selectedDevice;
-    if (device == null && _devices.isNotEmpty) {
-      final available = _devices.where((d) => d.isAvailable).toList();
-      device = available.isNotEmpty ? available.first : _devices.first;
-    }
-    if (device == null) {
-      setState(() => _statusMessage = 'No biometric device found. Connect a USB scanner or install the vendor RD Service app.');
-      return;
-    }
-
-    setState(() {
-      _selectedDevice = device;
-      _capturing = true;
-      _captureComplete = false;
-      _qualityScore = null;
-      _errored = false;
-      _lastError = null;
-      _statusMessage = 'Place finger on the scanner...';
-    });
-
-    final result = await FingerprintService.capture(
-      deviceType: device.type,
-    );
-
+    final devices = await FingerprintService.detectDevices();
     if (!mounted) return;
-
-    setState(() {
-      _capturing = false;
-      _captureComplete = result.success;
-      _qualityScore = result.qualityScore;
-      _errored = !result.success;
-      _lastError = result.error;
-      _statusMessage = result.success ? 'Fingerprint captured successfully' : (result.error ?? 'Capture failed');
-    });
-
-    if (result.success) {
-      // Save to backend
-      await _saveBiometric(result);
+    final available = devices.where((d) => d.isAvailable).toList();
+    if (available.isEmpty) {
+      final diag = await FingerprintService.diagnose();
+      if (!mounted) return;
+      final usb = (diag['usb_devices'] as List?) ?? [];
+      setState(() {
+        _diagnostics = diag;
+        _showDiagnostics = true;
+        _statusMessage = usb.isEmpty
+            ? 'SecuGen not found: no USB devices visible. Check the USB-C cable and that the '
+              'phone supports USB host mode.'
+            : 'SecuGen (0x1162) not found. Devices seen: '
+              '${usb.map((d) => "${d['name']} ${d['vendor_id_hex']}:${d['product_id_hex']}").join(', ')}';
+        _errored = true;
+      });
+      return;
     }
+    await _startCaptureRaw();
   }
 
   /// Own-system raw capture: enrolls with two captures (repeat-scan for quality).
@@ -246,7 +201,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
     });
 
     final first = await FingerprintService.capture(
-      deviceType: BiometricDeviceType.mfs110Raw,
+      deviceType: BiometricDeviceType.secugenHamsterPro20,
     );
     if (!mounted) return;
 
@@ -264,7 +219,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
       setState(() {
         _capturing = false;
         _errored = true;
-        _lastError = 'No raw image returned (implementation pending Phase 0 protocol).';
+        _lastError = 'No raw image returned. The SecuGen FDx SDK may not be bundled.';
         _statusMessage = 'Raw capture incomplete';
       });
       return;
@@ -272,55 +227,72 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
 
     setState(() => _statusMessage = 'Remove finger. Place again (capture 2 of 2)...');
     final second = await FingerprintService.capture(
-      deviceType: BiometricDeviceType.mfs110Raw,
+      deviceType: BiometricDeviceType.secugenHamsterPro20,
     );
     if (!mounted) return;
+
+    double? selfScore;
+    if (first.template.isNotEmpty && second.template.isNotEmpty) {
+      final check = await FingerprintService.sourceafisVerify(
+        first.template,
+        second.template,
+      );
+      final s = check['score'];
+      if (s is num) selfScore = s.toDouble();
+    }
+
+    if (!first.success) {
+      setState(() {
+        _capturing = false;
+        _errored = true;
+        _lastError = first.error ?? 'Raw capture failed';
+        _statusMessage = 'Enrollment failed';
+      });
+      return;
+    }
+
+    if (!second.success) {
+      setState(() {
+        _capturing = false;
+        _errored = true;
+        _lastError = second.error ?? 'Second capture failed';
+        _statusMessage = 'Enrollment failed — retry';
+      });
+      return;
+    }
+
+    if (selfScore == null || selfScore < 40) {
+      setState(() {
+        _capturing = false;
+        _errored = true;
+        _lastError = selfScore == null
+            ? 'Could not compare the two scans. Retry.'
+            : 'The two scans did not match (score ${selfScore.toStringAsFixed(1)}). '
+                'Keep the SAME finger flat and steady for both scans, then retry.';
+        _statusMessage = 'Enrollment failed';
+      });
+      return;
+    }
 
     setState(() {
       _capturing = false;
       _captureComplete = true;
       _qualityScore = first.qualityScore;
-      _errored = !second.success;
-      _lastError = second.success ? null : (second.error ?? 'Second capture failed');
-      _statusMessage = second.success
-          ? 'Fingerprint captured (2/2)'
-          : 'First capture ok, second try failed — saving first capture';
+      _errored = false;
+      _lastError = null;
+      _statusMessage = 'Fingerprint captured (2/2) — saving...';
     });
 
-    await _saveBiometric(first);
+    await _saveBiometric(first, second);
   }
 
-  Future<void> _saveBiometric(CaptureResult result) async {
+  Future<void> _saveBiometric(CaptureResult result, CaptureResult? second) async {
     try {
       const requestTimeout = Duration(minutes: 1);
-      if (result.isRawCapture) {
-        await ApiService.post(
-          '/biometrics/enroll',
-          body: {
-            'beneficiary_code': widget.beneficiaryCode,
-            'device_type': 'MFS110_RAW',
-            'device_name': 'Mantra MFS110 (Raw USB)',
-            'image_b64': result.rawImage,
-            'template_b64': result.template,
-            'width': result.width,
-            'height': result.height,
-            'dpi': result.dpi,
-            'quality_score': result.qualityScore,
-            'finger_position': 'UNKNOWN',
-          },
-          timeout: requestTimeout,
-        );
-      } else {
-        await ApiService.post('/biometrics/enroll', body: {
-          'beneficiary_code': widget.beneficiaryCode,
-          'pid_data': result.pidData,
-          'fid_data': result.fidData,
-          'template': result.template,
-          'device_type': _selectedDevice?.type.name,
-          'device_name': _selectedDevice?.displayName,
-          'quality_score': result.qualityScore,
-        });
-      }
+      await _postBiometric(result, requestTimeout);
+      final secondOk =
+          second != null && second.success && second.template.isNotEmpty;
+      if (secondOk) await _postBiometric(second, requestTimeout);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -332,6 +304,25 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
         SnackBar(content: Text('Failed to save: $e'), backgroundColor: AppTheme.error),
       );
     }
+  }
+
+  Future<void> _postBiometric(CaptureResult result, Duration requestTimeout) async {
+    await ApiService.post(
+      '/biometrics/enroll',
+      body: {
+        'beneficiary_code': widget.beneficiaryCode,
+        'device_type': 'SECUGEN_RAW',
+        'device_name': 'SecuGen Hamster Pro 20 (Raw USB)',
+        'image_b64': result.rawImage,
+        'template_b64': result.template,
+        'width': result.width,
+        'height': result.height,
+        'dpi': result.dpi,
+        'quality_score': result.qualityScore,
+        'finger_position': 'UNKNOWN',
+      },
+      timeout: requestTimeout,
+    );
   }
 
   @override
@@ -364,7 +355,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Capture source: vendor RD Service vs own raw USB system
+          // Capture source: SecuGen raw USB
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -372,37 +363,25 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppTheme.outline),
             ),
-            child: Column(
+            child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Capture Source', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(
-                      value: false,
-                      icon: Icon(Icons.wifi_tethering, size: 16),
-                      label: Text('RD Service'),
-                    ),
-                    ButtonSegment(
-                      value: true,
-                      icon: Icon(Icons.usb, size: 16),
-                      label: Text('Own System (Raw)'),
+                Text('Capture Source', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(Icons.usb, size: 18, color: AppTheme.secondary),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'SecuGen Hamster Pro 20 (Raw USB). Direct USB capture '
+                        'stores the fingerprint image + SourceAFIS template '
+                        'directly to your system (no RD Service, no UIDAI '
+                        'encryption).',
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      ),
                     ),
                   ],
-                  selected: {_useRawCapture},
-                  onSelectionChanged: (selection) {
-                    setState(() => _useRawCapture = selection.first);
-                  },
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _useRawCapture
-                      ? 'Raw USB capture stores the plain fingerprint image + SourceAFIS template directly to your system '
-                          '(no UIDAI encryption). NOTE: capture protocol is pending Phase 0 documentation — expects a '
-                          '"protocol not documented" error until then.'
-                      : 'Uses the vendor RD Service app (UIDAI-encrypted PID payload).',
-                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                 ),
               ],
             ),
@@ -474,25 +453,10 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                       if (_devices.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Text('No devices detected. Connect a biometric scanner via USB OTG.',
+                          child: Text('No devices detected. Connect the SecuGen Hamster Pro 20 via USB-C.',
                               style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
                         )
-                      else ...[
-                        if (_devices.every((d) => !d.isAvailable))
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppTheme.warning.withAlpha(18),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: AppTheme.warning),
-                            ),
-                            child: const Text(
-                              'No RD Service app detected. Connect the USB fingerprint scanner and install the matching vendor app '
-                              '(e.g. Mantra MFS100, Startek, Lacara) to scan.',
-                              style: TextStyle(fontSize: 12, color: AppTheme.warning),
-                            ),
-                          ),
+                      else
                         ..._devices.map((device) => ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
@@ -502,7 +466,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                           ),
                           title: Text(device.displayName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                           subtitle: Text(
-                            device.isAvailable ? 'Ready' : 'Not installed — tap to try (shows error)',
+                            device.isAvailable ? 'Ready' : 'Not available',
                             style: TextStyle(fontSize: 11, color: device.isAvailable ? AppTheme.success : AppTheme.textSecondary),
                           ),
                           trailing: device.isAvailable
@@ -513,7 +477,6 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                               : null,
                           onTap: () => setState(() => _selectedDevice = device),
                         )),
-                      ],
 
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
@@ -551,7 +514,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
             child: Column(
               children: [
                 Icon(
-                  _captureComplete ? Icons.check_circle : _capturing ? Icons.fingerprint : Icons.fingerprint,
+                  _captureComplete ? Icons.check_circle : Icons.fingerprint,
                   size: 64,
                   color: _captureComplete
                       ? AppTheme.success
@@ -561,7 +524,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  _statusMessage ?? 'Select a device to begin',
+                  _statusMessage ?? 'Connect the scanner and tap Scan Fingerprint',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
@@ -613,24 +576,10 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
           const SizedBox(height: 12),
 
           // Diagnostics
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _runDiagnostics,
-                  icon: const Icon(Icons.bug_report_outlined, size: 16),
-                  label: const Text('Diagnostics'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _runRdCheck,
-                  icon: const Icon(Icons.wifi_tethering, size: 16),
-                  label: const Text('Check RD'),
-                ),
-              ),
-            ],
+          OutlinedButton.icon(
+            onPressed: _runDiagnostics,
+            icon: const Icon(Icons.bug_report_outlined, size: 16),
+            label: const Text('Diagnostics'),
           ),
           if (_showDiagnostics) ...[
             const SizedBox(height: 12),
@@ -660,106 +609,13 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
     if (diag['error'] != null) {
       return [Text(diag['error'].toString(), style: const TextStyle(fontSize: 12, color: AppTheme.error))];
     }
-    final installed = (diag['installed_rd_services'] as List?) ?? [];
     final usb = (diag['usb_devices'] as List?) ?? [];
 
-    final rd = _rdCheck;
-    final rdSection = <Widget>[
-      const Text('RD SERVICE CONNECTION', style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
-      const SizedBox(height: 6),
-      if (_checkingRd)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 6),
-          child: Row(children: [
-            SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-            SizedBox(width: 8),
-            Text('Detecting RD Service...', style: TextStyle(fontSize: 12)),
-          ]),
-        )
-      else if (rd == null)
-        const Text('Not checked yet', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))
-      else if (rd['found'] == true)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Row(
-            children: [
-              const Icon(Icons.check_circle, size: 14, color: AppTheme.success),
-              const SizedBox(width: 6),
-              Expanded(child: Text(rd['uri'].toString(), style: const TextStyle(fontSize: 12))),
-            ],
-          ),
-        )
-      else ...[
-        const Icon(Icons.cancel, size: 14, color: AppTheme.error),
-        const SizedBox(height: 6),
-        Text(
-          rd['message']?.toString() ?? 'Not found',
-          style: const TextStyle(fontSize: 12, color: AppTheme.error),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Hosts tried: ${(rd['hosts'] as List?)?.join(', ') ?? 'none'}',
-          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          (rd['errors'] as List?)?.join('\n') ?? 'No errors recorded',
-          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, height: 1.4),
-        ),
-      ],
-      const SizedBox(height: 12),
-    ];
-
     return [
-      ...rdSection,
-      const Text('INSTALLED RD SERVICE APPS', style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
-      const SizedBox(height: 6),
-      if (installed.isEmpty)
-        const Text('None installed', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary))
-      else
-        ...installed.map((s) {
-          final m = Map<String, dynamic>.from(s);
-          final ok = m['installed'] == true;
-          final activities = (m['activities'] as List?) ?? [];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(ok ? Icons.check_circle : Icons.cancel, size: 14, color: ok ? AppTheme.success : AppTheme.error),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        '${m['type']}  (${m['package_name']})',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-                if (ok && activities.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 20),
-                    child: Text(
-                      activities.map((a) => Map<String, dynamic>.from(a)['name']).join('\n'),
-                      style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary, height: 1.4),
-                    ),
-                  ),
-                if (ok && activities.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 20),
-                    child: Text('(no exported activities visible)', style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-                  ),
-              ],
-            ),
-          );
-        }),
-      const SizedBox(height: 12),
       const Text('CONNECTED USB DEVICES', style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
       const SizedBox(height: 6),
       if (usb.isEmpty)
-        const Text('No USB device detected. Check OTG cable/adapter and plug the scanner.',
+        const Text('No USB device detected. Check the USB-C cable and plug the scanner in again.',
             style: TextStyle(fontSize: 13, color: AppTheme.error))
       else
         ...usb.map((d) {
@@ -783,10 +639,10 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
       if (usb.isNotEmpty) ...[
         const SizedBox(height: 8),
         Text(
-          usb.any((d) => d['vendor_id'] == 3118 || d['vendor_id'] == 11279)
-              ? 'Mantra scanner connected OK.'
-              : 'No Mantra scanner (0x0C2E / 0x2C0F) found in the USB list.',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: usb.any((d) => d['vendor_id'] == 3118 || d['vendor_id'] == 11279) ? AppTheme.success : AppTheme.warning),
+          usb.any((d) => d['vendor_id'] == 0x1162)
+              ? 'SecuGen scanner connected OK.'
+              : 'No SecuGen vendor 0x1162 in the USB list (showing first device as fallback).',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: usb.any((d) => d['vendor_id'] == 0x1162) ? AppTheme.success : AppTheme.warning),
         ),
       ],
     ];

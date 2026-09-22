@@ -5,13 +5,29 @@ export async function generateBeneficiaryCode() {
     .from('beneficiary_sequences')
     .select('id, current_value')
     .single();
-  if (seqErr) throw seqErr;
 
-  const next = (seq.current_value || 0) + 1;
+  let current = null;
+  if (seqErr && seqErr.code === 'PGRST116') {
+    // Sequence table is empty (seed row never inserted). Create it on the
+    // fly so registration does not fail.
+    const { data: created, error: createErr } = await db
+      .from('beneficiary_sequences')
+      .insert({ current_value: 0 })
+      .select('id, current_value')
+      .single();
+    if (createErr) throw createErr;
+    current = created;
+  } else if (seqErr) {
+    throw seqErr;
+  } else {
+    current = seq;
+  }
+
+  const next = (current.current_value || 0) + 1;
   const { error: updErr } = await db
     .from('beneficiary_sequences')
     .update({ current_value: next, updated_at: new Date().toISOString() })
-    .eq('id', seq.id);
+    .eq('id', current.id);
   if (updErr) throw updErr;
 
   return `BS-${String(next).padStart(6, '0')}`;

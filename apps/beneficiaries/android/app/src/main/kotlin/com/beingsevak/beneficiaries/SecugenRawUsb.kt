@@ -14,22 +14,23 @@ import android.util.Log
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Direct (raw) USB access to the Mantra MFS110 using only the Android USB Host API.
+ * Direct (raw) USB access to the SecuGen Hamster Pro 20 (HU20, U20 sensor)
+ * using only the Android USB Host API.
  *
- * Phase A scope: connect/disconnect/enumerate fully implemented. `capture()` is a
- * stub returning a clear error until the vendor USB protocol is reverse-engineered
- * (Phase 0: sniff the RD Service with USBPcap/Wireshark, document the init + capture
- * frames in mfs110_protocol.md, then fill in capture() with bulkTransfer calls).
+ * Connect/disconnect/enumerate are fully implemented. `capture()` returns a
+ * clear error until the SecuGen FDx SDK for Android is bundled: SecuGen
+ * scanners speak a proprietary USB protocol, so real image capture requires
+ * the native library from the SecuGen FDx SDK Pro (secugen.com/products/sdk/).
  */
-class Mfs110RawUsb(private val context: Context) {
+class SecugenRawUsb(private val context: Context) {
 
     companion object {
-        private const val TAG = "Mfs110RawUsb"
+        private const val TAG = "SecugenRawUsb"
         private const val ACTION_USB_PERMISSION = "com.beingsevak.beneficiaries.USB_PERMISSION"
 
-        // Mantra MFS110 observed vendor/product ids.
-        val KNOWN_VENDOR_IDS = setOf(0x2C0F, 0x0C2E)
-        val KNOWN_PRODUCT_IDS = setOf(0x1204)
+        // SecuGen USB vendor id (0x1162, decimal 4450). Hamster Pro 20 / U20-AP
+        // variants report products such as 0x2200, 0x2201, 0x2360.
+        const val SECUGEN_VENDOR_ID = 0x1162
     }
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -41,8 +42,22 @@ class Mfs110RawUsb(private val context: Context) {
     val isConnected: Boolean get() = connection != null
 
     fun getDevice(): UsbDevice? {
-        return usbManager.deviceList.values.firstOrNull { device ->
-            device.vendorId in KNOWN_VENDOR_IDS && device.productId in KNOWN_PRODUCT_IDS
+        val devices = usbManager.deviceList.values
+        val known = devices.firstOrNull { device -> device.vendorId == SECUGEN_VENDOR_ID }
+        if (known != null) return known
+        // Fallback: treat an unknown connected USB device as the scanner rather
+        // than failing to detect. Keeps working even if a unit reports a
+        // different vendor/product id (hub-wrapped or custom firmware).
+        return devices.firstOrNull()
+    }
+
+    private fun usbSummary(): String {
+        val devices = usbManager.deviceList.values
+        if (devices.isEmpty()) {
+            return "No USB devices visible (host mode inactive or scanner not detected)."
+        }
+        return "USB seen: " + devices.joinToString("; ") { d ->
+            "${d.productName ?: d.deviceName} 0x${hex(d.vendorId)}:0x${hex(d.productId)}"
         }
     }
 
@@ -51,7 +66,8 @@ class Mfs110RawUsb(private val context: Context) {
         if (device == null) {
             result.success(mapOf(
                 "connected" to false,
-                "error" to "MFS110 not found. Connect the scanner via USB OTG and grant permission when prompted.",
+                "error" to "SecuGen Hamster Pro 20 not found. Connect the scanner USB-C cable directly " +
+                    "and grant permission when prompted. (${usbSummary()})",
             ))
             return
         }
@@ -84,7 +100,7 @@ class Mfs110RawUsb(private val context: Context) {
                 } else {
                     result.success(mapOf(
                         "connected" to false,
-                        "error" to "USB permission denied for the MFS110. Allow access and retry.",
+                        "error" to "USB permission denied for the SecuGen Hamster Pro 20. Allow access and retry.",
                     ))
                 }
             }
@@ -107,11 +123,11 @@ class Mfs110RawUsb(private val context: Context) {
     private fun openDevice(device: UsbDevice, result: MethodChannel.Result) {
         try {
             val conn = usbManager.openDevice(device)
-                ?: throw IllegalStateException("Failed to open the MFS110 (driver busy or permission missing).")
+                ?: throw IllegalStateException("Failed to open the SecuGen Hamster Pro 20 (driver busy or permission missing).")
             val iface = if (device.interfaceCount > 0) device.getInterface(0) else null
             if (iface != null && !conn.claimInterface(iface, true)) {
                 conn.close()
-                throw IllegalStateException("Failed to claim the MFS110 USB interface.")
+                throw IllegalStateException("Failed to claim the SecuGen Hamster Pro 20 USB interface.")
             }
             connection = conn
             claimedInterface = iface
@@ -127,9 +143,10 @@ class Mfs110RawUsb(private val context: Context) {
     }
 
     /**
-     * Raw frame capture. Phase A: implementation pending the Phase 0 protocol sniff.
-     * When implemented this will drive bulkTransfer() on the claimed interface's
-     * bulk OUT/IN endpoints using the documented init + capture command sequence.
+     * Raw frame capture from the SecuGen Hamster Pro 20.
+     * SecuGen scanners use a proprietary USB protocol, so capture requires the
+     * SecuGen FDx SDK for Android native library. Until it is bundled, this
+     * returns a clear error pointing at the SDK.
      */
     fun capture(result: MethodChannel.Result) {
         if (connection == null) {
@@ -141,17 +158,16 @@ class Mfs110RawUsb(private val context: Context) {
         }
         result.success(mapOf(
             "success" to false,
-            "error" to "MFS110 raw capture protocol is not documented yet (Phase 0 pending). " +
-                "Plug the scanner into the Windows PC running the RD Service, sniff the USB traffic " +
-                "(USBPcap/Wireshark), document the init + capture frames in mfs110_protocol.md, " +
-                "then implement capture() here.",
+            "error" to "SecuGen Hamster Pro 20 raw capture requires the SecuGen FDx SDK for Android " +
+                "(JSGFPLib native library). Bundle the SDK from secugen.com/products/sdk/ to enable " +
+                "direct USB capture, or use the SecuGen RD Service capture path instead.",
         ))
     }
 
     fun getInfo(result: MethodChannel.Result) {
         val device = getDevice()
         if (device == null) {
-            result.success(mapOf("connected" to false, "error" to "MFS110 not connected"))
+            result.success(mapOf("connected" to false, "error" to "SecuGen Hamster Pro 20 not connected"))
             return
         }
         val iface = if (device.interfaceCount > 0) device.getInterface(0) else null

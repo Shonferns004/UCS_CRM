@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
@@ -15,11 +19,55 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   bool _loading = false;
   String _status = 'Place a beneficiary finger on the scanner';
   String? _error;
-  bool _useRawCapture = true;
 
   /// Cached raw-format templates for on-device 1:N matching.
   List<Map<String, dynamic>>? _templateCache;
   bool _refreshingTemplates = false;
+  ui.Image? _previewImage;
+  Map<String, dynamic>? _lastMatchDiag;
+  Map<String, dynamic>? _matchedBeneficiary;
+  double? _matchScore;
+
+  @override
+  void dispose() {
+    _previewImage?.dispose();
+    super.dispose();
+  }
+
+  Widget _diagRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setPreview(CaptureResult r) async {
+    if (r.rawImage.isEmpty || r.width <= 0 || r.height <= 0) return;
+    try {
+      final raw = base64Decode(r.rawImage);
+      final rgba = Uint8List(raw.length * 4);
+      var i = 0;
+      for (var j = 0; j < raw.length; j++) {
+        final v = raw[j];
+        rgba[i++] = v;
+        rgba[i++] = v;
+        rgba[i++] = v;
+        rgba[i++] = 255;
+      }
+      final c = Completer<ui.Image>();
+      ui.decodeImageFromPixels(rgba, r.width, r.height, ui.PixelFormat.rgba8888, c.complete);
+      final img = await c.future;
+      if (!mounted) return;
+      _previewImage?.dispose();
+      setState(() => _previewImage = img);
+    } catch (_) {}
+  }
 
   Future<void> _findBeneficiary() async {
     setState(() {
@@ -29,17 +77,15 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     });
 
     try {
-      if (_useRawCapture) {
-        await _findBeneficiaryRaw();
-      } else {
-        await _findBeneficiaryRd();
-      }
+      await _findBeneficiaryRaw();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.toString().replaceFirst('Exception: ', '');
         _status = 'No beneficiary found';
+        _matchedBeneficiary = null;
+        _matchScore = null;
       });
     }
   }
@@ -49,8 +95,9 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     await FingerprintService.rawConnect();
     setState(() => _status = 'Place the finger on the scanner...');
     final result = await FingerprintService.capture(
-      deviceType: BiometricDeviceType.mfs110Raw,
+      deviceType: BiometricDeviceType.secugenHamsterPro20,
     );
+    await _setPreview(result);
     if (!result.success) {
       throw Exception(result.error ?? 'Fingerprint capture failed');
     }
@@ -62,7 +109,7 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     if (candidates.isEmpty) {
       throw Exception(
         'No raw-format fingerprints enrolled on the server yet. '
-        'Enroll a beneficiary first (with "Own System (Raw)" capture source).',
+        'Enroll a beneficiary first (with the SecuGen scanner).',
       );
     }
 
@@ -72,8 +119,38 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       candidates.map((c) => c['template'].toString()).toList(),
     );
     final matches = (identify['matches'] as List?) ?? [];
+    final topScores = (identify['top_scores'] as List?) ?? [];
+    if (mounted) {
+      setState(() {
+        _lastMatchDiag = {
+          'probe_template_len': result.template.length,
+          'candidate_count': candidates.length,
+          'dpi': result.dpi,
+          'quality': result.qualityScore,
+          'image_size': '${result.width}x${result.height}',
+          'top_scores': topScores,
+          'match_threshold': 40,
+        };
+      });
+    }
     if (matches.isEmpty) {
-      throw Exception('No beneficiary matched this fingerprint. Try a clearer scan.');
+      final diagLines = topScores
+          .map((t) {
+            final m = Map<String, dynamic>.from(t as Map);
+            final idx = (m['index'] as num).toInt();
+            final len = idx < candidates.length
+                ? candidates[idx]['template'].toString().length
+                : 0;
+            return '  candidate[$idx] len=$len score=${(m['score'] as num).toStringAsFixed(2)}';
+          })
+          .join('\n');
+      throw Exception(
+        'No beneficiary matched this fingerprint.\n'
+        'Probe quality=${result.qualityScore}%  probe template len=${result.template.length}  candidates=${candidates.length}\n'
+        'Top scores:\n$diagLines\n'
+        'Check the captured image — if it does not clearly show a fingerprint, '
+        'center your finger and try a clearer scan.',
+      );
     }
 
     matches.sort((a, b) => ((b as Map)['score'] as num).compareTo((a as Map)['score'] as num));
@@ -84,64 +161,16 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       throw Exception('Matched record has no beneficiary id');
     }
 
-    setState(() => _status = 'Match found (score ${(best['score'] as num).toStringAsFixed(3)}). Opening profile...');
+    setState(() => _status = 'Match found (score ${(best['score'] as num).toStringAsFixed(3)}). Fetching profile...');
     final response = await ApiService.get('/beneficiaries/$beneficiaryId');
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => BeneficiaryDetailPage(
-          beneficiary: Map<String, dynamic>.from(response),
-        ),
-      ),
-    );
-  }
-
-  /// Legacy flow via the vendor RD Service.
-  Future<void> _findBeneficiaryRd() async {
-    final devices = await FingerprintService.detectDevices();
-    final available = devices.where((device) => device.isAvailable).toList();
-    if (available.isEmpty) {
-      final rdCheck = await FingerprintService.checkRdService();
-      if (rdCheck['found'] != true) {
-        throw Exception(
-          'MFS110 RD Service was not found. Open the RD Service app on this '
-          'phone, make sure scanning is enabled and this app is whitelisted, '
-          'then try again.',
-        );
-      }
-    }
-
-    setState(() => _status = 'Place the finger on the scanner...');
-    final result = await FingerprintService.capture(
-      deviceType: available.first.type,
-    );
-    if (!result.success) {
-      throw Exception(result.error ?? 'Fingerprint capture failed');
-    }
-
-    final template = result.template.isNotEmpty
-        ? result.template
-        : result.fidData;
-    if (template.isEmpty) {
-      throw Exception('The scanner returned no fingerprint template');
-    }
-
-    setState(() => _status = 'Finding beneficiary...');
-    final response = await ApiService.post(
-      '/biometrics/identify',
-      body: {'template': template, 'fid_data': result.fidData},
-    );
-    final beneficiary = Map<String, dynamic>.from(
-      response['beneficiary'] ?? {},
-    );
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => BeneficiaryDetailPage(beneficiary: beneficiary),
-      ),
-    );
+    setState(() {
+      _loading = false;
+      _matchedBeneficiary = Map<String, dynamic>.from(response);
+      _matchScore = (best['score'] as num).toDouble();
+      _status = 'Match found (score ${(best['score'] as num).toStringAsFixed(3)})';
+      _error = null;
+    });
   }
 
   /// Fetch enrolled raw-format templates from the backend and cache them.
@@ -190,37 +219,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     }
   }
 
-  Future<void> _checkRdService() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-      _status = 'Detecting RD Service...';
-    });
-    try {
-      final info = await FingerprintService.checkRdService(forceRefresh: true);
-      if (!mounted) return;
-      if (info['found'] == true) {
-        setState(() {
-          _loading = false;
-          _status = 'RD Service detected: ${info['uri']}';
-        });
-      } else {
-        setState(() {
-          _loading = false;
-          _status = 'RD Service not found';
-          _error = info['message']?.toString();
-        });
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _status = 'RD Service check failed';
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -255,36 +253,92 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (_matchedBeneficiary != null) ...[
+                  const SizedBox(height: 16),
+                  _MatchedBeneficiaryCard(
+                    beneficiary: _matchedBeneficiary!,
+                    score: _matchScore ?? 0,
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BeneficiaryDetailPage(
+                          beneficiary: _matchedBeneficiary!,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.person, size: 18),
+                    label: const Text('Open Full Profile'),
+                  ),
+                ],
                 if (_error != null) ...[
                   const SizedBox(height: 10),
                   Text(
                     _error!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: AppTheme.error),
+                    style: const TextStyle(fontSize: 12, color: AppTheme.error, height: 1.5),
+                  ),
+                ],
+                if (_lastMatchDiag != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.secondary.withAlpha(10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.secondary.withAlpha(80)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('MATCH DIAGNOSTICS',
+                            style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
+                        const SizedBox(height: 6),
+                        _diagRow('Quality', '${_lastMatchDiag!['quality']}%'),
+                        _diagRow('Probe template len', '${_lastMatchDiag!['probe_template_len']}'),
+                        _diagRow('Candidates', '${_lastMatchDiag!['candidate_count']}'),
+                        _diagRow('Image size', '${_lastMatchDiag!['image_size']} @ ${_lastMatchDiag!['dpi']} dpi'),
+                        const SizedBox(height: 6),
+                        const Text('TOP SCORES (threshold 40)',
+                            style: TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary)),
+                        const SizedBox(height: 4),
+                        ...((_lastMatchDiag!['top_scores'] as List?) ?? []).map((t) {
+                          final m = Map<String, dynamic>.from(t as Map);
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 1),
+                            child: Text(
+                              '  candidate[${(m['index'] as num).toInt()}]  score=${(m['score'] as num).toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppTheme.textSecondary),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ],
+                if (_previewImage != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Captured image',
+                    style: const TextStyle(fontSize: 11, letterSpacing: 1, color: AppTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppTheme.outline),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: RawImage(
+                      image: _previewImage,
+                      width: 220,
+                      height: 176,
+                      fit: BoxFit.contain,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),
-
-                // Capture source toggle
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(
-                      value: true,
-                      icon: Icon(Icons.usb, size: 16),
-                      label: Text('Own System (Raw)'),
-                    ),
-                    ButtonSegment(
-                      value: false,
-                      icon: Icon(Icons.wifi_tethering, size: 16),
-                      label: Text('RD Service'),
-                    ),
-                  ],
-                  selected: {_useRawCapture},
-                  onSelectionChanged: (selection) {
-                    setState(() => _useRawCapture = selection.first);
-                  },
-                ),
-                const SizedBox(height: 12),
 
                 SizedBox(
                   width: double.infinity,
@@ -304,26 +358,13 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: _loading || _refreshingTemplates ? null : _refreshTemplates,
-                        icon: Icon(
-                          _refreshingTemplates ? Icons.downloading : Icons.download,
-                          size: 18,
-                        ),
-                        label: Text(_refreshingTemplates ? 'Loading templates...' : 'Refresh Enrolled Templates'),
-                      ),
-                    ),
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: _loading ? null : _checkRdService,
-                        icon: const Icon(Icons.wifi_tethering, size: 18),
-                        label: const Text('Check RD Service'),
-                      ),
-                    ),
-                  ],
+                TextButton.icon(
+                  onPressed: _loading || _refreshingTemplates ? null : _refreshTemplates,
+                  icon: Icon(
+                    _refreshingTemplates ? Icons.downloading : Icons.download,
+                    size: 18,
+                  ),
+                  label: Text(_refreshingTemplates ? 'Loading templates...' : 'Refresh Enrolled Templates'),
                 ),
               ],
             ),
@@ -334,6 +375,81 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MatchedBeneficiaryCard extends StatelessWidget {
+  final Map<String, dynamic> beneficiary;
+  final double score;
+  const _MatchedBeneficiaryCard({required this.beneficiary, required this.score});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = beneficiary['full_name'] ?? 'Unknown';
+    final code = beneficiary['beneficiary_code'] ?? '';
+    final mobile = beneficiary['mobile'] ?? '—';
+    final city = beneficiary['city'] ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.success.withAlpha(12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.success),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: AppTheme.success.withAlpha(40),
+                child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.success)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name.toString(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                    Text(code.toString(), style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppTheme.success,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text('Match ${score.toStringAsFixed(1)}',
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+              ),
+            ],
+          ),
+          const Divider(height: 18),
+          _row('Mobile', mobile.toString()),
+          _row('City', city.toString()),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          ),
+          Text(value, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
         ],
       ),
     );
