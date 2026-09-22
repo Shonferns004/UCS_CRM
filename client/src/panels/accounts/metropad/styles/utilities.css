@@ -1,124 +1,199 @@
-/* ===================== FLEX UTILITIES ===================== */
-.mp-root .flex {
-  display: flex;
-}
+/* ============================================================
+   METROPAD UTILITIES (buttons, forms, layout helpers)
+   ============================================================ */
 
-.mp-root .flex-col {
-  display: flex;
-  flex-direction: column;
-}
-
-.mp-root .flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.mp-root .flex-center {
-  display: flex;
+/* ---------- Buttons ---------- */
+.mp-root .btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.mp-root .flex-wrap {
-  flex-wrap: wrap;
-}
-
-.mp-root .gap-sm {
-  gap: 8px;
-}
-
-.mp-root .gap-md {
-  gap: 16px;
-}
-
-.mp-root .gap-lg {
-  gap: 24px;
-}
-
-/* ===================== TEXT UTILITIES ===================== */
-.mp-root .text-center {
-  text-align: center;
-}
-
-.mp-root .text-right {
-  text-align: right;
-}
-
-.mp-root .text-sm {
+  gap: 7px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, filter 0.15s ease, transform 0.1s ease,
+    box-shadow 0.15s ease;
 }
 
-.mp-root .text-lg {
-  font-size: 18px;
+.mp-root .btn svg {
+  flex: none;
 }
 
-.mp-root .text-bold {
-  font-weight: 600;
+.mp-root .btn-primary {
+  background: var(--mp-blue);
+  color: #ffffff;
+  border-color: var(--mp-blue);
 }
 
-.mp-root .text-light {
-  color: var(--color-text-light);
+.mp-root .btn-primary:hover:not(:disabled) {
+  background: var(--mp-blue-dark);
+  border-color: var(--mp-blue-dark);
+  box-shadow: 0 6px 16px rgba(47, 134, 217, 0.22);
 }
 
-/* ===================== MARGIN UTILITIES ===================== */
-.mp-root .mt-1 {
-  margin-top: 4px;
+.mp-root .btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
-.mp-root .mt-2 {
-  margin-top: 8px;
+.mp-root .btn-secondary,
+.mp-root .btn-outline {
+  background: var(--mp-card);
+  color: var(--mp-ink-3);
+  border-color: var(--mp-border-2);
 }
 
-.mp-root .mt-3 {
-  margin-top: 16px;
+.mp-root .btn-secondary:hover:not(:disabled),
+.mp-root .btn-outline:hover:not(:disabled) {
+  background: var(--mp-blue-soft);
+  border-color: #bfd9f2;
+  color: #2f6fbf;
 }
 
-.mp-root .mt-4 {
-  margin-top: 24px;
+.mp-root .btn-secondary:active:not(:disabled),
+.mp-root .btn-outline:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
-.mp-root .mb-1 {
-  margin-bottom: 4px;
+.mp-root .btn-danger {
+  background: #d6455d;
+  color: #ffffff;
+  border-color: #d6455d;
 }
 
-.mp-root .mb-2 {
-  margin-bottom: 8px;
+.mp-root .btn-danger:hover:not(:disabled) {
+  background: #c23a51;
+  border-color: #c23a51;
+  box-shadow: 0 6px 16px rgba(214, 69, 93, 0.22);
 }
 
-.mp-root .mb-3 {
-  margin-bottom: 16px;
+.mp-root .btn-danger:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
-.mp-root .mb-4 {
-  margin-bottom: 24px;
+.mp-root .btn-outline.danger {
+  background: var(--mp-card);
+  color: #d6455d;
+  border-color: #ffd2da;
 }
 
-/* ===================== PADDING UTILITIES ===================== */
-.mp-root .p-1 {
-  padding: 4px;
+.mp-root .btn-outline.danger:hover:not(:disabled) {
+  background: #fde7ea;
+  border-color: #fbc3cc;
+  color: #c23a51;
 }
 
-.mp-root .p-2 {
-  padding: 8px;
+.mp-root .btn-soft {
+  background: var(--mp-blue-soft);
+  color: #2f6fbf;
+  border-color: transparent;
 }
 
-.mp-root .p-3 {
-  padding: 16px;
+.mp-root .btn-soft:hover:not(:disabled) {
+  background: #dbeaf9;
+  color: var(--mp-blue-dark);
 }
 
-.mp-root .p-4 {
-  padding: 24px;
+.mp-root .btn-sm {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 8px;
 }
 
-/* ===================== MISC UTILITIES ===================== */
-.mp-root .w-full {
+.mp-root .btn:focus-visible {
+  outline: 3px solid rgba(47, 134, 217, 0.22);
+  outline-offset: 2px;
+}
+
+.mp-root .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------- Form controls ---------- */
+.mp-root .form-group {
+  margin-bottom: 14px;
+}
+
+.mp-root .form-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 750;
+  color: var(--mp-ink-3);
+}
+
+.mp-root .form-input,
+.mp-root .form-select,
+.mp-root .form-textarea {
   width: 100%;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--mp-ink-2);
+  background: var(--mp-card);
+  border: 1px solid var(--mp-border-2);
+  border-radius: 9px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.mp-root .hidden {
-  display: none;
+.mp-root .form-input:focus,
+.mp-root .form-select:focus,
+.mp-root .form-textarea:focus {
+  border-color: var(--mp-blue);
+  box-shadow: 0 0 0 3px rgba(47, 134, 217, 0.12);
 }
+
+.mp-root .form-input[readonly] {
+  background: #f6f9fd;
+  color: var(--mp-muted);
+}
+
+.mp-root .form-textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+.mp-root .form-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #d6455d;
+}
+
+/* ---------- Layout helpers ---------- */
+.mp-root .flex { display: flex; }
+.mp-root .flex-col { display: flex; flex-direction: column; }
+.mp-root .flex-center { display: flex; align-items: center; justify-content: center; }
+.mp-root .flex-between { display: flex; align-items: center; justify-content: space-between; }
+.mp-root .flex-wrap { display: flex; flex-wrap: wrap; }
+
+.mp-root .gap-sm { gap: 8px; }
+.mp-root .gap-md { gap: 12px; }
+.mp-root .gap-lg { gap: 16px; }
+
+.mp-root .mb-1 { margin-bottom: 4px; }
+.mp-root .mb-2 { margin-bottom: 8px; }
+.mp-root .mb-3 { margin-bottom: 12px; }
+.mp-root .mb-4 { margin-bottom: 16px; }
+.mp-root .mt-1 { margin-top: 4px; }
+.mp-root .mt-2 { margin-top: 8px; }
+.mp-root .mt-3 { margin-top: 12px; }
+.mp-root .mt-4 { margin-top: 16px; }
+.mp-root .p-1 { padding: 4px; }
+.mp-root .p-2 { padding: 8px; }
+.mp-root .p-3 { padding: 12px; }
+.mp-root .p-4 { padding: 16px; }
+
+.mp-root .w-full { width: 100%; }
+.mp-root .hidden { display: none !important; }
 
 .mp-root .truncate {
   overflow: hidden;
@@ -126,137 +201,9 @@
   white-space: nowrap;
 }
 
-/* ===================== BUTTONS ===================== */
-.mp-root .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  transition: var(--transition);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.mp-root .btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.mp-root .btn-primary {
-  background: var(--color-primary);
-  color: var(--color-text-white);
-  border-color: var(--color-primary);
-}
-
-.mp-root .btn-primary:hover:not(:disabled) {
-  background: var(--color-primary-dark);
-  border-color: var(--color-primary-dark);
-}
-
-.mp-root .btn-secondary {
-  background: var(--color-bg-white);
-  color: var(--color-text);
-  border-color: var(--color-border);
-}
-
-.mp-root .btn-secondary:hover:not(:disabled) {
-  background: var(--color-bg);
-}
-
-.mp-root .btn-danger {
-  background: var(--color-danger);
-  color: var(--color-text-white);
-  border-color: var(--color-danger);
-}
-
-.mp-root .btn-danger:hover:not(:disabled) {
-  background: #dc2626;
-  border-color: #dc2626;
-}
-
-.mp-root .btn-sm {
-  padding: 5px 12px;
-  font-size: 13px;
-}
-
-.mp-root .btn-outline {
-  background: transparent;
-  color: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.mp-root .btn-outline:hover:not(:disabled) {
-  background: var(--color-primary);
-  color: var(--color-text-white);
-}
-
-.mp-root .btn-soft {
-  background: rgba(99, 102, 241, 0.1);
-  color: #4f46e5;
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  border-radius: 8px;
-}
-
-.mp-root .btn-soft:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.16);
-  color: #4338ca;
-  border-color: rgba(99, 102, 241, 0.35);
-}
-
-/* ===================== FORM ELEMENTS ===================== */
-.mp-root .form-group {
-  margin-bottom: 16px;
-}
-
-.mp-root .form-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 6px;
-}
-
-.mp-root .form-input, .mp-root .form-select, .mp-root .form-textarea {
-  width: 100%;
-  padding: 9px 12px;
-  font-size: 14px;
-  color: var(--color-text);
-  background: var(--color-bg-white);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  outline: none;
-  transition: var(--transition);
-}
-
-.mp-root .form-input:focus, .mp-root .form-select:focus, .mp-root .form-textarea:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.mp-root .form-input::placeholder {
-  color: var(--color-text-light);
-}
-
-.mp-root .form-textarea {
-  resize: vertical;
-  min-height: 80px;
-}
-
-.mp-root .form-error {
-  font-size: 12px;
-  color: var(--color-danger);
-  margin-top: 4px;
-}
-
-.mp-root .form-input.error, .mp-root .form-select.error {
-  border-color: var(--color-danger);
-}
-
-.mp-root .form-input.error:focus, .mp-root .form-select.error:focus {
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
-}
+.mp-root .text-center { text-align: center; }
+.mp-root .text-right { text-align: right; }
+.mp-root .text-bold { font-weight: 750; }
+.mp-root .text-light { color: var(--mp-muted); }
+.mp-root .text-sm { font-size: 12.5px; }
+.mp-root .text-lg { font-size: 17px; }

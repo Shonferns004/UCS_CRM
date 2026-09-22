@@ -14,7 +14,9 @@ export default function MetropadPage() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <Dashboard />
+        <div className="mp-root">
+          <Dashboard />
+        </div>
       </AuthProvider>
     </ToastProvider>
   );

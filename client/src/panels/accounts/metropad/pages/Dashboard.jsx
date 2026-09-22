@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import useApi from '../hooks/useApi.js';
 import useAuth from '../hooks/useAuth.js';
 import useToast from '../hooks/useToast.js';
@@ -8,26 +8,30 @@ import { getErrorMessage, formatDateShort, formatNumber } from '../utils/formatt
 import KpiCard from '../components/KpiCard.jsx';
 import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
-import EmptyState from '../components/EmptyState.jsx';
 import ErrorState from '../components/ErrorState.jsx';
-import LoadingSpinner from '../components/LoadingSpinner.jsx';
 import MonthlyData from './MonthlyData.jsx';
-import Users from './Users.jsx';
+import UsersDrawer from '../components/UsersDrawer.jsx';
 import {
   SoapDispenserDroplet,
   TrainFront,
   MapPin,
   CheckCircle2,
-  Boxes,
   Droplets,
+  Boxes,
   ShieldCheck,
   Sparkles,
+  Heart,
   Activity,
+  ChevronRight,
+  EllipsisVertical,
+  Users as UsersIcon,
 } from 'lucide-react';
 
 function Dashboard() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const monthlyRef = useRef(null);
+  const [usersOpen, setUsersOpen] = useState(false);
 
   const { data: overview, loading: dashLoading, error: dashError, refetch: refetchDashboard } = useApi(
     () => dashboardService.getOverview({}),
@@ -37,140 +41,184 @@ function Dashboard() {
   const stats = overview?.stats ?? null;
   const refillsData = overview?.refills ?? null;
   const refillsLoading = dashLoading;
-  const refillsError = dashError;
 
   const activePercentage = stats?.activePercentage ?? 0;
 
   const refillsColumns = [
+    { key: '_index', label: '#', width: 36, render: (_v, _r, idx) => <span className="cell-muted">{(idx ?? 0) + 1}</span> },
     {
       key: 'refill_date',
       label: 'Date',
-      render: (val) => <span className="cell-strong">{formatDateShort(val)}</span>,
+      width: 104,
+      render: (val) => <span className="cell-strong no-wrap">{formatDateShort(val)}</span>,
     },
     { key: 'station_name', label: 'Station' },
-    { key: 'refill_quantity', label: 'Refilled', render: (val) => <span className="cell-tag refill">{val}</span> },
-    {
-      key: 'cash_collected',
-      label: 'Cash',
-      render: (val) => <span className="cell-strong">₹{formatNumber(val ?? 0)}</span>,
-    },
+    { key: 'refill_quantity', label: 'Refilled', width: 96, render: (val) => <span className="cell-tag refill">{val}</span> },
+    { key: 'cash_collected', label: 'Cash', width: 104, render: (val) => <span className="cell-strong">₹{formatNumber(val ?? 0)}</span> },
     { key: 'refilled_by', label: 'Staff' },
+    {
+      key: '_actions',
+      label: '',
+      width: 44,
+      render: () => (
+        <button type="button" className="row-menu" aria-label="Row actions">
+          <EllipsisVertical size={15} strokeWidth={2} />
+        </button>
+      ),
+    },
   ];
 
   const kpiCards = [
-    { title: 'Total Metro Lines', value: stats?.totalMetroLines ?? 0, icon: <TrainFront size={20} strokeWidth={1.9} />, color: 'blue', subtitle: 'Lines' },
-    { title: 'Total Stations', value: stats?.totalStations ?? 0, icon: <MapPin size={20} strokeWidth={1.9} />, color: 'purple', subtitle: 'Stations' },
-    { title: 'Active Machines', value: stats?.activeMachines ?? 0, icon: <CheckCircle2 size={20} strokeWidth={1.9} />, color: 'green', subtitle: `${activePercentage}% active` },
+    { title: 'Total Metro Lines', value: stats?.totalMetroLines ?? 0, icon: <TrainFront size={20} strokeWidth={1.9} />, color: 'blue', subtitle: 'Metro lines' },
+    { title: 'Total Stations', value: stats?.totalStations ?? 0, icon: <MapPin size={20} strokeWidth={1.9} />, color: 'lavender', subtitle: 'Stations' },
+    { title: 'Active Machines', value: stats?.activeMachines ?? 0, icon: <CheckCircle2 size={20} strokeWidth={1.9} />, color: 'mint', subtitle: `${activePercentage}% active` },
     { title: 'Pads Refilled This Month', value: stats?.padsRefilledThisMonth ?? 0, icon: <Droplets size={20} strokeWidth={1.9} />, color: 'pink', subtitle: 'Refilled' },
   ];
+
+  const scrollToMonthly = (e) => {
+    if (e) e.preventDefault();
+    monthlyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   if (dashError) {
     const msg = getErrorMessage(dashError);
     return (
-      <div className="dashboard-page">
-        <div className="dash-error">
-          <ErrorState message={msg} onRetry={refetchDashboard} />
+      <div className="metropad-page">
+        <div className="metropad-content">
+          <div className="error-card">
+            <ErrorState message={msg} onRetry={refetchDashboard} />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="dashboard-page">
-      {/* HERO */}
-      <section className="dash-hero">
-        <div className="dash-hero-content">
-          <div className="dash-hero-icon">
-            <SoapDispenserDroplet size={30} strokeWidth={1.7} />
-          </div>
-          <div className="dash-hero-copy">
-            <div className="dash-hero-eyebrow">
-              <span className="dash-hero-eyebrow-dot" />
-              MetroPad Care
+    <div className="metropad-page">
+      <div className="metropad-content">
+        {/* HERO */}
+        <section className="hero-card">
+          <div className="hero-inner">
+            <div className="hero-icon">
+              <SoapDispenserDroplet size={28} strokeWidth={1.7} />
             </div>
-            <h1 className="dash-hero-title">Sanitary Pad Machine Management</h1>
-            <p className="dash-hero-subtitle">Mumbai Metro Station Machine Monitoring & Refill Management</p>
-            <div className="dash-hero-badges">
-              <span className="dash-hero-badge"><ShieldCheck size={13} strokeWidth={2} /> Safe</span>
-              <span className="dash-hero-badge"><Sparkles size={13} strokeWidth={2} /> Clean</span>
-              <span className="dash-hero-badge"><Droplets size={13} strokeWidth={2} /> Dignified</span>
+            <div className="hero-text">
+              <div className="hero-eyebrow">MetroPad Care</div>
+              <h1 className="hero-title">Sanitary Pad Machine Management</h1>
+              <p className="hero-subtitle">Mumbai Metro Station Machine Monitoring & Refill Management</p>
+              <div className="hero-tags">
+                <span className="hero-tag safe"><ShieldCheck size={12} strokeWidth={2} /> Safe</span>
+                <span className="hero-tag clean"><Sparkles size={12} strokeWidth={2} /> Clean</span>
+                <span className="hero-tag dignity"><Heart size={12} strokeWidth={2} /> Dignified</span>
+              </div>
+              {isAdmin && (
+                <div className="hero-cta">
+                  <button className="btn btn-primary" onClick={() => setUsersOpen(true)}>
+                    <UsersIcon size={15} strokeWidth={2} /> Add User
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-        <div className="dash-hero-art" aria-hidden="true">
-          <svg width="150" height="120" viewBox="0 0 150 120" fill="none">
-            <rect x="52" y="8" width="46" height="104" rx="8" fill="#ffffff" stroke="#c7d2fe" strokeWidth="1.5" />
-            <rect x="60" y="18" width="30" height="34" rx="4" fill="#eef2ff" />
-            <rect x="64" y="23" width="22" height="4" rx="2" fill="#a5b4fc" />
-            <rect x="64" y="30" width="22" height="4" rx="2" fill="#a5b4fc" />
-            <rect x="64" y="37" width="22" height="4" rx="2" fill="#a5b4fc" />
-            <rect x="64" y="44" width="22" height="4" rx="2" fill="#a5b4fc" />
-            <rect x="60" y="62" width="30" height="18" rx="4" fill="#eef2ff" />
-            <circle cx="66" cy="72" r="3" fill="#6366f1" opacity="0.9" />
-            <circle cx="74" cy="72" r="3" fill="#6366f1" opacity="0.5" />
-            <circle cx="82" cy="72" r="3" fill="#6366f1" opacity="0.25" />
-            <rect x="62" y="92" width="26" height="6" rx="3" fill="#edeef3" />
-            <circle cx="125" cy="18" r="5" fill="#d6edff" stroke="#7ec3ff" strokeWidth="1.5" />
-            <circle cx="125" cy="18" r="2" fill="#3b82f6" />
-          </svg>
-        </div>
-      </section>
-
-      {/* KPI GRID */}
-      <section className="kpi-grid">
-        {kpiCards.map((card) => (
-          <KpiCard key={card.title} {...card} />
-        ))}
-      </section>
-
-      {/* PAD STOCK SUMMARY */}
-      <StockSummaryStrip />
-
-      {/* USERS (ADMIN) — quick add */}
-      {isAdmin && (
-        <section className="dash-section">
-          <Users compact />
+          <div className="hero-art" aria-hidden="true">
+            <svg width="150" height="150" viewBox="0 0 150 150" fill="none">
+              <circle cx="75" cy="84" r="64" fill="#EAF3FC" />
+              <rect x="46" y="12" width="58" height="112" rx="12" fill="#FFFFFF" stroke="#C4DCF5" strokeWidth="1.5" />
+              <rect x="55" y="22" width="40" height="32" rx="7" fill="#EFF6FE" />
+              <rect x="61" y="29" width="28" height="6" rx="3" fill="#9CC3EB" />
+              <circle cx="66" cy="45" r="3" fill="#2F86D9" opacity="0.9" />
+              <circle cx="75" cy="45" r="3" fill="#2F86D9" opacity="0.55" />
+              <circle cx="84" cy="45" r="3" fill="#2F86D9" opacity="0.3" />
+              <circle cx="64" cy="66" r="4" fill="#2F86D9" opacity="0.9" />
+              <circle cx="75" cy="66" r="4" fill="#2F86D9" opacity="0.5" />
+              <circle cx="86" cy="66" r="4" fill="#2F86D9" opacity="0.25" />
+              <rect x="57" y="84" width="36" height="14" rx="7" fill="#F1F6FC" stroke="#D6E6F7" strokeWidth="1" />
+              <ellipse cx="75" cy="91" rx="10" ry="5" fill="#FDEBF1" stroke="#F2C9D7" strokeWidth="1" />
+              <rect x="51" y="112" width="48" height="7" rx="3.5" fill="#E3EDF9" />
+              <circle cx="119" cy="26" r="6" fill="#DFF2E8" stroke="#BBDDCD" strokeWidth="1.5" />
+              <circle cx="28" cy="46" r="5" fill="#FBEAF0" stroke="#F3CDDA" strokeWidth="1.5" />
+            </svg>
+          </div>
         </section>
-      )}
 
-      {/* RECENT REFILLS */}
-      <section className="dash-card">
-        <header className="dash-card-header">
-          <div className="dash-card-title">
-            <span className="dash-card-icon success"><Activity size={16} strokeWidth={2} /></span>
-            <div>
-              <h2>Recent Refills</h2>
-              <p>Latest refill activity across stations</p>
+        {/* KPI GRID */}
+        <section className="kpi-grid">
+          {kpiCards.map((card) => (
+            <KpiCard key={card.title} {...card} />
+          ))}
+        </section>
+
+        {/* PAD STOCK SUMMARY */}
+        <StockSummaryStrip isAdmin={isAdmin} />
+
+        {/* RECENT REFILLS */}
+        <section className="section-card">
+          <header className="section-header">
+            <div className="section-heading">
+              <span className="section-heading-icon mint">
+                <Activity size={16} strokeWidth={2} />
+              </span>
+              <div>
+                <h2 className="section-title">Recent Refills</h2>
+                <p className="section-subtitle">Latest refill activity across stations</p>
+              </div>
             </div>
-          </div>
-        </header>
-        {refillsLoading ? (
-          <LoadingSpinner message="Loading recent refills..." />
-        ) : (refillsData?.refills?.length ?? 0) > 0 ? (
-          <div className="table-wrapper">
-            <DataTable
-              columns={refillsColumns}
-              data={refillsData.refills}
-              emptyMessage="No recent refills"
-            />
-          </div>
-        ) : (
-          <EmptyState icon="📭" message="No recent refills" />
-        )}
-      </section>
+            {!refillsLoading && (refillsData?.refills?.length ?? 0) > 0 && (
+              <div className="section-actions">
+                <a className="view-all" href="#monthly-data" onClick={scrollToMonthly}>
+                  View All <ChevronRight size={15} strokeWidth={2.2} />
+                </a>
+              </div>
+            )}
+          </header>
+          <DataTable
+            columns={refillsColumns}
+            data={refillsData?.refills ?? []}
+            loading={refillsLoading}
+            emptyMessage="No refill activity yet"
+            skeletonRows={4}
+          />
+        </section>
 
-      {/* MONTHLY DATA */}
-      <section className="dash-section">
-        <MonthlyData />
-      </section>
+        {/* MONTHLY DATA */}
+        <div className="monthly-anchor" ref={monthlyRef}>
+          <MonthlyData />
+        </div>
+      </div>
+
+      <UsersDrawer isOpen={usersOpen} onClose={() => setUsersOpen(false)} />
     </div>
   );
 }
 
-function StockSummaryStrip() {
+function StockSummaryStripSkeleton() {
+  return (
+    <section className="section-card">
+      <div className="section-header">
+        <div className="section-heading">
+          <span className="section-heading-icon blue">
+            <Boxes size={16} strokeWidth={2} />
+          </span>
+          <div>
+            <h2 className="section-title">Pad Stock Summary</h2>
+            <p className="section-subtitle">Central warehouse and machine-level stock</p>
+          </div>
+        </div>
+      </div>
+      <div className="stock-grid">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div className="skeleton stock-tile-sk" key={i} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StockSummaryStrip({ isAdmin }) {
   const { addToast } = useToast();
   const { hasRole } = useAuth();
-  const isAdmin = hasRole('ADMIN');
+  const admin = hasRole('ADMIN');
+  const showAdminActions = isAdmin || admin;
   const [configOpen, setConfigOpen] = useState(false);
   const [addQty, setAddQty] = useState('');
   const [price, setPrice] = useState('');
@@ -178,16 +226,14 @@ function StockSummaryStrip() {
 
   const { data: stock, loading, refetch: refetchStock } = useApi(() => stockService.getSummary(), []);
 
-  if (loading) return null;
+  if (loading) return <StockSummaryStripSkeleton />;
 
   const items = [
-    { label: 'Initial Stock', value: stock ? `${formatNumber(stock.initialStock)} pads` : '—' },
-    { label: 'Distributed', value: stock ? `${formatNumber(stock.totalDistributed)} pads` : '—' },
-    { label: 'Remaining Central Stock', value: stock ? `${formatNumber(stock.remainingCentral)} pads` : '—' },
-    { label: 'Price / Pad', value: stock ? `₹${formatNumber(stock.pricePerPad)}` : '—' },
-    { label: 'Remaining Stock Value', value: stock ? `₹${formatNumber(stock.remainingCentralValue)}` : '—' },
-    { label: 'Pads Inside Machines', value: stock ? `${formatNumber(stock.totalMachinePads)} pads` : '—' },
-    { label: 'Value Inside Machines', value: stock ? `₹${formatNumber(stock.totalMachineValue)}` : '—' },
+    { label: 'Initial Stock', value: stock ? `${formatNumber(stock.initialStock)} pads` : '—', tone: 'blue' },
+    { label: 'Distributed', value: stock ? `${formatNumber(stock.totalDistributed)} pads` : '—', tone: 'lavender' },
+    { label: 'Remaining Central Stock', value: stock ? `${formatNumber(stock.remainingCentral)} pads` : '—', tone: 'mint' },
+    { label: 'Price / Pad', value: stock ? `₹${formatNumber(stock.pricePerPad)}` : '—', tone: 'amber' },
+    { label: 'Remaining Stock Value', value: stock ? `₹${formatNumber(stock.remainingCentralValue)}` : '—', tone: 'pink' },
   ];
 
   const openConfig = () => {
@@ -224,28 +270,30 @@ function StockSummaryStrip() {
   };
 
   return (
-    <section className="dash-card">
-      <header className="dash-card-header">
-        <div className="dash-card-title">
-          <span className="dash-card-icon primary"><Boxes size={16} strokeWidth={2} /></span>
+    <section className="section-card stock-card">
+      <header className="section-header">
+        <div className="section-heading">
+          <span className="section-heading-icon blue">
+            <Boxes size={16} strokeWidth={2} />
+          </span>
           <div>
-            <h2>Pad Stock Summary</h2>
-            <p>Central warehouse and machine-level stock</p>
+            <h2 className="section-title">Pad Stock Summary</h2>
+            <p className="section-subtitle">Central warehouse and machine-level stock</p>
           </div>
         </div>
-        {isAdmin && (
-          <div className="dash-card-actions">
+        {showAdminActions && (
+          <div className="section-actions">
             <button className="btn btn-outline" onClick={openConfig}>
               + Add Pads / Set Price
             </button>
           </div>
         )}
       </header>
-      <div className="stock-summary-grid">
+      <div className="stock-grid">
         {items.map((it) => (
-          <div className="stock-summary-item" key={it.label}>
-            <span className="stock-summary-label">{it.label}</span>
-            <span className="stock-summary-value">{it.value}</span>
+          <div className={`stock-tile tone-${it.tone}`} key={it.label}>
+            <span className="stock-tile-label">{it.label}</span>
+            <span className="stock-tile-value">{it.value}</span>
           </div>
         ))}
       </div>
@@ -256,7 +304,7 @@ function StockSummaryStrip() {
         title="Add Pad Stock & Price"
         footer={
           <>
-            <button className="btn btn-secondary" onClick={() => setConfigOpen(false)}>Cancel</button>
+            <button className="btn btn-outline" onClick={() => setConfigOpen(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSaveConfig} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </button>
