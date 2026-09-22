@@ -1,5 +1,7 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
 import '../../services/api_service.dart';
 import '../beneficiaries/qr_scanner_page.dart';
 import '../distribution/distribution_page.dart';
@@ -32,11 +34,11 @@ class _TasksPageState extends State<TasksPage> {
 
   IconData _taskIcon(String? type) {
     switch (type) {
-      case 'CHECK_IN': return Icons.how_to_reg;
-      case 'DISTRIBUTE': return Icons.inventory_2;
-      case 'COLLECT_BIOMETRIC': return Icons.fingerprint;
-      case 'HOME_VISIT': return Icons.home;
-      default: return Icons.task_alt;
+      case 'CHECK_IN': return LucideIcons.userCheck;
+      case 'DISTRIBUTE': return LucideIcons.package;
+      case 'COLLECT_BIOMETRIC': return LucideIcons.fingerprint;
+      case 'HOME_VISIT': return LucideIcons.home;
+      default: return LucideIcons.clipboardCheck;
     }
   }
 
@@ -61,9 +63,9 @@ class _TasksPageState extends State<TasksPage> {
               ],
             ),
           ),
-          Expanded(
+Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const SkeletonList()
                 : _tasks.isEmpty
                     ? const Center(child: Text('No pending tasks', style: TextStyle(color: AppTheme.textSecondary)))
                     : ListView.separated(
@@ -97,7 +99,7 @@ class _TasksPageState extends State<TasksPage> {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.outline),
         ),
         child: Row(
@@ -106,7 +108,7 @@ class _TasksPageState extends State<TasksPage> {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: color.withAlpha(20),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(_taskIcon(type), color: color, size: 20),
             ),
@@ -135,3 +137,5 @@ class _TasksPageState extends State<TasksPage> {
     );
   }
 }
+
+

@@ -1,5 +1,7 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
 import '../../services/api_service.dart';
 import '../beneficiaries/qr_scanner_page.dart';
 
@@ -41,22 +43,29 @@ class _DistributionPageState extends State<DistributionPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Distributions'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             onPressed: _issueBenefit,
-            icon: const Icon(Icons.qr_code_scanner),
+            icon: const Icon(LucideIcons.scanLine),
             tooltip: 'Scan & Issue',
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
+body: _loading
+          ? const SkeletonList()
           : RefreshIndicator(
               onRefresh: _loadDistributions,
-              child: _distributions.isEmpty
-                  ? const Center(child: Text('No distributions yet', style: TextStyle(color: AppTheme.textSecondary)))
+child: _distributions.isEmpty
+                  ? ListView(
+                      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
+                      children: [
+                        Icon(LucideIcons.package, size: 44, color: AppTheme.textSecondary.withAlpha(120)),
+                        const SizedBox(height: 12),
+                        const Text('No distributions yet',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 15, color: AppTheme.textSecondary)),
+                      ],
+                    )
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: _distributions.length,
@@ -86,7 +95,7 @@ class _DistributionPageState extends State<DistributionPage> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.outline),
       ),
       child: Column(
@@ -130,3 +139,5 @@ class _DistributionPageState extends State<DistributionPage> {
     );
   }
 }
+
+

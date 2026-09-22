@@ -1,11 +1,22 @@
+﻿import '../../core/lucide_icons.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_text_styles.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
+import 'add_beneficiary_page.dart';
 import 'beneficiary_detail_page.dart';
 
 class FingerprintLookupPage extends StatefulWidget {
-  const FingerprintLookupPage({super.key});
+  final String name;
+  final bool canAdd;
+
+  const FingerprintLookupPage({
+    super.key,
+    this.name = 'Volunteer',
+    this.canAdd = true,
+  });
 
   @override
   State<FingerprintLookupPage> createState() => _FingerprintLookupPageState();
@@ -13,57 +24,60 @@ class FingerprintLookupPage extends StatefulWidget {
 
 class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   bool _loading = false;
-  String _status = 'Place a beneficiary finger on the scanner';
   String? _error;
 
-  /// Device connection state (from the native biometric plugin).
   bool? _deviceConnected;
-  String? _deviceName;
-  bool _checkingDevice = true;
+  StreamSubscription<Map<String, dynamic>>? _deviceEventSub;
 
-  /// Cached raw-format templates for on-device 1:N matching.
   List<Map<String, dynamic>>? _templateCache;
   Map<String, dynamic>? _matchedBeneficiary;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkDevice().then((_) {
-        if (mounted && _deviceConnected == true) _findBeneficiary();
-      });
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkDevice());
+    _deviceEventSub = FingerprintService.onEvent.listen(_handleDeviceEvent);
   }
 
   @override
   void dispose() {
+    _deviceEventSub?.cancel();
     FingerprintService.stopCapture();
     super.dispose();
   }
 
+  Future<void> _handleDeviceEvent(Map<String, dynamic> event) async {
+    final type = event['type'];
+    if (type == 'device_connected') {
+      await _checkDevice();
+      if (mounted && _deviceConnected == true) {
+        setState(() => _error = null);
+      }
+    } else if (type == 'device_disconnected') {
+      await FingerprintService.stopCapture();
+      if (!mounted) return;
+      setState(() {
+        _deviceConnected = false;
+        _error = 'Device not connected';
+        _loading = false;
+        _matchedBeneficiary = null;
+      });
+    }
+  }
+
   Future<void> _checkDevice() async {
-    setState(() {
-      _checkingDevice = true;
-      _deviceConnected = null;
-    });
     var connected = false;
-    String? name;
     try {
       final info = await FingerprintService.rawGetInfo();
       connected = info['connected'] == true;
-      name = info['device_name']?.toString() ?? 'SecuGen Hamster Pro 20';
       if (!connected) {
-        // Try to actually open the raw USB device — this is the connection
-        // path used by fingerprint capture.
         final conn = await FingerprintService.rawConnect();
         connected = conn['connected'] == true;
-        name = conn['device_name']?.toString() ?? name;
       }
       if (!connected) {
         final defaultDevice = await FingerprintService.getDefaultDevice();
         if (defaultDevice != null && defaultDevice.isAvailable) {
           connected = true;
-          name = defaultDevice.displayName;
         }
       }
     } catch (_) {
@@ -71,28 +85,23 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     }
     if (!mounted) return;
     setState(() {
-      _checkingDevice = false;
       _deviceConnected = connected;
-      _deviceName = name;
-      _status = connected
-          ? 'Place a beneficiary finger on the scanner'
-          : 'Fingerprint device is not connected';
-      if (!connected) {
-        _error = 'Device not connected. Please connect the SecuGen '
-            'Hamster Pro 20 and try again.';
-      }
+      _error = connected ? null : 'Device not connected';
     });
   }
 
   Future<void> _findBeneficiary() async {
+    if (_loading) return;
     if (_deviceConnected != true) {
       await _checkDevice();
-      if (_deviceConnected != true) return;
+      if (_deviceConnected != true) {
+        return;
+      }
     }
     setState(() {
       _loading = true;
       _error = null;
-      _status = 'Checking biometric device...';
+      _matchedBeneficiary = null;
     });
 
     try {
@@ -102,13 +111,11 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       setState(() {
         _loading = false;
         _error = e.toString().replaceFirst('Exception: ', '');
-        _status = 'No beneficiary found';
         _matchedBeneficiary = null;
       });
     }
   }
 
-  /// Stop the active scan and return to the idle state.
   Future<void> _cancelScanning() async {
     await FingerprintService.stopCapture();
     if (!mounted) return;
@@ -116,11 +123,9 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       _loading = false;
       _error = null;
       _matchedBeneficiary = null;
-      _status = 'Scanning cancelled';
     });
   }
 
-  /// Own-system flow: raw USB capture -> on-device SourceAFIS 1:N match.
   Future<void> _findBeneficiaryRaw() async {
     await FingerprintService.rawConnect();
     final info = await FingerprintService.rawGetInfo();
@@ -128,13 +133,10 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       if (!mounted) return;
       setState(() {
         _deviceConnected = false;
-        _status = 'Fingerprint device is not connected';
-        _error = 'Device not connected. Please connect the SecuGen '
-            'Hamster Pro 20 and try again.';
+        _error = 'Device not connected';
       });
       return;
     }
-    setState(() => _status = 'Place the finger on the scanner...');
     final result = await FingerprintService.capture(
       deviceType: BiometricDeviceType.secugenHamsterPro20,
     );
@@ -153,7 +155,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       );
     }
 
-    setState(() => _status = 'Matching against ${candidates.length} enrolled fingerprint(s)...');
     final identify = await FingerprintService.sourceafisIdentify(
       result.template,
       candidates.map((c) => c['template'].toString()).toList(),
@@ -163,7 +164,8 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       throw Exception('No beneficiary found with this fingerprint. Try again.');
     }
 
-    matches.sort((a, b) => ((b as Map)['score'] as num).compareTo((a as Map)['score'] as num));
+    matches.sort((a, b) =>
+        ((b as Map)['score'] as num).compareTo((a as Map)['score'] as num));
     final best = Map<String, dynamic>.from(matches.first as Map);
     final bestIndex = (best['index'] as num).toInt();
     final beneficiaryId = candidates[bestIndex]['beneficiary_id']?.toString();
@@ -171,32 +173,29 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       throw Exception('Matched record has no beneficiary id');
     }
 
-    setState(() => _status = 'Match found (score ${(best['score'] as num).toStringAsFixed(3)}). Fetching profile...');
     final response = await ApiService.get('/beneficiaries/$beneficiaryId');
     if (!mounted) return;
     final profile = Map<String, dynamic>.from(response);
     setState(() {
       _loading = false;
       _matchedBeneficiary = profile;
-      _status = 'Match found — opening profile...';
       _error = null;
     });
-    // Replace the lookup route so pressing back returns to the home page.
-    await Navigator.pushReplacement(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => BeneficiaryDetailPage(beneficiary: profile),
       ),
     );
+    if (!mounted) return;
+    setState(() => _matchedBeneficiary = null);
   }
 
-  /// Fetch enrolled raw-format templates from the backend and cache them.
-  Future<List<Map<String, dynamic>>> _loadTemplates({bool force = false}) async {
+  Future<List<Map<String, dynamic>>> _loadTemplates(
+      {bool force = false}) async {
     final cache = _templateCache;
     final cacheValid = cache != null && cache.isNotEmpty;
     if (cacheValid && !force) return cache;
-
-    setState(() {});
     try {
       final response = await ApiService.get(
         '/biometrics/templates',
@@ -213,176 +212,353 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Find by Fingerprint'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Device connection indicator
-          _buildDeviceIndicator(),
-          const SizedBox(height: 12),
+    final matched = _matchedBeneficiary != null;
+    final bool deviceGrey = _deviceConnected != true;
+    final Color accent = matched
+        ? AppColors.successGreen
+        : deviceGrey
+            ? AppColors.disabled
+            : _error == null
+                ? AppColors.primaryBlue
+                : AppColors.error;
+    final Color accentSoft = matched
+        ? AppColors.successGreenSoft
+        : deviceGrey
+            ? AppColors.surfaceSoft
+            : _error == null
+                ? AppColors.primaryBlueSoft
+                : AppColors.errorSoft;
 
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.outline),
-            ),
-            child: Column(
+    final Color labelColor;
+    final Color labelBg;
+    if (deviceGrey) {
+      labelColor = AppColors.textSecondary;
+      labelBg = AppColors.surfaceSoft;
+    } else if (_error != null) {
+      labelColor = AppColors.error;
+      labelBg = AppColors.errorSoft;
+    } else {
+      labelColor = AppColors.successGreen;
+      labelBg = AppColors.successGreenSoft;
+    }
+
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Good Morning'
+        : hour < 17
+            ? 'Good Afternoon'
+            : 'Good Evening';
+
+    return Scaffold(
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final centerY = constraints.maxHeight / 2;
+            final String? stateLabel =
+                (_error != null && _error != 'Device not connected')
+                    ? _error
+                    : null;
+            return Stack(
               children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  transitionBuilder: (child, animation) =>
-                      FadeTransition(opacity: animation, child: child),
-                  child: _loading
-                      ? const _ScanningFingerprintIndicator(
-                          key: ValueKey('scanning'),
-                        )
-                      : Icon(
-                          _matchedBeneficiary != null
-                              ? Icons.check_circle
-                              : Icons.fingerprint,
-                          key: ValueKey(_error == null ? 'idle' : 'error'),
-                          size: 72,
-                          color: _matchedBeneficiary != null
-                              ? AppTheme.success
-                              : _error == null
-                                  ? AppTheme.secondary
-                                  : AppTheme.error,
+                Positioned(
+                  top: 16,
+                  left: 24,
+                  right: 24,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('BEING SEVAK',
+                                style: AppTextStyles.pageLabel),
+                            const SizedBox(height: 6),
+                            Text(
+                              '$greeting, ${widget.name} 👋',
+                              style: AppTextStyles.pageTitle,
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Together for a better tomorrow.',
+                              style: AppTextStyles.pageSubtitle,
+                            ),
+                          ],
                         ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _status,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                      ),
+                      const SizedBox(width: 12),
+                      _CompactAddButton(enabled: widget.canAdd),
+                    ],
                   ),
                 ),
-                if (_error != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: AppTheme.error, height: 1.5),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: (_loading || _checkingDevice) ? null : _findBeneficiary,
-                  icon: _loading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.fingerprint, size: 18),
-                  label: Text(_loading ? 'Scanning...' : 'Scan Another Finger'),
-                ),
-                if (_loading) ...[
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _cancelScanning,
-                    icon: const Icon(Icons.cancel_outlined, size: 18),
-                    label: const Text('Cancel Scanning'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.error,
-                      side: const BorderSide(color: AppTheme.error),
+                Center(
+                  child: GestureDetector(
+                    onTap: _loading ? _cancelScanning : _findBeneficiary,
+                    behavior: HitTestBehavior.opaque,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder: (child, animation) =>
+                          FadeTransition(opacity: animation, child: child),
+                      child: _loading
+                          ? _ScanningFingerprintIndicator(
+                              key: const ValueKey('scanning'),
+                              accent: accent,
+                              accentSoft: accentSoft,
+                            )
+                          : _IdleFingerprintGlyph(
+                              key: ValueKey(matched
+                                  ? 'matched'
+                                  : (_error == null ? 'idle' : 'error')),
+                              accent: accent,
+                              accentSoft: accentSoft,
+                              matched: matched,
+                              onTap: _findBeneficiary,
+                            ),
                     ),
                   ),
-                ],
+                ),
+                if (!_loading && stateLabel != null)
+                  Positioned(
+                    left: 32,
+                    right: 32,
+                    top: centerY + 165,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: labelBg,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          stateLabel,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                            color: labelColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Place the beneficiary finger flat on the scanner. The page scans automatically when opened and opens the matching profile.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-          ),
-        ],
+            );
+          },
+        ),
       ),
     );
   }
+}
 
-  Widget _buildDeviceIndicator() {
-    if (_checkingDevice) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.outline),
-        ),
-        child: const Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 12),
-            Text('Checking fingerprint device...',
-                style: TextStyle(fontSize: 13)),
-          ],
-        ),
-      );
-    }
-    final connected = _deviceConnected == true;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: connected ? AppTheme.success.withAlpha(15) : AppTheme.error.withAlpha(15),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: connected ? AppTheme.success : AppTheme.error),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            connected ? Icons.check_circle : Icons.error_outline,
-            color: connected ? AppTheme.success : AppTheme.error,
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              connected
-                  ? 'Device Connected (${_deviceName ?? 'SecuGen Hamster Pro 20'})'
-                  : 'Device Not Connected',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: connected ? AppTheme.success : AppTheme.error,
+/// Idle fingerprint icon with a subtle pulsing ring and material ripple
+/// to communicate that it is tappable.
+class _IdleFingerprintGlyph extends StatefulWidget {
+  final Color accent;
+  final Color accentSoft;
+  final bool matched;
+  final VoidCallback onTap;
+
+  const _IdleFingerprintGlyph({
+    super.key,
+    required this.accent,
+    required this.accentSoft,
+    required this.matched,
+    required this.onTap,
+  });
+
+  @override
+  State<_IdleFingerprintGlyph> createState() => _IdleFingerprintGlyphState();
+}
+
+class _IdleFingerprintGlyphState extends State<_IdleFingerprintGlyph>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t = _controller.value;
+        return SizedBox(
+          width: 280,
+          height: 280,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!widget.matched)
+                for (var i = 0; i < 3; i++) _buildRing(t, i),
+              Material(
+                color: widget.accentSoft,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: widget.onTap,
+                  customBorder: const CircleBorder(),
+                  child: SizedBox(
+                    width: 184,
+                    height: 184,
+                    child: Icon(
+                      widget.matched
+                          ? LucideIcons.checkCircle
+                          : LucideIcons.fingerprint,
+                      size: 88,
+                      color: widget.accent,
+                    ),
+                  ),
+                ),
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// An expanding, fading ring that radiates outward from the icon to
+  /// signal the operator to tap it.
+  Widget _buildRing(double t, int i) {
+    final p = (t + i / 3) % 1.0;
+    final scale = 0.55 + 0.9 * p;
+    final opacity = (1 - p).clamp(0.0, 1.0) * 0.55;
+    return Transform.scale(
+      scale: scale,
+      child: Opacity(
+        opacity: opacity,
+        child: Container(
+          width: 192,
+          height: 192,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: widget.accent, width: 2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Add Beneficiary" action on the fingerprint screen greeting row,
+/// with an animated arrow that nudges to signal interactivity.
+class _CompactAddButton extends StatefulWidget {
+  final bool enabled;
+
+  const _CompactAddButton({required this.enabled});
+
+  @override
+  State<_CompactAddButton> createState() => _CompactAddButtonState();
+}
+
+class _CompactAddButtonState extends State<_CompactAddButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _arrowController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+  late final Animation<double> _arrowSlide =
+      Tween<double>(begin: -3, end: 3).animate(
+    CurvedAnimation(parent: _arrowController, curve: Curves.easeInOut),
+  );
+
+  @override
+  void dispose() {
+    _arrowController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.enabled;
+    if (enabled) {
+      if (!_arrowController.isAnimating) {
+        _arrowController.repeat(reverse: true);
+      }
+    } else {
+      _arrowController
+        ..stop()
+        ..value = 0;
+    }
+    return GestureDetector(
+      onTap: enabled
+          ? () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AddBeneficiaryPage()),
+              )
+          : null,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.5,
+child: Container(
+            height: 72,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: enabled ? AppColors.primaryBlueSoft : AppColors.disabled,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Add Beneficiary',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.addBeneficiaryText,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedBuilder(
+                  animation: _arrowSlide,
+                  builder: (context, child) => Transform.translate(
+                    offset: Offset(_arrowSlide.value, 0),
+                    child: child,
+                  ),
+                  child: const Icon(
+                    LucideIcons.arrowRight,
+                    size: 20,
+                    color: AppColors.primaryBlue,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
       ),
     );
   }
 }
 
 class _ScanningFingerprintIndicator extends StatefulWidget {
-  const _ScanningFingerprintIndicator({super.key});
+  final Color accent;
+  final Color accentSoft;
+
+  const _ScanningFingerprintIndicator({
+    super.key,
+    required this.accent,
+    required this.accentSoft,
+  });
 
   @override
-  State<_ScanningFingerprintIndicator> createState() => _ScanningFingerprintIndicatorState();
+  State<_ScanningFingerprintIndicator> createState() =>
+      _ScanningFingerprintIndicatorState();
 }
 
-class _ScanningFingerprintIndicatorState extends State<_ScanningFingerprintIndicator>
+class _ScanningFingerprintIndicatorState
+    extends State<_ScanningFingerprintIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1500),
+    duration: const Duration(milliseconds: 1600),
   )..repeat();
 
   @override
@@ -397,39 +573,34 @@ class _ScanningFingerprintIndicatorState extends State<_ScanningFingerprintIndic
       animation: _controller,
       builder: (context, _) {
         return SizedBox(
-          width: 120,
-          height: 120,
+          width: 184,
+          height: 184,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Pulsing outer rings
               for (var i = 0; i < 3; i++)
                 Transform.scale(
                   scale: 0.6 + 0.4 * ((_controller.value + i * 0.33) % 1.0),
                   child: Container(
-                    width: 110,
-                    height: 110,
+                    width: 184,
+                    height: 184,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppTheme.secondary.withAlpha(((1 - (_controller.value + i * 0.33) % 1.0) * 120).round()),
-                        width: 2,
-                      ),
+                      color: widget.accentSoft,
                     ),
                   ),
                 ),
-              // Fingerprint icon
               Container(
-                width: 76,
-                height: 76,
+                width: 136,
+                height: 136,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppTheme.secondary.withAlpha(25),
+                  color: widget.accentSoft,
                 ),
-                child: const Icon(
-                  Icons.fingerprint,
-                  size: 46,
-                  color: AppTheme.secondary,
+                child: Icon(
+                  LucideIcons.fingerprint,
+                  size: 88,
+                  color: widget.accent,
                 ),
               ),
             ],

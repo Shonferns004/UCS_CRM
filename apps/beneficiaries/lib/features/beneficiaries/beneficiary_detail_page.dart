@@ -1,5 +1,8 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
 import 'fingerprint_capture_screen.dart';
 
@@ -51,14 +54,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         'beneficiary_code': _b['beneficiary_code'],
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Checked in successfully'), backgroundColor: AppTheme.success),
-      );
+      showAppSnackbar(context, 'Checked in successfully', success: true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.error),
-      );
+      showAppSnackbar(context, e.toString(), error: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -71,14 +70,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         'beneficiary_code': _b['beneficiary_code'],
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Benefit issued'), backgroundColor: AppTheme.success),
-      );
+      showAppSnackbar(context, 'Benefit issued', success: true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.error),
-      );
+      showAppSnackbar(context, e.toString(), error: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -97,14 +92,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           _b['kit_collected'] = true;
         }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kit marked as collected'), backgroundColor: AppTheme.success),
-      );
+      showAppSnackbar(context, 'Kit marked as collected', success: true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.error),
-      );
+      showAppSnackbar(context, e.toString(), error: true);
     } finally {
       if (mounted) setState(() => _markingKit = false);
     }
@@ -120,65 +111,83 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     final categories = (_b['categories'] as List?)?.map((c) => c['name'] ?? c).join(', ') ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(name),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('Beneficiary', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600))),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
         children: [
-          // Header card
+          // Header
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.outline),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: AppTheme.cardShadow,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: AppTheme.secondary.withAlpha(30),
-                      child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppTheme.secondary)),
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.blueSoft,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.secondary),
+                      ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                          Text(code, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                          Text(name,
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 2),
+                          Text(code,
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppTheme.textSecondary)),
                         ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                _infoRow('Status', status),
+                const SizedBox(height: 20),
+                _infoRow('Status', status, accentSuccess: status == 'ACTIVE'),
                 if (mobile.isNotEmpty) _infoRow('Mobile', mobile),
                 if (city.isNotEmpty) _infoRow('City', city),
                 if (categories.isNotEmpty) _infoRow('Categories', categories),
-                _infoRow('Fingerprint', _b['fingerprint_status'] ?? 'PENDING'),
+                _infoRow('Fingerprint', _b['fingerprint_status'] ?? 'PENDING',
+                    accentSuccess: _b['fingerprint_status'] == 'ENROLLED'),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
-          // Action buttons
+          // Actions
           Row(
             children: [
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _loading ? null : _checkIn,
                   icon: _loading
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.how_to_reg, size: 18),
+                      ? const SkeletonBox(
+                          width: 16,
+                          height: 16,
+                          borderRadius: 5,
+                          baseColor: Colors.white24,
+                          shineColor: Colors.white,
+                        )
+                      : const Icon(LucideIcons.userCheck, size: 18),
                   label: const Text('Check In'),
                 ),
               ),
@@ -186,73 +195,96 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _loading ? null : _issueBenefit,
-                  icon: const Icon(Icons.inventory_2, size: 18),
-                  label: const Text('Issue Benefit'),
-                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
+                  icon: const Icon(LucideIcons.package, size: 18),
+                  label: const Text('Benefit'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.success,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _enrollFingerprint,
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              side: const BorderSide(color: AppTheme.secondary),
-              foregroundColor: AppTheme.secondary,
-            ),
-            icon: const Icon(Icons.fingerprint, size: 20),
-            label: Text(
-              'Enroll Fingerprint',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _enrollFingerprint,
+              icon: const Icon(LucideIcons.fingerprint, size: 18),
+              label: const Text('Enroll Fingerprint'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.blueSoft,
+                foregroundColor: AppTheme.secondary,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
 
           // Kit collection — swipe right to mark as collected
           _buildKitCollectionCard(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
 
           // Assistance history
-          if ((_b['assistance'] as List?)?.isNotEmpty == true)
+          if ((_b['assistance'] as List?)?.isNotEmpty == true) ...[
+            const Text('Support History',
+                style: TextStyle(
+                    fontSize: 21, fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary)),
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.outline),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: AppTheme.cardShadow,
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Assistance History', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  ...(_b['assistance'] as List).map((a) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.check_circle, size: 14, color: AppTheme.success),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(a['assistance_type'] ?? '', style: const TextStyle(fontSize: 13))),
-                        Text(a['provided_date'] ?? '', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
-                      ],
-                    ),
-                  )),
-                ],
+                children: (() {
+                  final list = _b['assistance'] as List;
+                  return [
+                    for (var i = 0; i < list.length; i++) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Row(
+                          children: [
+                            const Icon(LucideIcons.package,
+                                size: 18, color: AppTheme.success),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                list[i]['assistance_type'] ?? '',
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                            Text(
+                              list[i]['provided_date'] ?? '',
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppTheme.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (i != list.length - 1)
+                        const Divider(height: 1, thickness: 1),
+                    ],
+                  ];
+                })(),
               ),
             ),
+          ],
         ],
       ),
     );
   }
 
+  bool get _kitCollected => _b['kit_collected'] == true;
+
   Widget _buildKitCollectionCard() {
-    final collected = _b['kit_collected'] == true;
+    final collected = _kitCollected;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: collected ? AppTheme.success.withAlpha(15) : Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        color: collected ? AppTheme.greenSoft : Colors.white,
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: collected ? AppTheme.success : AppTheme.outline,
         ),
@@ -263,7 +295,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           Row(
             children: [
               Icon(
-                collected ? Icons.inventory : Icons.inventory_2_outlined,
+                collected ? LucideIcons.box : LucideIcons.package,
                 size: 20,
                 color: collected ? AppTheme.success : AppTheme.secondary,
               ),
@@ -278,22 +310,26 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           if (collected)
             Row(
               children: [
-                const Icon(Icons.check_circle, size: 16, color: AppTheme.success),
+                const Icon(LucideIcons.checkCircle, size: 18, color: AppTheme.success),
                 const SizedBox(width: 6),
                 const Expanded(
                   child: Text(
                     'Kit collected',
-                    style: TextStyle(fontSize: 13, color: AppTheme.success, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.success,
+                        fontWeight: FontWeight.w600),
                   ),
                 ),
                 if (_b['kit_collected_at'] != null)
                   Text(
                     '${_b['kit_collected_at']}'.substring(0, 10),
-                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                    style:
+                        const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                   ),
               ],
             )
@@ -308,24 +344,38 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     );
   }
 
-  Widget _infoRow(String label, String value) {
+  Widget _infoRow(String label, String value, {bool accentSuccess = false}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
-            child: Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+            width: 110,
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w500)),
           ),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: accentSuccess ? AppTheme.success : AppTheme.textPrimary,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-/// A slide-to-confirm control. Once swiped fully to the right it calls
+/// A pill-shaped slide-to-confirm control with a circular drag handle
+/// and directional arrows. Dragging the handle to the right calls
 /// [onConfirmed] (used to mark a kit as collected).
 class _SwipeToConfirm extends StatefulWidget {
   final VoidCallback onConfirmed;
@@ -343,78 +393,160 @@ class _SwipeToConfirm extends StatefulWidget {
 }
 
 class _SwipeToConfirmState extends State<_SwipeToConfirm> {
-  bool _locked = false;
+  static const double _thumbSize = 46;
+  double _dragX = 0;
+  double _maxDrag = 0;
+  bool _dragging = false;
+  bool _busy = false;
+
+  void _onPanUpdate(DragUpdateDetails details, double trackWidth) {
+    if (_busy) return;
+    _maxDrag = trackWidth - _thumbSize - 8;
+    if (_maxDrag <= 0) return;
+    setState(() {
+      _dragging = true;
+      _dragX = (_dragX + details.delta.dx).clamp(0.0, _maxDrag);
+    });
+  }
+
+  void _onPanEnd(DragEndDetails details) {
+    if (_busy) return;
+    final threshold = _maxDrag * 0.8;
+    setState(() => _dragging = false);
+    if (_dragX >= threshold) {
+      setState(() {
+        _busy = true;
+        _dragX = _maxDrag;
+      });
+      widget.onConfirmed();
+    } else {
+      setState(() => _dragX = 0);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Dismissible(
-        key: const ValueKey('swipe-to-confirm'),
-        direction: DismissDirection.startToEnd,
-        dismissThresholds: const {DismissDirection.startToEnd: 0.45},
-        confirmDismiss: (_) async {
-          if (_locked || widget.busy) return false;
-          setState(() => _locked = true);
-          widget.onConfirmed();
-          return false;
-        },
-        background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          color: AppTheme.success,
-          child: const Icon(Icons.check_circle, color: Colors.white, size: 24),
-        ),
-        child: Container(
-          height: 48,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppTheme.success.withAlpha(30),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppTheme.success),
-          ),
-          child: widget.busy || _locked
-              ? Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppTheme.success,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      _locked ? 'Marking kit collected...' : 'Marking...',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.success,
-                      ),
-                    ),
-                  ],
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.chevron_right, color: AppTheme.success, size: 20),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        widget.label,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.success,
+    final fraction = _maxDrag <= 0 ? 0.0 : (_dragX / _maxDrag).clamp(0.0, 1.0);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final trackWidth = constraints.maxWidth;
+        if (_maxDrag == 0) _maxDrag = trackWidth - _thumbSize - 8;
+
+        if (widget.busy) {
+          return Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: AppTheme.success,
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SkeletonBox(
+                  width: 18,
+                  height: 18,
+                  borderRadius: 6,
+                  baseColor: Colors.white24,
+                  shineColor: Colors.white,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Marking kit collected...',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return GestureDetector(
+          onHorizontalDragStart: (_) => setState(() => _dragging = true),
+          onHorizontalDragUpdate: (d) => _onPanUpdate(d, trackWidth),
+          onHorizontalDragEnd: _onPanEnd,
+          onHorizontalDragCancel: () => setState(() {
+            _dragging = false;
+            _dragX = 0;
+          }),
+          child: Container(
+            height: 52,
+            decoration: BoxDecoration(
+                color: AppTheme.greenSoft,
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: AppTheme.success),
+              ),
+              child: Stack(
+                children: [
+                  // Directional arrow hint (fades as the handle moves).
+                  Positioned.fill(
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 150),
+                      opacity: 1 - fraction,
+                      child: Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.greenSoft,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                LucideIcons.chevronRight,
+                                size: 20,
+                                color: AppTheme.success,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(
+                              LucideIcons.chevronRight,
+                              size: 24,
+                              color: AppTheme.success,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
-        ),
-      ),
+                  ),
+                  // Drag handle.
+                  AnimatedPositioned(
+                    duration:
+                        _dragging ? Duration.zero : const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    left: 4 + _dragX,
+                    top: 3,
+                    child: Container(
+                      width: _thumbSize,
+                      height: _thumbSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppTheme.success,
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x33159A68),
+                            blurRadius: 10,
+                            offset: Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        LucideIcons.chevronRight,
+                        size: 26,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
     );
   }
 }

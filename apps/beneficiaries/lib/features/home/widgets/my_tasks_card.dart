@@ -1,3 +1,4 @@
+﻿import '../../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/api_service.dart';
@@ -29,10 +30,10 @@ class _MyTasksCardState extends State<MyTasksCard> {
 
   IconData _taskIcon(String? type) {
     switch (type) {
-      case 'CHECK_IN': return Icons.how_to_reg;
-      case 'DISTRIBUTE': return Icons.inventory_2;
-      case 'COLLECT_BIOMETRIC': return Icons.fingerprint;
-      default: return Icons.task_alt;
+      case 'CHECK_IN': return LucideIcons.userCheck;
+      case 'DISTRIBUTE': return LucideIcons.package;
+      case 'COLLECT_BIOMETRIC': return LucideIcons.fingerprint;
+      default: return LucideIcons.clipboardCheck;
     }
   }
 
@@ -51,7 +52,7 @@ class _MyTasksCardState extends State<MyTasksCard> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppTheme.outline),
           ),
           child: Row(
@@ -83,3 +84,6 @@ class _MyTasksCardState extends State<MyTasksCard> {
     );
   }
 }
+
+
+
