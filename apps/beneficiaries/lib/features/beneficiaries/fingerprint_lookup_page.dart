@@ -19,7 +19,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   /// Cached raw-format templates for on-device 1:N matching.
   List<Map<String, dynamic>>? _templateCache;
   Map<String, dynamic>? _matchedBeneficiary;
-  double? _matchScore;
 
   @override
   void initState() {
@@ -45,7 +44,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
         _error = e.toString().replaceFirst('Exception: ', '');
         _status = 'No beneficiary found';
         _matchedBeneficiary = null;
-        _matchScore = null;
       });
     }
   }
@@ -93,12 +91,25 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     setState(() => _status = 'Match found (score ${(best['score'] as num).toStringAsFixed(3)}). Fetching profile...');
     final response = await ApiService.get('/beneficiaries/$beneficiaryId');
     if (!mounted) return;
+    final profile = Map<String, dynamic>.from(response);
     setState(() {
       _loading = false;
-      _matchedBeneficiary = Map<String, dynamic>.from(response);
-      _matchScore = (best['score'] as num).toDouble();
-      _status = 'Match found (score ${(best['score'] as num).toStringAsFixed(3)})';
+      _matchedBeneficiary = profile;
+      _status = 'Match found — opening profile...';
       _error = null;
+    });
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BeneficiaryDetailPage(beneficiary: profile),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _matchedBeneficiary = null;
+      _status = 'Place a beneficiary finger on the scanner';
+      _error = null;
+      _loading = false;
     });
   }
 
@@ -173,26 +184,6 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (_matchedBeneficiary != null) ...[
-                  const SizedBox(height: 16),
-                  _MatchedBeneficiaryCard(
-                    beneficiary: _matchedBeneficiary!,
-                    score: _matchScore ?? 0,
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => BeneficiaryDetailPage(
-                          beneficiary: _matchedBeneficiary!,
-                        ),
-                      ),
-                    ),
-                    icon: const Icon(Icons.person, size: 18),
-                    label: const Text('Open Full Profile'),
-                  ),
-                ],
                 if (_error != null) ...[
                   const SizedBox(height: 10),
                   Text(
@@ -200,27 +191,28 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 12, color: AppTheme.error, height: 1.5),
                   ),
-                  const SizedBox(height: 10),
-                  ElevatedButton.icon(
-                    onPressed: _loading ? null : _findBeneficiary,
-                    icon: const Icon(Icons.replay, size: 18),
-                    label: const Text('Scan Again'),
-                  ),
                 ],
-                if (_matchedBeneficiary != null) ...[
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _loading ? null : _findBeneficiary,
-                    icon: const Icon(Icons.fingerprint, size: 18),
-                    label: const Text('Scan Another Finger'),
-                  ),
-                ],
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: _loading ? null : _findBeneficiary,
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.fingerprint, size: 18),
+                  label: Text(_loading ? 'Scanning...' : 'Scan Another Finger'),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           const Text(
-            'Place the beneficiary finger flat on the scanner. The page scans automatically when opened.',
+            'Place the beneficiary finger flat on the scanner. The page scans automatically when opened and opens the matching profile.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
@@ -295,81 +287,6 @@ class _ScanningFingerprintIndicatorState extends State<_ScanningFingerprintIndic
           ),
         );
       },
-    );
-  }
-}
-
-class _MatchedBeneficiaryCard extends StatelessWidget {
-  final Map<String, dynamic> beneficiary;
-  final double score;
-  const _MatchedBeneficiaryCard({required this.beneficiary, required this.score});
-
-  @override
-  Widget build(BuildContext context) {
-    final name = beneficiary['full_name'] ?? 'Unknown';
-    final code = beneficiary['beneficiary_code'] ?? '';
-    final mobile = beneficiary['mobile'] ?? '—';
-    final city = beneficiary['city'] ?? '';
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.success.withAlpha(12),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.success),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppTheme.success.withAlpha(40),
-                child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.success)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(name.toString(), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                    Text(code.toString(), style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppTheme.success,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text('Match ${score.toStringAsFixed(1)}',
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
-              ),
-            ],
-          ),
-          const Divider(height: 18),
-          _row('Mobile', mobile.toString()),
-          _row('City', city.toString()),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 90,
-            child: Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-          ),
-          Text(value, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-        ],
-      ),
     );
   }
 }
