@@ -1,33 +1,14 @@
+﻿import '../../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/constants/indian_locations.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_skeleton.dart';
 import '../../../services/api_service.dart';
-
-const List<String> _indianStates = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
-  'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
-  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan',
-  'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh',
-  'Uttarakhand', 'West Bengal', 'Delhi', 'Jammu & Kashmir', 'Puducherry',
-  'Chandigarh',
-];
-
-const List<String> _indianCities = [
-  'Mumbai', 'Delhi', 'Bengaluru', 'Hyderabad', 'Ahmedabad', 'Chennai',
-  'Kolkata', 'Pune', 'Jaipur', 'Surat', 'Lucknow', 'Kanpur', 'Nagpur',
-  'Indore', 'Thane', 'Bhopal', 'Visakhapatnam', 'Patna', 'Vadodara',
-  'Ghaziabad', 'Ludhiana', 'Agra', 'Nashik', 'Faridabad', 'Meerut',
-  'Rajkot', 'Varanasi', 'Srinagar', 'Aurangabad', 'Dhanbad', 'Amritsar',
-  'Navi Mumbai', 'Allahabad', 'Ranchi', 'Howrah', 'Coimbatore', 'Jabalpur',
-  'Gwalior', 'Vijayawada', 'Jodhpur', 'Madurai', 'Raipur', 'Kota',
-  'Guwahati', 'Chandigarh', 'Solapur', 'Hubli', 'Mysuru', 'Tiruchirappalli',
-  'Bareilly', 'Aligarh', 'Tiruppur', 'Moradabad', 'Bhubaneswar', 'Salem',
-];
 
 class OperatorDashboardCard extends StatefulWidget {
   const OperatorDashboardCard({super.key});
@@ -202,15 +183,16 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
           ),
           const SizedBox(height: 14),
 
-          if (_loading)
+if (_loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8),
-              child: Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SkeletonBox(width: double.infinity, height: 14, borderRadius: 6),
+                  SizedBox(height: 10),
+                  SkeletonBox(width: 220, height: 12, borderRadius: 6),
+                ],
               ),
             )
           else if (_error != null && data == null)
@@ -224,7 +206,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _loadDashboard,
-                  icon: const Icon(Icons.refresh, size: 18),
+                  icon: const Icon(LucideIcons.refreshCw, size: 18),
                   label: const Text('Retry'),
                 ),
               ],
@@ -236,7 +218,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                   child: _dropdown<String>(
                     label: 'State',
                     value: _selectedState,
-                    items: _indianStates
+                    items: indianStates
                         .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                         .toList(),
                     hint: 'Select state',
@@ -248,7 +230,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                   child: _dropdown<String>(
                     label: 'City',
                     value: _selectedCity,
-                    items: _indianCities
+                    items: indianCities
                         .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                         .toList(),
                     hint: 'Select city',
@@ -287,7 +269,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
               children: [
                 if (_selfieBase64 != null)
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(16),
                     child: Image.memory(
                       base64Decode(_selfieBase64!),
                       width: 56,
@@ -298,7 +280,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                   )
                 else if (_selfieUrl != null && _selfieUrl!.isNotEmpty)
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(16),
                     child: Image.network(
                       _selfieUrl!,
                       width: 56,
@@ -330,7 +312,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                 ),
                 TextButton.icon(
                   onPressed: _saving ? null : _pickSelfie,
-                  icon: const Icon(Icons.photo_camera, size: 18),
+                  icon: const Icon(LucideIcons.camera, size: 18),
                   label: Text(_selfieBase64 != null ? 'Change' : 'Add Selfie'),
                 ),
               ],
@@ -343,7 +325,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: AppTheme.success.withAlpha(15),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppTheme.success),
                 ),
                 child: Text(
@@ -360,7 +342,7 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: AppTheme.error.withAlpha(12),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppTheme.error),
                 ),
                 child: Text(
@@ -375,14 +357,15 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
+icon: _saving
+                    ? const SkeletonBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                        borderRadius: 5,
+                        baseColor: Colors.white24,
+                        shineColor: Colors.white,
                       )
-                    : const Icon(Icons.check, size: 18),
+                    : const Icon(LucideIcons.check, size: 18),
                 label: Text(_saving ? 'Saving...' : 'Save Today\'s Assignment'),
               ),
             ),
@@ -398,9 +381,9 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
       height: 56,
       decoration: BoxDecoration(
         color: AppTheme.outline,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: const Icon(Icons.person, color: AppTheme.textSecondary, size: 30),
+      child: const Icon(LucideIcons.user, color: AppTheme.textSecondary, size: 30),
     );
   }
 
@@ -421,3 +404,5 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
     );
   }
 }
+
+
