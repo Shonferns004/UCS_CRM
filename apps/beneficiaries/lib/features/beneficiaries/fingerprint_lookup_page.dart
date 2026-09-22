@@ -53,9 +53,16 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       connected = info['connected'] == true;
       name = info['device_name']?.toString() ?? 'SecuGen Hamster Pro 20';
       if (!connected) {
+        // Try to actually open the raw USB device — this is the connection
+        // path used by fingerprint capture.
+        final conn = await FingerprintService.rawConnect();
+        connected = conn['connected'] == true;
+        name = conn['device_name']?.toString() ?? name;
+      }
+      if (!connected) {
         final defaultDevice = await FingerprintService.getDefaultDevice();
-        if (defaultDevice != null) {
-          connected = defaultDevice.isAvailable;
+        if (defaultDevice != null && defaultDevice.isAvailable) {
+          connected = true;
           name = defaultDevice.displayName;
         }
       }
