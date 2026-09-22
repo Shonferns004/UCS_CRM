@@ -1,5 +1,8 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/beneficiary_tile.dart';
 import '../../services/api_service.dart';
 import 'beneficiary_detail_page.dart';
 
@@ -59,8 +62,6 @@ class _BeneficiarySearchPageState extends State<BeneficiarySearchPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Find Beneficiary'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
@@ -74,10 +75,10 @@ class _BeneficiarySearchPageState extends State<BeneficiarySearchPage> {
               onChanged: (value) => _search(value),
               decoration: InputDecoration(
                 hintText: 'Search by name, code or mobile',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const Icon(LucideIcons.search),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.clear),
+                        icon: const Icon(LucideIcons.x),
                         onPressed: () {
                           _searchController.clear();
                           _search('');
@@ -93,9 +94,9 @@ class _BeneficiarySearchPageState extends State<BeneficiarySearchPage> {
     );
   }
 
-  Widget _buildBody() {
+Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (_error != null) {
       return Center(
@@ -110,7 +111,7 @@ class _BeneficiarySearchPageState extends State<BeneficiarySearchPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.person_search, size: 48, color: AppTheme.textSecondary.withAlpha(120)),
+            Icon(LucideIcons.search, size: 48, color: AppTheme.textSecondary.withAlpha(120)),
             const SizedBox(height: 12),
             const Text('No beneficiaries found', style: TextStyle(fontSize: 15, color: AppTheme.textSecondary)),
           ],
@@ -136,51 +137,22 @@ class _BeneficiaryCard extends StatelessWidget {
   final Map<String, dynamic> beneficiary;
   const _BeneficiaryCard({required this.beneficiary});
 
-  @override
+@override
   Widget build(BuildContext context) {
     final name = beneficiary['full_name'] ?? 'Unknown';
     final code = beneficiary['beneficiary_code'] ?? '';
     final mobile = beneficiary['mobile'] ?? '';
     final city = beneficiary['city'] ?? '';
 
-    return GestureDetector(
+    return BeneficiaryTile(
+      name: name,
+      code: code,
+      subtitle: [mobile, city].where((e) => e.isNotEmpty).join(' • '),
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => BeneficiaryDetailPage(beneficiary: beneficiary)),
       ),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.outline),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: AppTheme.secondary.withAlpha(30),
-              child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.secondary)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
-                  Text(code, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                  if (mobile.isNotEmpty || city.isNotEmpty)
-                    Text([mobile, city].where((e) => e.isNotEmpty).join(' · '),
-                        style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
-          ],
-        ),
-      ),
     );
   }
 }
+

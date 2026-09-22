@@ -1,5 +1,10 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/app_snackbar.dart';
+import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
 import 'fingerprint_enroll_panel.dart';
 
@@ -51,12 +56,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   }
 
   Future<void> _submit() async {
-    if (!_fingersReady) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Scan all 3 fingerprints before registering'),
-          backgroundColor: AppTheme.warning,
-        ),
+if (!_fingersReady) {
+      showAppSnackbar(
+        context,
+        'Scan all 3 fingerprints before registering',
+        warning: true,
       );
       return;
     }
@@ -97,16 +101,22 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         _loading = false;
         _created = created;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(code != null ? 'Beneficiary registered: $code' : 'Beneficiary registered'), backgroundColor: AppTheme.success),
+showAppSnackbar(
+        context,
+        code != null
+            ? 'Beneficiary registered: $code'
+            : 'Beneficiary registered',
+        success: true,
       );
       // Go straight to the home page after successful registration.
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.error),
+setState(() => _loading = false);
+      showAppSnackbar(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+        error: true,
       );
     }
   }
@@ -117,14 +127,14 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Add Beneficiary'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
       ),
       body: Form(
         key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           children: [
+            const SectionHeader(title: 'Personal Information'),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _fullNameController,
               decoration: const InputDecoration(labelText: 'Full Name *'),
@@ -165,7 +175,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                           hintText: _dob == null
                               ? 'Select date'
                               : '${_dob!.day}/${_dob!.month}/${_dob!.year}',
-                          suffixIcon: const Icon(Icons.calendar_today, size: 18),
+                          suffixIcon: const Icon(LucideIcons.calendar, size: 18),
                         ),
                       ),
                     ),
@@ -210,9 +220,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+const SizedBox(height: 24),
 
             // Fingerprint enrollment (buffered until registration)
+            const SectionHeader(title: 'Fingerprints'),
+            const SizedBox(height: 16),
             FingerprintEnrollPanel(
               collectOnly: true,
               onCaptured: (list) => setState(() {
@@ -222,14 +234,28 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 16),
 
-            // Register button — enabled only after 3 fingerprints are scanned
+// Register button â€” enabled only after 3 fingerprints are scanned
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: (_fingersReady && !_loading) ? _submit : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlueSoft,
+                  foregroundColor: AppColors.addBeneficiaryText,
+                  disabledBackgroundColor:
+                      AppColors.primaryBlueSoft.withValues(alpha: 0.5),
+                  disabledForegroundColor:
+                      AppColors.addBeneficiaryText.withValues(alpha: 0.5),
+                ),
                 icon: _loading
-                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.person_add, size: 18),
+                    ? const SkeletonBox(
+                        width: 16,
+                        height: 16,
+                        borderRadius: 5,
+                        baseColor: Color(0x262563EB),
+                        shineColor: Color(0xFF2563EB),
+                      )
+                    : const Icon(LucideIcons.userPlus, size: 18),
                 label: Text(
                   _loading
                       ? 'Registering...'
@@ -253,3 +279,4 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     );
   }
 }
+

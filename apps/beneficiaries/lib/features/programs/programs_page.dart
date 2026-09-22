@@ -1,5 +1,7 @@
+﻿import '../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_skeleton.dart';
 import '../../services/api_service.dart';
 
 class ProgramsPage extends StatefulWidget {
@@ -63,8 +65,8 @@ class _ProgramsPageState extends State<ProgramsPage> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: _loadPrograms,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+child: _loading
+                  ? const SkeletonList()
                   : _error != null
                       ? Center(
                           child: Column(
@@ -102,7 +104,7 @@ class _ProgramsPageState extends State<ProgramsPage> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.outline),
       ),
       child: Column(
@@ -126,12 +128,12 @@ class _ProgramsPageState extends State<ProgramsPage> {
           const SizedBox(height: 8),
           Row(
             children: [
-              const Icon(Icons.calendar_today, size: 14, color: AppTheme.textSecondary),
+              const Icon(LucideIcons.calendar, size: 14, color: AppTheme.textSecondary),
               const SizedBox(width: 6),
               Text(date, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
               if (location.isNotEmpty) ...[
                 const SizedBox(width: 12),
-                const Icon(Icons.location_on, size: 14, color: AppTheme.textSecondary),
+                const Icon(LucideIcons.mapPin, size: 14, color: AppTheme.textSecondary),
                 const SizedBox(width: 4),
                 Text(location, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
               ],
@@ -144,3 +146,5 @@ class _ProgramsPageState extends State<ProgramsPage> {
     );
   }
 }
+
+
