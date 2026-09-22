@@ -18,9 +18,16 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
 
   /// Cached raw-format templates for on-device 1:N matching.
   List<Map<String, dynamic>>? _templateCache;
-  bool _refreshingTemplates = false;
   Map<String, dynamic>? _matchedBeneficiary;
   double? _matchScore;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _findBeneficiary();
+    });
+  }
 
   Future<void> _findBeneficiary() async {
     setState(() {
@@ -101,10 +108,7 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     final cacheValid = cache != null && cache.isNotEmpty;
     if (cacheValid && !force) return cache;
 
-    setState(() {
-      _refreshingTemplates = true;
-      _status = 'Downloading enrolled fingerprints...';
-    });
+    setState(() {});
     try {
       final response = await ApiService.get(
         '/biometrics/templates',
@@ -115,29 +119,7 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       _templateCache = items;
       return items;
     } finally {
-      if (mounted) setState(() => _refreshingTemplates = false);
-    }
-  }
-
-  Future<void> _refreshTemplates() async {
-    setState(() {
-      _refreshingTemplates = true;
-      _error = null;
-    });
-    try {
-      final items = await _loadTemplates(force: true);
-      if (!mounted) return;
-      setState(() {
-        _refreshingTemplates = false;
-        _status = 'Enrolled fingerprints loaded: ${items.length}';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _refreshingTemplates = false;
-        _status = 'Failed to load enrolled fingerprints';
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
+      if (mounted) setState(() {});
     }
   }
 
@@ -161,10 +143,26 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
             ),
             child: Column(
               children: [
-                Icon(
-                  _loading ? Icons.fingerprint : Icons.person_search,
-                  size: 72,
-                  color: _error == null ? AppTheme.secondary : AppTheme.error,
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  transitionBuilder: (child, animation) =>
+                      FadeTransition(opacity: animation, child: child),
+                  child: _loading
+                      ? const _ScanningFingerprintIndicator(
+                          key: ValueKey('scanning'),
+                        )
+                      : Icon(
+                          _matchedBeneficiary != null
+                              ? Icons.check_circle
+                              : Icons.fingerprint,
+                          key: ValueKey(_error == null ? 'idle' : 'error'),
+                          size: 72,
+                          color: _matchedBeneficiary != null
+                              ? AppTheme.success
+                              : _error == null
+                                  ? AppTheme.secondary
+                                  : AppTheme.error,
+                        ),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -202,46 +200,101 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 12, color: AppTheme.error, height: 1.5),
                   ),
-                ],
-                const SizedBox(height: 24),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
                     onPressed: _loading ? null : _findBeneficiary,
-                    icon: _loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.fingerprint),
-                    label: Text(_loading ? 'Scanning...' : 'Scan Fingerprint'),
+                    icon: const Icon(Icons.replay, size: 18),
+                    label: const Text('Scan Again'),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: _loading || _refreshingTemplates ? null : _refreshTemplates,
-                  icon: Icon(
-                    _refreshingTemplates ? Icons.downloading : Icons.download,
-                    size: 18,
+                ],
+                if (_matchedBeneficiary != null) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _loading ? null : _findBeneficiary,
+                    icon: const Icon(Icons.fingerprint, size: 18),
+                    label: const Text('Scan Another Finger'),
                   ),
-                  label: Text(_refreshingTemplates ? 'Loading templates...' : 'Refresh Enrolled Templates'),
-                ),
+                ],
               ],
             ),
           ),
           const SizedBox(height: 16),
           const Text(
-            'The beneficiary must already have an enrolled fingerprint. Use Search Beneficiary to enroll a new fingerprint.',
+            'Place the beneficiary finger flat on the scanner. The page scans automatically when opened.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ScanningFingerprintIndicator extends StatefulWidget {
+  const _ScanningFingerprintIndicator({super.key});
+
+  @override
+  State<_ScanningFingerprintIndicator> createState() => _ScanningFingerprintIndicatorState();
+}
+
+class _ScanningFingerprintIndicatorState extends State<_ScanningFingerprintIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return SizedBox(
+          width: 120,
+          height: 120,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Pulsing outer rings
+              for (var i = 0; i < 3; i++)
+                Transform.scale(
+                  scale: 0.6 + 0.4 * ((_controller.value + i * 0.33) % 1.0),
+                  child: Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: AppTheme.secondary.withAlpha(((1 - (_controller.value + i * 0.33) % 1.0) * 120).round()),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              // Fingerprint icon
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.secondary.withAlpha(25),
+                ),
+                child: const Icon(
+                  Icons.fingerprint,
+                  size: 46,
+                  color: AppTheme.secondary,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

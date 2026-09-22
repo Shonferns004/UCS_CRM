@@ -6,8 +6,6 @@ import 'widgets/my_tasks_card.dart';
 import '../programs/programs_page.dart';
 import '../tasks/tasks_page.dart';
 import '../profile/profile_page.dart';
-import '../beneficiaries/qr_scanner_page.dart';
-import '../beneficiaries/beneficiary_search_page.dart';
 import '../beneficiaries/add_beneficiary_page.dart';
 import '../beneficiaries/fingerprint_lookup_page.dart';
 
@@ -125,38 +123,6 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 20),
 
-            // Quick Scan Button
-            GestureDetector(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const QrScannerPage()),
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.qr_code_scanner, color: Colors.white, size: 28),
-                    SizedBox(width: 12),
-                    Text(
-                      'SCAN BENEFICIARY',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
             // Beneficiaries section
             _buildBeneficiarySection(),
             const SizedBox(height: 16),
@@ -219,21 +185,6 @@ class _HomePageState extends State<HomePage> {
         ),
         Row(
           children: [
-            Expanded(
-              child: _actionCard(
-                icon: Icons.person_search,
-                label: 'Find Beneficiary',
-                sublabel: 'Search & enroll fingerprint',
-                color: AppTheme.secondary,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const BeneficiarySearchPage(),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
             Expanded(
               child: _actionCard(
                 icon: Icons.person_add_alt_1,

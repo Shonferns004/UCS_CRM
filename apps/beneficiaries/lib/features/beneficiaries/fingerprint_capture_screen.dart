@@ -694,35 +694,41 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
             const SizedBox(height: 16),
           ],
 
-          // Capture button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _capturing ? null : _startCapture,
-              icon: _capturing
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.fingerprint, size: 20),
-              label: Text(
-                _captureComplete
-                    ? (_enrolledFingers.length >= targetFingerprints ? 'All Fingers Captured' : 'Capture Next Finger')
-                    : _capturing
-                        ? 'Scanning...'
-                        : (_enrolledFingers.isEmpty ? 'Scan Fingerprint' : 'Scan Next Finger'),
+          // Capture button (hidden once all fingerprints are captured)
+          if (!(!widget.isVerification &&
+              _enrolledFingers.length >= targetFingerprints)) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _capturing ? null : _startCapture,
+                icon: _capturing
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.fingerprint, size: 20),
+                label: Text(
+                  _capturing
+                      ? 'Scanning...'
+                      : (_enrolledFingers.isEmpty ? 'Scan Fingerprint' : 'Scan Next Finger'),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
 
+          // Done button (enrollment mode)
           if (!widget.isVerification && _enrolledFingers.isNotEmpty) ...[
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: () => Navigator.pop(context),
-                style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
+                onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _enrolledFingers.length >= targetFingerprints
+                      ? AppTheme.success
+                      : AppTheme.secondary,
+                ),
                 icon: const Icon(Icons.check, size: 18),
                 label: Text(_enrolledFingers.length >= targetFingerprints
-                    ? 'Done ($targetFingerprints fingerprints saved)'
-                    : 'Done (${_enrolledFingers.length} saved)'),
+                    ? 'Done'
+                    : 'Done (${_enrolledFingers.length}/$targetFingerprints)'),
               ),
             ),
             const SizedBox(height: 12),
