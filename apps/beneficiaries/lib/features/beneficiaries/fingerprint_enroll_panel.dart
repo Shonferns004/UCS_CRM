@@ -127,6 +127,18 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
     await _startCaptureRaw();
   }
 
+  /// Cancel an in-progress scan and return to idle state.
+  Future<void> _cancelCapture() async {
+    await FingerprintService.stopCapture();
+    if (!mounted) return;
+    setState(() {
+      _capturing = false;
+      _errored = false;
+      _lastError = null;
+      _statusMessage = 'Scanning cancelled. Choose a finger and scan again.';
+    });
+  }
+
   Future<void> _startCaptureRaw() async {
     setState(() {
       _capturing = true;
@@ -500,6 +512,22 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
                 ),
               ),
             ),
+
+          if (_capturing) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _cancelCapture,
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: const Text('Cancel Scanning'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.error,
+                  side: const BorderSide(color: AppTheme.error),
+                ),
+              ),
+            ),
+          ],
 
           if (_lastError != null) ...[
             const SizedBox(height: 12),

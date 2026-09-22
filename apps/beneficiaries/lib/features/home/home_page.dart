@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
@@ -24,12 +25,29 @@ class _HomePageState extends State<HomePage> {
   Map<String, dynamic>? _volunteerData;
   Map<String, dynamic>? _overview;
   bool? _deviceConnected;
+  StreamSubscription<Map<String, dynamic>>? _deviceEventSub;
 
   @override
   void initState() {
     super.initState();
+    FingerprintService.initialize();
     _loadData();
     _checkDevice();
+    _deviceEventSub = FingerprintService.onEvent.listen((event) {
+      final type = event['type'];
+      if (type == 'device_connected') {
+        _checkDevice();
+      } else if (type == 'device_disconnected') {
+        if (mounted) setState(() => _deviceConnected = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _deviceEventSub?.cancel();
+    FingerprintService.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
