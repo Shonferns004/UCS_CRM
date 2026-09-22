@@ -6,6 +6,9 @@ import '../models/reminder.dart';
 import 'api_service.dart';
 
 class RemindersController extends ChangeNotifier {
+  /// Last controller created by MainShell, so detail/new pages can refresh.
+  static RemindersController? instance;
+
   List<Reminder> reminders = [];
   List<NotificationItem> notifications = [];
   bool loading = true;
@@ -69,6 +72,12 @@ class RemindersController extends ChangeNotifier {
       alertType: n.alertType, read: true, createdAt: n.createdAt,
     );
     notifyListeners();
+  }
+
+  /// Mark a reminder paid (server-side) and reload all data.
+  Future<void> completeReminder(String id, {Map<String, dynamic>? body}) async {
+    await ApiService.completeReminder(id, body: body);
+    await refresh();
   }
 
   Future<void> deleteNotification(int id) async {

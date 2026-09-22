@@ -3,12 +3,60 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/reminder.dart';
+import '../services/api_service.dart';
+import '../services/reminders_controller.dart';
 import '../theme.dart';
 import '../widgets/status_pill.dart';
 
-class DetailPage extends StatelessWidget {
+class DetailPage extends StatefulWidget {
   final Reminder reminder;
-  const DetailPage({super.key, required this.reminder});
+  final RemindersController? controller;
+  const DetailPage({super.key, required this.reminder, this.controller});
+
+  @override
+  State<DetailPage> createState() => _DetailPageState();
+}
+
+class _DetailPageState extends State<DetailPage> {
+  late Reminder reminder = widget.reminder;
+  bool _marking = false;
+
+  Future<void> _markPaid() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Mark as paid?'),
+        content: Text('Mark "${reminder.title}" as completed?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(d, true),
+            child: const Text('Yes, paid'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _marking = true);
+    try {
+      await ApiService.completeReminder('${reminder.id}');
+      final ctrl = widget.controller ?? RemindersController.instance;
+      await ctrl?.refresh();
+      if (mounted) navigator.pop();
+      messenger.showSnackBar(const SnackBar(content: Text('Marked as paid ✓')));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _marking = false);
+        messenger.showSnackBar(SnackBar(
+          content: Text('Could not mark as paid — ${e.toString().replaceFirst('Exception: ', '')}'),
+        ));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -229,6 +277,29 @@ class DetailPage extends StatelessWidget {
                         style: const TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.inkSoft)),
                     ],
                   ],
+                ),
+              ),
+            ),
+          if (!reminder.paid)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: FilledButton.icon(
+                  onPressed: _marking ? null : _markPaid,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF16a34a),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFF16a34a).withValues(alpha: 0.55),
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  icon: _marking
+                      ? const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
+                      : const Icon(LucideIcons.checkCircle2, size: 20),
+                  label: const Text('Mark as paid',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
                 ),
               ),
             ),
