@@ -21,6 +21,22 @@ class FingerprintCaptureScreen extends StatefulWidget {
 }
 
 class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
+  static const int targetFingerprints = 4;
+  static const double matchThreshold = 40;
+
+  static const List<String> fingerOptions = [
+    'RIGHT_THUMB',
+    'RIGHT_INDEX',
+    'RIGHT_MIDDLE',
+    'RIGHT_RING',
+    'RIGHT_LITTLE',
+    'LEFT_THUMB',
+    'LEFT_INDEX',
+    'LEFT_MIDDLE',
+    'LEFT_RING',
+    'LEFT_LITTLE',
+  ];
+
   List<DeviceInfo> _devices = [];
   DeviceInfo? _selectedDevice;
   bool _detecting = true;
@@ -34,6 +50,10 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
   Map<String, dynamic>? _diagnostics;
   StreamSubscription<Map<String, dynamic>>? _eventSub;
   bool _phoneAvailable = false;
+
+  /// Which fingers are being captured for this beneficiary this session.
+  final List<String> _enrolledFingers = [];
+  String? _selectedFinger;
 
   @override
   void initState() {
@@ -200,6 +220,37 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
       _statusMessage = 'Place finger on the scanner (capture 1 of 2)...';
     });
 
+    if (!widget.isVerification) {
+      final finger = _selectedFinger;
+      if (finger == null) {
+        setState(() {
+          _capturing = false;
+          _errored = true;
+          _lastError = 'Select which finger you are enrolling first.';
+          _statusMessage = 'No finger selected';
+        });
+        return;
+      }
+      if (_enrolledFingers.contains(finger)) {
+        setState(() {
+          _capturing = false;
+          _errored = true;
+          _lastError = 'This finger is already enrolled. Pick a different finger.';
+          _statusMessage = 'Finger already enrolled';
+        });
+        return;
+      }
+      if (_enrolledFingers.length >= targetFingerprints) {
+        setState(() {
+          _capturing = false;
+          _errored = true;
+          _lastError = 'All $targetFingerprints fingerprints captured. Tap Done to finish.';
+          _statusMessage = 'Enrollment complete';
+        });
+        return;
+      }
+    }
+
     final first = await FingerprintService.capture(
       deviceType: BiometricDeviceType.secugenHamsterPro20,
     );
@@ -274,6 +325,23 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
       return;
     }
 
+    if (!widget.isVerification) {
+      setState(() => _statusMessage = 'Checking if this fingerprint is already enrolled...');
+      final isDuplicate = await _isDuplicateFingerprint(first.template);
+      if (!mounted) return;
+      if (isDuplicate) {
+        setState(() {
+          _capturing = false;
+          _captureComplete = false;
+          _qualityScore = null;
+          _errored = true;
+          _lastError = 'This fingerprint is already enrolled. Try a different finger.';
+          _statusMessage = 'Fingerprint already exists';
+        });
+        return;
+      }
+    }
+
     setState(() {
       _capturing = false;
       _captureComplete = true;
@@ -290,11 +358,19 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
     try {
       const requestTimeout = Duration(minutes: 1);
       await _postBiometric(result, requestTimeout);
-      final secondOk =
-          second != null && second.success && second.template.isNotEmpty;
-      if (secondOk) await _postBiometric(second, requestTimeout);
 
       if (!mounted) return;
+      if (!widget.isVerification && _selectedFinger != null) {
+        setState(() {
+          if (!_enrolledFingers.contains(_selectedFinger)) {
+            _enrolledFingers.add(_selectedFinger!);
+          }
+          _selectedFinger = null;
+          _statusMessage = _enrolledFingers.length >= targetFingerprints
+              ? 'All $targetFingerprints fingerprints saved.'
+              : 'Fingerprint ${_enrolledFingers.length} of $targetFingerprints saved.';
+        });
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Biometric saved successfully'), backgroundColor: AppTheme.success),
       );
@@ -319,10 +395,35 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
         'height': result.height,
         'dpi': result.dpi,
         'quality_score': result.qualityScore,
-        'finger_position': 'UNKNOWN',
+        'finger_position': _selectedFinger ?? 'UNKNOWN',
       },
       timeout: requestTimeout,
     );
+  }
+
+  /// Fetch all enrolled templates and check none matches this fingerprint.
+  Future<bool> _isDuplicateFingerprint(String template) async {
+    try {
+      final response = await ApiService.get(
+        '/biometrics/templates',
+        timeout: const Duration(minutes: 2),
+      );
+      final list = response['templates'] as List? ?? [];
+      final candidates = list
+          .map((e) => (Map<String, dynamic>.from(e)['template']?.toString() ?? ''))
+          .where((t) => t.isNotEmpty)
+          .toList();
+      if (candidates.isEmpty) return false;
+      final result = await FingerprintService.sourceafisIdentify(
+        template,
+        candidates,
+        threshold: matchThreshold,
+      );
+      final matches = (result['matches'] as List?) ?? [];
+      return matches.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override
@@ -542,6 +643,57 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
           ),
           const SizedBox(height: 24),
 
+          if (!widget.isVerification) ...[
+            // Finger selector (enrollment: pick which finger to scan)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.outline),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Select Finger',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                      Text('${_enrolledFingers.length}/$targetFingerprints saved',
+                          style: const TextStyle(fontSize: 13, color: AppTheme.secondary, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: fingerOptions.map((finger) {
+                      final alreadyDone = _enrolledFingers.contains(finger);
+                      final selected = _selectedFinger == finger;
+                      return ChoiceChip(
+                        label: Text(_fingerLabel(finger)),
+                        selected: selected,
+                        disabledColor: AppTheme.success.withAlpha(30),
+                        onSelected: alreadyDone ? null : (v) => setState(() => _selectedFinger = v ? finger : null),
+                        avatar: alreadyDone
+                            ? const Icon(Icons.check_circle, size: 18, color: AppTheme.success)
+                            : null,
+                        selectedColor: AppTheme.secondary.withAlpha(40),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Scan and save up to $targetFingerprints fingers. Already-scanned fingers are marked.',
+                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // Capture button
           SizedBox(
             width: double.infinity,
@@ -550,10 +702,31 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
               icon: _capturing
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.fingerprint, size: 20),
-              label: Text(_captureComplete ? 'Capture Again' : _capturing ? 'Scanning...' : 'Scan Fingerprint'),
+              label: Text(
+                _captureComplete
+                    ? (_enrolledFingers.length >= targetFingerprints ? 'All Fingers Captured' : 'Capture Next Finger')
+                    : _capturing
+                        ? 'Scanning...'
+                        : (_enrolledFingers.isEmpty ? 'Scan Fingerprint' : 'Scan Next Finger'),
+              ),
             ),
           ),
           const SizedBox(height: 12),
+
+          if (!widget.isVerification && _enrolledFingers.isNotEmpty) ...[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(context),
+                style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
+                icon: const Icon(Icons.check, size: 18),
+                label: Text(_enrolledFingers.length >= targetFingerprints
+                    ? 'Done ($targetFingerprints fingerprints saved)'
+                    : 'Done (${_enrolledFingers.length} saved)'),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
           // Error details (shown in full when scanning fails)
           if (_lastError != null)
@@ -599,6 +772,13 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
         ],
       ),
     );
+  }
+
+  String _fingerLabel(String position) {
+    return position
+        .split('_')
+        .map((w) => w.isEmpty ? w : '${w[0]}${w.substring(1).toLowerCase()}')
+        .join(' ');
   }
 
   List<Widget> _buildDiagnostics() {
