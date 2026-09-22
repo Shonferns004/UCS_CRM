@@ -13,10 +13,23 @@ import FilterBar from '../components/FilterBar.jsx';
 import KpiCard from '../components/KpiCard.jsx';
 import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
-import EmptyState from '../components/EmptyState.jsx';
 import ErrorState from '../components/ErrorState.jsx';
-import LoadingSpinner from '../components/LoadingSpinner.jsx';
 import LineBadge from '../components/LineBadge.jsx';
+import {
+  ClipboardList,
+  FileText,
+  IndianRupee,
+  Droplets,
+  CheckCircle2,
+  CircleX,
+  Wrench,
+  PackageOpen,
+  TriangleAlert,
+  FileDown,
+  FileSpreadsheet,
+  Plus,
+  ChevronRight,
+} from 'lucide-react';
 
 const currentYear = new Date().getFullYear();
 const currentMonth = new Date().getMonth() + 1;
@@ -47,12 +60,33 @@ const ISSUE_LABELS = {
   OTHER: 'Other',
 };
 
+const KPI_ICONS = {
+  records: { icon: <FileText size={17} strokeWidth={1.9} />, color: 'blue' },
+  cash: { icon: <IndianRupee size={17} strokeWidth={1.9} />, color: 'amber' },
+  pads: { icon: <Droplets size={17} strokeWidth={1.9} />, color: 'pink' },
+  working: { icon: <CheckCircle2 size={17} strokeWidth={1.9} />, color: 'mint' },
+  notWorking: { icon: <CircleX size={17} strokeWidth={1.9} />, color: 'red' },
+  maintenance: { icon: <Wrench size={17} strokeWidth={1.9} />, color: 'lavender' },
+  empty: { icon: <PackageOpen size={17} strokeWidth={1.9} />, color: 'beige' },
+  problems: { icon: <TriangleAlert size={17} strokeWidth={1.9} />, color: 'coral' },
+};
+
 function issueLabel(key) {
   return ISSUE_LABELS[key] || (key || '').replace(/_/g, ' ');
 }
 
 function statusLabel(key) {
   return MACHINE_STATUS_LABELS[key] || (key || '').replace(/_/g, ' ');
+}
+
+function MonthlyKpiSkeleton() {
+  return (
+    <div className="monthly-kpi-grid">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div className="skeleton monthly-kpi-sk" key={i} />
+      ))}
+    </div>
+  );
 }
 
 function MonthlyData() {
@@ -140,24 +174,21 @@ function MonthlyData() {
     { key: 'line_name', label: 'Line', render: (val, row) => <LineBadge name={val} code={null} size="sm" /> },
     { key: 'station_name', label: 'Station', render: (val, row) => val || row.station_code || '—' },
     { key: 'station_code', label: 'Code', render: (val) => val || '—' },
-    { key: 'records', label: 'Records', render: (val) => formatNumber(val ?? 0), },
+    { key: 'records', label: 'Records', render: (val) => formatNumber(val ?? 0) },
     { key: 'cash_collected', label: 'Cash', render: (val) => <span className="cell-strong">₹{formatNumber(val ?? 0)}</span> },
     { key: 'pads_refilled', label: 'Pads Refilled', render: (val) => formatNumber(val ?? 0) },
     { key: 'issues', label: 'Issues', render: (val) => formatNumber(val ?? 0) },
   ];
 
   const recordColumns = [
-    { key: 'record_date', label: 'Date', render: (val) => formatDate(val) },
-    { key: 'line_name', label: 'Line', render: (val, row) => <LineBadge name={val} code={null} size="sm" /> },
+    { key: 'record_date', label: 'Date', width: 96, render: (val) => <span className="no-wrap cell-strong">{formatDate(val)}</span> },
+    { key: 'line_name', label: 'Line', width: 140, render: (val, row) => <LineBadge name={val} code={null} size="sm" /> },
     { key: 'station_name', label: 'Station', render: (val, row) => val || row.station_code || '—' },
-    { key: 'machine_code', label: 'Machine', render: (val) => val || '—' },
+    { key: 'machine_code', label: 'Machine', width: 180, render: (val) => <span className="machine-cell" title={val}>{val || '—'}</span> },
+    { key: 'cash_collected', label: 'Cash', width: 100, render: (val) => <span className="cell-strong">₹{formatNumber(val ?? 0)}</span> },
+    { key: 'pads_refilled', label: 'Pads', width: 80, render: (val) => formatNumber(val ?? 0) },
     {
-      key: 'cash_collected', label: 'Cash',
-      render: (val) => <span className="cell-strong">₹{formatNumber(val ?? 0)}</span>,
-    },
-    { key: 'pads_refilled', label: 'Pads', render: (val) => formatNumber(val ?? 0) },
-    {
-      key: 'machine_status', label: 'Status',
+      key: 'machine_status', label: 'Status', width: 130,
       render: (val) => (
         <span className={`status-badge ${MACHINE_STATUS_VARIANTS[val] || 'gray'}`}>
           {statusLabel(val)}
@@ -165,7 +196,7 @@ function MonthlyData() {
       ),
     },
     {
-      key: 'issue_type', label: 'Issue',
+      key: 'issue_type', label: 'Issue', width: 160,
       render: (val) => (val && val !== 'NONE' ? <span className="cell-warn">{issueLabel(val)}</span> : '—'),
     },
     { key: 'notes', label: 'Notes', render: (val) => val || '—' },
@@ -177,43 +208,64 @@ function MonthlyData() {
       .catch((err) => addToast(getErrorMessage(err), 'error'));
   }, [reportParams]);
 
+  const monthlySubtitle = 'Single daily record per machine — automatically updates Machines, Refills, Cash, Maintenance & Issues.';
+
   if (error) {
+    const msg = getErrorMessage(error);
     return (
-      <div className="page">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">Monthly Data</h1>
-            <p className="page-subtitle">Single daily record per machine — automatically updates Machines, Refills, Cash, Maintenance &amp; Issues.</p>
+      <section className="section-card monthly-card" id="monthly-data">
+        <header className="section-header">
+          <div className="section-heading">
+            <span className="section-heading-icon blue">
+              <ClipboardList size={16} strokeWidth={2} />
+            </span>
+            <div>
+              <h2 className="section-title">Monthly Data</h2>
+              <p className="section-subtitle">{monthlySubtitle}</p>
+            </div>
           </div>
+        </header>
+        <div className="monthly-error">
+          <ErrorState message={`Unable to load monthly data — ${msg}`} onRetry={refetch} />
         </div>
-        <ErrorState message={getErrorMessage(error)} onRetry={refetch} />
-      </div>
+      </section>
     );
   }
 
+  const scrollToTopOfCard = (e) => {
+    if (e) e.preventDefault();
+    document.getElementById('monthly-data')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Monthly Data</h1>
-          <p className="page-subtitle">Single daily record per machine — automatically updates Machines, Refills, Cash, Maintenance &amp; Issues.</p>
+    <section className="section-card monthly-card" id="monthly-data">
+      <header className="section-header">
+        <div className="section-heading">
+          <span className="section-heading-icon blue">
+            <ClipboardList size={16} strokeWidth={2} />
+          </span>
+          <div>
+            <h2 className="section-title">Monthly Data</h2>
+            <p className="section-subtitle">{monthlySubtitle}</p>
+          </div>
         </div>
-        <div className="page-actions">
+        <div className="section-actions">
           <button className="btn btn-outline" onClick={() => handleExport('pdf')} disabled={loading}>
-            Download PDF
+            <FileDown size={15} strokeWidth={2} /> Download PDF
           </button>
           <button className="btn btn-outline" onClick={() => handleExport('xlsx')} disabled={loading}>
-            Export Excel
+            <FileSpreadsheet size={15} strokeWidth={2} /> Export Excel
           </button>
           {canWrite && (
             <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-              + Add Monthly Data
+              <Plus size={15} strokeWidth={2.2} /> Add Monthly Data
             </button>
           )}
         </div>
-      </div>
+      </header>
 
       <FilterBar
+        className="monthly-filters"
         filters={filters}
         onChange={handleFilterChange}
         onClear={handleClearFilters}
@@ -221,68 +273,71 @@ function MonthlyData() {
       />
 
       {loading ? (
-        <LoadingSpinner message="Loading monthly data..." />
+        <MonthlyKpiSkeleton />
       ) : (
-        <>
-          <div className="kpi-grid">
-            <KpiCard title="Total Records" value={formatNumber(summary.totalRecords ?? 0)} icon="📒" color="primary" />
-            <KpiCard title="Cash Collected" value={`₹${formatNumber(summary.totalCashCollected ?? 0)}`} icon="💰" color="success" />
-            <KpiCard title="Pads Refilled" value={formatNumber(summary.totalPadsRefilled ?? 0)} icon="🩸" color="info" />
-            <KpiCard title="Working" value={formatNumber(statusTotals.WORKING ?? 0)} icon="🟢" color="success" />
-            <KpiCard title="Not Working" value={formatNumber((statusTotals.NOT_WORKING ?? 0) + (statusTotals.OTHER_ISSUE ?? 0))} icon="🔴" color="danger" />
-            <KpiCard title="Maintenance" value={formatNumber(statusTotals.MAINTENANCE ?? 0)} icon="🛠️" color="warning" />
-            <KpiCard title="Empty / Low Stock" value={formatNumber(statusTotals.EMPTY ?? 0)} icon="📦" color="orange" />
-            <KpiCard title="Problem Records" value={formatNumber(Object.values(issueTotals).reduce((t, v) => t + v, 0))} icon="⚠️" color="danger" />
-          </div>
-
-          {rows.length === 0 ? (
-            <div className="card">
-              <EmptyState message="No monthly data records found for the selected filters" />
-            </div>
-          ) : (
-            <>
-              <div className="report-tabs">
-                <button
-                  className={`tab${tab === 'records' ? ' active' : ''}`}
-                  onClick={() => setTab('records')}
-                >
-                  Records
-                </button>
-                <button
-                  className={`tab${tab === 'summary' ? ' active' : ''}`}
-                  onClick={() => setTab('summary')}
-                >
-                  Station-wise Summary
-                </button>
-              </div>
-
-              {tab === 'records' && (
-                <div className="card">
-                  <div className="card-header">
-                    <div>
-                      <h2 className="card-title">Records — {MONTHS[month - 1]} {year}</h2>
-                      <p className="card-subtitle">{formatNumber(rows.length)} daily machine records</p>
-                    </div>
-                  </div>
-                  <DataTable columns={recordColumns} data={rows} loading={loading} emptyMessage="No records" />
-                </div>
-              )}
-
-              {tab === 'summary' && (
-                <div className="card">
-                  <div className="card-header">
-                    <div>
-                      <h2 className="card-title">Station-wise Summary</h2>
-                      <p className="card-subtitle">{formatNumber(stationWise.length)} stations</p>
-                    </div>
-                  </div>
-                  <DataTable columns={statusColumns} data={stationWise} loading={loading} emptyMessage="No station data" />
-                </div>
-              )}
-            </>
-          )}
-        </>
+        <div className="monthly-kpi-grid">
+          <KpiCard title="Total Records" value={formatNumber(summary.totalRecords ?? 0)} icon={KPI_ICONS.records.icon} color={KPI_ICONS.records.color} />
+          <KpiCard title="Cash Collected" value={`₹${formatNumber(summary.totalCashCollected ?? 0)}`} icon={KPI_ICONS.cash.icon} color={KPI_ICONS.cash.color} />
+          <KpiCard title="Pads Refilled" value={formatNumber(summary.totalPadsRefilled ?? 0)} icon={KPI_ICONS.pads.icon} color={KPI_ICONS.pads.color} />
+          <KpiCard title="Working" value={formatNumber(statusTotals.WORKING ?? 0)} icon={KPI_ICONS.working.icon} color={KPI_ICONS.working.color} />
+          <KpiCard title="Not Working" value={formatNumber((statusTotals.NOT_WORKING ?? 0) + (statusTotals.OTHER_ISSUE ?? 0))} icon={KPI_ICONS.notWorking.icon} color={KPI_ICONS.notWorking.color} />
+          <KpiCard title="Maintenance" value={formatNumber(statusTotals.MAINTENANCE ?? 0)} icon={KPI_ICONS.maintenance.icon} color={KPI_ICONS.maintenance.color} />
+          <KpiCard title="Empty / Low Stock" value={formatNumber(statusTotals.EMPTY ?? 0)} icon={KPI_ICONS.empty.icon} color={KPI_ICONS.empty.color} />
+          <KpiCard title="Problem Records" value={formatNumber(Object.values(issueTotals).reduce((t, v) => t + v, 0))} icon={KPI_ICONS.problems.icon} color={KPI_ICONS.problems.color} />
+        </div>
       )}
+
+      <div className="monthly-tabs">
+        <button type="button" className={`monthly-tab${tab === 'records' ? ' active' : ''}`} onClick={() => setTab('records')}>
+          Records
+        </button>
+        <button type="button" className={`monthly-tab${tab === 'summary' ? ' active' : ''}`} onClick={() => setTab('summary')}>
+          Station-wise Summary
+        </button>
+      </div>
+
+      <div className="monthly-table">
+        {tab === 'records' && (
+          <>
+            <div className="monthly-table-head">
+              <div>
+                <div className="records-title">Records — {MONTHS[month - 1]} {year}</div>
+                <div className="records-subtitle">{formatNumber(rows.length)} daily machine records</div>
+              </div>
+              {!loading && rows.length > 0 && (
+                <a className="view-all view-all-sm" href="#monthly-data" onClick={scrollToTopOfCard}>
+                  View All <ChevronRight size={14} strokeWidth={2.2} />
+                </a>
+              )}
+            </div>
+            <DataTable
+              columns={recordColumns}
+              data={rows}
+              loading={loading}
+              emptyMessage="No records"
+              skeletonRows={5}
+            />
+          </>
+        )}
+
+        {tab === 'summary' && (
+          <>
+            <div className="monthly-table-head">
+              <div>
+                <div className="records-title">Station-wise Summary</div>
+                <div className="records-subtitle">{formatNumber(stationWise.length)} stations</div>
+              </div>
+            </div>
+            <DataTable
+              columns={statusColumns}
+              data={stationWise}
+              loading={loading}
+              emptyMessage="No station data"
+              skeletonRows={5}
+            />
+          </>
+        )}
+      </div>
 
       <AddMonthlyDataModal
         isOpen={showModal}
@@ -293,7 +348,7 @@ function MonthlyData() {
         }}
         lineOptions={lineOptions}
       />
-    </div>
+    </section>
   );
 }
 
@@ -400,7 +455,7 @@ function AddMonthlyDataModal({ isOpen, onClose, onSuccess, lineOptions }) {
       size="lg"
       footer={
         <>
-          <button className="btn btn-secondary" onClick={() => { resetForm(); onClose(); }}>Cancel</button>
+          <button className="btn btn-outline" onClick={() => { resetForm(); onClose(); }}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save & Update All Modules'}
           </button>

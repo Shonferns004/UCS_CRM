@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Search } from 'lucide-react';
 
 function SearchInput({ value: externalValue, onChange, placeholder = 'Search...', disabled = false }) {
   const [internalValue, setInternalValue] = useState(externalValue || '');
@@ -33,7 +34,9 @@ function SearchInput({ value: externalValue, onChange, placeholder = 'Search...'
 
   return (
     <div className="search-input-wrapper">
-      <span className="search-input-icon">🔍</span>
+      <span className="search-input-icon">
+        <Search size={16} strokeWidth={2} />
+      </span>
       <input
         type="text"
         className="search-input"

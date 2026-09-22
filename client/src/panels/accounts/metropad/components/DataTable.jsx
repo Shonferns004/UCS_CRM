@@ -6,6 +6,7 @@ function DataTable({
   data = [],
   loading = false,
   emptyMessage = 'No data found',
+  skeletonRows = 5,
   onRowClick,
   pagination,
   onPageChange,
@@ -13,12 +14,43 @@ function DataTable({
   sortBy,
   sortDir,
 }) {
+  const handleSort = (key) => {
+    if (!onSort) return;
+    const newDir = sortBy === key && sortDir === 'asc' ? 'desc' : 'asc';
+    onSort(key, newDir);
+  };
+
+  const renderSortIndicator = (colKey) => {
+    if (sortBy !== colKey) return <span className="sort-indicator">⇅</span>;
+    return <span className="sort-indicator">{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  };
+
   if (loading) {
     return (
       <div className="table-wrapper">
-        <div className="loading-spinner">
-          <div className="spinner" />
-          <span className="loading-spinner-message">Loading data...</span>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {columns.map((col) => (
+                  <th key={col.key} style={col.width ? { width: col.width } : undefined}>
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: skeletonRows }).map((_, r) => (
+                <tr key={`sk-${r}`}>
+                  {columns.map((col) => (
+                    <td key={col.key}>
+                      <div className="skeleton skeleton-cell" />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );
@@ -34,21 +66,6 @@ function DataTable({
       </div>
     );
   }
-
-  const handleSort = (key) => {
-    if (!onSort) return;
-    const newDir = sortBy === key && sortDir === 'asc' ? 'desc' : 'asc';
-    onSort(key, newDir);
-  };
-
-  const renderSortIndicator = (colKey) => {
-    if (sortBy !== colKey) return <span className="sort-indicator">⇅</span>;
-    return (
-      <span className="sort-indicator">
-        {sortDir === 'asc' ? '↑' : '↓'}
-      </span>
-    );
-  };
 
   return (
     <div className="table-wrapper">
@@ -78,7 +95,7 @@ function DataTable({
               >
                 {columns.map((col) => (
                   <td key={col.key}>
-                    {col.render ? col.render(row[col.key], row) : row[col.key]}
+                    {col.render ? col.render(row[col.key], row, idx) : row[col.key]}
                   </td>
                 ))}
               </tr>
