@@ -3,77 +3,13 @@ import { useRem } from './store'
 import { Icon } from './components'
 import { CATEGORIES, categoryLabel, categoryIcon, formatDate, daysLeft, statusPillClass } from './helpers'
 import { computeEffectiveDueDate, computeCurrentMonthDate } from './notifications'
-import PaymentChecklist from './PaymentChecklist'
 import BillChart from './BillChart'
 import { AddBillModal } from './modals'
 import './dashboard.css'
 
-const RENEWAL_CATEGORIES = new Set(['INSURANCE', 'MEDICAL_EXPENSES', 'EDUCATION', 'WEBSITE_DOMAIN', 'VEHICLE_INSURANCE'])
-
-const OWNER_COLORS = {
-  'Priyank Shah': '#2563eb',
-  'Shweta Shah': '#7c3aed',
-  'BSCT': '#0891b2',
-  'AFLF': '#16a34a',
-  'MANN': '#d97706',
-  'Suraj Patil': '#dc2626',
-  'Anjana Vyas': '#ec4899',
-  'Naresh Bhanushali': '#6366f1',
-}
-
-const GROUP_MAP = {
-  'PROPERTY_MAINTENANCE': 'Home',
-  'BMC_TAX': 'Home',
-  'ELECTRICITY': 'Home',
-  'RENT_TDS': 'Office',
-  'INSURANCE': 'Insurance',
-  'MEDICAL_EXPENSES': 'Insurance',
-  'VEHICLE_INSURANCE': 'Vehicles',
-  'EDUCATION': 'Education',
-  'WEBSITE_DOMAIN': 'Subscriptions',
-  'VI_BILL': 'Subscriptions',
-  'OTHER_BILL': 'Subscriptions',
-}
-
-const GROUP_ICONS = { Home: 'home', Office: 'file', Vehicles: 'car', Insurance: 'shield', Education: 'book', Subscriptions: 'globe' }
-const GROUP_COLORS = { Home: '#2563eb', Office: '#0891b2', Vehicles: '#dc2626', Insurance: '#7c3aed', Education: '#16a34a', Subscriptions: '#d97706' }
-
 const CATEGORY_SECTIONS = [
   {
-    title: 'RECHARGE',
-    heading: { col: 1, span: 2, row: 1 },
-    tiles: [
-      { key: 'MOBILE_RECHARGE', label: 'Mobile Recharge', icon: 'zap', col: 1, row: 2, match: r => /mobile/i.test(String(r.title || '')) },
-      { key: 'FASTAG_RECHARGE', label: 'Fastag Recharge', icon: 'car', col: 2, row: 2, match: r => /fastag|MH13EK9999/i.test(String(r.title || '')) },
-    ],
-  },
-  {
-    title: 'Utility Bills',
-    heading: { col: 3, span: 4, row: 1 },
-    tiles: [
-      { key: 'ELECTRICITY', label: 'Electricity Bills', icon: 'zap', col: 3, row: 2, match: r => r.category === 'ELECTRICITY' },
-      { key: 'BROADBAND', label: 'Broadband', icon: 'wifi', col: 4, row: 2, match: r => r.category === 'OTHER_BILL' && /internet/i.test(String(r.title || '')) },
-      { key: 'GAS_PIPELINE', label: 'Gas Pipeline', icon: 'home', col: 5, row: 2, match: r => r.category === 'OTHER_BILL' && /\(Flat No\. 401\)|\(Priyank Sir\)/i.test(String(r.title || '')) },
-      { key: 'EDUCATION', label: 'Education', icon: 'book', col: 6, row: 2, match: r => r.category === 'EDUCATION' },
-    ],
-  },
-  {
-    title: 'Property & Tax',
-    heading: { col: 7, span: 2, row: 1 },
-    tiles: [
-      { key: 'PROPERTY_MAINTENANCE', label: 'Property & Tax', icon: 'home', col: 7, row: 2, match: r => r.category === 'PROPERTY_MAINTENANCE' },
-      { key: 'BMC_TAX', label: 'BMC Tax', icon: 'file', col: 8, row: 2, match: r => r.category === 'BMC_TAX' },
-    ],
-  },
-  {
-    title: 'Rent & TDS',
-    heading: { col: 9, span: 2, row: 1 },
-    tiles: [
-      { key: 'RENT', label: 'Rent', icon: 'money', col: 9, row: 2, match: r => r.category === 'RENT_TDS' && !/tds/i.test(String(r.title || '')) && (/rent/i.test(String(r.title || '')) || String(r.title || '') === 'Raj Cresent (Priyank Sir)') },
-      { key: 'TDS', label: 'TDS', icon: 'file', col: 10, row: 2, match: r => r.category === 'RENT_TDS' && /tds/i.test(String(r.title || '')) },
-    ],
-  },
-  {
+    cls: 'cat-finance',
     title: 'Finance & Tax',
     heading: { col: 1, span: 7, row: 3 },
     tiles: [
@@ -84,6 +20,54 @@ const CATEGORY_SECTIONS = [
       { key: 'ADVANCE_TAX', label: 'Advance Tax', icon: 'file', col: 5, row: 4, match: r => r.category === 'OTHER_BILL' && String(r.title || '') === 'Advance Tax' },
       { key: 'LEGAL_FEES', label: 'Legal Fees', icon: 'file', col: 6, row: 4, match: r => r.category === 'OTHER_BILL' && String(r.title || '') === 'Accounts and Audit Fees' },
       { key: 'INCOME_TAX', label: 'Income Tax', icon: 'file', col: 7, row: 4, match: r => r.category === 'OTHER_BILL' && String(r.title || '') === 'Income Tax' },
+      { key: 'VEHICLE_INSURANCE', label: 'Vehicle Insurance', icon: 'car', col: 8, row: 4, match: r => r.category === 'VEHICLE_INSURANCE' },
+    ],
+  },
+  {
+    cls: 'cat-utility',
+    title: 'Utility Bills',
+    heading: { col: 3, span: 4, row: 1 },
+    tiles: [
+      { key: 'ELECTRICITY', label: 'Electricity Bills', icon: 'zap', col: 3, row: 2, match: r => r.category === 'ELECTRICITY' },
+      { key: 'BROADBAND', label: 'Broadband', icon: 'wifi', col: 4, row: 2, match: r => r.category === 'OTHER_BILL' && /internet/i.test(String(r.title || '')) },
+      { key: 'GAS_PIPELINE', label: 'Gas Pipeline', icon: 'home', col: 5, row: 2, match: r => r.category === 'OTHER_BILL' && /\(Flat No\. 401\)|\(Priyank Sir\)/i.test(String(r.title || '')) },
+      { key: 'EDUCATION', label: 'Education', icon: 'book', col: 6, row: 2, match: r => r.category === 'EDUCATION' },
+      { key: 'WEBSITE_DOMAIN', label: 'Website Domain', icon: 'globe', col: 7, row: 2, match: r => r.category === 'WEBSITE_DOMAIN' },
+    ],
+  },
+  {
+    cls: 'cat-recharge',
+    title: 'RECHARGE',
+    heading: { col: 1, span: 2, row: 1 },
+    tiles: [
+      { key: 'MOBILE_RECHARGE', label: 'Mobile Recharge', icon: 'zap', col: 1, row: 2, match: r => /mobile/i.test(String(r.title || '')) },
+      { key: 'FASTAG_RECHARGE', label: 'Fastag Recharge', icon: 'car', col: 2, row: 2, match: r => /fastag|MH13EK9999/i.test(String(r.title || '')) },
+    ],
+  },
+  {
+    cls: 'cat-postpaid',
+    title: 'Post-Paid Mobile',
+    heading: { col: 7, span: 2, row: 1 },
+    tiles: [
+      { key: 'VI_BILL', label: 'VI Bills', icon: 'wifi', col: 7, row: 2, match: r => r.category === 'VI_BILL' },
+    ],
+  },
+  {
+    cls: 'cat-property',
+    title: 'Property & Tax',
+    heading: { col: 7, span: 2, row: 1 },
+    tiles: [
+      { key: 'PROPERTY_MAINTENANCE', label: 'Property & Tax', icon: 'home', col: 7, row: 2, match: r => r.category === 'PROPERTY_MAINTENANCE' },
+      { key: 'BMC_TAX', label: 'BMC Tax', icon: 'file', col: 8, row: 2, match: r => r.category === 'BMC_TAX' },
+    ],
+  },
+  {
+    cls: 'cat-rent',
+    title: 'Rent & TDS',
+    heading: { col: 9, span: 2, row: 1 },
+    tiles: [
+      { key: 'RENT', label: 'Rent', icon: 'money', col: 9, row: 2, match: r => r.category === 'RENT_TDS' && !/tds/i.test(String(r.title || '')) && (/rent/i.test(String(r.title || '')) || String(r.title || '') === 'Raj Cresent (Priyank Sir)') },
+      { key: 'TDS', label: 'TDS', icon: 'file', col: 10, row: 2, match: r => r.category === 'RENT_TDS' && /tds/i.test(String(r.title || '')) },
     ],
   },
 ]
@@ -140,11 +124,18 @@ function catMatchesFilter(statuses, filter) {
 
 function parseAmountFromNotes(notes) {
   if (!notes) return 0
-  const match = String(notes).match(/Rs\.?\s*([\d,]+)/i)
-  if (!match) return 0
-  const cleaned = match[1].replace(/,/g, '')
-  const num = parseFloat(cleaned)
-  return isNaN(num) ? 0 : num
+  const text = String(notes)
+  const match = text.match(/(?:Rs\.?|₹)\s*([\d][\d,]*)/i)
+  if (match) {
+    const num = parseFloat(match[1].replace(/,/g, ''))
+    if (!isNaN(num) && num > 0) return num
+  }
+  const match2 = text.match(/(?:amount|amt|rent|fee|of)\D*?([\d][\d,]*)/i)
+  if (match2) {
+    const num = parseFloat(match2[1].replace(/,/g, ''))
+    if (!isNaN(num) && num > 0) return num
+  }
+  return 0
 }
 
 function formatCurrency(num) {
@@ -179,14 +170,6 @@ function getDueStatus(r) {
   return 'Upcoming'
 }
 
-function getRenewalType(r) {
-  if (r.category === 'VEHICLE_INSURANCE') return 'Vehicle'
-  if (r.category === 'INSURANCE' || r.category === 'MEDICAL_EXPENSES') return 'Insurance'
-  if (r.category === 'WEBSITE_DOMAIN' || r.category === 'OTHER_BILL') return 'Website/Domain'
-  if (r.category === 'EDUCATION') return 'Education'
-  return 'Other'
-}
-
 export default function Dashboard() {
   const { reminders, refresh } = useRem()
 
@@ -195,9 +178,6 @@ export default function Dashboard() {
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth())
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [calDay, setCalDay] = useState(null)
-  const [upcomingTab, setUpcomingTab] = useState('7days')
-  const [upDay, setUpDay] = useState(null)
-  const [upShowAll, setUpShowAll] = useState(false)
   const [catModalKey, setCatModalKey] = useState(null)
   const [catFilter, setCatFilter] = useState('all')
 
@@ -206,12 +186,11 @@ export default function Dashboard() {
   const enriched = useMemo(() => {
     return active.map(r => {
       const dueStatus = getDueStatus(r)
-      const amount = r.amount ? Number(r.amount) : parseAmountFromNotes(r.notes)
+      const rawAmt = Number(r.amount)
+      const amount = rawAmt > 0 ? rawAmt : parseAmountFromNotes(r.notes)
       const effectiveDate = computeEffectiveDueDate(r)
       const dl = effectiveDate ? daysLeft(effectiveDate) : daysLeft(r.due_date)
-      const isRenewal = RENEWAL_CATEGORIES.has(r.category) || !!r.renewal_date
-      const group = GROUP_MAP[r.category] || 'Other'
-      return { ...r, _dueStatus: dueStatus, _amount: amount, _daysLeft: dl, _isRenewal: isRenewal, _group: group, _effectiveDate: effectiveDate }
+      return { ...r, _dueStatus: dueStatus, _amount: amount, _daysLeft: dl, _effectiveDate: effectiveDate }
     })
   }, [active])
 
@@ -221,80 +200,21 @@ export default function Dashboard() {
     const now = new Date()
     const currentMonth = now.getMonth()
     const currentYear = now.getFullYear()
-    let dueToday = 0, overdue = 0, dueIn7 = 0, dueIn30 = 0, pending = 0, renewals = 0, thisMonth = 0, paidThisMonth = 0
-    let dueTodayAmt = 0, overdueAmt = 0, dueIn7Amt = 0, dueIn30Amt = 0, thisMonthAmt = 0, paidThisMonthAmt = 0
-    let monthlyObligations = 0, monthlyPaid = 0, monthlyPending = 0, monthlyOverdue = 0
+    const todayISO = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const s = { total: 0, totalAmt: 0, paid: 0, paidAmt: 0, pending: 0, pendingAmt: 0, overdue: 0, overdueAmt: 0 }
     for (const r of filtered) {
-      const st = r._dueStatus
-      const dl = r._daysLeft
+      const md = computeCurrentMonthDate(r)
+      if (!md) continue
+      const d = new Date(md + 'T00:00:00')
+      if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) continue
       const amt = r._amount || 0
-
-      const effectiveDate = r._effectiveDate
-      const currentMonthDate = computeCurrentMonthDate(r)
-      if (currentMonthDate) {
-        const ed = new Date(currentMonthDate + 'T00:00:00')
-        const edMonth = ed.getMonth()
-        const edYear = ed.getFullYear()
-        if (edMonth === currentMonth && edYear === currentYear) {
-          monthlyObligations += amt
-          if (st === 'Paid') monthlyPaid += amt
-          else if (ed < now) monthlyOverdue += amt
-          else monthlyPending += amt
-        }
-      }
-
-      if (st === 'Paid') { paidThisMonth++; paidThisMonthAmt += amt; continue }
-      if (dl === 0) { dueToday++; dueTodayAmt += amt }
-      if (dl !== null && dl < 0) { overdue++; overdueAmt += amt }
-      if (dl !== null && dl > 0 && dl <= 7) { dueIn7++; dueIn7Amt += amt }
-      if (dl !== null && dl > 0 && dl <= 30) { dueIn30++; dueIn30Amt += amt }
-      if (st === 'Pending') pending++
-      if (st !== 'Paid') { thisMonth++; thisMonthAmt += amt }
-      if (r.renewal_date) {
-        const renewal = new Date(String(r.renewal_date).slice(0, 10) + 'T00:00:00')
-        if (renewal.getMonth() === currentMonth && renewal.getFullYear() === currentYear) renewals++
-      }
+      s.total++
+      s.totalAmt += amt
+      if (r._dueStatus === 'Paid') { s.paid++; s.paidAmt += amt }
+      else if (md < todayISO) { s.overdue++; s.overdueAmt += amt }
+      else { s.pending++; s.pendingAmt += amt }
     }
-    return { dueToday, overdue, dueIn7, dueIn30, pending, renewals, thisMonth, paidThisMonth, dueTodayAmt, overdueAmt, dueIn7Amt, dueIn30Amt, thisMonthAmt, paidThisMonthAmt, monthlyObligations, monthlyPaid, monthlyPending, monthlyOverdue }
-  }, [filtered])
-
-  const upPeriodItems = useMemo(() => {
-    const days = upcomingTab === '7days' ? 7 : upcomingTab === '30days' ? 30 : 365
-    return filtered
-      .filter(r => r._dueStatus !== 'Paid' && r._daysLeft !== null && r._daysLeft > 0 && r._daysLeft <= days)
-      .sort((a, b) => a._daysLeft - b._daysLeft)
-  }, [filtered, upcomingTab])
-
-  const upDaysTotal = useMemo(() => upPeriodItems.reduce((s, r) => s + (r._amount || 0), 0), [upPeriodItems])
-
-  const upGroups = useMemo(() => {
-    const map = new Map()
-    for (const r of upPeriodItems) {
-      const key = categoryLabel(r.category) || r.category || 'Other'
-      if (!map.has(key)) map.set(key, { key, count: 0, owners: new Set(), total: 0, minDays: null, minDate: null, category: r.category })
-      const g = map.get(key)
-      g.count += 1
-      if (r.owner) g.owners.add(r.owner)
-      g.total += r._amount || 0
-      if (g.minDays === null || r._daysLeft < g.minDays) {
-        g.minDays = r._daysLeft
-        g.minDate = r._effectiveDate || null
-      }
-    }
-    return [...map.values()]
-      .map(g => ({ key: g.key, count: g.count, owners: [...g.owners], total: g.total, minDays: g.minDays, minDate: g.minDate, category: g.category }))
-      .sort((a, b) => a.minDays - b.minDays)
-  }, [upPeriodItems])
-
-  const renewalTracker = useMemo(() => {
-    return filtered
-      .filter(r => r._isRenewal && r._dueStatus !== 'Paid' && r._effectiveDate)
-      .sort((a, b) => {
-        const da = new Date(a._effectiveDate + 'T00:00:00')
-        const db = new Date(b._effectiveDate + 'T00:00:00')
-        return da - db
-      })
-      .slice(0, 10)
+    return s
   }, [filtered])
 
   const calDays = useMemo(() => {
@@ -342,30 +262,28 @@ export default function Dashboard() {
   const isToday = (day) => day === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear()
   const calTotal = useMemo(() => calDayItems.reduce((s, r) => s + (r._amount || 0), 0), [calDayItems])
 
-  function getCalDots(date) {
+  function calStatus(date) {
     const ds = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
     const items = calEvents[ds] || []
-    if (!items.length) return []
-    const dots = []
-    if (items.some(r => r._dueStatus === 'Overdue')) dots.push('red')
-    if (items.some(r => r._dueStatus === 'Due Today')) dots.push('yellow')
-    if (items.some(r => r._dueStatus === 'Due Soon')) dots.push('blue')
-    if (items.some(r => r._dueStatus === 'Upcoming')) dots.push('blue')
-    if (items.some(r => r._dueStatus === 'Paid')) dots.push('green')
-    return [...new Set(dots)].slice(0, 3)
+    if (!items.length) return null
+    if (items.some(r => r._dueStatus === 'Overdue')) return 'ovd'
+    if (items.some(r => r._dueStatus === 'Due Today')) return 'tdy'
+    if (items.some(r => r._dueStatus === 'Due Soon' || r._dueStatus === 'Upcoming')) return 'soon'
+    if (items.some(r => r._dueStatus === 'Paid')) return 'paid'
+    return null
   }
 
-  const monthlyTotal = summary.monthlyObligations
-  const paidPct = monthlyTotal > 0 ? (summary.monthlyPaid / monthlyTotal) * 100 : 0
-  const pendingPct = monthlyTotal > 0 ? (summary.monthlyPending / monthlyTotal) * 100 : 0
-  const overduePct = monthlyTotal > 0 ? (summary.monthlyOverdue / monthlyTotal) * 100 : 0
+  const monthlyTotal = summary.totalAmt
+  const paidPct = monthlyTotal > 0 ? (summary.paidAmt / monthlyTotal) * 100 : 0
+  const pendingPct = monthlyTotal > 0 ? (summary.pendingAmt / monthlyTotal) * 100 : 0
+  const overduePct = monthlyTotal > 0 ? (summary.overdueAmt / monthlyTotal) * 100 : 0
   const monthlyPct = Math.round(paidPct)
 
   const kpiCards = [
-    { key: 'total', label: 'Total Obligations', icon: 'money', num: monthlyTotal > 0 ? formatCurrency(monthlyTotal) : 'Not available', count: summary.thisMonth, barW: paidPct, barC: 'linear-gradient(90deg,#34d399,#10b981)', icoBg: 'var(--rem-blue-soft)', icoColor: 'var(--rem-blue)', tip: 'All obligations due this calendar month', ring: true },
-    { key: 'paid', label: 'Paid', icon: 'check', num: formatCurrency(summary.monthlyPaid), count: summary.paidThisMonth, barW: paidPct, barC: 'var(--rem-green)', icoBg: 'var(--rem-green-soft)', icoColor: 'var(--rem-green)', tip: 'Payments completed this month' },
-    { key: 'pending', label: 'Pending', icon: 'clock', num: formatCurrency(summary.monthlyPending), count: summary.pending, barW: pendingPct, barC: 'var(--rem-amber)', icoBg: 'var(--rem-amber-soft)', icoColor: 'var(--rem-amber)', tip: 'Due but not yet paid this month' },
-    { key: 'overdue', label: 'Overdue', icon: 'alert', num: formatCurrency(summary.monthlyOverdue), count: summary.overdue, barW: overduePct, barC: 'var(--rem-red)', icoBg: 'var(--rem-red-soft)', icoColor: 'var(--rem-red)', tip: 'Past-due obligations' },
+    { key: 'total', label: 'Total Obligations', icon: 'money', num: formatCurrency(monthlyTotal), count: summary.total, barW: paidPct, barC: 'linear-gradient(90deg,#34d399,#10b981)', icoBg: 'var(--rem-blue-soft)', icoColor: 'var(--rem-blue)', tip: 'All obligations due this calendar month', ring: true },
+    { key: 'paid', label: 'Paid', icon: 'check', num: formatCurrency(summary.paidAmt), count: summary.paid, barW: paidPct, barC: 'var(--rem-green)', icoBg: 'var(--rem-green-soft)', icoColor: 'var(--rem-green)', tip: 'Payments completed this month' },
+    { key: 'pending', label: 'Pending', icon: 'clock', num: formatCurrency(summary.pendingAmt), count: summary.pending, barW: pendingPct, barC: 'var(--rem-amber)', icoBg: 'var(--rem-amber-soft)', icoColor: 'var(--rem-amber)', tip: 'Due but not yet paid this month' },
+    { key: 'overdue', label: 'Overdue', icon: 'alert', num: formatCurrency(summary.overdueAmt), count: summary.overdue, barW: overduePct, barC: 'var(--rem-red)', icoBg: 'var(--rem-red-soft)', icoColor: 'var(--rem-red)', tip: 'Obligations passed their due date this month' },
   ]
 
   const catSectionItems = useMemo(() => {
@@ -407,8 +325,8 @@ export default function Dashboard() {
   return (
     <div className="dash-container">
       <div className="dash-header">
-        <h2>PAYMENT & RENEWAL MANAGEMENT</h2>
-        <p>Track payments, upcoming dues, renewals and overdue obligations.</p>
+        <h2>PAYMENT CONTROL CENTER</h2>
+        <p>Track payments, forecast upcoming expenses and review obligations at a glance.</p>
       </div>
 
       {/* KPI cards */}
@@ -434,105 +352,68 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Hero + Calendar */}
-      <div className="dash-row">
-        <div className="card dash-hero">
-          <div className="card-head">
-            <h3><Icon name="history" size={16} /> Monthly Summary</h3>
-            <span className="spacer" />
-            <span className="count-chip">{new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
-          </div>
-          <div className="hero-middle">
-            {monthlyTotal > 0 ? (
-              <>
-                <div className="hero-ring" style={{ '--pct': `${paidPct}%` }}>
-                  <div className="hero-ring-inner"><span>{monthlyPct}%</span></div>
-                </div>
-                <div className="hero-caption">
-                  <div className="hero-caption-title">{monthlyPct >= 100 ? 'All cleared this month' : 'On track to clear this month'}</div>
-                  <div className="hero-caption-sub">{formatCurrency(summary.monthlyPaid)} of {formatCurrency(monthlyTotal)} billed</div>
-                </div>
-              </>
-            ) : (
-              <div className="dash-empty"><div className="big">No monthly data</div><div>Add a payment due this month to see the summary.</div></div>
-            )}
-          </div>
-          <div className="fin-cards">
-            <div className="fin-card fin-card-paid" title="Paid this month">
-              <div className="fin-card-icon"><Icon name="check" size={15} /></div>
-              <div><div className="fin-card-label">PAID</div><div className="fin-card-amount">{formatCurrency(summary.monthlyPaid)}</div></div>
-            </div>
-            <div className="fin-card fin-card-pending" title="Pending this month">
-              <div className="fin-card-icon"><Icon name="clock" size={15} /></div>
-              <div><div className="fin-card-label">PENDING</div><div className="fin-card-amount">{formatCurrency(summary.monthlyPending)}</div></div>
-            </div>
-            <div className="fin-card fin-card-overdue" title="Overdue this month">
-              <div className="fin-card-icon"><Icon name="alert" size={15} /></div>
-              <div><div className="fin-card-label">OVERDUE</div><div className="fin-card-amount">{formatCurrency(summary.monthlyOverdue)}</div></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <h3><Icon name="calendar" size={16} /> Calendar</h3>
-            <span className="spacer" />
-            <button className="cal-today" onClick={() => { setCalMonth(new Date().getMonth()); setCalYear(new Date().getFullYear()); setCalDay(null) }}>Today</button>
-          </div>
-          <div className="dash-cal">
-            <div className="cal-head">
-              <button className="cal-nav" aria-label="Previous month" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}>◀</button>
-              <div className="cal-title">{new Date(calYear, calMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
-              <button className="cal-nav" aria-label="Next month" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}>▶</button>
-            </div>
-            <div className="cal-grid">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} className="cal-dow">{d}</div>
-              ))}
-              {calDays.map((cell, i) => {
-                const dots = cell.otherMonth ? [] : getCalDots(cell.date)
-                return (
-                  <div
-                    key={i}
-                    className={`cal-day ${cell.otherMonth ? 'other-month' : ''} ${isToday(cell.day) && !cell.otherMonth ? 'today' : ''} ${dots.length ? 'has-dots' : ''}`}
-                    onClick={() => { if (!cell.otherMonth) setCalDay(calDay === cell.day ? null : cell.day) }}
-                  >
-                    <span>{cell.day}</span>
-                    {dots.length > 0 && (
-                      <div className="cal-dots">
-                        {dots.map((d, j) => <i key={j} className={`cal-dot ${d}`} />)}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-            <div className="cal-legend">
-              <span><i className="cal-dot red" />Overdue</span>
-              <span><i className="cal-dot yellow" />Due today</span>
-              <span><i className="cal-dot blue" />Due soon</span>
-              <span><i className="cal-dot green" />Paid</span>
-            </div>
-          </div>
-          {calDay && calDayItems.length > 0 && (
-            <div className="cal-detail">
-              <h4>{calMonth + 1}/{calDay}/{calYear} · {calDayItems.length} item{calDayItems.length !== 1 ? 's' : ''}</h4>
-              {calDayItems.map(r => (
-                <div key={r.id} className="cal-detail-item">
-                  <Icon name={categoryIcon(r.category)} size={14} />
-                  <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title || '—'}</span>
-                  <span style={{ color: 'var(--rem-ink-soft)', whiteSpace: 'nowrap' }}>{r.owner || '—'}</span>
-                  {r._amount > 0 && <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{formatCurrency(r._amount)}</span>}
-                  <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus)}`} style={{ fontSize: 10 }}>{r._dueStatus}</span>
-                </div>
-              ))}
-              <div className="cal-detail-total">Total Due: {formatCurrency(calTotal)}</div>
-            </div>
-          )}
-        </div>
+      {/* Upcoming expenses forecast — full width */}
+      <div className="dash-block">
+        <BillChart reminders={enriched} />
       </div>
 
-      {/* Category sections + filter */}
+      {/* Calendar — full width */}
+      <div className="card">
+        <div className="card-head">
+          <h3><Icon name="calendar" size={16} /> Calendar</h3>
+          <span className="spacer" />
+          <button className="cal-today" onClick={() => { setCalMonth(new Date().getMonth()); setCalYear(new Date().getFullYear()); setCalDay(null) }}>Today</button>
+        </div>
+        <div className="dash-cal">
+          <div className="cal-head">
+            <button className="cal-nav" aria-label="Previous month" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) } else setCalMonth(m => m - 1) }}>◀</button>
+            <div className="cal-title">{new Date(calYear, calMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+            <button className="cal-nav" aria-label="Next month" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) } else setCalMonth(m => m + 1) }}>▶</button>
+          </div>
+          <div className="cal-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              <div key={d} className="cal-dow">{d}</div>
+            ))}
+            {calDays.map((cell, i) => {
+              const st = cell.otherMonth ? null : calStatus(cell.date)
+              return (
+                <div
+                  key={i}
+                  className={`cal-day ${cell.otherMonth ? 'other-month' : ''} ${isToday(cell.day) && !cell.otherMonth ? 'today' : ''} ${st ? `filled cal-${st}` : ''}`}
+                  onClick={() => { if (!cell.otherMonth) setCalDay(calDay === cell.day ? null : cell.day) }}
+                  title={st ? { ovd: 'Overdue', tdy: 'Due today', soon: 'Due soon / upcoming', paid: 'Paid' }[st] : undefined}
+                >
+                  {st ? <i className="cal-fill" /> : null}
+                  <span>{cell.day}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="cal-legend">
+            <span><i className="cal-swatch ovd" />Overdue</span>
+            <span><i className="cal-swatch tdy" />Due today</span>
+            <span><i className="cal-swatch soon" />Due soon</span>
+            <span><i className="cal-swatch paid" />Paid</span>
+          </div>
+        </div>
+        {calDay && calDayItems.length > 0 && (
+          <div className="cal-detail">
+            <h4>{calMonth + 1}/{calDay}/{calYear} · {calDayItems.length} item{calDayItems.length !== 1 ? 's' : ''}</h4>
+            {calDayItems.map(r => (
+              <div key={r.id} className="cal-detail-item">
+                <Icon name={categoryIcon(r.category)} size={14} />
+                <span style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title || '—'}</span>
+                <span style={{ color: 'var(--rem-ink-soft)', whiteSpace: 'nowrap' }}>{r.owner || '—'}</span>
+                {r._amount > 0 && <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{formatCurrency(r._amount)}</span>}
+                <span className={`pill ${statusPillClass(r._dueStatus === 'Paid' ? 'Completed' : r._dueStatus)}`} style={{ fontSize: 10 }}>{r._dueStatus}</span>
+              </div>
+            ))}
+            <div className="cal-detail-total">Total Due: {formatCurrency(calTotal)}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Category drill-down */}
       <div className="dash-filters">
         <span className="dash-filters-label"><Icon name="filter" size={14} /> Filter</span>
         {CAT_FILTERS.map(f => (
@@ -541,7 +422,7 @@ export default function Dashboard() {
       </div>
       <div className="cat-sections">
         {catSectionItems.map(section => (
-          <div key={section.title} className="card cat-sec">
+          <div key={section.title} className={`card cat-sec ${section.cls || ''}`}>
             <div className="card-head">
               <h3>{section.title}</h3>
               <span className="spacer" />
@@ -576,89 +457,6 @@ export default function Dashboard() {
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="dash-row">
-        <PaymentChecklist />
-
-        <BillChart reminders={enriched} />
-      </div>
-
-      <div className="dash-row">
-        <div className="card">
-          <div className="card-head">
-            <h3><Icon name="clock" size={16} /> Upcoming Payments</h3>
-            <span className="spacer" />
-            <span className="count-chip">{upPeriodItems.length} · {formatCurrency(upDaysTotal)}</span>
-          </div>
-          <div className="up-tabs">
-            <button className={`up-tab ${upcomingTab === '7days' ? 'active' : ''}`} onClick={() => { setUpcomingTab('7days'); setUpDay(null) }}>Next 7 Days</button>
-            <button className={`up-tab ${upcomingTab === '30days' ? 'active' : ''}`} onClick={() => { setUpcomingTab('30days'); setUpDay(null) }}>Next 30 Days</button>
-            <button className={`up-tab ${upcomingTab === 'all' ? 'active' : ''}`} onClick={() => { setUpcomingTab('all'); setUpDay(null) }}>All Upcoming</button>
-          </div>
-          <div className="up-list">
-            {upGroups.length === 0 ? (
-              <div className="dash-empty"><div className="big">No upcoming payments</div><div>Nothing due in this period.</div></div>
-            ) : (
-              <>
-                {(upShowAll ? upGroups : upGroups.slice(0, 5)).map(g => (
-                  <div key={g.key} className={`up-row ${g.minDays <= 3 ? 'urgent' : ''}`}>
-                    <div className="up-row-icon">
-                      <Icon name={categoryIcon(g.category)} size={14} />
-                    </div>
-                    <div className="up-row-body">
-                      <div className="up-row-top">
-                        <span className="up-row-name">{g.key}</span>
-                        {g.total > 0 && <span className="up-row-amt">{formatCurrency(g.total)}</span>}
-                      </div>
-                      <div className="up-row-meta">
-                        <span className="up-row-owners">{g.owners.join(' · ')}</span>
-                        {g.count > 1 && <span className="up-row-count">{g.count}</span>}
-                        {g.minDays !== null && <span className={`up-row-days ${g.minDays <= 3 ? 'warn' : ''}`}>{g.minDays}d</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {upGroups.length > 5 && !upShowAll && (
-                  <button className="up-more" onClick={() => setUpShowAll(true)}>+{upGroups.length - 5} more</button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="card rn-card">
-          <div className="card-head">
-            <h3><Icon name="refresh" size={16} /> Renewal Tracker</h3>
-            <span className="spacer" />
-            <span className="count-chip">{renewalTracker.length}</span>
-          </div>
-          <div className="rn-list">
-            {renewalTracker.length === 0 ? (
-              <div className="dash-empty"><div className="big">No renewals due</div><div>No renewals in this period.</div></div>
-            ) : renewalTracker.map(r => {
-              const isExpired = r._daysLeft !== null && r._daysLeft < 0
-              const isUrgent = r._daysLeft !== null && r._daysLeft >= 0 && r._daysLeft <= 30
-              return (
-                <div key={r.id} className={`rn-row ${isExpired ? 'expired' : isUrgent ? 'urgent' : ''}`}>
-                  <div className="rn-icon">
-                    <Icon name={categoryIcon(r.category)} size={12} />
-                  </div>
-                  <div className="rn-body">
-                    <span className="rn-name" title={r.title}>{r.title || '—'}</span>
-                    <span className="rn-meta">{categoryLabel(r.category)} · {r.owner || '—'}</span>
-                  </div>
-                  <div className="rn-right">
-                    <span className="rn-date">{r._effectiveDate ? formatDate(r._effectiveDate) : r.renewal_date_display || '—'}</span>
-                    <span className={`rn-badge ${isExpired ? 'red' : isUrgent ? 'amber' : 'blue'}`}>
-                      {isExpired ? 'Expired' : r._daysLeft === 0 ? 'Today' : `${r._daysLeft}d`}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
       </div>
 
       {catModalKey && (
