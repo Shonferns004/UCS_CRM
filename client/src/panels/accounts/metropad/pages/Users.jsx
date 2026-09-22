@@ -233,9 +233,9 @@ function Users({ compact = false }) {
   return (
     <div className="page">
       {compact ? (
-        <div className="users-compact-toolbar">
-          <button className="btn btn-primary" onClick={openAddModal}>
-            Add User
+        <div className="users-compact">
+          <button className="btn btn-outline" onClick={openAddModal}>
+            + Add User
           </button>
         </div>
       ) : (

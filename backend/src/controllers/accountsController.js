@@ -41,6 +41,29 @@ const resolveWorkerStation = async (client, workerId, ngoId, fallback) => {
   return fallback || null;
 };
 
+// fro_assignments.assigned_by is a FK to users(id), but the persona behind a
+// CRM login can be a workers-table row (e.g. FRO with department accounts/admin)
+// whose UUID lives in workers, not users. Writing that UUID into assigned_by
+// trips fro_assignments_assigned_by_fkey. Resolve the actor to a genuine users.id
+// (NULL when the token subject is not a users row, e.g. worker logins / env admin).
+const resolveAssignedBy = async (user) => {
+  if (!user) return null;
+  const { id, email } = user;
+  if (!id || id === 0 || id === -1) return null;
+  if (!email) return null;
+  try {
+    const { data, error } = await db.from('users').select('id').eq('id', id).maybeSingle();
+    if (error) {
+      console.error('resolveAssignedBy: users lookup failed (falling back to null):', error.message);
+      return null;
+    }
+    return data?.id ?? null;
+  } catch (e) {
+    console.error('resolveAssignedBy: unexpected error (falling back to null):', e.message);
+    return null;
+  }
+};
+
 const ensureAssignmentForDonorReceipt = async ({ client = db, receipt, workerId }) => {
   if (!receipt?.donor_id) return { created: false, assignment: null, reason: 'no_donor' };
   if (!workerId) return { created: false, assignment: null, reason: 'no_worker' };
@@ -4574,12 +4597,13 @@ export const createDonorAssignment = async (req, res) => {
     if (existing) return res.status(409).json({ message: 'This donor already has an active assignment for this NGO; replace that assignment instead' });
 
     const now = new Date().toISOString();
+    const assignedBy = await resolveAssignedBy(req.user);
     const { data: assignment, error: insertErr } = await db.from('fro_assignments').insert({
       donor_id: donorId,
       fro_worker_id: worker.id,
       ngo_id: ngoId,
       station: cleanStation,
-      assigned_by: req.user?.id || null,
+      assigned_by: assignedBy,
       status: 'pending',
       assigned_at: now,
     }).select().single();
@@ -4893,6 +4917,7 @@ export const replaceAssignment = async (req, res) => {
       .eq('id', row.id);
     if (upErr) throw upErr;
 
+    const assignedBy = await resolveAssignedBy(req.user);
     const { data: created, error: insErr } = await db
       .from('fro_assignments')
       .insert({
@@ -4902,7 +4927,7 @@ export const replaceAssignment = async (req, res) => {
         station,
         batch_id: row.batch_id || null,
         batch_type: row.batch_type || null,
-        assigned_by: req.user?.id || null,
+        assigned_by: assignedBy,
         status: 'pending',
         assigned_at: now,
       })
