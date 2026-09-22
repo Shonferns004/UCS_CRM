@@ -1,11 +1,23 @@
 import {
   createOperatorEvent, updateOperatorEvent, getOperatorEventById,
   listOperatorEvents, deleteOperatorEvent, assignOperatorEvent,
-  getOperatorAssignmentsByDate, getTodayAssignment,
+  getOperatorAssignmentsByDate, getTodayAssignment, upsertSelfAssignment,
+  demoOperatorEvent,
 } from '../models/operatorModel.js';
 import { getWorkerBySession } from '../models/workerModel.js';
+import db from '../config/db.js';
 
 const NORMALIZED_DATE = () => new Date().toISOString().split('T')[0];
+
+const SELFIE_BUCKET = 'worker-documents';
+
+const ensureSelfieBucket = async () => {
+  const { data: buckets } = await db.storage.listBuckets();
+  const exists = buckets?.some((b) => b.name === SELFIE_BUCKET);
+  if (!exists) {
+    await db.storage.createBucket(SELFIE_BUCKET, { public: true });
+  }
+};
 
 export const addOperatorEvent = async (req, res) => {
   try {
@@ -105,21 +117,92 @@ export const operatorDashboard = async (req, res) => {
 
     const today = NORMALIZED_DATE();
     let state = null;
+    let city = null;
     let event = null;
+    let selfie = null;
 
     const assignment = await getTodayAssignment(worker.id, today);
     if (assignment) {
       state = assignment.state || null;
+      city = assignment.city || null;
+      selfie = assignment.selfie_url || assignment.operator_events?.selfie_url || null;
       event = assignment.operator_events || null;
+    }
+
+    // Events available for today (dropdown source). Fall back to a demo event
+    // so the operator always has something to pick while testing.
+    let events = await listOperatorEvents({ date: today });
+    if (!events || events.length === 0) {
+      events = [demoOperatorEvent];
     }
 
     return res.json({
       operator: { id: worker.id, name: worker.name, login_id: worker.login_id, role: req.user.role },
       state,
+      city,
       event,
-      selfie: event?.selfie_url || null,
+      selfie,
+      selfie_url: selfie,
       has_event: !!event,
+      events,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Worker saves their own day's assignment (state/city/event/selfie).
+export const saveSelfAssignment = async (req, res) => {
+  try {
+    const worker = await getWorkerBySession(req.user);
+    if (!worker) return res.status(404).json({ message: 'Operator not found' });
+
+    const { state, city, event_id, selfie_url } = req.body;
+    const assignmentDate = req.body.assignment_date || NORMALIZED_DATE();
+
+    const assignment = await upsertSelfAssignment(worker.id, {
+      state,
+      city,
+      event_id: event_id ? parseInt(event_id) : null,
+      assignment_date: assignmentDate,
+      selfie_url,
+    });
+
+    return res.json({ message: 'Assignment saved', assignment });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Upload a base64 selfie to storage and return its public URL.
+export const uploadOperatorSelfie = async (req, res) => {
+  try {
+    const { selfie_base64, mime_type } = req.body;
+    if (!selfie_base64) {
+      return res.status(400).json({ message: 'selfie_base64 is required' });
+    }
+    const worker = await getWorkerBySession(req.user);
+    const workerId = worker?.id ?? req.user.id;
+
+    await ensureSelfieBucket();
+    const buffer = Buffer.from(selfie_base64, 'base64');
+    const contentType = mime_type || 'image/jpeg';
+    const ext = contentType.split('/')[1] || 'jpg';
+    const fileName = `operator-selfies/${workerId}_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await db.storage
+      .from(SELFIE_BUCKET)
+      .upload(fileName, buffer, { contentType, upsert: true });
+    if (uploadError) {
+      return res.status(500).json({ message: 'Upload failed: ' + uploadError.message });
+    }
+
+    const { data: publicUrlData } = db.storage
+      .from(SELFIE_BUCKET)
+      .getPublicUrl(fileName);
+    const selfieUrl = publicUrlData?.publicUrl;
+
+    return res.json({ selfie_url: selfieUrl });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

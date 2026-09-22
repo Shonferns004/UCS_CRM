@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/api_service.dart';
+import '../../services/fingerprint_service.dart';
 import 'widgets/my_tasks_card.dart';
 import 'widgets/operator_dashboard_card.dart';
 import 'widgets/kit_collected_users_card.dart';
@@ -21,16 +22,39 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentTab = 0;
   Map<String, dynamic>? _volunteerData;
+  Map<String, dynamic>? _overview;
+  bool? _deviceConnected;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _checkDevice();
   }
 
   Future<void> _loadData() async {
     _volunteerData = await ApiService.getVolunteerData();
+    try {
+      _overview = await ApiService.get('/beneficiaries/overview');
+    } catch (_) {}
     if (mounted) setState(() {});
+  }
+
+  Future<void> _checkDevice() async {
+    var connected = false;
+    try {
+      final info = await FingerprintService.rawGetInfo();
+      connected = info['connected'] == true;
+      if (!connected) {
+        final defaultDevice = await FingerprintService.getDefaultDevice();
+        if (defaultDevice != null) {
+          connected = defaultDevice.isAvailable;
+        }
+      }
+    } catch (_) {
+      connected = false;
+    }
+    if (mounted) setState(() => _deviceConnected = connected);
   }
 
   @override
@@ -82,6 +106,7 @@ class _HomePageState extends State<HomePage> {
       child: RefreshIndicator(
         onRefresh: () async {
           await _loadData();
+          await _checkDevice();
         },
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -113,9 +138,11 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.account_circle,
-                    color: AppTheme.primary,
+                    color: _deviceConnected == true
+                        ? AppTheme.success
+                        : const Color(0xFFFCA5A5),
                     size: 30,
                   ),
                   onPressed: () => Navigator.push(
@@ -135,6 +162,26 @@ class _HomePageState extends State<HomePage> {
             // Beneficiaries section
             _buildBeneficiarySection(),
             const SizedBox(height: 16),
+
+            // Stats
+            if (_overview != null) ...[
+              Row(
+                children: [
+                  _statCard(
+                    'Total Members',
+                    '${_overview!['total_beneficiaries'] ?? 0}',
+                    AppTheme.secondary,
+                  ),
+                  const SizedBox(width: 12),
+                  _statCard(
+                    'Donated Today',
+                    '${_overview!['kit_collected_today'] ?? 0}',
+                    AppTheme.success,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
 
             const MyTasksCard(),
             const SizedBox(height: 16),
@@ -193,14 +240,65 @@ class _HomePageState extends State<HomePage> {
         _actionCard(
           icon: Icons.fingerprint,
           label: 'Find by Fingerprint',
-          sublabel: 'Identify enrolled user',
-          color: AppTheme.primary,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const FingerprintLookupPage()),
-          ),
+          sublabel: _deviceConnected == true
+              ? 'Identify enrolled user'
+              : _deviceConnected == null
+                  ? 'Checking fingerprint device...'
+                  : 'Fingerprint device not connected',
+          color: _deviceConnected == true
+              ? AppTheme.primary
+              : const Color(0xFFFCA5A5),
+          onTap: () {
+            if (_deviceConnected != true) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                      'No fingerprint device connected. Please connect the SecuGen Hamster Pro 20 and try again.'),
+                  backgroundColor: AppTheme.error,
+                ),
+              );
+              return;
+            }
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FingerprintLookupPage()),
+            );
+          },
         ),
       ],
+    );
+  }
+
+  Widget _statCard(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppTheme.outline),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
