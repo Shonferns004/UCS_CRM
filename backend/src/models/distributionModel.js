@@ -25,13 +25,23 @@ export const addDistributionItem = async (data) => {
   return result;
 };
 
+const getDistributionItems = async (distributionId) => {
+  const { data, error } = await db
+    .from('benefit_distribution_items')
+    .select('*, benefits(name, category)')
+    .eq('distribution_id', distributionId);
+  if (error) throw error;
+  return data || [];
+};
+
 export const getDistributionById = async (id) => {
   const { data, error } = await db
     .from('benefit_distributions')
-    .select('*, beneficiaries(id, beneficiary_code, full_name, mobile), bnf_programs(id, title, program_date), benefit_distribution_items(*, benefits(name, category))')
+    .select('*, beneficiaries(id, beneficiary_code, full_name, mobile), bnf_programs(id, title, program_date)')
     .eq('id', id)
     .single();
   if (error) return null;
+  data.benefit_distribution_items = await getDistributionItems(data.id);
   return data;
 };
 
@@ -76,9 +86,14 @@ export const reverseDistribution = async (distributionId, reason) => {
 export const getBeneficiaryDistributionHistory = async (beneficiaryId) => {
   const { data, error } = await db
     .from('benefit_distributions')
-    .select('*, bnf_programs(id, title, program_date), benefit_distribution_items(*, benefits(name, category))')
+    .select('*, bnf_programs(id, title, program_date)')
     .eq('beneficiary_id', beneficiaryId)
     .order('distribution_date', { ascending: false });
   if (error) throw error;
-  return data || [];
+
+  const distributions = data || [];
+  for (const d of distributions) {
+    d.benefit_distribution_items = await getDistributionItems(d.id);
+  }
+  return distributions;
 };
