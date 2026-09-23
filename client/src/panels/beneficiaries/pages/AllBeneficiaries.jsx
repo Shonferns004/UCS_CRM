@@ -64,9 +64,6 @@ export default function AllBeneficiaries() {
     <div>
       <div style={styles.header}>
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>All Beneficiaries</h2>
-        <button onClick={() => navigate(base + '/new')} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>
-          + New Registration
-        </button>
       </div>
 
       <div style={styles.filterBar}>
