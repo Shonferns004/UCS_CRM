@@ -51,6 +51,10 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_by TEXT"
   ).catch(() => {});
 
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS aadhaar_number TEXT"
+  ).catch(() => {});
+
   // Upgrade guard for installations that still use the old kit_collected*
   // naming: copy the values over and drop the legacy columns.
   await db._pool.query(
