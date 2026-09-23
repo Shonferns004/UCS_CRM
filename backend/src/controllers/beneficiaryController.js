@@ -16,7 +16,7 @@ import { getSourceRecords } from '../models/beneficiarySourceModel.js';
 import { getBeneficiaryDistributionHistory } from '../models/distributionModel.js';
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getWorkerBySession } from '../models/workerModel.js';
-import { getTodayAssignment } from '../models/operatorModel.js';
+import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 
 export const createNewBeneficiary = async (req, res) => {
   try {
@@ -172,6 +172,13 @@ export const markBeneficiaryKitGiven = async (req, res) => {
         const assignment = await getTodayAssignment(worker.id, today);
         const ev = assignment?.operator_events;
         if (ev) eventName = ev?.title || ev?.name || null;
+      }
+      // The operator dashboard falls back to the demo event when no real
+      // event exists for the day — mirror that so the history shows it too.
+      if (!eventName) {
+        const today = new Date().toISOString().split('T')[0];
+        const events = await listOperatorEvents({ date: today });
+        if (!events || events.length === 0) eventName = demoOperatorEvent.title;
       }
     } catch (_) {
       eventName = null;
