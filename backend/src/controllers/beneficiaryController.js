@@ -1,7 +1,7 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile, markKitCollected
+  searchByQRToken, searchByMobile, markKitGiven
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
 import { getDisabilities } from '../models/beneficiaryDisabilityModel.js';
@@ -59,30 +59,68 @@ export const createNewBeneficiary = async (req, res) => {
   }
 };
 
+const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
+
+// True when the beneficiary collected their kit within the last 3 months —
+// the window in which an event-kit should only be handed out after an
+// explicit operator override.
+export function isWithinThreeMonths(dateStr) {
+  if (!dateStr) return false;
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return false;
+  return Date.now() - date.getTime() <= THREE_MONTHS_MS;
+}
+
+// Assembles the fully-enriched beneficiary shape (base row + every
+// sub-resource) used both by GET /:id and the QR lookup endpoint.
+const buildFullBeneficiary = async (id) => {
+  const beneficiary = await getBeneficiaryById(id);
+  if (!beneficiary) return null;
+
+  const categories = await getBeneficiaryCategories(beneficiary.id);
+  const disabilities = await getDisabilities(beneficiary.id);
+  const family = await getFamilyMembers(beneficiary.id);
+  const education = await getEducation(beneficiary.id);
+  const employment = await getEmployment(beneficiary.id);
+  const assistances = await getAssistances(beneficiary.id);
+  const documents = await getDocuments(beneficiary.id);
+  const cards = await getCards(beneficiary.id);
+  const activeCard = await getActiveCard(beneficiary.id);
+  const biometric = await getBiometricStatus(beneficiary.id);
+  const sourceRecords = await getSourceRecords(beneficiary.id);
+  const distributions = await getBeneficiaryDistributionHistory(beneficiary.id);
+
+  return {
+    ...beneficiary,
+    categories, disabilities, family, education, employment,
+    assistances, documents, cards, activeCard, biometric,
+    sourceRecords, distributions,
+  };
+};
+
 export const getBeneficiary = async (req, res) => {
   try {
-    const beneficiary = await getBeneficiaryById(req.params.id);
+    const beneficiary = await buildFullBeneficiary(req.params.id);
     if (!beneficiary) return res.status(404).json({ message: 'Beneficiary not found' });
 
-    const categories = await getBeneficiaryCategories(beneficiary.id);
-    const disabilities = await getDisabilities(beneficiary.id);
-    const family = await getFamilyMembers(beneficiary.id);
-    const education = await getEducation(beneficiary.id);
-    const employment = await getEmployment(beneficiary.id);
-    const assistances = await getAssistances(beneficiary.id);
-    const documents = await getDocuments(beneficiary.id);
-    const cards = await getCards(beneficiary.id);
-    const activeCard = await getActiveCard(beneficiary.id);
-    const biometric = await getBiometricStatus(beneficiary.id);
-    const sourceRecords = await getSourceRecords(beneficiary.id);
-    const distributions = await getBeneficiaryDistributionHistory(beneficiary.id);
+    return res.json(beneficiary);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 
-    return res.json({
-      ...beneficiary,
-      categories, disabilities, family, education, employment,
-      assistances, documents, cards, activeCard, biometric,
-      sourceRecords, distributions,
-    });
+// QR / barcode lookup. Resolves the qr_token to its card, then returns the
+// full enriched beneficiary so the operator app gets every detail (including
+// kit_given_at) in a single request.
+export const lookupBeneficiaryByToken = async (req, res) => {
+  try {
+    const card = await searchByQRToken(req.params.token);
+    if (!card || !card.id) return res.status(404).json({ message: 'No beneficiary found for this QR code' });
+
+    const beneficiary = await buildFullBeneficiary(card.id);
+    if (!beneficiary) return res.status(404).json({ message: 'No beneficiary found for this QR code' });
+
+    return res.json(beneficiary);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -98,24 +136,38 @@ export const getBeneficiaryByCodeController = async (req, res) => {
   }
 };
 
-export const markBeneficiaryKitCollected = async (req, res) => {
+export const markBeneficiaryKitGiven = async (req, res) => {
   try {
     const beneficiary = await getBeneficiaryById(req.params.id);
     if (!beneficiary) return res.status(404).json({ message: 'Beneficiary not found' });
-    if (beneficiary.kit_collected) {
-      return res.status(400).json({ message: 'Kit already collected for this beneficiary', beneficiary });
+
+    // A kit may only be handed out once every 3 months. If one was given
+    // within the window, only an explicit override (operator accepted the
+    // "already given on X" prompt) records another handout.
+    if (isWithinThreeMonths(beneficiary.kit_given_at) && req.body?.override !== true) {
+      const givenOn = beneficiary.kit_given_at
+        ? new Date(beneficiary.kit_given_at).toISOString().slice(0, 10)
+        : null;
+      return res.status(400).json({
+        message: givenOn
+          ? `Kit already given on ${givenOn}. Would you still want to give this beneficiary the kit?`
+          : 'Kit already given. Would you still want to give this beneficiary the kit?',
+        withinThreeMonths: true,
+        beneficiary,
+      });
     }
-    const collectedBy = req.user?.name || req.user?.email || 'system';
-    const updated = await markKitCollected(beneficiary.id, collectedBy);
+
+    const givenBy = req.user?.name || req.user?.email || 'system';
+    const updated = await markKitGiven(beneficiary.id, givenBy);
 
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
-      beneficiary_id: beneficiary.id, action: 'KIT_COLLECTED',
+      beneficiary_id: beneficiary.id, action: 'KIT_GIVEN',
       details: { beneficiary_code: beneficiary.beneficiary_code },
-      performed_by: collectedBy,
+      performed_by: givenBy,
     });
 
-    return res.json({ message: 'Kit marked as collected', beneficiary: updated });
+    return res.json({ message: 'Kit marked as given', beneficiary: updated });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -152,12 +204,12 @@ export const updateBeneficiaryController = async (req, res) => {
 
 export const listAllBeneficiaries = async (req, res) => {
   try {
-    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_collected } = req.query;
+    const { page, pageSize, search, status, ngo_id, category_id, state, city, kit_given } = req.query;
     const result = await listBeneficiaries({
       page: parseInt(page) || 1,
       pageSize: parseInt(pageSize) || 25,
       search, status, ngo_id: ngo_id ? parseInt(ngo_id) : undefined,
-      category_id, state, city, kit_collected,
+      category_id, state, city, kit_given,
     });
     return res.json(result);
   } catch (error) {

@@ -31,15 +31,33 @@ await db._pool.query(
   ).catch(() => {});
 
   await db._pool.query(
-    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_collected BOOLEAN NOT NULL DEFAULT FALSE"
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given BOOLEAN NOT NULL DEFAULT FALSE"
   ).catch(() => {});
 
   await db._pool.query(
-    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_collected_at TIMESTAMPTZ"
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_at TIMESTAMPTZ"
   ).catch(() => {});
 
   await db._pool.query(
-    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_collected_by TEXT"
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given_by TEXT"
+  ).catch(() => {});
+
+  // Upgrade guard for installations that still use the old kit_collected*
+  // naming: copy the values over and drop the legacy columns.
+  await db._pool.query(
+    `DO $$ BEGIN
+       IF EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'beneficiaries' AND column_name = 'kit_collected_at') THEN
+         UPDATE beneficiaries
+         SET kit_given = COALESCE(kit_given, kit_collected),
+             kit_given_at = COALESCE(kit_given_at, kit_collected_at),
+             kit_given_by = COALESCE(kit_given_by, kit_collected_by)
+         WHERE kit_given_at IS NULL AND kit_collected_at IS NOT NULL;
+         ALTER TABLE beneficiaries DROP COLUMN IF EXISTS kit_collected;
+         ALTER TABLE beneficiaries DROP COLUMN IF EXISTS kit_collected_at;
+         ALTER TABLE beneficiaries DROP COLUMN IF EXISTS kit_collected_by;
+       END IF;
+     END $$`
   ).catch(() => {});
 
   // Beneficiary Categories seed
