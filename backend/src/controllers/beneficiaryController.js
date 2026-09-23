@@ -15,6 +15,8 @@ import { getBiometricStatus } from '../models/biometricModel.js';
 import { getSourceRecords } from '../models/beneficiarySourceModel.js';
 import { getBeneficiaryDistributionHistory } from '../models/distributionModel.js';
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
+import { getWorkerBySession } from '../models/workerModel.js';
+import { getTodayAssignment } from '../models/operatorModel.js';
 
 export const createNewBeneficiary = async (req, res) => {
   try {
@@ -160,10 +162,28 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     const givenBy = req.user?.name || req.user?.email || 'system';
     const updated = await markKitGiven(beneficiary.id, givenBy);
 
+    // Capture the operator's event for the day (if one is assigned) so the
+    // kit-given history on the app can show which event the kit was collected at.
+    let eventName = null;
+    try {
+      const worker = await getWorkerBySession(req.user);
+      if (worker?.id != null) {
+        const today = new Date().toISOString().split('T')[0];
+        const assignment = await getTodayAssignment(worker.id, today);
+        const ev = assignment?.operator_events;
+        if (ev) eventName = ev?.title || ev?.name || null;
+      }
+    } catch (_) {
+      eventName = null;
+    }
+
     await logAuditEvent({
       entity_type: 'beneficiary', entity_id: beneficiary.id,
       beneficiary_id: beneficiary.id, action: 'KIT_GIVEN',
-      details: { beneficiary_code: beneficiary.beneficiary_code },
+      details: {
+        beneficiary_code: beneficiary.beneficiary_code,
+        event_name: eventName,
+      },
       performed_by: givenBy,
     });
 
