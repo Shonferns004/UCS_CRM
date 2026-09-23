@@ -1,10 +1,12 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:math' as math;
+
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/material.dart';
 
 import '../../core/lucide_icons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_snackbar.dart';
-import '../../core/widgets/swipe_action_control.dart';
 import '../../services/api_service.dart';
 
 /// Spec-exact colors (JOD Beneficiary Detail Screen) not already in AppColors.
@@ -17,9 +19,6 @@ const Color _kWarnBg = Color(0xFFFFF8EA);
 const Color _kWarnBorder = Color(0xFFF4D9A5);
 const Color _kWarnIcon = Color(0xFFC47A16);
 const Color _kWarnText = Color(0xFF80500F);
-const Color _kInstruction = Color(0xFF7C8798);
-const Color _kMutedRed = Color(0xFFE96868);
-const Color _kRejectSoft = Color(0xFFFFF1F1);
 
 class BeneficiaryDetailPage extends StatefulWidget {
   final Map<String, dynamic> beneficiary;
@@ -35,26 +34,39 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   late Map<String, dynamic> _b;
   bool _markingKit = false;
-  bool _justGiven = false;
+  bool _decisionAccepted = false;
   bool _rejected = false;
+  bool _justGiven = false;
+  bool _acceptedFlash = false;
+  bool _decisionPrompted = false;
   bool _historyExpanded = false;
   List<Map<String, dynamic>> _kitHistory = [];
+  late final AudioPlayer _player;
 
   @override
   void initState() {
     super.initState();
     _b = widget.beneficiary;
+    _player = AudioPlayer();
     if (_b['id'] != null) _refresh();
+    _maybePromptDecision();
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
+    final id = _b['id'];
+    if (id == null) return;
     try {
-      final result = await ApiService.get('/beneficiaries/${_b['id']}');
+      final result = await ApiService.get('/beneficiaries/$id');
       if (mounted) setState(() => _b = result);
     } catch (_) {}
     try {
-      final audit =
-          await ApiService.getList('/beneficiaries/${_b['id']}/audit');
+      final audit = await ApiService.getList('/beneficiaries/$id/audit');
       if (!mounted) return;
       final logs = audit
           .whereType<Map>()
@@ -90,37 +102,145 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   // ---- actions ------------------------------------------------------------
 
-  Future<void> _onGive() async {
-    if (_markingKit) return;
-    if (_kitGiven) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Give kit anyway?'),
-          content: Text(
-            'Kit already given on $_kitGivenAt. Would you still want to give '
-            'this beneficiary the kit?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Give'),
-            ),
-          ],
-        ),
-      );
-      if (confirm != true || !mounted) return;
-    }
-    await _markKitDonated();
-  }
-
   void _reject() {
     if (_markingKit) return;
     setState(() => _rejected = true);
+    showAppSnackbar(context, 'Rejected — no kit given');
+  }
+
+  void _accept() {
+    if (_markingKit) return;
+    setState(() => _decisionAccepted = true);
+  }
+
+  // When the kit was already collected, pop the accept/reject sheet once.
+  void _maybePromptDecision() {
+    if (_decisionPrompted ||
+        _justGiven ||
+        _decisionAccepted ||
+        _rejected ||
+        !_kitGiven) {
+      return;
+    }
+    _decisionPrompted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showDecisionSheet();
+    });
+  }
+
+  Future<void> _showDecisionSheet() async {
+    final accepted = await showModalBottomSheet<bool>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          20,
+          24,
+          24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE4E7EC),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(
+                color: AppColors.successGreenSoft,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                LucideIcons.package,
+                size: 26,
+                color: AppColors.successGreen,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Already collected',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This person has already collected the kit'
+              '${_kitGivenAt.isEmpty ? '' : ' on $_kitGivenAt'}.\n'
+              'Do you want to give them the kit again?',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text(
+                  'Accept',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                  side: const BorderSide(color: Colors.black, width: 1.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text(
+                  'Reject',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (accepted == true) {
+      _accept();
+    } else {
+      _reject();
+    }
   }
 
   Future<void> _markKitDonated() async {
@@ -144,6 +264,9 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           _b['kit_given_at'] = DateTime.now().toIso8601String();
         }
         _justGiven = true;
+        _decisionAccepted = true;
+        _acceptedFlash = true;
+        _playDoneSound();
         _kitHistory = [
           {
             'action': 'KIT_GIVEN',
@@ -154,6 +277,9 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         ];
       });
       showAppSnackbar(context, 'Kit marked as given', success: true);
+      Future<void>.delayed(const Duration(milliseconds: 1800), () {
+        if (mounted) setState(() => _acceptedFlash = false);
+      });
     } catch (e) {
       if (!mounted) return;
       // The 3-month guard message is a deliberate block, not an error we
@@ -165,6 +291,16 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
       showAppSnackbar(context, e.toString(), error: true);
     } finally {
       if (mounted) setState(() => _markingKit = false);
+    }
+  }
+
+  // Google-pay-style "done" chime right when the green flash appears.
+  void _playDoneSound() {
+    try {
+      _player.stop();
+      _player.play(AssetSource('audio/google_pay.mp3'));
+    } catch (_) {
+      // Sound is cosmetic; never block the give flow over audio.
     }
   }
 
@@ -188,17 +324,24 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(child: _buildScrollBody()),
-            _buildBottomArea(),
-          ],
+    // Wrap the whole Scaffold so the acceptance flash can sweep the full
+    // screen, header and all.
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: AppTheme.background,
+          body: SafeArea(
+            child: Column(
+              children: [
+                _buildHeader(),
+                Expanded(child: _buildScrollBody()),
+                _buildBottomArea(),
+              ],
+            ),
+          ),
         ),
-      ),
+        if (_acceptedFlash) const _AcceptFlashOverlay(),
+      ],
     );
   }
 
@@ -241,7 +384,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           _buildProfileCard(),
           const SizedBox(height: 24),
           _buildHistoryCard(),
-          if (_kitGiven && !_justGiven && !_rejected) ...[
+          if (_kitGiven && !_justGiven) ...[
             const SizedBox(height: 24),
             _buildWarning(),
           ],
@@ -586,68 +729,16 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   // ---- bottom area --------------------------------------------------------
 
+  // Already collected + no accept/reject yet -> the bottom sheet owns the
+  // decision, so nothing is pinned below until the delegate picks. Rejecting
+  // also hides the slider.
   Widget _buildBottomArea() {
-    if (_justGiven || _rejected) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
-        child: _resultBanner(),
-      );
-    }
+    final blocked = _rejected ||
+        (_kitGiven && !_justGiven && !_decisionAccepted);
+    if (blocked) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'Swipe left to reject  •  Swipe right to give',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: _kInstruction),
-          ),
-          const SizedBox(height: 12),
-          SwipeActionControl(
-            onReject: _reject,
-            onGive: _onGive,
-            enabled: !_markingKit,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _resultBanner() {
-    final given = _justGiven;
-    final color = given ? AppColors.successGreen : _kMutedRed;
-    final bg = given ? _kSoftGreen : _kRejectSoft;
-    final text =
-        given ? 'Kit given to this beneficiary today' : 'Rejected — no kit given';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            given ? LucideIcons.checkCircle : LucideIcons.xCircle,
-            size: 18,
-            color: color,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
-            ),
-          ),
-        ],
-      ),
+      child: _DonateSwipe(onConfirm: _markKitDonated, busy: _markingKit),
     );
   }
 
@@ -661,6 +752,492 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         boxShadow: AppTheme.cardShadow,
       ),
       child: child,
+    );
+  }
+}
+
+/// Full-screen green circle that expands from the bottom-right corner and
+/// covers the entire screen (header included), showing the verified
+/// badge-check "done" animation.
+class _AcceptFlashOverlay extends StatefulWidget {
+  const _AcceptFlashOverlay();
+
+  @override
+  State<_AcceptFlashOverlay> createState() => _AcceptFlashOverlayState();
+}
+
+class _AcceptFlashOverlayState extends State<_AcceptFlashOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 650),
+  )..forward();
+  late final Animation<double> _scale =
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          final h = constraints.maxHeight;
+          // Diameter large enough that the circle, grown from the corner,
+          // guarantees full-screen coverage.
+          final cover = 2 * math.sqrt(w * w + h * h);
+
+          return AnimatedBuilder(
+            animation: _scale,
+            builder: (context, child) {
+              final t = _scale.value;
+              final d = t * cover;
+              final contentAlpha = ((t - 0.4) / 0.5).clamp(0.0, 1.0).toDouble();
+              return Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned(
+                    right: -d / 2,
+                    bottom: -d / 2,
+                    child: Container(
+                      width: d,
+                      height: d,
+                      decoration: const BoxDecoration(
+                        color: AppColors.successGreen,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: Opacity(
+                      opacity: contentAlpha,
+                      child: _BadgeCheck(progress: t),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Lucide `badge-check` (24x24 viewBox) redrawn as a Path, Instagram-blue
+/// filled, with an animated outline stroke + white checkmark draw-in.
+class _BadgeCheck extends StatelessWidget {
+  final double progress;
+
+  const _BadgeCheck({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    // Ease-out-back pop: scales slightly past 1 then settles.
+    final pop = Curves.easeOutBack
+        .transform((progress / 0.9).clamp(0.0, 1.0).toDouble());
+    return RepaintBoundary(
+      child: Transform.scale(
+        scale: pop,
+        child: CustomPaint(
+          size: const Size.square(124),
+          painter: _BadgeCheckPainter(progress: progress),
+        ),
+      ),
+    );
+  }
+}
+
+/// Adds an SVG-style `a rx ry 0 0 1 dx dy` arc (sweep=1, small arc) to [p].
+void _svgArcTo(Path p, Offset from, double dx, double dy, double r) {
+  final to = from + Offset(dx, dy);
+  final d = (to - from).distance;
+  final h = math.sqrt(r * r - (d / 2) * (d / 2));
+  final mid = Offset((from.dx + to.dx) / 2, (from.dy + to.dy) / 2);
+  final perp = Offset(-dy, dx) / d;
+  final c = mid + perp * h;
+  final start = math.atan2(from.dy - c.dy, from.dx - c.dx);
+  final sweep = 2 * math.asin((d / 2) / r);
+  p.arcTo(Rect.fromCircle(center: c, radius: r), start, sweep, false);
+}
+
+class _BadgeCheckPainter extends CustomPainter {
+  final double progress;
+
+  const _BadgeCheckPainter({required this.progress});
+
+  double _ease(double t) =>
+      Curves.easeInOut.transform(t.clamp(0.0, 1.0).toDouble());
+
+  Path _badgeShape(double s) {
+    final p = Path()..moveTo(3.85 * s, 8.62 * s);
+    double cx = 3.85 * s, cy = 8.62 * s;
+    void a(double dx, double dy) {
+      final from = Offset(cx, cy);
+      _svgArcTo(p, from, dx * s, dy * s, 4 * s);
+      cx = from.dx + dx * s;
+      cy = from.dy + dy * s;
+    }
+
+    a(4.78, -4.77);
+    a(6.74, 0);
+    a(4.78, 4.78);
+    a(0, 6.74);
+    a(-4.77, 4.78);
+    a(-6.75, 0);
+    a(-4.78, -4.77);
+    a(0, -6.76);
+    return p..close();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 24;
+
+    // Phase 1 [0 .. 55%]: white outline of the badge strokes itself in.
+    final strokeT = _ease((progress / 0.55).clamp(0.0, 1.0).toDouble());
+    // Phase 2 [35% .. 80%]: the blue body fades in beneath the stroke.
+    final fillT = _ease(((progress - 0.35) / 0.45).clamp(0.0, 1.0).toDouble());
+    // Phase 3 [60% .. 100%]: the white check draws itself.
+    final checkT = _ease(((progress - 0.6) / 0.4).clamp(0.0, 1.0).toDouble());
+
+    final shape = _badgeShape(s);
+
+    if (fillT > 0) {
+      final fill = Paint()
+        ..style = PaintingStyle.fill
+        ..color = Colors.transparent
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)],
+        ).createShader(Offset.zero & size);
+      canvas.saveLayer(
+          Offset.zero & size, Paint()..color = Colors.white.withValues(alpha: fillT));
+      canvas.drawPath(shape, fill);
+      canvas.restore();
+    }
+
+    if (strokeT > 0) {
+      final metrics = shape.computeMetrics().first;
+      final strokePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.7 * s
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = Colors.white.withValues(alpha: 0.95);
+      canvas.drawPath(
+          metrics.extractPath(0, metrics.length * strokeT), strokePaint);
+    }
+
+    if (checkT > 0) {
+      final check = Path()
+        ..moveTo(16 * s, 9 * s)
+        ..lineTo(10.5 * s, 14.5 * s)
+        ..lineTo(8 * s, 12 * s);
+      final metrics = check.computeMetrics().first;
+      final checkPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2 * s
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = Colors.white;
+      canvas.drawPath(
+          metrics.extractPath(0, metrics.length * checkT), checkPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BadgeCheckPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+/// Marching chevrons that glide toward [direction] (-1 left / +1 right),
+/// fading as they travel.
+class _MarchingArrows extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+  final int direction;
+
+  const _MarchingArrows({
+    required this.icon,
+    required this.color,
+    this.direction = 1,
+  });
+
+  @override
+  State<_MarchingArrows> createState() => _MarchingArrowsState();
+}
+
+class _MarchingArrowsState extends State<_MarchingArrows>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 40,
+      height: 20,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) => Stack(
+          alignment: Alignment.center,
+          children: List.generate(3, (i) {
+            final t = (_controller.value - i * 0.16).abs() % 1.0;
+            return Opacity(
+              opacity: (1 - t).clamp(0.0, 1.0),
+              child: Transform.translate(
+                offset: Offset(12 * widget.direction * t, 0),
+                child: Icon(widget.icon, size: 16, color: widget.color),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+/// Square thumb with a soft expanding ripple ring behind it while dragging.
+class _SwipeHandle extends StatelessWidget {
+  static const double span = 66;
+  final bool expanding;
+  final Widget child;
+
+  const _SwipeHandle({required this.expanding, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: span,
+      height: span,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedScale(
+            scale: expanding ? 1.5 : 1.0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFC9D5E3)
+                    .withValues(alpha: expanding ? 0.55 : 0.25),
+              ),
+            ),
+          ),
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFE5E9EF)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x14111827),
+                  blurRadius: 12,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The "Swipe to mark as donated" bar. The actual API call happens here;
+/// success plays the green acceptance flash.
+class _DonateSwipe extends StatefulWidget {
+  final VoidCallback onConfirm;
+  final bool busy;
+
+  const _DonateSwipe({required this.onConfirm, required this.busy});
+
+  @override
+  State<_DonateSwipe> createState() => _DonateSwipeState();
+}
+
+class _DonateSwipeState extends State<_DonateSwipe> {
+  static const double _height = 72;
+
+  double _dragX = 0;
+  double _maxDrag = 0;
+  bool _dragging = false;
+
+  void _updateMax(double track) {
+    final max = track - _SwipeHandle.span - 8;
+    if (max > 0) _maxDrag = max;
+  }
+
+  void _onUpdate(DragUpdateDetails d) {
+    if (widget.busy) return;
+    setState(() {
+      _dragging = true;
+      _dragX = (_dragX + d.delta.dx).clamp(0.0, _maxDrag);
+    });
+  }
+
+  void _onEnd(DragEndDetails d) {
+    if (widget.busy) return;
+    final x = _dragX;
+    final fling = d.velocity.pixelsPerSecond.dx > 600;
+    final done = _maxDrag > 0 && (fling || x >= _maxDrag * 0.5);
+    setState(() {
+      _dragging = false;
+      // Visually complete the bar when confirmed, otherwise snap back.
+      _dragX = done ? _maxDrag : 0;
+    });
+    if (done) widget.onConfirm();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.busy) {
+      return SizedBox(
+        height: _height,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(_height / 2),
+          ),
+          alignment: Alignment.center,
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Marking kit as donated…',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _updateMax(constraints.maxWidth);
+        final handleLeft = _dragX + 4;
+        // Whole bar is draggable, not just the thumb, so a swipe anywhere
+        // slides it and "goes".
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragUpdate: _onUpdate,
+          onHorizontalDragEnd: _onEnd,
+          child: SizedBox(
+            height: _height,
+            child: Stack(
+              children: [
+Container(
+                height: _height,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(_height / 2),
+                ),
+                child: const Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Swipe to mark as donated',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(right: 20),
+                      child: _SwipeLabels(
+                        icon: LucideIcons.chevronsRight,
+                        color: Colors.white,
+                        direction: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedPositioned(
+                duration: _dragging
+                    ? Duration.zero
+                    : const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                left: handleLeft,
+                top: 3,
+                bottom: 3,
+                width: _SwipeHandle.span,
+                child: _SwipeHandle(
+                  expanding: _dragging,
+                  child: const Icon(
+                    LucideIcons.chevronsRight,
+                    size: 26,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Non-interactive marching chevrons used on the swipe bars.
+class _SwipeLabels extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final int direction;
+
+  const _SwipeLabels({
+    required this.icon,
+    required this.color,
+    this.direction = 1,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: _MarchingArrows(
+        icon: icon,
+        color: color,
+        direction: direction,
+      ),
     );
   }
 }
