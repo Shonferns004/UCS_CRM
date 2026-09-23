@@ -120,6 +120,9 @@ router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'account
 router.get('/non-connected-fresh', authenticateRole('admin', 'super_admin'), getNonConnectedFresh);
 router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admin'), deleteNonConnectedFresh);
 
+// Per-day FRO idle stats — also used by HR for warning letters on a selected FRO
+router.get('/fro-daily-stats', authenticateRole('admin', 'super_admin', 'hr'), getFroDailyStats);
+
 router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
@@ -155,7 +158,6 @@ router.get('/assignments', getAssignments);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
 router.get('/fro-performance', getFroPerformance);
-router.get('/fro-daily-stats', getFroDailyStats);
 router.get('/fro/:id/summary', getFroSummary);
 router.post('/achieved-target', setAchievedTarget);
 router.get('/incentives', getIncentives);

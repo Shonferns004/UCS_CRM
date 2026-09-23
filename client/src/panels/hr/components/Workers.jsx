@@ -428,7 +428,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         MONTH_SAL: 26, INCENT_10: 27, TOTAL_AKI: 28, AKI: 29, GROSS: 30,
         OT: 31, PENDING: 32, ADVANCE: 33, NET_PAY: 34,
         COMP_SUN: 35, COMP_HOLIDAY: 36, REQUIRED_SUN: 37,
-        FIRST_DAY_COL: 38
+        IDLE_HRS: 38,
+        FIRST_DAY_COL: 39
       };
       const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
 
@@ -442,7 +443,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         'Gross Payable Salary',
         'OT/Appreciation/Extra Incentive', 'Any Pending Salary Paid for Previous Month',
         `Advance need to be deducted in ${monthName}, ${year}`, 'Net Payable Salary',
-        'Compensatory Sunday', 'Compensated Holiday', 'Required Sunday Worked',
+        'Compensatory Sunday', 'Compensated Holiday', 'Required Sunday Worked', 'Idle Time (Hrs)',
         ...Array.from({ length: daysInMonth }, (_, i) => {
           const d = new Date(year, monthDate.getMonth(), i + 1);
           return d.toLocaleString('default', { day: '2-digit', month: 'short' });
@@ -461,7 +462,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         gross_present_days: 0, absent_days: 0, half_days: 0, late_deduction_days: 0, sunday_deduction_days: 0, training_deduction_days: 0, month_salary: 0,
         compensatory_work_days: 0, compensated_holiday_days: 0, required_sunday_worked_days: 0,
         monthly_incentive: 0, total_aki: 0, aki_payout: 0, advance_deduction: 0,
-        net_payable: 0, daily: {}
+        net_payable: 0, idle_hours: 0, daily: {}
       });
       const addSum = (sum, r) => {
         sum.salary += r.salary || 0;
@@ -476,6 +477,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         sum.late_deduction_days += r.late_deduction_days || 0;
         sum.sunday_deduction_days += r.sunday_deduction_days || 0;
         sum.training_deduction_days += r.training_deduction_days || 0;
+        sum.idle_hours += (r.idle_seconds || 0) / 3600;
         sum.compensatory_work_days += r.compensatory_work_days || 0;
         sum.compensated_holiday_days += r.compensated_holiday_days || 0;
         sum.required_sunday_worked_days += r.required_sunday_worked_days || 0;
@@ -539,6 +541,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           r.compensatory_work_days || 0,
           r.compensated_holiday_days || 0,
           r.required_sunday_worked_days || 0,
+          Math.round(((r.idle_seconds || 0) / 3600) * 100) / 100,
           ...dailyArr
         ];
         wsData.push(row);
@@ -593,6 +596,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           else if (c === COL.COMP_SUN) row.push(sum.compensatory_work_days);
           else if (c === COL.COMP_HOLIDAY) row.push(sum.compensated_holiday_days);
           else if (c === COL.REQUIRED_SUN) row.push(sum.required_sunday_worked_days);
+          else if (c === COL.IDLE_HRS) row.push(Math.round(sum.idle_hours * 100) / 100);
           else if (c >= COL.FIRST_DAY_COL) row.push(sum.daily[c - COL.FIRST_DAY_COL + 1] || 0);
           else row.push(null);
         }
@@ -662,6 +666,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         { wch: 22 }, { wch: 26 },
         { wch: 22 }, { wch: 20 },
         { wch: 18 }, { wch: 18 }, { wch: 20 },
+        { wch: 12 },
         ...Array.from({ length: daysInMonth }, () => ({ wch: 10 }))
       ];
       ws['!cols'] = colWidths;
