@@ -1,0 +1,24 @@
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+    <style name="BlockTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_block</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@style/BlockAnimation</item>
+        <item name="android:statusBarColor">#0B1B3F</item>
+        <item name="android:navigationBarColor">#0B1B3F</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <style name="BlockAnimation">
+        <item name="android:activityOpenEnterAnimation">@anim/fade_in</item>
+        <item name="android:activityCloseExitAnimation">@anim/fade_out</item>
+    </style>
+    <style name="BlockButton">
+        <item name="android:background">@drawable/bg_block_button</item>
+        <item name="android:elevation">2dp</item>
+    </style>
+</resources>

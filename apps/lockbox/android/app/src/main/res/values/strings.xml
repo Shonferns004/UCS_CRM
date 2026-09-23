@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">LockBox</string>
+    <string name="app_blocked_title">App Blocked</string>
+    <string name="blocked_generic">This app is blocked.</string>
+    <string name="blocked_app_icon">Blocked app icon</string>
+    <string name="back_to_home">Back to Home</string>
+    <string name="block_footer">Stay focused. You\'ve got this.</string>
+    <string name="accessibility_service_description">LockBox watches which app is in the foreground and instantly blocks anything not on your allowed list. It only reads the active window\'s package name; it never reads app content or logs.</string>
+    <string name="recovery_channel_name">LockBox recovery</string>
+    <string name="recovery_channel_desc">Persistent shortcut to reopen LockBox when its icon is hidden</string>
+    <string name="recovery_notification_title">LockBox</string>
+    <string name="recovery_notification_text">Tap to open LockBox</string>
+</resources>
