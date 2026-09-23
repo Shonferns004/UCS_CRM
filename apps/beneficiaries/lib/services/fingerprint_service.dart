@@ -170,6 +170,35 @@ class FingerprintService {
     );
   }
 
+  /// Verify the SecuGen SDK connection is live, re-opening it if needed.
+  ///
+  /// A device being physically present is NOT enough - the SDK USB handle
+  /// (`sdkUsb.isConnected`) is what actually captures frames, and Android
+  /// re-enumerates the USB bus briefly on plug/unplug (or when another app
+  /// pokes the device), which drops that handle while the cable is still in.
+  /// This retries so a transient detach never looks like a real disconnect.
+  static Future<bool> ensureConnected({
+    int retries = 2,
+    Duration retryDelay = const Duration(milliseconds: 300),
+  }) async {
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      final info = await rawGetInfo();
+      if (info['connected'] == true) return true;
+
+      final conn = await rawConnect();
+      if (conn['connected'] == true) return true;
+
+      // Device is only considered still attached if we can see it on the USB
+      // bus. If present, give the stack a moment to settle and retry instead
+      // of failing immediately.
+      final present = (await detectDevices()).any((d) => d.isAvailable);
+      if (!present) return false;
+
+      if (attempt < retries) await Future<void>.delayed(retryDelay);
+    }
+    return false;
+  }
+
   /// Capture a fingerprint using the SecuGen Hamster Pro 20 over raw USB.
   static Future<CaptureResult> capture({
     BiometricDeviceType? deviceType,
@@ -184,28 +213,38 @@ class FingerprintService {
     int timeoutSeconds = 30,
   }) async {
     try {
-      final info = await _channel.invokeMethod<Map>('rawGetInfo');
-      final infoMap = Map<String, dynamic>.from(info ?? {});
-      if (infoMap['connected'] != true) {
-        final conn = await _channel.invokeMethod<Map>('rawConnect');
-        final connMap = Map<String, dynamic>.from(conn ?? {});
-        if (connMap['connected'] != true) {
-          return const CaptureResult(
-            pidData: '',
-            fidData: '',
-            qualityScore: '0',
-            template: '',
-            deviceInfo: '',
-            timestamp: '',
-            success: false,
-          ).copyWithError(connMap['error']?.toString() ?? 'Unable to connect to the SecuGen Hamster Pro 20');
-        }
+      if (!await ensureConnected()) {
+        return const CaptureResult(
+          pidData: '',
+          fidData: '',
+          qualityScore: '0',
+          template: '',
+          deviceInfo: '',
+          timestamp: '',
+          success: false,
+        ).copyWithError(
+          'Unable to connect to the SecuGen Hamster Pro 20. Reconnect the USB cable and retry.',
+        );
       }
 
-      final raw = await _channel.invokeMethod<Map>('rawCapture', {
+      var raw = await _channel.invokeMethod<Map>('rawCapture', {
         'timeout_seconds': timeoutSeconds,
       });
-      final m = Map<String, dynamic>.from(raw ?? {});
+      var m = Map<String, dynamic>.from(raw ?? {});
+      if (m['success'] != true) {
+        final err = m['error']?.toString() ?? '';
+        // The connection can drop between the check and the capture (USB
+        // re-enumeration). Reopen the device and retry the scan once.
+        if (err.contains('not connected') ||
+            err.contains('OpenDevice') ||
+            err.contains('Device not found')) {
+          await ensureConnected(retries: 1);
+          raw = await _channel.invokeMethod<Map>('rawCapture', {
+            'timeout_seconds': timeoutSeconds,
+          });
+          m = Map<String, dynamic>.from(raw ?? {});
+        }
+      }
       if (m['success'] != true) {
         return const CaptureResult(
           pidData: '',

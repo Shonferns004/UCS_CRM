@@ -42,12 +42,6 @@ export default function Overview() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Beneficiaries Overview</h2>
-        <button
-          onClick={() => navigate(base + '/new')}
-          style={{ ...styles.btn, ...styles.btnPrimary }}
-        >
-          + New Registration
-        </button>
       </div>
 
       <div style={styles.statsGrid}>
@@ -85,9 +79,7 @@ export default function Overview() {
         <div style={styles.card}>
           <div style={styles.cardTitle}>Quick Actions</div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate(base + '/new')} style={{ ...styles.btn, ...styles.btnPrimary }}>New Registration</button>
             <button onClick={() => navigate(base + '/all')} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>View All</button>
-            <button onClick={() => navigate(base + '/imports')} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Import Data</button>
             <button onClick={() => navigate(base + '/reports')} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Reports</button>
           </div>
         </div>

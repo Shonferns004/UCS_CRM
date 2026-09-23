@@ -175,6 +175,11 @@ class MainActivity : FlutterFragmentActivity(), MethodChannel.MethodCallHandler,
                         sendEvent(mapOf("type" to "device_connected"))
                     }
                     UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                        // Invalidate the SDK handle so a real detach (or a brief
+                        // USB re-enumeration) reflects as disconnected; the Dart
+                        // side re-probes and reopens within ~400ms when the cable
+                        // is still plugged in.
+                        sdkUsb.onUsbDetached()
                         sendEvent(mapOf("type" to "device_disconnected"))
                     }
                 }

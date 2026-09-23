@@ -55,31 +55,19 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
       }
     } else if (type == 'device_disconnected') {
       await FingerprintService.stopCapture();
+      // Android briefly re-enumerates the USB bus on plug/unplug (and when
+      // other apps touch the device), firing a spurious DETACHED. Do not mark
+      // the device lost until a re-probe says it's truly gone.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
-      setState(() {
-        _deviceConnected = false;
-        _error = 'Device not connected';
-        _loading = false;
-        _matchedBeneficiary = null;
-      });
+      await _checkDevice();
     }
   }
 
   Future<void> _checkDevice() async {
     var connected = false;
     try {
-      final info = await FingerprintService.rawGetInfo();
-      connected = info['connected'] == true;
-      if (!connected) {
-        final conn = await FingerprintService.rawConnect();
-        connected = conn['connected'] == true;
-      }
-      if (!connected) {
-        final defaultDevice = await FingerprintService.getDefaultDevice();
-        if (defaultDevice != null && defaultDevice.isAvailable) {
-          connected = true;
-        }
-      }
+      connected = await FingerprintService.ensureConnected();
     } catch (_) {
       connected = false;
     }
@@ -127,16 +115,8 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
   }
 
   Future<void> _findBeneficiaryRaw() async {
-    await FingerprintService.rawConnect();
-    final info = await FingerprintService.rawGetInfo();
-    if (info['connected'] != true) {
-      if (!mounted) return;
-      setState(() {
-        _deviceConnected = false;
-        _error = 'Device not connected';
-      });
-      return;
-    }
+    // capture() reconnects on its own (`ensureConnected`), so no pre-check is
+    // needed here - a stale/transient connection self-heals before the scan.
     final result = await FingerprintService.capture(
       deviceType: BiometricDeviceType.secugenHamsterPro20,
     );

@@ -211,6 +211,23 @@ class SecugenSdkLib(private val context: Context) {
         opened = false
     }
 
+    /**
+     * The USB bus fired DETACHED (real unplug or a transient re-enumeration).
+     * Drop the SDK handle so [isConnected] turns false and the next
+     * rawConnect/reconnect performs a full reopen instead of no-opping on a
+     * stale handle. Must be called from any thread - runs on the worker.
+     */
+    fun onUsbDetached() {
+        executor.execute {
+            try {
+                sgfplib?.CloseDevice()
+                sgfplib?.Close()
+            } catch (_: Exception) {}
+            sgfplib = null
+            opened = false
+        }
+    }
+
     private fun requestPermission(device: UsbDevice): Boolean {
         val latch = CountDownLatch(1)
         var granted = false

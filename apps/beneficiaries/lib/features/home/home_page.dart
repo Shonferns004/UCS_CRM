@@ -56,24 +56,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<bool> _checkDevice() async {
-    var connected = false;
     try {
-      final info = await FingerprintService.rawGetInfo();
-      connected = info['connected'] == true;
-      if (!connected) {
-        final conn = await FingerprintService.rawConnect();
-        connected = conn['connected'] == true;
-      }
-      if (!connected) {
-        final defaultDevice = await FingerprintService.getDefaultDevice();
-        if (defaultDevice != null && defaultDevice.isAvailable) {
-          connected = true;
-        }
-      }
+      return await FingerprintService.ensureConnected();
     } catch (_) {
-      connected = false;
+      return false;
     }
-    return connected;
   }
 
   @override
