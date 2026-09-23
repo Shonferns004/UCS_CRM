@@ -93,11 +93,22 @@ export const getRecruiterWorkers = async () => {
 // Next free employee_id number (e.g. existing UFS-0042 -> next 43).
 export const getNextEmployeeIdNumber = async () => {
   const { rows } = await db._pool.query(`
-    SELECT COALESCE(MAX(NULLIF(regexp_replace(employee_id, '\\D', '', 'g'), '')::int), 0) + 1 AS next
+    SELECT COALESCE(MAX(NULLIF(regexp_replace(employee_id, '\D', '', 'g'), '')::int), 0) + 1 AS next
     FROM workers
     WHERE employee_id LIKE 'UFS-%'
   `);
   return rows[0].next || 1;
+};
+
+// Operators designated for the Beneficiaries mobile app (bnf_operator = true).
+export const listBnfOperators = async () => {
+  const { data, error } = await db
+    .from('workers')
+    .select('*')
+    .eq('bnf_operator', true)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 };
 
 export const getWorkerByLoginId = async (login_id) => {
