@@ -71,14 +71,8 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<bool> _checkOperatorSetup() async {
-    try {
-      final dashboard = await ApiService.get('/operator/dashboard');
-      final state = dashboard['state']?.toString() ?? '';
-      final city = dashboard['city']?.toString() ?? '';
-      return state.isEmpty || city.isEmpty;
-    } catch (_) {
-      return false;
-    }
+    // Operator Details is always the first screen after login.
+    return true;
   }
 
   void _onLogin() {
