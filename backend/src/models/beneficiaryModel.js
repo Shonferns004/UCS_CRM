@@ -75,7 +75,7 @@ export const updateBeneficiary = async (id, updates) => {
   return data;
 };
 
-export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_collected }) => {
+export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, status, ngo_id, category_id, state, city, kit_given }) => {
   let query = db.from('beneficiaries').select('*, ngos(name, code)', { count: 'exact' });
 
   if (search) {
@@ -85,8 +85,8 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
   if (state) query = query.eq('state', state);
   if (city) query = query.eq('city', city);
-  if (kit_collected !== undefined && kit_collected !== null) {
-    query = query.eq('kit_collected', kit_collected === true || kit_collected === 'true');
+  if (kit_given !== undefined && kit_given !== null) {
+    query = query.eq('kit_given', kit_given === true || kit_given === 'true');
   }
 
   const from = (page - 1) * pageSize;
@@ -123,9 +123,9 @@ export const getBeneficiaryOverview = async () => {
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const { count: kitCollectedToday } = await db.from('beneficiaries').select('id', { count: 'exact', head: true })
-    .eq('kit_collected', true)
-    .gte('kit_collected_at', todayStart.toISOString());
+  const { count: kitGivenToday } = await db.from('beneficiaries').select('id', { count: 'exact', head: true })
+    .eq('kit_given', true)
+    .gte('kit_given_at', todayStart.toISOString());
 
   const { count: programsCount } = await db.from('bnf_programs').select('id', { count: 'exact', head: true });
   const { count: distributionsCount } = await db.from('benefit_distributions').select('id', { count: 'exact', head: true });
@@ -136,7 +136,7 @@ export const getBeneficiaryOverview = async () => {
     inactive: inactive || 0,
     pending_fingerprint: pendingFingerprint || 0,
     new_this_month: newThisMonth || 0,
-    kit_collected_today: kitCollectedToday || 0,
+    kit_given_today: kitGivenToday || 0,
     programs: programsCount || 0,
     benefits_distributed: distributionsCount || 0,
   };
@@ -171,14 +171,14 @@ export const searchByMobile = async (mobile) => {
   return data || [];
 };
 
-export const markKitCollected = async (id, collectedBy) => {
+export const markKitGiven = async (id, givenBy) => {
   const now = new Date().toISOString();
   const { data, error } = await db
     .from('beneficiaries')
     .update({
-      kit_collected: true,
-      kit_collected_at: now,
-      kit_collected_by: collectedBy || 'system',
+      kit_given: true,
+      kit_given_at: now,
+      kit_given_by: givenBy || 'system',
       updated_at: now,
     })
     .eq('id', id)

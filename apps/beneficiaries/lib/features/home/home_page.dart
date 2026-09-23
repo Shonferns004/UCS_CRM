@@ -6,7 +6,7 @@ import '../../core/widgets/bottom_navigation.dart';
 import '../../core/widgets/stat_card.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
-import 'widgets/kit_collected_users_card.dart';
+import 'widgets/kit_given_users_card.dart';
 import '../profile/profile_page.dart';
 import '../beneficiaries/fingerprint_lookup_page.dart';
 
@@ -100,7 +100,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             if (_overview != null) _buildStats(),
             if (_overview != null) const SizedBox(height: 28),
-            const KitCollectedUsersCard(),
+            const KitGivenUsersCard(),
           ],
         ),
       ),
@@ -125,7 +125,7 @@ class _HomePageState extends State<HomePage> {
         Expanded(
           child: StatCard(
             icon: LucideIcons.package,
-            value: '${_overview!['kit_collected_today'] ?? 0}',
+            value: '${_overview!['kit_given_today'] ?? 0}',
             label: 'Donated Today',
             background: AppColors.statDonationsBg,
             border: AppColors.statDonationsBorder,

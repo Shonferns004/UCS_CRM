@@ -4,7 +4,7 @@ import {
   createNewBeneficiary, getBeneficiary, getBeneficiaryByCodeController,
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
-  markBeneficiaryKitCollected,
+  markBeneficiaryKitGiven, lookupBeneficiaryByToken,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -35,6 +35,10 @@ router.get('/overview', authenticateRole('super_admin', 'admin', 'ngo', 'account
 router.get('/search', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), searchBeneficiariesController);
 router.get('/search/qr', authenticateRole('super_admin', 'admin', 'ngo', 'event_head', 'worker'), searchByQR);
 router.get('/search/mobile', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), searchByMobileController);
+// QR lookup used by the operator app — resolves the scanned token to the full
+// enriched beneficiary in a single request. Declared before /:id to avoid the
+// token being parsed as a numeric id.
+router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), lookupBeneficiaryByToken);
 
 // CRUD
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
@@ -43,8 +47,9 @@ router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', '
 router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBeneficiaryController);
 router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiaryByCodeController);
 
-// Kit collection — set from the operator fingerprint flow (worker role).
-router.post('/:id/kit-collected', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), markBeneficiaryKitCollected);
+// Kit given — records that the event kit was handed to the beneficiary
+// (operator swipe flow on the beneficiaries app).
+router.post('/:id/kit-given', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), markBeneficiaryKitGiven);
 
 // Audit
 router.get('/:id/audit', authenticateRole('super_admin', 'admin', 'ngo'), getAuditTrail);

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../../core/lucide_icons.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/beneficiary_tile.dart';
@@ -7,14 +7,14 @@ import '../../../core/widgets/section_header.dart';
 import '../../../services/api_service.dart';
 import '../../beneficiaries/beneficiary_detail_page.dart';
 
-class KitCollectedUsersCard extends StatefulWidget {
-  const KitCollectedUsersCard({super.key});
+class KitGivenUsersCard extends StatefulWidget {
+  const KitGivenUsersCard({super.key});
 
   @override
-  State<KitCollectedUsersCard> createState() => _KitCollectedUsersCardState();
+  State<KitGivenUsersCard> createState() => _KitGivenUsersCardState();
 }
 
-class _KitCollectedUsersCardState extends State<KitCollectedUsersCard> {
+class _KitGivenUsersCardState extends State<KitGivenUsersCard> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
   bool _showAll = false;
@@ -29,7 +29,7 @@ class _KitCollectedUsersCardState extends State<KitCollectedUsersCard> {
     setState(() => _loading = true);
     try {
       final result = await ApiService.get('/beneficiaries', queryParams: {
-        'kit_collected': 'true',
+        'kit_given': 'true',
         'pageSize': '50',
       });
       final data = result['data'] ?? result['beneficiaries'] ?? [];
@@ -51,8 +51,8 @@ class _KitCollectedUsersCardState extends State<KitCollectedUsersCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionHeader(
-          title: 'Users Who Collected the Kit',
-          subtitle: 'Recently collected beneficiaries',
+          title: 'Users Who Were Given the Kit',
+          subtitle: 'Recently given beneficiaries',
           action: _users.isEmpty
               ? null
               : TextButton(
@@ -83,8 +83,8 @@ class _KitCollectedUsersCardState extends State<KitCollectedUsersCard> {
         else if (_users.isEmpty)
           const EmptyState(
             icon: LucideIcons.package,
-            title: 'No kits collected yet',
-            message: 'Once beneficiaries collect their kits, they will appear here.',
+            title: 'No kits given yet',
+            message: 'Once a kit is given to a beneficiary, they will appear here.',
             dashed: true,
           )
         else
@@ -100,7 +100,7 @@ class _KitCollectedUsersCardState extends State<KitCollectedUsersCard> {
     final name = u['full_name'] ?? u['first_name'] ?? 'Unknown';
     final code = u['beneficiary_code'] ?? '';
     final city = u['city'] ?? '';
-    final collectedAt = u['kit_collected_at']?.toString();
+    final givenAt = u['kit_given_at']?.toString();
 
     return BeneficiaryTile(
       name: name,
@@ -116,16 +116,16 @@ class _KitCollectedUsersCardState extends State<KitCollectedUsersCard> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           const Text(
-            'Kit Collected',
+            'Kit Given',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: AppColors.successGreen,
             ),
           ),
-          if (collectedAt != null && collectedAt.isNotEmpty)
+          if (givenAt != null && givenAt.isNotEmpty)
             Text(
-              collectedAt.substring(0, 10),
+              givenAt.substring(0, 10),
               style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
             ),
         ],
