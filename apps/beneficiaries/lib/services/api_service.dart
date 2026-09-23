@@ -25,6 +25,19 @@ class ApiService {
     return _handleResponse(res);
   }
 
+  static Future<List<dynamic>> getList(String path,
+      {Map<String, String>? queryParams, Duration timeout = const Duration(seconds: 15)}) async {
+    var uri = Uri.parse('$baseUrl$path');
+    if (queryParams != null) {
+      uri = uri.replace(queryParameters: queryParams);
+    }
+    final res = await http.get(uri, headers: await _headers()).timeout(timeout);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(jsonDecode(res.body)['message'] ?? 'Request failed (${res.statusCode})');
+    }
+    return jsonDecode(res.body) as List<dynamic>;
+  }
+
   static Future<Map<String, dynamic>> post(String path,
       {Map<String, dynamic>? body, Duration timeout = const Duration(seconds: 15)}) async {
     final res = await http.post(

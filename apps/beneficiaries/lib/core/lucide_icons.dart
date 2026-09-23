@@ -6,6 +6,7 @@
 /// 'Lucide' font so the package source is never imported/compiled.
 class LucideIcons {
   static const IconData alertCircle = IconData(0xf10b, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
+  static const IconData alertTriangle = IconData(0xf10d, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData arrowLeft = IconData(0xf14f, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData arrowRight = IconData(0xf155, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData box = IconData(0xf1c1, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
@@ -13,7 +14,12 @@ class LucideIcons {
   static const IconData camera = IconData(0xf1df, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData check = IconData(0xf1ee, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData checkCircle = IconData(0xf1f0, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
+  static const IconData chevronDown = IconData(0xf1f5, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
+  static const IconData chevronLeft = IconData(0xf1f9, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData chevronRight = IconData(0xf1fb, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
+  static const IconData chevronUp = IconData(0xf1fd, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
+  static const IconData chevronsLeft = IconData(0xf201, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
+  static const IconData chevronsRight = IconData(0xf203, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData clipboardCheck = IconData(0xf219, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData fingerprint = IconData(0xf2e2, fontFamily: 'Lucide', fontPackage: 'lucide_icons');
   static const IconData flashlight = IconData(0xf2ea, fontFamily: 'Lucide', fontPackage: 'lucide_icons');

@@ -6,7 +6,6 @@ import BeneficiaryProfile from './pages/BeneficiaryProfile'
 import Programs from './pages/Programs'
 import ProgramForm from './pages/ProgramForm'
 import ProgramDetail from './pages/ProgramDetail'
-import Reports from './pages/Reports'
 
 export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
   return (
@@ -18,7 +17,6 @@ export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
           <Route path="programs" element={<Programs />} />
           <Route path="programs/new" element={<ProgramForm />} />
           <Route path="programs/:id" element={<ProgramDetail />} />
-          <Route path="reports" element={<Reports />} />
           <Route path=":id" element={<BeneficiaryProfile />} />
           <Route path="*" element={<Navigate to={base} replace />} />
         </Routes>
