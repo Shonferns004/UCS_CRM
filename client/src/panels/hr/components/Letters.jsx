@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { useHR } from '../store';
+import { useHR, apiGet } from '../store';
 import { Dropdown } from './ui';
 import { FileTxt, WhatsApp } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { deptLabel } from '../../../lib/labels';
 
-const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','ODAR','Volunteer Termination Letter','Blank Letter'];
+const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','NOBSD2','ODAR','Volunteer Termination Letter','Blank Letter'];
 
 const HR_MESSAGES = [
   {
@@ -169,6 +169,56 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <li style="margin-bottom:8px">I clearly understand and confirm that I shall not be entitled to any salary, wages, remuneration, honorarium, or fixed monthly payment from the organization for my voluntary services.</li>
 <li style="margin-bottom:8px">I understand that my voluntary association with the organization does not create any right or claim for salary, remuneration, employment benefits, or any permanent financial entitlement.</li>
 <li style="margin-bottom:8px">I accept that the Management may review my performance, attendance, conduct, and responsibilities from time to time and may take appropriate decisions regarding my continuation as a Volunteer in accordance with the organization's policies.</li>
+<li style="margin-bottom:8px">I confirm that I am signing this declaration voluntarily, without any pressure, coercion, or undue influence, after fully understanding its contents.</li>
+</ol>
+<p style="margin:0 0 10px 0">I have read, understood, and accepted all the above terms and conditions.</p>
+<div style="margin:22px 0;height:1px;background:#d1d5db"></div>
+<table style="width:100%;border-collapse:collapse">
+<tr><td style="padding:4px 0"><strong>Volunteer Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td></tr>
+<tr><td style="padding:4px 0"><strong>Signature of Volunteer:</strong> _______________________</td><td style="padding:4px 0"><strong>Date:</strong> ____ / ____ / _____</td></tr>
+</table>
+<div style="margin:20px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
+<div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Verification</div>
+<div><strong>HR Name:</strong> ${hrNameText}</div>
+<div style="margin-top:6px"><strong>Signature:</strong> ______________ &nbsp;&nbsp; <strong>Date:</strong> __ / __ / __</div>
+</div>
+<div style="margin:16px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
+<div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">Management Approval</div>
+<div><strong>Authorized Signatory:</strong> _____________</div>
+<div style="margin-top:6px"><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
+</div>
+</div>`;
+  if (ngoKey === 'BSCT') {
+    return buildBSCTLetterhead(subjDiv('0') + body);
+  }
+  if (ngoKey === 'AFLF') {
+    return buildAFLFLetterhead(subjDiv('0') + body);
+  }
+  if (ngoKey === 'MANN') {
+    return buildMANNLetterhead(subjDiv('0') + body);
+  }
+  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:16px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
+${subjDiv('20')}
+${body}
+</div>
+</div>`;
+}
+
+function buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey) {
+  const ngo = getNgo(ngoKey);
+  const r = deptLabel(w.role || w.department) || 'Team Member';
+  const subj = subjectText || 'NO OBJECTION & VOLUNTARY SERVICE DECLARATION';
+  const subjDiv = (mTop) => `<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:${mTop} 0 6px">Subject:- ${subj}</div>`;
+  const body = `<div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
+<p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer. I hereby declare and confirm the following:</p>
+<ol style="margin:0 0 10px 0;padding-left:26px;text-align:left">
+<li style="margin-bottom:8px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
+<li style="margin-bottom:8px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
+<li style="margin-bottom:8px">In such circumstances, I have no objection if the organization limits my monthly payment to ₹6,000 (Rupees Six Thousand Only) as Volunteer Expenses/Honorarium, until further review by the Management.</li>
+<li style="margin-bottom:8px">I clearly understand that the payment of ₹6,000 is towards volunteer expenses/honorarium and shall not be considered as a guaranteed salary or permanent entitlement.</li>
+<li style="margin-bottom:8px">I accept that the Management's decision regarding my remuneration, based on my performance and conduct, shall be final and binding.</li>
 <li style="margin-bottom:8px">I confirm that I am signing this declaration voluntarily, without any pressure, coercion, or undue influence, after fully understanding its contents.</li>
 </ol>
 <p style="margin:0 0 10px 0">I have read, understood, and accepted all the above terms and conditions.</p>
@@ -488,19 +538,37 @@ function buildWarningLetterHTML(w, dateText, joiningDate, subjectText, ngoKey) {
 </div>`;
 }
 
-function buildFROWarningLetterHTML(w, dateText, ngoKey) {
+function formatIdle(sec) {
+  if (sec == null) return null;
+  const m = Math.max(0, Math.round(sec / 60));
+  if (m === 0) return '0 minutes';
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h === 0) return `${rem} minute${rem === 1 ? '' : 's'}`;
+  if (rem === 0) return `${h} hour${h === 1 ? '' : 's'}`;
+  return `${h} hour${h === 1 ? '' : 's'} ${rem} minute${rem === 1 ? '' : 's'}`;
+}
+
+function buildFROWarningLetterHTML(w, dateText, ngoKey, idleSeconds) {
   const ngo = getNgo(ngoKey);
   const d = deptLabel(w.dept || w.department) || 'FRO';
   const employeeId = (w.login_id || w.employee_id || w.employee_no || '').toString() || '____________________';
+  const idleText = formatIdle(idleSeconds);
+  const idleRow = idleText != null ? `<tr><td style="padding:3px 0"><strong>Idle Time Recorded:</strong> ${idleText}</td></tr>` : '';
+  const idleClause = idleText != null
+    ? `<p style="margin:0 0 8px 0">As per the system records, your idle time on the date of this warning was recorded as <strong>${idleText}</strong>.</p>`
+    : '';
   const content = `<table style="width:100%;border-collapse:collapse;margin:0 0 10px 0">
 <tr><td style="padding:3px 0"><strong>Date:</strong> ${dateText}</td></tr>
 <tr><td style="padding:3px 0"><strong>Employee Name:</strong> ${w.name}</td></tr>
 <tr><td style="padding:3px 0"><strong>Employee ID:</strong> ${employeeId}</td></tr>
 <tr><td style="padding:3px 0"><strong>Department:</strong> ${d}</td></tr>
+${idleRow}
 </table>
 <div style="font-weight:700;color:#082F5A;margin:0 0 8px 0">Subject: Warning Regarding Excessive Idle Time During Working Hours</div>
 <p style="margin:0 0 8px 0">Dear ${titleCase(w.name)},</p>
 <p style="margin:0 0 8px 0">This is to formally warn you regarding the excessive idle time recorded during your working hours.</p>
+${idleClause}
 <p style="margin:0 0 8px 0">You are required to remain productive throughout the office working hours and actively perform your assigned duties, including CRM activities, calling, follow-ups, data updating and other work assigned by your Team Leader/Management.</p>
 <p style="margin:0 0 8px 0">You are hereby instructed to immediately reduce your idle time and ensure that your working hours are utilized productively.</p>
 <p style="margin:0 0 8px 0">Please note that if your total idle/non-working time accumulates to more than 8 hours (equivalent to one full working day), the company may treat such accumulated non-working time as one full day of absence/non-working time and make the corresponding salary adjustment, in accordance with the company's attendance/payroll policy and applicable law.</p>
@@ -723,6 +791,11 @@ export default function Letters() {
       const hrNameText = hrName || '{{hr_name}}';
       body = buildNoBSDDeclarationHTML(w, dateText, hrNameText, subject, ngo);
       today = dateText;
+    } else if (type === 'NOBSD2') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const hrNameText = hrName || '{{hr_name}}';
+      body = buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subject, ngo);
+      today = dateText;
     } else if (type === 'ODAR') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
@@ -746,8 +819,17 @@ export default function Letters() {
       const jd = w.date_of_joining || w.created_at || '';
       const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
       const isFro = String(subject || w.role || w.department || '').toLowerCase().trim() === 'fro';
+      let idleSeconds = null;
+      if (isFro) {
+        try {
+          const statDate = letterDate || new Date().toLocaleDateString('en-CA');
+          const stats = await apiGet(`/ngo-admin/fro-daily-stats?date=${statDate}`);
+          const row = (Array.isArray(stats) ? stats : []).find(s => String(s.fro_id) === String(w.id));
+          if (row) idleSeconds = Number(row.idle_seconds) || 0;
+        } catch (_e) { idleSeconds = null; }
+      }
       body = isFro
-        ? buildFROWarningLetterHTML(w, dateText, ngo)
+        ? buildFROWarningLetterHTML(w, dateText, ngo, idleSeconds)
         : buildWarningLetterHTML(w, dateText, joiningDate, subject, ngo);
       today = dateText;
     } else if (type === 'Volunteer Termination Letter') {
@@ -770,7 +852,7 @@ export default function Letters() {
     }
     setOut({ today, body, type, odar });
     setShowDownload(false);
-    await capturePdf(body, type, type === 'ODAR' || type === 'NOBSD' || type === 'Blank Letter' || HAS_LH(ngo));
+    await capturePdf(body, type, type === 'ODAR' || type === 'NOBSD' || type === 'NOBSD2' || type === 'Blank Letter' || HAS_LH(ngo));
     setShowDownload(true);
   };
 

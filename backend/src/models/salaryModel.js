@@ -618,6 +618,22 @@ export const getPagarExportData = async (month) => {
     stationsByWorker[s.fro_worker_id].push(s.station);
   }
 
+  // 5b. Monthly idle time per worker (fro_daily_stats heartbeat snapshot). Non-FRO
+  // workers have no rows, so they simply stay at 0.
+  let idleByWorker = {};
+  try {
+    const { data: idleRows, error: idleErr } = await db
+      .from('fro_daily_stats')
+      .select('worker_id, idle_seconds')
+      .gte('stat_date', startDate)
+      .lte('stat_date', endDate);
+    if (!idleErr && idleRows) {
+      for (const rec of idleRows) {
+        idleByWorker[rec.worker_id] = (idleByWorker[rec.worker_id] || 0) + (Number(rec.idle_seconds) || 0);
+      }
+    }
+  } catch (_) { idleByWorker = {}; }
+
   // 6. Collections from RECEIPTS (matches the Accounts Agent-wise report).
   // Achieved/daily amounts are attributed by receipt.agent_name -> FRO worker,
   // and split by the receipt's project into BSCT/AFLF/MANN. Receipts whose
@@ -905,6 +921,7 @@ export const getPagarExportData = async (month) => {
       gross_payable: grossPayable,
       advance_deduction: advanceDeduction,
       net_payable: netPayable,
+      idle_seconds: idleByWorker[w.id] || 0,
       daily: daily, // { day: amount }
       days_in_month: daysInMonth,
       start_date: startDate,
@@ -951,6 +968,7 @@ export const getPagarExportData = async (month) => {
     gross_payable: 0,
     advance_deduction: 0,
     net_payable: 0,
+    idle_seconds: 0,
     daily: {},
     days_in_month: daysInMonth,
     start_date: startDate,
