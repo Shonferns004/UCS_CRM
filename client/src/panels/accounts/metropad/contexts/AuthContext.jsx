@@ -3,7 +3,7 @@ import { getMe } from '../services/auth.service.js'
 
 export const AuthContext = createContext(null)
 
-// Metropad runs inside the Accounts panel. It deliberately has NO separate
+// Metropad runs inside the Super Admin panel. It deliberately has NO separate
 // login: the accounts-panel session token (ucs_token) is reused, and the
 // backend maps the signed-in accounts email onto the metropad user.
 export function AuthProvider({ children }) {
