@@ -114,6 +114,15 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
     });
   }
 
+  // Long-press on the fingerprint glyph opens the registration page (the
+  // compact add button was removed from the greeting row).
+  void _openAddBeneficiary() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AddBeneficiaryPage()),
+    );
+  }
+
   Future<void> _findBeneficiaryRaw() async {
     // capture() reconnects on its own (`ensureConnected`), so no pre-check is
     // needed here - a stale/transient connection self-heals before the scan.
@@ -266,14 +275,15 @@ class _FingerprintLookupPageState extends State<FingerprintLookupPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      _CompactAddButton(enabled: widget.canAdd),
                     ],
                   ),
                 ),
                 Center(
                   child: GestureDetector(
                     onTap: _loading ? _cancelScanning : _findBeneficiary,
+                    onLongPress: widget.canAdd && !_loading
+                        ? _openAddBeneficiary
+                        : null,
                     behavior: HitTestBehavior.opaque,
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
@@ -425,94 +435,6 @@ class _IdleFingerprintGlyphState extends State<_IdleFingerprintGlyph>
             border: Border.all(color: widget.accent, width: 2),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// "Add Beneficiary" action on the fingerprint screen greeting row,
-/// with an animated arrow that nudges to signal interactivity.
-class _CompactAddButton extends StatefulWidget {
-  final bool enabled;
-
-  const _CompactAddButton({required this.enabled});
-
-  @override
-  State<_CompactAddButton> createState() => _CompactAddButtonState();
-}
-
-class _CompactAddButtonState extends State<_CompactAddButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _arrowController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1200),
-  );
-  late final Animation<double> _arrowSlide =
-      Tween<double>(begin: -3, end: 3).animate(
-    CurvedAnimation(parent: _arrowController, curve: Curves.easeInOut),
-  );
-
-  @override
-  void dispose() {
-    _arrowController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.enabled;
-    if (enabled) {
-      if (!_arrowController.isAnimating) {
-        _arrowController.repeat(reverse: true);
-      }
-    } else {
-      _arrowController
-        ..stop()
-        ..value = 0;
-    }
-    return GestureDetector(
-      onTap: enabled
-          ? () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AddBeneficiaryPage()),
-              )
-          : null,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.5,
-child: Container(
-            height: 72,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              color: enabled ? AppColors.primaryBlueSoft : AppColors.disabled,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Add Beneficiary',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.addBeneficiaryText,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                AnimatedBuilder(
-                  animation: _arrowSlide,
-                  builder: (context, child) => Transform.translate(
-                    offset: Offset(_arrowSlide.value, 0),
-                    child: child,
-                  ),
-                  child: const Icon(
-                    LucideIcons.arrowRight,
-                    size: 20,
-                    color: AppColors.primaryBlue,
-                  ),
-                ),
-              ],
-            ),
-          ),
       ),
     );
   }

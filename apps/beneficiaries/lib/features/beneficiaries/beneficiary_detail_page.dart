@@ -129,6 +129,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   }
 
   Future<void> _showDecisionSheet() async {
+    final nav = Navigator.of(context);
     final accepted = await showModalBottomSheet<bool>(
       context: context,
       isDismissible: false,
@@ -137,108 +138,121 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          20,
-          24,
-          24 + MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE4E7EC),
-                borderRadius: BorderRadius.circular(2),
+      builder: (context) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          // System back closes the sheet and leaves to the main screen —
+          // it must not re-ask the same question.
+          nav.pop();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) nav.maybePop();
+          });
+        },
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            24,
+            20,
+            24,
+            24 + MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE4E7EC),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              width: 52,
-              height: 52,
-              decoration: const BoxDecoration(
-                color: AppColors.successGreenSoft,
-                shape: BoxShape.circle,
+              const SizedBox(height: 20),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: const BoxDecoration(
+                  color: AppColors.successGreenSoft,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  LucideIcons.package,
+                  size: 26,
+                  color: AppColors.successGreen,
+                ),
               ),
-              alignment: Alignment.center,
-              child: const Icon(
-                LucideIcons.package,
-                size: 26,
-                color: AppColors.successGreen,
+              const SizedBox(height: 16),
+              const Text(
+                'Already collected',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Already collected',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+              const SizedBox(height: 8),
+              Text(
+                'This person has already collected the kit'
+                '${_kitGivenAt.isEmpty ? '' : ' on $_kitGivenAt'}.\n'
+                'Do you want to give them the kit again?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: AppColors.textSecondary,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'This person has already collected the kit'
-              '${_kitGivenAt.isEmpty ? '' : ' on $_kitGivenAt'}.\n'
-              'Do you want to give them the kit again?',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.45,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text(
+                    'Accept',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                 ),
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text(
-                  'Accept',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  side: const BorderSide(color: Colors.black, width: 1.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(color: Colors.black, width: 1.5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text(
+                    'Reject',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                 ),
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text(
-                  'Reject',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
     if (!mounted) return;
+    // null comes from system back, already handled by PopScope above.
     if (accepted == true) {
       _accept();
-    } else {
+    } else if (accepted == false) {
       _reject();
     }
   }
@@ -276,6 +290,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           ..._kitHistory,
         ];
       });
+      _refresh();
       showAppSnackbar(context, 'Kit marked as given', success: true);
       Future<void>.delayed(const Duration(milliseconds: 1800), () {
         if (mounted) setState(() => _acceptedFlash = false);
@@ -594,9 +609,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   }
 
   Widget _historyRow(Map<String, dynamic> entry, {required bool notLast}) {
-    final time = _fmtDateTime(entry['performed_at']);
+    final name = _historyEventName(entry);
+    final at = _fmtDateTime(entry['performed_at']);
     return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 52),
+      constraints: const BoxConstraints(minHeight: 56),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -630,32 +646,34 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
           const SizedBox(width: 12),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.only(top: 7),
-              child: Row(
+              padding: const EdgeInsets.only(top: 6),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Expanded(
-                    child: Text(
-                      'Kit Given',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
+                  Row(
+                    children: [
+                      const Icon(LucideIcons.calendar,
+                          size: 13, color: _kHistTs),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  if (time.isNotEmpty)
-                    Flexible(
-                      child: Text(
-                        time,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, color: _kHistTs),
-                      ),
-                    ),
+                  const SizedBox(height: 2),
+                  Text(
+                    at,
+                    style: const TextStyle(fontSize: 12.5, color: _kHistTs),
+                  ),
                 ],
               ),
             ),
@@ -663,6 +681,17 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         ],
       ),
     );
+  }
+
+  // The backend stores the operator's event name in the audit log `details`
+  // for each KIT_GIVEN entry.
+  String _historyEventName(Map<String, dynamic> entry) {
+    final details = entry['details'];
+    if (details is Map) {
+      final n = details['event_name']?.toString().trim();
+      if (n != null && n.isNotEmpty && n.toLowerCase() != 'null') return n;
+    }
+    return 'Kit Given';
   }
 
   Widget _showMoreToggle() {
@@ -729,12 +758,23 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   // ---- bottom area --------------------------------------------------------
 
-  // Already collected + no accept/reject yet -> the bottom sheet owns the
-  // decision, so nothing is pinned below until the delegate picks. Rejecting
-  // also hides the slider.
+  // After a successful give the slider is replaced by a confirmation label;
+  // after Reject a persistent banner; otherwise the decision sheet owns the
+  // screen (nothing pinned) until the delegate picks.
   Widget _buildBottomArea() {
-    final blocked = _rejected ||
-        (_kitGiven && !_justGiven && !_decisionAccepted);
+    if (_justGiven) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(24, 14, 24, 24),
+        child: _DonatedBanner(),
+      );
+    }
+    if (_rejected) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(24, 14, 24, 24),
+        child: _RejectBanner(),
+      );
+    }
+    final blocked = _kitGiven && !_justGiven && !_decisionAccepted;
     if (blocked) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
@@ -1118,8 +1158,8 @@ class _DonateSwipeState extends State<_DonateSwipe> {
         height: _height,
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.black,
-            borderRadius: BorderRadius.circular(_height / 2),
+            color: AppColors.successGreen,
+            borderRadius: BorderRadius.circular(6),
           ),
           alignment: Alignment.center,
           child: const Row(
@@ -1164,8 +1204,8 @@ class _DonateSwipeState extends State<_DonateSwipe> {
 Container(
                 height: _height,
                 decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(_height / 2),
+                  color: AppColors.successGreenSoft,
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Row(
                   children: [
@@ -1176,7 +1216,7 @@ Container(
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                          color: AppColors.successGreen,
                         ),
                       ),
                     ),
@@ -1184,7 +1224,7 @@ Container(
                       padding: EdgeInsets.only(right: 20),
                       child: _SwipeLabels(
                         icon: LucideIcons.chevronsRight,
-                        color: Colors.white,
+                        color: AppColors.successGreen,
                         direction: 1,
                       ),
                     ),
@@ -1205,7 +1245,7 @@ Container(
                   child: const Icon(
                     LucideIcons.chevronsRight,
                     size: 26,
-                    color: Colors.black,
+                    color: AppColors.successGreen,
                   ),
                 ),
               ),
@@ -1237,6 +1277,81 @@ class _SwipeLabels extends StatelessWidget {
         icon: icon,
         color: color,
         direction: direction,
+      ),
+    );
+  }
+}
+
+/// Persistent banner shown after Reject so the choice is obvious even after
+/// the toast disappears.
+class _RejectBanner extends StatelessWidget {
+  const _RejectBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE96868).withValues(alpha: 0.35)),
+      ),
+      child: const Row(
+        children: [
+          Icon(LucideIcons.xCircle, size: 18, color: Color(0xFFE96868)),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Rejected — no kit given',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFE96868),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Green confirmation label that replaces the slider after a successful give.
+class _DonatedBanner extends StatelessWidget {
+  const _DonatedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.successGreenSoft,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.successGreen.withValues(alpha: 0.35),
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            LucideIcons.checkCircle,
+            size: 18,
+            color: AppColors.successGreen,
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Donated successfully',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.successGreen,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
