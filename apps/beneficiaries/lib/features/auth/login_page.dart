@@ -44,6 +44,7 @@ class _LoginPageState extends State<LoginPage> {
       final result = await ApiService.post('/auth/worker/login', body: {
         'identifier': _identifierController.text.trim(),
         'password': _passwordController.text,
+        'client': 'beneficiaries',
       });
       await ApiService.saveToken(result['token']);
       await ApiService.saveVolunteerData({

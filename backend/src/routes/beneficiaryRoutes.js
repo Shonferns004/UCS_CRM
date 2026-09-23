@@ -25,11 +25,20 @@ import {
   addDocument, getDocuments, updateDocument, removeDocument,
 } from '../models/beneficiaryDocumentModel.js';
 import { logAuditEvent } from '../models/auditLogModel.js';
+import {
+  listBnfOperatorsController, createBnfOperatorController, updateBnfOperatorController,
+} from '../controllers/bnfOperatorController.js';
 
 const router = Router();
 
 // Overview
 router.get('/overview', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getOverview);
+
+// App operators — the only accounts allowed to log into the Beneficiaries
+// mobile app. Declared before /:id so '/operators' is not parsed as an id.
+router.get('/operators', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), listBnfOperatorsController);
+router.post('/operators', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), createBnfOperatorController);
+router.patch('/operators/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBnfOperatorController);
 
 // Search
 router.get('/search', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), searchBeneficiariesController);

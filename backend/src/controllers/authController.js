@@ -191,6 +191,16 @@ export const unifiedLogin = async (req, res) => {
     const expiry = req.route?.path === '/worker/login' ? undefined : TOKEN_EXPIRY;
     const signOptions = expiry ? { expiresIn: expiry } : {};
 
+    // Beneficiaries app login gate: when the client declares itself, only
+    // workers flagged bnf_operator may sign in. Everything else is denied.
+    const isAppLogin = req.body.client === 'beneficiaries';
+    const denyNonAppOperator = (account) => {
+      if (!isAppLogin) return false;
+      if (account && account.bnf_operator === true && account.is_active !== false) return false;
+      return true;
+    };
+    const appDenied = () => res.status(403).json({ message: 'Access denied. Only designated operators can log into the Beneficiaries app.' });
+
     if (isUfsLogin) {
       const worker = await getWorkerByLoginId(identifier);
       if (!worker) {
@@ -199,6 +209,7 @@ export const unifiedLogin = async (req, res) => {
       if (worker.is_active === false || worker.employment_status === 'terminated') {
         return res.status(403).json({ message: 'Account is deactivated' });
       }
+      if (denyNonAppOperator(worker)) return appDenied();
       const isMatch = await bcrypt.compare(password, worker.password);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid password' });
@@ -232,6 +243,7 @@ export const unifiedLogin = async (req, res) => {
         identifier === process.env.ADMIN_EMAIL &&
         password === process.env.ADMIN_PASSWORD
       ) {
+        if (denyNonAppOperator(null)) return appDenied();
         const token = jwt.sign(
           { id: 0, email: identifier, role: 'super_admin', name: 'Super Admin' },
           process.env.JWT_SECRET,
@@ -245,6 +257,7 @@ export const unifiedLogin = async (req, res) => {
         identifier === process.env.USER_EMAIL &&
         password === process.env.USER_PASSWORD
       ) {
+        if (denyNonAppOperator(null)) return appDenied();
         const token = jwt.sign(
           { id: -1, email: identifier, role: 'user', name: 'User' },
           process.env.JWT_SECRET,
@@ -259,6 +272,7 @@ export const unifiedLogin = async (req, res) => {
         if (user.is_active === false) {
           return res.status(403).json({ message: 'Account is deactivated' });
         }
+        if (denyNonAppOperator(user)) return appDenied();
         const isMatch = await bcrypt.compare(password, user.password_hash);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -278,6 +292,7 @@ export const unifiedLogin = async (req, res) => {
         if (hr.is_active === false) {
           return res.status(403).json({ message: 'Account is deactivated' });
         }
+        if (denyNonAppOperator(hr)) return appDenied();
         const isMatch = await bcrypt.compare(password, hr.password_hash);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -298,6 +313,7 @@ export const unifiedLogin = async (req, res) => {
         if (workerByLogin.is_active === false || workerByLogin.employment_status === 'terminated') {
           return res.status(403).json({ message: 'Account is deactivated' });
         }
+        if (denyNonAppOperator(workerByLogin)) return appDenied();
         const isMatch = await bcrypt.compare(password, workerByLogin.password);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -334,6 +350,7 @@ export const unifiedLogin = async (req, res) => {
       if (userFromName.is_active === false) {
         return res.status(403).json({ message: 'Account is deactivated' });
       }
+      if (denyNonAppOperator(userFromName)) return appDenied();
       const isMatch = await bcrypt.compare(password, userFromName.password_hash);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid password' });
@@ -355,6 +372,7 @@ export const unifiedLogin = async (req, res) => {
     if (worker.is_active === false || worker.employment_status === 'terminated') {
       return res.status(403).json({ message: 'Account is deactivated' });
     }
+    if (denyNonAppOperator(worker)) return appDenied();
     const isMatch = await bcrypt.compare(password, worker.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid password' });
