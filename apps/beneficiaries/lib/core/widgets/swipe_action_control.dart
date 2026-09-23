@@ -43,8 +43,8 @@ enum _SwipePhase {
 
 class _SwipeActionControlState extends State<SwipeActionControl>
     with SingleTickerProviderStateMixin {
-  static const double _trackHeight = 64;
-  static const double _handleSize = 54;
+  static const double _trackHeight = 72;
+  static const double _handleSize = 66;
   static const Color _rejectColor = Color(0xFFE96868);
   static const Color _giveColor = Color(0xFF159A68);
   static const Color _trackBorder = Color(0xFFE4E7EC);
@@ -373,9 +373,9 @@ class _SwipeActionControlState extends State<SwipeActionControl>
             children: List.generate(
               3,
               (_) => Container(
-                width: 1.5,
-                height: 12,
-                margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                width: 2,
+                height: 16,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
                 decoration: BoxDecoration(
                   color: _gripColor,
                   borderRadius: BorderRadius.circular(1),

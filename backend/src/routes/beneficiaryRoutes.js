@@ -52,7 +52,7 @@ router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accou
 router.post('/:id/kit-given', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), markBeneficiaryKitGiven);
 
 // Audit
-router.get('/:id/audit', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getAuditTrail);
+router.get('/:id/audit', authenticateRole('master', 'super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker', 'fro', 'hr', 'recruiter', 'digital'), getAuditTrail);
 
 // Disability sub-resource
 router.get('/:id/disabilities', async (req, res) => {
