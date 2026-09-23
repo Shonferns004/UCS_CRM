@@ -109,13 +109,56 @@ export default function AddressImport() {
   const [savingId, setSavingId] = useState(null)
   const [editError, setEditError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [sortKey, setSortKey] = useState('')
+  const [sortDir, setSortDir] = useState('')
   const MORE_FIELDS = RECEIPT_EDIT_FIELDS.filter(([key]) => !['donor_name', 'donor_mobile', 'email', 'pan_number', 'address', 'address_2'].includes(key))
 
   const fullAddress = (r) => [r.address, r.address_2]
     .map(s => String(s || '').trim()).filter(Boolean).join(', ') || '—'
+  const sortAddress = (r) => [r.address, r.address_2]
+    .map(s => String(s || '').trim()).filter(Boolean).join(' ')
   const editInputStyle = { width: '100%', padding: '5px 7px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, boxSizing: 'border-box', color: 'var(--ink)', background: '#fff' }
   const rv = (r, k) => { const v = r?.[k]; return v == null ? '' : String(v) }
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+
+  const SORT_COLS = [
+    ['receipt_no', 'Receipt No.'],
+    ['donor_name', 'Donor Name'],
+    ['donor_mobile', 'Mobile'],
+    ['address', 'Address'],
+    ['pan_number', 'PAN'],
+  ]
+
+  const toggleSort = (key) => {
+    setReceiptPage(1)
+    if (sortKey !== key) { setSortKey(key); setSortDir('asc') }
+    else if (sortDir === 'asc') setSortDir('desc')
+    else { setSortKey(''); setSortDir('') }
+  }
+
+  const sortedReceipts = useMemo(() => {
+    if (!sortKey) return receipts
+    const sign = sortDir === 'asc' ? 1 : -1
+    return [...receipts].sort((a, b) => {
+      let av, bv
+      if (sortKey === 'receipt_no') {
+        const an = parseInt(a.receipt_no, 10); const bn = parseInt(b.receipt_no, 10)
+        av = Number.isFinite(an) ? an : null
+        bv = Number.isFinite(bn) ? bn : null
+      } else if (sortKey === 'address') {
+        av = sortAddress(a); bv = sortAddress(b)
+      } else {
+        av = rv(a, sortKey).trim(); bv = rv(b, sortKey).trim()
+      }
+      const ae = av == null || av === ''
+      const be = bv == null || bv === ''
+      if (ae && be) return 0
+      if (ae) return 1
+      if (be) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sign
+      return String(av).localeCompare(String(bv)) * sign
+    })
+  }, [receipts, sortKey, sortDir])
 
   useEffect(() => {
     const t = setTimeout(() => { setSearch(searchInput); setReceiptPage(1) }, 400)
@@ -125,7 +168,7 @@ export default function AddressImport() {
   useEffect(() => {
     let cancelled = false
     setReceiptsLoading(true)
-    const params = new URLSearchParams({ page: String(receiptPage), limit: String(LIST_LIMIT) })
+    const params = new URLSearchParams({ limit: '0' })
     if (search.trim()) params.set('search', search.trim())
     if (fromDate) params.set('from_date', fromDate)
     if (toDate) params.set('to_date', toDate)
@@ -140,11 +183,13 @@ export default function AddressImport() {
       .catch(() => { if (!cancelled) { setReceipts([]); setReceiptTotal(0) } })
       .finally(() => { if (!cancelled) setReceiptsLoading(false) })
     return () => { cancelled = true }
-  }, [receiptPage, search, fromDate, toDate, filterProject, listReload])
+  }, [search, fromDate, toDate, filterProject, listReload])
 
-  const listFrom = receiptTotal === 0 ? 0 : (receiptPage - 1) * LIST_LIMIT + 1
-  const listTo = Math.min(receiptPage * LIST_LIMIT, receiptTotal)
   const listPages = Math.max(1, Math.ceil(receiptTotal / LIST_LIMIT))
+  const safePage = Math.min(receiptPage, listPages)
+  const listFrom = receiptTotal === 0 ? 0 : (safePage - 1) * LIST_LIMIT + 1
+  const listTo = Math.min(safePage * LIST_LIMIT, receiptTotal)
+  const visibleReceipts = sortedReceipts.slice((safePage - 1) * LIST_LIMIT, safePage * LIST_LIMIT)
 
   const startEdit = (r) => {
     setEditingId(r.id)
@@ -414,11 +459,16 @@ export default function AddressImport() {
           <table className="donors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
               <tr>
-                <th>Receipt No.</th>
-                <th>Donor Name</th>
-                <th>Mobile</th>
-                <th>Address</th>
-                <th>PAN</th>
+                {SORT_COLS.map(([key, label]) => (
+                  <th key={key} onClick={() => toggleSort(key)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                      <span style={sortKey === key ? { fontWeight: 700, color: 'var(--sage)' } : undefined}>{label}</span>
+                      <span style={{ fontSize: 10, lineHeight: 1, color: sortKey === key ? 'var(--sage)' : 'rgba(0,0,0,.25)' }}>
+                        {sortKey === key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </div>
+                  </th>
+                ))}
                 <th>Email</th>
                 <th>Amount</th>
                 <th>Date</th>
@@ -432,7 +482,7 @@ export default function AddressImport() {
                 <tr><td colSpan={9} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)', padding: 20 }}>
                   {search || fromDate || toDate ? 'No receipts match your search / date range.' : 'No receipts found.'}
                 </td></tr>
-              ) : receipts.map(r => {
+              ) : visibleReceipts.map(r => {
                 const editing = editingId === r.id
                 return (
                   <Fragment key={r.id}>
@@ -491,9 +541,9 @@ export default function AddressImport() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft)' }}>
           <span>Showing {listFrom}–{listTo} of {receiptTotal.toLocaleString('en-IN')}</span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="btn btn-sm" disabled={receiptPage <= 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
-            <span style={{ alignSelf: 'center' }}>Page {receiptPage} / {listPages}</span>
-            <button className="btn btn-sm" disabled={receiptPage >= listPages} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
+            <button className="btn btn-sm" disabled={safePage <= 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
+            <span style={{ alignSelf: 'center' }}>Page {safePage} / {listPages}</span>
+            <button className="btn btn-sm" disabled={safePage >= listPages} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
           </span>
         </div>
       </div>
