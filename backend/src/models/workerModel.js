@@ -1,6 +1,10 @@
 import pg from 'pg';
 import db from '../config/db.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v.trim());
+
 export const createWorker = async (workerData) => {
   const { data, error } = await db
     .from('workers')
@@ -50,6 +54,7 @@ export const getAllWorkers = async (ngo_id, status) => {
 };
 
 export const getWorkerById = async (id) => {
+  if (!isUuid(id)) return null;
   const { data, error } = await db
     .from('workers')
     .select('*')
@@ -144,7 +149,7 @@ export const getWorkerBySession = async (user) => {
     const byLogin = await getWorkerByLoginId(user.login_id);
     if (byLogin) return byLogin;
   }
-  if (user && user.id != null) return getWorkerById(user.id);
+  if (user && isUuid(user.id)) return getWorkerById(user.id);
   return null;
 };
 
