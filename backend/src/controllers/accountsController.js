@@ -1733,7 +1733,9 @@ export const getReceipt = async (req, res) => {
 export const getReceiptList = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const reqLimit = parseInt(req.query.limit, 10);
+    const limitAll = Number.isFinite(reqLimit) && reqLimit <= 0;
+    const limit = limitAll ? -1 : Math.min(100, Math.max(1, reqLimit || 50));
     const search = (req.query.search || '').trim();
     const project = (req.query.project || '').trim();
     const link = (req.query.link === 'suspense' || req.query.link === 'unlinked')
@@ -1905,7 +1907,8 @@ export const getReceiptList = async (req, res) => {
       });
     }
 
-    params.push(limit, (page - 1) * limit);
+    const limitSql = limitAll ? '' : `LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    const rowsParams = limitAll ? params : [...params, limit, (page - 1) * limit];
     const rowsRes = await db._pool.query(
       `SELECT id, log_id, receipt_no, project_id, donor_name,
               COALESCE(receipts.donor_mobile,
@@ -1932,8 +1935,8 @@ export const getReceiptList = async (req, res) => {
                ORDER BY b.id LIMIT 1) AS verify_fro_worker_id
        FROM receipts ${whereSql}
        ${orderSql}
-       LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+       ${limitSql}`,
+      rowsParams
     );
 
     return res.json({
