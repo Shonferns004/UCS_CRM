@@ -11,7 +11,7 @@ export const getUserNgoAccess = async (userId, roleHint) => {
   // from accounts workers, 'super_admin') manage all NGOs. The NGO-Admin
   // panel is admin-only and lists all NGOs in its tabs, so no per-ngo
   // restriction applies here.
-  if (roleHint && ['admin', 'super_admin', 'accounts'].includes(roleHint)) {
+  if (roleHint && ['admin', 'super_admin', 'accounts', 'hr'].includes(roleHint)) {
     const { data: allNgos } = await db.from('ngos').select('id, name');
     return (allNgos || []).map(n => ({ ngo_id: n.id, ngo_name: n.name }));
   }
