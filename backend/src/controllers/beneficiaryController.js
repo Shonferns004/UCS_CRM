@@ -17,6 +17,45 @@ import { getBeneficiaryDistributionHistory } from '../models/distributionModel.j
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getWorkerBySession } from '../models/workerModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
+import { decodeAadhaarQr, parseAadhaarXml } from '../utils/aadhaarDecoder.js';
+import db from '../config/db.js';
+
+const DOC_BUCKET = 'beneficiary-documents';
+
+const ensureDocBucket = async () => {
+  const { data: buckets } = await db.storage.listBuckets();
+  const exists = buckets?.some((b) => b.name === DOC_BUCKET);
+  if (!exists) {
+    await db.storage.createBucket(DOC_BUCKET, { public: true });
+  }
+};
+
+// Stores a base64-encoded file (e.g. handicap-certificate camera capture)
+// into the beneficiary-documents bucket and returns the public URL. Mirrors
+// the operator selfie / worker onboarding upload flow.
+export const uploadBeneficiaryDocumentBase64 = async (beneficiaryId, documentType, fileBase64, mimeType) => {
+  if (!fileBase64) return { fileUrl: null };
+  await ensureDocBucket();
+  const buffer = Buffer.from(String(fileBase64), 'base64');
+  const contentType = mimeType || 'image/jpeg';
+  const ext = contentType.split('/')[1] || 'jpg';
+  const fileName = `beneficiary_documents/${beneficiaryId}/${(documentType || 'document').replace(/[^a-z0-9]+/gi, '_')}_${Date.now()}.${ext}`;
+
+  let { error: uploadError } = await db.storage
+    .from(DOC_BUCKET)
+    .upload(fileName, buffer, { contentType, upsert: true });
+
+  if (uploadError?.message?.includes('bucket')) {
+    await db.storage.createBucket(DOC_BUCKET, { public: true });
+    const retry = await db.storage.from(DOC_BUCKET).upload(fileName, buffer, { contentType, upsert: true });
+    if (retry.error) throw retry.error;
+  } else if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data: publicUrlData } = db.storage.from(DOC_BUCKET).getPublicUrl(fileName);
+  return { fileUrl: publicUrlData?.publicUrl || null };
+};
 
 export const createNewBeneficiary = async (req, res) => {
   try {
@@ -27,6 +66,7 @@ export const createNewBeneficiary = async (req, res) => {
       bpl_available, ration_card_available, occupation, mother_name, father_name,
       guardian_name, guardian_occupation, total_family_members, ngo_id, registration_date,
       category_ids, disabilities, family_members, education, employment, assistance_requirements,
+      aadhaar_number,
     } = req.body;
 
     if (!full_name) return res.status(400).json({ message: 'Full name is required' });
@@ -40,7 +80,7 @@ export const createNewBeneficiary = async (req, res) => {
       address_line_1, address_line_2, area, city, district, state, pincode, photo,
       monthly_family_income, income_category, bpl_available, ration_card_available,
       occupation, mother_name, father_name, guardian_name, guardian_occupation,
-      total_family_members, ngo_id, registration_date,
+      total_family_members, ngo_id, registration_date, aadhaar_number,
       status: 'ACTIVE', fingerprint_status: 'NOT_REGISTERED',
       created_by, updated_by: created_by,
     });
@@ -294,6 +334,39 @@ export const getAuditTrail = async (req, res) => {
   try {
     const logs = await getAuditLogs(req.params.id);
     return res.json(logs);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Scans an Aadhaar QR payload and returns the extracted fields so the mobile
+// app can auto-fill the registration form. The raw QR value is decoded and
+// parsed server-side (decoder at utils/aadhaarDecoder.js).
+export const parseAadhaarQrController = async (req, res) => {
+  try {
+    const { qr_value } = req.body || {};
+    if (!qr_value) {
+      return res.status(400).json({ message: 'QR value is required' });
+    }
+
+    const xml = decodeAadhaarQr(String(qr_value));
+    if (!xml) {
+      return res.status(422).json({ message: 'Could not read this Aadhaar QR. Make sure the entire code is in the frame and the card is flat.' });
+    }
+
+    const fields = parseAadhaarXml(xml);
+    if (!fields.name && !fields.aadhaar_number) {
+      return res.status(422).json({ message: 'Aadhaar QR scanned, but no name / number could be read. Try again with better lighting.' });
+    }
+
+    await logAuditEvent({
+      entity_type: 'aadhaar_scan',
+      action: 'AADHAAR_SCANNED',
+      details: { found: Object.keys(fields).filter((k) => fields[k]).length },
+      performed_by: req.user?.name || req.user?.email || 'system',
+    });
+
+    return res.json(fields);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

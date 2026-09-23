@@ -4,7 +4,8 @@ import {
   createNewBeneficiary, getBeneficiary, getBeneficiaryByCodeController,
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
-  markBeneficiaryKitGiven, lookupBeneficiaryByToken,
+  markBeneficiaryKitGiven, lookupBeneficiaryByToken, parseAadhaarQrController,
+  uploadBeneficiaryDocumentBase64,
 } from '../controllers/beneficiaryController.js';
 import {
   addDisability, getDisabilities, updateDisability, removeDisability,
@@ -34,6 +35,11 @@ const router = Router();
 // Overview
 router.get('/overview', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getOverview);
 
+// Aadhaar QR decoding for the registration "Scan Doc" flow — the app operators
+// (worker) scan a card and get back name/dob/gender/address fields. Declared
+// before '/:id' so 'aadhaar' is not parsed as an id.
+router.post('/aadhaar/parse', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarQrController);
+
 // App operators — the only accounts allowed to log into the Beneficiaries
 // mobile app. Declared before /:id so '/operators' is not parsed as an id.
 router.get('/operators', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), listBnfOperatorsController);
@@ -51,7 +57,7 @@ router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'ac
 
 // CRUD
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
-router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), createNewBeneficiary);
+router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), createNewBeneficiary);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);
 router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBeneficiaryController);
 router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiaryByCodeController);
@@ -151,9 +157,23 @@ router.get('/:id/documents', async (req, res) => {
   try { res.json(await getDocuments(req.params.id)); }
   catch (e) { res.status(500).json({ message: e.message }); }
 });
-router.post('/:id/documents', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), async (req, res) => {
+router.post('/:id/documents', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), async (req, res) => {
   try {
-    const result = await addDocument(req.params.id, { ...req.body, uploaded_by: req.user?.name || 'system' });
+    let fileUrl = req.body.file_url;
+    // The mobile app uploads a handicap-certificate copy straight from the
+    // camera: store the base64 in the beneficiary-documents bucket and attach
+    // the URL as file_url.
+    if (!fileUrl && req.body.file_base64) {
+      const { fileUrl: uploadedUrl } = await uploadBeneficiaryDocumentBase64(
+        req.params.id, req.body.document_type, req.body.file_base64, req.body.mime_type
+      );
+      fileUrl = uploadedUrl;
+    }
+    const result = await addDocument(req.params.id, {
+      ...req.body,
+      file_url: fileUrl,
+      file_name: req.body.file_name || req.body.document_type || 'document',
+    });
     await logAuditEvent({ entity_type: 'document', beneficiary_id: parseInt(req.params.id), action: 'DOCUMENT_UPLOADED', details: { document_type: req.body.document_type }, performed_by: req.user?.name || 'system' });
     res.status(201).json(result);
   } catch (e) { res.status(500).json({ message: e.message }); }

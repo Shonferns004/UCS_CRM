@@ -1,4 +1,7 @@
 ﻿import '../../core/lucide_icons.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
@@ -6,6 +9,7 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
+import 'aadhaar_scanner_page.dart';
 import 'fingerprint_enroll_panel.dart';
 
 class AddBeneficiaryPage extends StatefulWidget {
@@ -17,12 +21,14 @@ class AddBeneficiaryPage extends StatefulWidget {
 
 class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   final _formKey = GlobalKey<FormState>();
-  final _fullNameController = TextEditingController();
+final _fullNameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _occupationController = TextEditingController();
   final _addressController = TextEditingController();
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
+  final _pincodeController = TextEditingController();
+  final _aadhaarController = TextEditingController();
 
   String? _gender;
   DateTime? _dob;
@@ -30,6 +36,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   Map<String, dynamic>? _created;
   List<CapturedFingerprint> _captured = [];
   bool _fingersReady = false;
+  String? _handicapCertBase64;
+  String? _handicapCertName;
 
   static const int requiredFingers = 3;
 
@@ -41,10 +49,12 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     _addressController.dispose();
     _cityController.dispose();
     _stateController.dispose();
+    _pincodeController.dispose();
+    _aadhaarController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickDob() async {
+Future<void> _pickDob() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
@@ -53,6 +63,96 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       lastDate: now,
     );
     if (picked != null) setState(() => _dob = picked);
+  }
+
+  Future<void> _scanAadhaar() async {
+    if (_loading || _created != null) return;
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const AadhaarScannerPage()),
+    );
+    if (result == null || !mounted) return;
+
+    setState(() {
+      final name = result['name']?.toString();
+      if (name != null && name.trim().isNotEmpty) {
+        _fullNameController.text = name.trim();
+      }
+      final dob = result['dob']?.toString();
+      if (dob != null && dob.isNotEmpty) {
+        final parts = dob.split('-');
+        if (parts.length == 3) {
+          final y = int.tryParse(parts[0]);
+          final m = int.tryParse(parts[1]);
+          final d = int.tryParse(parts[2]);
+          if (y != null && m != null && d != null) {
+            _dob = DateTime(y, m, d);
+          }
+        }
+      }
+      final gender = result['gender']?.toString();
+      if (gender != null && gender.isNotEmpty) {
+        _gender = gender;
+      }
+      final address = result['address_line_1']?.toString();
+      if (address != null && address.trim().isNotEmpty) {
+        _addressController.text = address.trim();
+      }
+      final city = result['vtc']?.toString() ??
+          result['post_office']?.toString() ??
+          result['district']?.toString();
+      if (city != null && city.trim().isNotEmpty) {
+        _cityController.text = city.trim();
+      }
+      final state = result['state']?.toString();
+      if (state != null && state.trim().isNotEmpty) {
+        _stateController.text = state.trim();
+      }
+      final pincode = result['pincode']?.toString();
+      if (pincode != null && pincode.trim().isNotEmpty) {
+        _pincodeController.text = pincode.trim();
+      }
+      final aadhaar = result['aadhaar_number']?.toString();
+      if (aadhaar != null && aadhaar.trim().isNotEmpty) {
+        _aadhaarController.text = aadhaar.trim();
+      }
+    });
+
+    showAppSnackbar(
+      context,
+      'Aadhaar details added. Please review before registering.',
+      success: true,
+    );
+  }
+
+  Future<void> _pickHandicapCert() async {
+    if (_loading || _created != null) return;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      final Uint8List bytes = file.bytes ?? await file.xFile.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _handicapCertBase64 = base64Encode(bytes);
+        _handicapCertName = file.name;
+      });
+      showAppSnackbar(
+        context,
+        'Handicap certificate copy attached to this registration.',
+        success: true,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnackbar(
+        context,
+        'Could not pick the certificate image. Try again.',
+        error: true,
+      );
+    }
   }
 
   Future<void> _submit() async {
@@ -70,7 +170,7 @@ if (!_fingersReady) {
       _created = null;
     });
     try {
-      final body = <String, dynamic>{
+final body = <String, dynamic>{
         'full_name': _fullNameController.text.trim(),
       };
       if (_mobileController.text.trim().isNotEmpty) body['mobile'] = _mobileController.text.trim();
@@ -80,10 +180,13 @@ if (!_fingersReady) {
       if (_addressController.text.trim().isNotEmpty) body['address_line_1'] = _addressController.text.trim();
       if (_cityController.text.trim().isNotEmpty) body['city'] = _cityController.text.trim();
       if (_stateController.text.trim().isNotEmpty) body['state'] = _stateController.text.trim();
+      if (_pincodeController.text.trim().isNotEmpty) body['pincode'] = _pincodeController.text.trim();
+      if (_aadhaarController.text.trim().isNotEmpty) body['aadhaar_number'] = _aadhaarController.text.trim();
 
       final result = await ApiService.post('/beneficiaries', body: body);
       final created = Map<String, dynamic>.from(result['beneficiary'] ?? {});
       final code = created['beneficiary_code']?.toString();
+      final id = created['id'];
 
       // Enroll all captured fingerprints against the new beneficiary
       if (code != null) {
@@ -93,6 +196,25 @@ if (!_fingersReady) {
             body: {'beneficiary_code': code, ...f.toEnrollBody()},
             timeout: const Duration(minutes: 1),
           );
+        }
+      }
+
+      // Attach the handicap-certificate copy (if one was picked) to the
+      // newly created beneficiary as a document.
+      if (id != null && _handicapCertBase64 != null) {
+        try {
+          await ApiService.post(
+            '/beneficiaries/$id/documents',
+            body: {
+              'document_type': 'handicap_certificate',
+              'file_base64': _handicapCertBase64,
+              'mime_type': 'image/jpeg',
+              'file_name': _handicapCertName ?? 'handicap_certificate.jpg',
+            },
+            timeout: const Duration(minutes: 2),
+          );
+        } catch (_) {
+          // Registration already succeeded — don't block on the doc upload.
         }
       }
 
@@ -132,9 +254,22 @@ setState(() => _loading = false);
         key: _formKey,
 child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          children: [
+children: [
             const SectionHeader(title: 'Personal Information'),
             const SizedBox(height: 16),
+
+            // Aadhaar auto-fill entry point: opens the camera to scan the
+            // SecureQR on an Aadhaar card and fills the form below.
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _scanAadhaar,
+                icon: const Icon(LucideIcons.scanLine, size: 18),
+                label: const Text('Scan Aadhaar (auto-fill)'),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             TextFormField(
               controller: _fullNameController,
               decoration: const InputDecoration(labelText: 'Full Name *'),
@@ -198,7 +333,7 @@ child: ListView(
               maxLines: 2,
               enabled: !_loading && created == null,
             ),
-            const SizedBox(height: 16),
+const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
@@ -218,7 +353,71 @@ child: ListView(
                     enabled: !_loading && created == null,
                   ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _pincodeController,
+                    decoration: const InputDecoration(labelText: 'Pincode', counterText: ''),
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    enabled: !_loading && created == null,
+                  ),
+                ),
               ],
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _aadhaarController,
+              decoration: const InputDecoration(labelText: 'Aadhaar Number'),
+              keyboardType: TextInputType.number,
+              maxLength: 12,
+              enabled: !_loading && created == null,
+            ),
+            const SizedBox(height: 24),
+
+            // Handicap certificate document copy (optional)
+            const SectionHeader(title: 'Documents'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: AppTheme.radiusCard,
+                boxShadow: AppTheme.cardShadow,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Handicap Certificate copy',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        Text(
+                          _handicapCertName != null
+                              ? _handicapCertName!
+                              : 'Photo / scan of the disability certificate (optional)',
+                          style: const TextStyle(
+                              fontSize: 12, color: AppTheme.textSecondary),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed:
+                        (_loading || created != null) ? null : _pickHandicapCert,
+                    icon: Icon(
+                        _handicapCertBase64 != null
+                            ? LucideIcons.checkCircle
+                            : LucideIcons.camera,
+                        size: 18),
+                    label: Text(_handicapCertBase64 != null ? 'Change' : 'Add copy'),
+                  ),
+                ],
+              ),
             ),
 const SizedBox(height: 24),
 
