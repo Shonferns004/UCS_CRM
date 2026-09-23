@@ -7,19 +7,9 @@ import {
   listBnfOperators,
 } from '../models/workerModel.js';
 
-// Managers of the Beneficiaries mobile app. Each operator is a worker row with
+// Operators of the Beneficiaries mobile app. Each operator is a worker row with
 // bnf_operator = true; only these accounts pass the app login gate
 // (/auth/worker/login with client = 'beneficiaries').
-
-const PASSWORD_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-
-function randomPassword(len = 8) {
-  let out = '';
-  for (let i = 0; i < len; i++) {
-    out += PASSWORD_CHARS[Math.floor(Math.random() * PASSWORD_CHARS.length)];
-  }
-  return out;
-}
 
 function normalizeName(name) {
   return name
@@ -70,7 +60,9 @@ export const createBnfOperatorController = async (req, res) => {
     }
 
     const login_id = await nextLoginId(String(name).trim());
-    const plainPassword = password ? String(password) : randomPassword();
+    // Default password follows the org convention `<name>.jod` (normalized
+    // same way as the login id), e.g. 'Riya Sharma' → 'riya.sharma.jod'.
+    const plainPassword = password ? String(password) : `${normalizeName(String(name).trim())}.jod`;
     const salt = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(plainPassword, salt);
 

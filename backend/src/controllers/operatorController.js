@@ -2,7 +2,8 @@ import {
   createOperatorEvent, updateOperatorEvent, getOperatorEventById,
   listOperatorEvents, deleteOperatorEvent, assignOperatorEvent,
   getOperatorAssignmentsByDate, getTodayAssignment, upsertSelfAssignment,
-  demoOperatorEvent,
+  attachProgramsToEvent, listEventPrograms, removeEventProgram,
+  listEventMarkedBeneficiaries, demoOperatorEvent,
 } from '../models/operatorModel.js';
 import { getWorkerBySession } from '../models/workerModel.js';
 import db from '../config/db.js';
@@ -216,6 +217,69 @@ export const listOperatorDayAssignments = async (req, res) => {
     const day = date || NORMALIZED_DATE();
     const assignments = await getOperatorAssignmentsByDate(worker.id, day);
     return res.json(assignments);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listEventProgramsController = async (req, res) => {
+  try {
+    const eventId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(eventId)) {
+      return res.status(400).json({ message: 'Invalid event id' });
+    }
+    const programs = await listEventPrograms(eventId);
+    return res.json(programs);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const attachEventPrograms = async (req, res) => {
+  try {
+    const eventId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(eventId)) {
+      return res.status(400).json({ message: 'Invalid event id' });
+    }
+    const event = await getOperatorEventById(eventId);
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+
+    const { program_ids } = req.body || {};
+    if (!Array.isArray(program_ids) || program_ids.length === 0) {
+      return res.status(400).json({ message: 'program_ids is required' });
+    }
+    await attachProgramsToEvent(eventId, program_ids, req.user?.name || req.user?.email || 'system');
+    const programs = await listEventPrograms(eventId);
+    return res.status(201).json({ message: 'Programs attached to event', programs });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const detachEventProgram = async (req, res) => {
+  try {
+    const eventId = parseInt(req.params.id, 10);
+    const programId = parseInt(req.params.programId, 10);
+    if (!Number.isInteger(eventId) || !Number.isInteger(programId)) {
+      return res.status(400).json({ message: 'Invalid event or program id' });
+    }
+    const result = await removeEventProgram(eventId, programId);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Beneficiaries marked (kit given) under an event — used by the admin panel
+// and the operator app's Event screen.
+export const listEventBeneficiariesController = async (req, res) => {
+  try {
+    const eventId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(eventId)) {
+      return res.status(400).json({ message: 'Invalid event id' });
+    }
+    const beneficiaries = await listEventMarkedBeneficiaries(eventId);
+    return res.json(beneficiaries);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

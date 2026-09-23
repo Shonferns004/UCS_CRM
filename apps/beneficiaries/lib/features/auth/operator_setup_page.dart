@@ -10,6 +10,7 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
+import '../operator/operator_event_page.dart';
 
 class OperatorSetupPage extends StatefulWidget {
   final VoidCallback onComplete;
@@ -211,6 +212,39 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                         onChanged: (v) =>
                             setState(() => _selectedEventId = v),
                       ),
+
+                      if (_selectedEventId != null) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              final ev = _events.firstWhere(
+                                (e) =>
+                                    e['id'] != null &&
+                                    (e['id'] as num).toInt() ==
+                                        _selectedEventId,
+                                orElse: () => {
+                                  'id': _selectedEventId,
+                                  'title': 'Event'
+                                },
+                              );
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => OperatorEventPage(
+                                    eventId: _selectedEventId!,
+                                    eventTitle:
+                                        ev['title']?.toString() ?? 'Event',
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(LucideIcons.calendar, size: 18),
+                            label: const Text('View Event'),
+                          ),
+                        ),
+                      ],
 
                       const SizedBox(height: 28),
                       const SectionHeader(title: 'Your photo'),

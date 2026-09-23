@@ -165,13 +165,17 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     // Capture the operator's event for the day (if one is assigned) so the
     // kit-given history on the app can show which event the kit was collected at.
     let eventName = null;
+    let eventId = null;
     try {
       const worker = await getWorkerBySession(req.user);
       if (worker?.id != null) {
         const today = new Date().toISOString().split('T')[0];
         const assignment = await getTodayAssignment(worker.id, today);
         const ev = assignment?.operator_events;
-        if (ev) eventName = ev?.title || ev?.name || null;
+        if (ev) {
+          eventName = ev?.title || ev?.name || null;
+          eventId = ev?.id != null ? Number(ev.id) : null;
+        }
       }
       // The operator dashboard falls back to the demo event when no real
       // event exists for the day — mirror that so the history shows it too.
@@ -182,6 +186,7 @@ export const markBeneficiaryKitGiven = async (req, res) => {
       }
     } catch (_) {
       eventName = null;
+      eventId = null;
     }
 
     await logAuditEvent({
@@ -190,6 +195,7 @@ export const markBeneficiaryKitGiven = async (req, res) => {
       details: {
         beneficiary_code: beneficiary.beneficiary_code,
         event_name: eventName,
+        event_id: Number.isInteger(eventId) ? eventId : null,
       },
       performed_by: givenBy,
     });

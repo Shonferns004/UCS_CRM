@@ -9,6 +9,7 @@ import '../../../core/constants/indian_locations.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../../../services/api_service.dart';
+import '../../operator/operator_event_page.dart';
 
 class OperatorDashboardCard extends StatefulWidget {
   const OperatorDashboardCard({super.key});
@@ -259,9 +260,35 @@ if (_loading)
                         ),
                       ))
                   .toList(),
-              hint: 'Select event',
+hint: 'Select event',
               onChanged: (v) => setState(() => _selectedEventId = v),
             ),
+            const SizedBox(height: 10),
+            if (_selectedEventId != null)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    final ev = events.firstWhere(
+                      (e) =>
+                          e['id'] != null &&
+                          (e['id'] as num).toInt() == _selectedEventId,
+                      orElse: () => {'id': _selectedEventId, 'title': 'Event'},
+                    );
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OperatorEventPage(
+                          eventId: _selectedEventId!,
+                          eventTitle: ev['title']?.toString() ?? 'Event',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(LucideIcons.calendar, size: 18),
+                  label: const Text('View Event'),
+                ),
+              ),
             const SizedBox(height: 14),
 
             // Selfie
