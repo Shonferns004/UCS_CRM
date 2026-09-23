@@ -21,6 +21,11 @@ export async function apiPatch(path, body) {
   return res
 }
 
+export async function apiPut(path, body) {
+  const res = await api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' })
+  return res
+}
+
 export async function apiDelete(path) {
   const res = await api(path, { method: 'DELETE', _prefix: 'ucs' })
   return res
