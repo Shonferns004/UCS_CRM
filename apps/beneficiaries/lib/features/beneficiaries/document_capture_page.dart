@@ -1,7 +1,7 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/lucide_icons.dart';
@@ -11,9 +11,10 @@ import '../../core/widgets/app_snackbar.dart';
 import '../../services/scan_effect.dart';
 import 'camera_capture_page.dart';
 
-/// Captures a document photo and applies a whitening/scan effect so the result
-/// looks like an actual scanned copy (white paper, dark ink). Pops with
-/// `{ base64, name }` where base64 is an already-whitened JPEG.
+/// Captures a document photo and runs it through the document-scanner
+/// pipeline (auto edge detection, perspective correction, whitening) so the
+/// result looks like an actual scanned copy. Pops with `{ base64, name }`
+/// where base64 is an already-scanned JPEG.
 class DocumentCapturePage extends StatefulWidget {
   const DocumentCapturePage({super.key});
 
@@ -40,7 +41,10 @@ class _DocumentCapturePageState extends State<DocumentCapturePage> {
       );
       if (bytes == null) return;
       if (!mounted) return;
-      final scanned = scanWhiten(bytes);
+      // Run edge detection + perspective warp + whitening off the UI isolate
+      // so the loading indicator can paint while it works.
+      final scanned = await Isolate.run(() => scanDocument(bytes));
+      if (!mounted) return;
       setState(() {
         _original = bytes;
         _scanned = scanned;
@@ -50,34 +54,6 @@ class _DocumentCapturePageState extends State<DocumentCapturePage> {
       showAppSnackbar(
         context,
         'Could not open the camera: ${e.toString().replaceFirst('Exception: ', '')}',
-        error: true,
-      );
-    } finally {
-      if (mounted) setState(() => _processing = false);
-    }
-  }
-
-  Future<void> _pickGallery() async {
-    setState(() => _processing = true);
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        withData: true,
-      );
-      final file = result?.files.firstOrNull;
-      if (file == null) return;
-      final bytes = file.bytes ?? await file.xFile.readAsBytes();
-      if (!mounted) return;
-      final scanned = scanWhiten(bytes);
-      setState(() {
-        _original = bytes;
-        _scanned = scanned;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      showAppSnackbar(
-        context,
-        'Could not open the gallery: ${e.toString().replaceFirst('Exception: ', '')}',
         error: true,
       );
     } finally {
@@ -111,14 +87,6 @@ class _DocumentCapturePageState extends State<DocumentCapturePage> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: const Text('Capture Document'),
-        actions: [
-          if (scanned != null)
-            TextButton(
-              onPressed: _pickGallery,
-              child: const Text('Gallery',
-                  style: TextStyle(color: Colors.white)),
-            ),
-        ],
       ),
       body: _processing
           ? const Center(
@@ -157,13 +125,7 @@ class _DocumentCapturePageState extends State<DocumentCapturePage> {
               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
             ),
             icon: Icon(LucideIcons.scanLine, size: 20),
-            label: const Text('Capture with camera'),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: _pickGallery,
-            style: TextButton.styleFrom(foregroundColor: Colors.white70),
-            child: const Text('Choose from gallery'),
+            label: const Text('Capture Document'),
           ),
         ],
       ),

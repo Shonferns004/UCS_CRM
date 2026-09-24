@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -8,13 +6,10 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
-import 'camera_capture_page.dart';
 
-/// Scans an Aadhaar card two ways:
-///   - QR: reads the SecureQR printed on the card (automatic); or
-///   - Photo: captures the front of the card and OCRs it server-side.
-/// Both return the decoded fields (name, dob, gender, address, aadhaar number)
-/// via Navigator.pop.
+/// Scans an Aadhaar card by reading the SecureQR printed on the card
+/// (automatic) and returns the decoded fields (name, dob, gender, address,
+/// aadhaar number) via Navigator.pop.
 class AadhaarScannerPage extends StatefulWidget {
   const AadhaarScannerPage({super.key});
 
@@ -26,7 +21,6 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
   MobileScannerController? _controller;
   bool _isProcessing = false;
   bool _isFlashOn = false;
-  bool _photoMode = false;
 
   @override
   void initState() {
@@ -45,7 +39,7 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
   }
 
   Future<void> _onDetect(BarcodeCapture capture) async {
-    if (_isProcessing || _photoMode) return;
+    if (_isProcessing) return;
     final barcode = capture.barcodes.firstOrNull;
     if (barcode == null || barcode.rawValue == null) return;
 
@@ -72,60 +66,6 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
     }
   }
 
-  Future<void> _capturePhoto() async {
-    if (_isProcessing) return;
-    setState(() => _isProcessing = true);
-    _controller?.stop();
-    try {
-      final Uint8List? bytes = await Navigator.push<Uint8List>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const CameraCapturePage(
-            hint: 'Capture the full front of the Aadhaar card',
-            captureLabel: 'Capture',
-          ),
-        ),
-      );
-      if (bytes == null) {
-        if (!mounted) return;
-        _controller?.start();
-        setState(() => _isProcessing = false);
-        return;
-      }
-      final base64 = base64Encode(bytes);
-      if (!mounted) return;
-      final result = await ApiService.post(
-        '/beneficiaries/aadhaar/parse-photo',
-        body: {'image': base64},
-        timeout: const Duration(seconds: 40),
-      );
-      if (!mounted) return;
-      Navigator.pop(context, Map<String, dynamic>.from(result));
-    } catch (e) {
-      if (!mounted) return;
-      showAppSnackbar(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-        error: true,
-      );
-      _controller?.start();
-      setState(() => _isProcessing = false);
-    }
-  }
-
-  Future<void> _togglePhotoMode() async {
-    setState(() {
-      _photoMode = !_photoMode;
-      _isProcessing = false;
-    });
-    if (_photoMode) {
-      _controller?.stop();
-    } else {
-      _isFlashOn = false;
-      _controller?.start();
-    }
-  }
-
   void _toggleFlash() {
     _isFlashOn = !_isFlashOn;
     _controller?.toggleTorch();
@@ -144,32 +84,20 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            if (!_photoMode)
-              ExcludeSemantics(
-                // Avoid framework bug flutter/flutter#191188: the camera
-                // texture stays layout-dirty while the route transitions.
-                child: MobileScanner(
-                  controller: _controller,
-                  onDetect: _onDetect,
-                ),
-              )
-            else
-              const SizedBox.expand(
-                child: Center(
-                  child: Text(
-                    'Photo mode: capture the full front of the Aadhaar card.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                ),
+            ExcludeSemantics(
+              // Avoid framework bug flutter/flutter#191188: the camera
+              // texture stays layout-dirty while the route transitions.
+              child: MobileScanner(
+                controller: _controller,
+                onDetect: _onDetect,
               ),
+            ),
 
             // Overlay
-            if (!_photoMode)
-              CustomPaint(
-                size: Size.infinite,
-                painter: _AadhaarOverlayPainter(),
-              ),
+            CustomPaint(
+              size: Size.infinite,
+              painter: _AadhaarOverlayPainter(),
+            ),
 
             // Top bar
             Positioned(
@@ -189,11 +117,10 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
                         child: Text('Scan Aadhaar Card',
                             style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
                       ),
-                      if (!_photoMode)
-                        IconButton(
-                          onPressed: _toggleFlash,
-                          icon: Icon(_isFlashOn ? LucideIcons.flashlight : LucideIcons.flashlightOff, color: Colors.white),
-                        ),
+                      IconButton(
+                        onPressed: _toggleFlash,
+                        icon: Icon(_isFlashOn ? LucideIcons.flashlight : LucideIcons.flashlightOff, color: Colors.white),
+                      ),
                     ],
                   ),
                 ),
@@ -216,49 +143,16 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        _photoMode
-                            ? 'Whole card visible & well-lit'
-                            : 'Position the Aadhaar QR code within the frame',
+                        'Position the Aadhaar QR code within the frame',
                         style: const TextStyle(color: Colors.white70, fontSize: 13),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  if (_photoMode)
-                    ElevatedButton.icon(
-                      onPressed: _isProcessing ? null : _capturePhoto,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.secondary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                      ),
-                      icon: _isProcessing
-                          ? const SkeletonBox(
-                              width: 16,
-                              height: 16,
-                              borderRadius: 5,
-                              baseColor: Colors.white24,
-                              shineColor: Colors.white,
-                            )
-                          : const Icon(LucideIcons.camera, size: 20),
-                      label: Text(_isProcessing ? 'Reading...' : 'Click Photo'),
-                    )
-                  else
-                    TextButton.icon(
-                      onPressed: _togglePhotoMode,
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        backgroundColor: Colors.black45,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                      ),
-                      icon: const Icon(LucideIcons.camera, size: 18),
-                      label: const Text('Take a photo instead'),
-                    ),
                 ],
               ),
             ),
 
-            if (_isProcessing && !_photoMode)
+            if (_isProcessing)
               const Center(
                 child: SkeletonBox(
                   width: 140,
