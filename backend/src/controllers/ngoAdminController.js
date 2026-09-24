@@ -5275,6 +5275,12 @@ export const getTLDashboard = async (req, res) => {
       const lsFresh = (ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS) ||
         isWorkerOnline(w.id) ||
         (ls.work_as_operator_id && isWorkerOnline(ls.work_as_operator_id));
+      // A stale written row must not read as LIVE idle: lsFresh also accepts an
+      // open socket, which would bless an old idle_since from a duplicate tab
+      // forever. Idle state must be actively maintained — a genuinely idle panel
+      // re-writes updated_at every 60s via its idle heartbeat — so this gates the
+      // idle status pill and streak (online/on_call keep the socket grace).
+      const rowFresh = !!(ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS);
       // Work-as: the row's heartbeat belongs to another operator (abc) covering
       // this FRO. The listed FRO (cbd) is not present — show offline, but let the
       // UI annotate "abc work as cbd" via work_as_operator_name.
@@ -5290,10 +5296,19 @@ export const getTLDashboard = async (req, res) => {
       // pill correctly shows the streak). Same streak source as idleMinutes.
       const idleStreakSeconds = acting
         ? (acting.status === 'idle' && acting.idle_since ? Math.max(0, Math.floor((now - new Date(acting.idle_since)) / 1000)) : 0)
-        : (!isWorkAs(ls) && ls.status === 'idle' && lsFresh && ls.idle_since)
+        : (!isWorkAs(ls) && ls.status === 'idle' && rowFresh && ls.idle_since)
           ? Math.max(0, Math.floor((now - new Date(ls.idle_since)) / 1000))
           : 0;
-      const effectiveIdleSeconds = (ls.today_idle_seconds || 0) + idleStreakSeconds;
+      // Work-as attribution: live counters accrue on the covered FRO's row (the
+      // acting operator's heartbeat writes there). That committed idle belongs to
+      // the OPERATOR, who carries it via the acting row — so the covered FRO
+      // (offline, absent) accrues nothing, and the acting operator's IDLE HR uses
+      // the covered row's committed total instead of their own stale row.
+      const effectiveIdleSeconds = acting
+        ? (acting.today_idle_seconds || 0) + idleStreakSeconds
+        : isWorkAs(ls)
+          ? 0
+          : (ls.today_idle_seconds || 0) + idleStreakSeconds;
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -5313,7 +5328,7 @@ export const getTLDashboard = async (req, res) => {
       } else if (isPresent(w.id) && !isWorkAs(ls) && lsFresh) {
         if (ls.status === 'on_call' && lsFresh) {
           status = 'on_call';
-        } else if (ls.status === 'idle' && lsFresh) {
+        } else if (ls.status === 'idle' && rowFresh) {
           status = 'idle';
         } else {
           status = 'online';

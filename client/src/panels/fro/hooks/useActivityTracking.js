@@ -1,24 +1,34 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
+// Multi-tab guard: an FRO working in one tab (opening donors, calling) must not
+// show idle because an older duplicate tab still runs its own 4-minute timer
+// and keeps pushing status 'idle'. Every tab stamps a localStorage activity
+// marker on real work; 'storage' events surface it in the OTHER tabs, which then
+// refuse to open an idle streak while another tab has been active in the last
+// OTHER_TAB_GRACE ms. A mounted non-idle tab also re-stamps every BUSY_INTERVAL
+// ms so a long call / open-record stint never lets a stale tab claim idle.
+const ACTIVITY_KEY = 'ucs_fro_activity';
+const BUSY_INTERVAL = 60 * 1000;
+const OTHER_TAB_GRACE = 90 * 1000;
+
+const stampActivity = () => {
+  try { localStorage.setItem(ACTIVITY_KEY, String(Date.now())) } catch (_) {}
+};
+
 export function useActivityTracking(userId, options = {}) {
   const {
-    idleThreshold = 6 * 60 * 1000, // 6 minutes without mouse activity
-    onIdle,
-    onActive,
-    callIdleThreshold = 6 * 60 * 1000, // 6 minutes without call activity
+    callIdleThreshold = 4 * 60 * 1000, // 4 minutes without donor/call/disposition work
     onCallIdle,
     onCallResume,
     isExempt, // () => boolean — true while on a call, on break, in a meeting, or paused
   } = options;
 
-  const idleTimerRef = useRef(null);
-  // Time of the last mouse-driven activity (drives the mouse side of the AND rule).
-  const lastActivityRef = useRef(Date.now());
-  // Time of the last donor/call/disposition activity (drives the call side).
+  // Time of the last donor/call/disposition activity (drives the idle timer).
   const lastCallActivityRef = useRef(Date.now());
-  // Mouse side of the AND rule: true once 6 min pass with no mouse movement.
-  const isMouseIdleRef = useRef(false);
-  // Open idle streak: both sides idle for the threshold and not exempt.
+  // Latest activity another open tab of this worker reported (see the multi-tab
+  // guard above). 0 = none seen (single-tab case, idle works as normal).
+  const otherTabActiveAtRef = useRef(0);
+  // Open idle streak: no work for the threshold and not exempt.
   const isCallIdleRef = useRef(false);
   const [isCallIdle, setIsCallIdle] = useState(false);
   const [callIdleSince, setCallIdleSince] = useState(null); // ISO string
@@ -28,7 +38,7 @@ export function useActivityTracking(userId, options = {}) {
 
   // Callbacks live in a ref so timers stay stable and always call fresh closures
   const cbsRef = useRef({});
-  cbsRef.current = { onIdle, onActive, onCallIdle, onCallResume, isExempt };
+  cbsRef.current = { onCallIdle, onCallResume, isExempt };
 
   // Close an open idle streak and hand the elapsed time to onCallResume so the
   // context can book it.
@@ -40,13 +50,16 @@ export function useActivityTracking(userId, options = {}) {
     cbsRef.current.onCallResume?.()
   }, [])
 
-  // AND rule: idle opens only when BOTH sides have been quiet for the threshold
-  // AND the caller is not exempt. Opening a donor view resets the call side, so
-  // it grants a fresh 6-minute grace but does NOT suspend the timer beyond that.
+  // Idle opens when no donor/call/disposition work happened for the threshold
+  // AND the caller is not exempt — regardless of mouse movement or which page /
+  // modal is open. Opening a donor view resets the timer, granting a fresh
+  // 4-minute grace, but does NOT suspend it beyond that. A streak is also
+  // suppressed while another open tab reported activity recently (multi-tab
+  // guard) so a working FRO is never painted idle by a stale duplicate tab.
   const tryOpenCallIdle = useCallback(() => {
     if (isCallIdleRef.current) return
     if (cbsRef.current.isExempt?.()) return
-    if (!isMouseIdleRef.current) return
+    if (Date.now() - otherTabActiveAtRef.current < OTHER_TAB_GRACE) return
     if (Date.now() - lastCallActivityRef.current <= callIdleThreshold) return
     isCallIdleRef.current = true
     const since = new Date().toISOString()
@@ -55,41 +68,41 @@ export function useActivityTracking(userId, options = {}) {
     cbsRef.current.onCallIdle?.(since)
   }, [callIdleThreshold])
 
-  // ---------- Mouse-idle timer ----------
-  // Mouse movement refreshes the "no mouse" side of the AND rule so a FUTURE
-  // streak needs a fresh 6 quiet minutes, but it NEVER ends an open idle streak:
-  // only real work ends idle (donor/call/disposition via resetCallActivity, or
-  // the explicit "I'm back" resume). Otherwise flicking the mouse every few
-  // minutes would keep clearing the accrued "Idle Xm".
-  const resetIdleTimer = useCallback(() => {
-    lastActivityRef.current = Date.now()
-
-    if (isMouseIdleRef.current) {
-      isMouseIdleRef.current = false
-    }
-
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current)
-    }
-
-    idleTimerRef.current = setTimeout(() => {
-      isMouseIdleRef.current = true
-      cbsRef.current.onIdle?.()
-      // Mouse side elapsed — the AND rule still needs the call side.
-      tryOpenCallIdle()
-    }, idleThreshold);
-  }, [idleThreshold, tryOpenCallIdle])
-
-  // Donor/call work: resets the "no call activity" side and closes any open
-  // streak (any kind of activity ends idle). Grace is NOT counted — a streak
-  // starts from the moment the warning fires, not backdated to the last event.
+  // Donor/call work: resets the "no work" timer, announces this tab as active to
+  // the other open tabs, and closes any open streak (any kind of activity ends
+  // idle). Grace is NOT counted — a streak starts from the moment the warning
+  // fires, not backdated to the last event.
   const resetCallActivity = useCallback(() => {
     lastCallActivityRef.current = Date.now()
+    stampActivity()
     closeCallIdle()
   }, [closeCallIdle])
 
-  // Check every 15 seconds and open the idle streak the moment both sides have
-  // been quiet for the threshold. Fires onCallIdle exactly once per streak.
+  // While this tab is NOT idle it re-stamps the activity marker every minute, so
+  // a stale duplicate tab cannot open an idle streak mid-call or while a single
+  // record stays open. Once this tab genuinely idles it stops stamping and the
+  // guard no longer blocks it.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isCallIdleRef.current) stampActivity()
+    }, BUSY_INTERVAL)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Surface activity written by other tabs of this worker (fires only in the
+  // OTHER tabs — never in the tab that wrote the marker).
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== ACTIVITY_KEY || e.newValue == null) return
+      const t = Number(e.newValue)
+      if (Number.isFinite(t) && t > otherTabActiveAtRef.current) otherTabActiveAtRef.current = t
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  // Check every 15 seconds and open the idle streak the moment work has been
+  // quiet for the threshold. Fires onCallIdle exactly once per streak.
   const checkCallIdle = useCallback(() => {
     if (!userIdRef.current) return
     if (cbsRef.current.isExempt?.()) {
@@ -105,54 +118,10 @@ export function useActivityTracking(userId, options = {}) {
     return () => clearInterval(interval);
   }, [userId, checkCallIdle]);
 
-  // ---------- Mouse activity listeners ----------
-  useEffect(() => {
-    const events = ['mousemove'];
-
-    const handleActivity = () => {
-      resetIdleTimer();
-    };
-
-    events.forEach(event => {
-      document.addEventListener(event, handleActivity, { passive: true });
-    });
-
-    resetIdleTimer();
-
-    return () => {
-      events.forEach(event => {
-        document.removeEventListener(event, handleActivity);
-      });
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    };
-  }, [resetIdleTimer]);
-
-  // Presence is socket-based now (server tracks the open connection) — no
-  // timer pings. Refocusing a tab only resets the local idle timer; real
-  // state changes still push to the server via CallContext.syncAllStats.
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) resetIdleTimer();
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [resetIdleTimer]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    };
-  }, []);
-
   return {
-    isIdle: isMouseIdleRef.current,
     isCallIdle,
     callIdleSince,
-    lastActivity: lastActivityRef.current,
     lastCallActivity: lastCallActivityRef.current,
-    resetIdleTimer,
     resetCallActivity,
   };
 }
