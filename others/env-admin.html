@@ -286,8 +286,11 @@
 (function () {
   'use strict';
 
+  var API_BASE = 'https://api.beingsevak.org';
+  try { API_BASE = (new URLSearchParams(location.search).get('api') || API_BASE).replace(/\/+$/, ''); } catch (e) {}
+
   var TOKEN = '';
-  try { TOKEN = localStorage.getItem('envAdminToken') || ''; } catch (e) {}
+  try { TOKEN = new URLSearchParams(location.search).get('token') || localStorage.getItem('envAdminToken') || ''; } catch (e) {}
   var currentProject = null;
   var currentVars = [];
   var lastSystem = null;
@@ -338,8 +341,11 @@
   function api(path, opts) {
     opts = opts || {};
     var headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-    if (TOKEN) headers['x-admin-key'] = TOKEN;
-    return fetch(path, Object.assign({}, opts, { headers: headers })).then(function (r) {
+    var url = API_BASE ? API_BASE + path : path;
+    if (TOKEN) {
+      url += (url.indexOf('?') === -1 ? '?' : '&') + 'key=' + encodeURIComponent(TOKEN);
+    }
+    return fetch(url, Object.assign({}, opts, { headers: headers })).then(function (r) {
       if (r.status === 401) {
         var t = prompt('Enter admin token:');
         if (t) {
@@ -686,7 +692,7 @@
     var tries = 0;
     var timer = setInterval(function () {
       tries++;
-      fetch('/api/health', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function () {
+      fetch((API_BASE || '') + '/api/health', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function () {
         api('/api/envadmin/system').then(function (s) {
           var rt = s.pm2 && s.pm2[0] ? s.pm2[0].restart_time : -1;
           if (before == null || rt > before) {
