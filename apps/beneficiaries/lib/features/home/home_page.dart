@@ -126,7 +126,7 @@ class _HomePageState extends State<HomePage> {
           child: StatCard(
             icon: LucideIcons.package,
             value: '${_overview!['kit_given_today'] ?? 0}',
-            label: 'Donated Today',
+            label: 'Given Today',
             background: AppColors.statDonationsBg,
             border: AppColors.statDonationsBorder,
             iconBackground: AppColors.statDonationsIconBg,
