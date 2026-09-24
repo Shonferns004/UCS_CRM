@@ -56,16 +56,16 @@ export function useActivityTracking(userId, options = {}) {
   }, [callIdleThreshold])
 
   // ---------- Mouse-idle timer ----------
-  // Mouse movement is the "no mouse" side of the AND rule and always counts as
-  // activity: it refreshes the timer, clears the mouse-idle flag, closes any
-  // open streak and announces activity.
+  // Mouse movement refreshes the "no mouse" side of the AND rule so a FUTURE
+  // streak needs a fresh 6 quiet minutes, but it NEVER ends an open idle streak:
+  // only real work ends idle (donor/call/disposition via resetCallActivity, or
+  // the explicit "I'm back" resume). Otherwise flicking the mouse every few
+  // minutes would keep clearing the accrued "Idle Xm".
   const resetIdleTimer = useCallback(() => {
     lastActivityRef.current = Date.now()
 
     if (isMouseIdleRef.current) {
       isMouseIdleRef.current = false
-      closeCallIdle()
-      cbsRef.current.onActive?.()
     }
 
     if (idleTimerRef.current) {
@@ -78,7 +78,7 @@ export function useActivityTracking(userId, options = {}) {
       // Mouse side elapsed — the AND rule still needs the call side.
       tryOpenCallIdle()
     }, idleThreshold);
-  }, [idleThreshold, tryOpenCallIdle, closeCallIdle])
+  }, [idleThreshold, tryOpenCallIdle])
 
   // Donor/call work: resets the "no call activity" side and closes any open
   // streak (any kind of activity ends idle). Grace is NOT counted — a streak

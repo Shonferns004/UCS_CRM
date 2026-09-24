@@ -607,6 +607,21 @@ export function CallProvider({ children, userId, operatorId }) {
     return () => clearInterval(timer)
   }, [resolveShift, resetCallActivity, closeIdleStreak, markPostShiftIdle, syncAllStats])
 
+  // ---------- Idle streak heartbeat ----------
+  // An open idle streak emits no other pushes (presence is socket-based), so a
+  // truly idle-and-motionless panel leaves the row stale and freshness-gated
+  // Idle readings on the FRO strip freeze after ~3 min. Ping the status
+  // endpoint once a minute while the streak is open: same counters, same
+  // idle_since, same epoch — idempotent, keeps the row fresh and the daily
+  // stats snapshot current without touching the streak.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    const timer = setInterval(() => {
+      if (callIdleSinceRef.current) syncAllStats()
+    }, 60 * 1000)
+    return () => clearInterval(timer)
+  }, [syncAllStats])
+
   // Push status whenever it changes (call started/ended, break toggled)
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return
