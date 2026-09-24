@@ -4175,6 +4175,24 @@ export const getDonorHistory = async (req, res) => {
 export const updateLiveStatus = async (req, res) => {
   try {
     const workerId = req.user.id;
+
+    // Force-logout enforcement: once an admin logs the FRO out (logged_out_at
+    // set), reject the heartbeat with 401 so the client's api() clears the
+    // token and redirects to /login. This boots stale tabs that missed the
+    // fro:force-logout socket event within the next poll / status push. Re-login
+    // reopens the session (authController.touchLogin sets logged_out_at null).
+    try {
+      const { rows } = await db._pool.query(
+        `SELECT logged_out_at FROM auth_sessions WHERE user_id = $1`,
+        [String(workerId)]
+      );
+      if (rows.length > 0 && rows[0].logged_out_at) {
+        return res.status(401).json({ message: 'Session closed. Please login again.' });
+      }
+    } catch (e) {
+      // auth_sessions may be absent until migration 125 — skip the guard.
+    }
+
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at, idle_epoch, force_counters } = req.body;
 
     if (status && !['online', 'idle', 'on_call', 'break', 'offline', 'meeting'].includes(status)) {
@@ -4432,6 +4450,78 @@ export const resetAllFroIdle = async (req, res) => {
     emitRealtime('fro:reset-idle', { at: updatedAt, epoch });
 
     return res.json({ message: 'All FRO idle counts reset' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin (NGO admin / super admin): log out every open FRO session at once.
+// Closes auth_sessions (drives "online/offline" + Logouts Today), appends a
+// logout event per FRO, flips live status to offline, and broadcasts
+// fro:force-logout so every open FRO panel clears its token and lands on the
+// login screen. The heartbeat 401 guard (updateLiveStatus) then makes sure a
+// stale tab that missed the socket event is still pushed to login within the
+// next poll. Re-login reopens the session normally (authController.touchLogin).
+export const logoutAllFros = async (req, res) => {
+  try {
+    const nowIso = new Date().toISOString();
+
+    // Open FRO sessions: login tokens carry role 'fro'; sweep by role OR by
+    // worker record (department fro) so every FRO panel is picked up regardless
+    // of how its session row was written.
+    let sessions = [];
+    try {
+      const { rows } = await db._pool.query(
+        `SELECT user_id, name, role FROM auth_sessions
+         WHERE logged_out_at IS NULL
+           AND (role = 'fro' OR user_id IN (SELECT id::text FROM workers WHERE lower(trim(department)) = 'fro'))`
+      );
+      sessions = rows;
+    } catch (e) {
+      // auth_sessions may be absent until migration 125 is applied.
+      sessions = [];
+    }
+
+    const userIds = sessions.map((s) => s.user_id).filter(Boolean);
+
+    if (userIds.length > 0) {
+      try {
+        for (const s of sessions) {
+          await db._pool.query(
+            `INSERT INTO auth_logout_events (user_id, client, name, role, logged_out_at)
+             VALUES ($1, 'crm', $2, $3, $4)`,
+            [s.user_id, s.name || null, s.role || 'fro', nowIso]
+          );
+        }
+      } catch (e) {
+        // Non-fatal: logout log may be absent — presence close is the core part.
+      }
+      try {
+        await db._pool.query(
+          `UPDATE auth_sessions SET logged_out_at = $2
+           WHERE logged_out_at IS NULL AND user_id = ANY($1::text[])`,
+          [userIds, nowIso]
+        );
+      } catch (e) {
+        // Non-fatal.
+      }
+      try {
+        await db._pool.query(
+          `UPDATE fro_live_status SET status = 'offline', idle_since = NULL, updated_at = $2
+           WHERE worker_id = ANY($1::text[])`,
+          [userIds, nowIso]
+        );
+      } catch (e) {
+        // Non-fatal: live status row may not exist for every session.
+      }
+    }
+
+    emitRealtime('fro:force-logout', { at: nowIso });
+
+    return res.json({
+      message: userIds.length > 0 ? `${userIds.length} FRO session(s) logged out` : 'No open FRO sessions to log out',
+      loggedOut: userIds.length,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

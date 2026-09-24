@@ -65,6 +65,12 @@ export function onFroResetIdle(handler) {
   return () => s.off('fro:reset-idle', handler)
 }
 
+export function onFroForceLogout(handler) {
+  const s = getSocket()
+  s.on('fro:force-logout', handler)
+  return () => s.off('fro:force-logout', handler)
+}
+
 export function onFroPause(handler) {
   const s = getSocket()
   s.on('fro:pause', handler)

@@ -11,6 +11,7 @@ import SettingsDrawer from '../../components/SettingsDrawer'
 import DonorDetailModal from '../../components/DonorDetailModal'
 import NoticePopup from '../../components/NoticePopup'
 import { useMeeting, startMeeting, endMeeting } from '../../meetingStore'
+import { toast } from '../../components/Toast'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Donors = lazy(() => import('./pages/Donors'))
@@ -160,6 +161,25 @@ export default function NgoAdminPanel() {
       await endMeeting();
     } catch (e) { console.error('Error:', e.message); }
     finally { setMeetingBusy(false); }
+  };
+
+  // Log out every open FRO session: closes their CRM sessions, flips live
+  // status to offline, and broadcasts fro:force-logout so each FRO panel is
+  // pushed back to the login screen (the heartbeat 401 guard catches stale tabs
+  // that missed the event).
+  const logoutAllBusy = useRef(false);
+  const handleLogoutAllFros = async () => {
+    if (logoutAllBusy.current) return;
+    if (!window.confirm('Log out ALL FROs?\n\nEvery open FRO panel will be sent back to the login screen. FROs can log in again anytime.')) return;
+    logoutAllBusy.current = true;
+    try {
+      const d = await api('/fro/status/logout-all', { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' });
+      toast(`Logged out ${d?.loggedOut || 0} FRO session(s)`, 'success', 4000);
+    } catch (e) {
+      toast(e?.message || 'Failed to log out FROs', 'error', 4000);
+    } finally {
+      logoutAllBusy.current = false;
+    }
   };
 
   const loadNotifications = () => {
@@ -369,6 +389,18 @@ export default function NgoAdminPanel() {
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <button
+              onClick={handleLogoutAllFros}
+              disabled={logoutAllBusy.current}
+              title="Log out every FRO immediately — all open FRO panels are sent back to the login screen"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 13px', border: 'none', borderRadius: 9,
+                fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                color: '#fff', background: '#dc2626', boxShadow: '0 4px 14px rgba(220,38,38,.35)',
+              }}
+            >
+              Logout All FROs
+            </button>
             <div style={{ position: 'relative' }} ref={meetingRef}>
               <button
                 onClick={() => { if (meetingActive) handleEndMeeting(); else setShowMeetingPrompt(v => !v); }}
