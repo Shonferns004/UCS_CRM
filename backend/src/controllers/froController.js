@@ -4221,11 +4221,18 @@ export const updateLiveStatus = async (req, res) => {
     // fro:force-logout socket event within the next poll / status push. Re-login
     // reopens the session (authController.touchLogin sets logged_out_at null).
     try {
+      // Only a logout that happened AFTER this token was issued invalidates it.
+      // A stale logged_out_at predating the token (earlier auto/manual logout on
+      // the same worker) must not bounce a freshly-issued work-as session — the
+      // switch reopens the covered FRO, and the iat guard is the belt-and-
+      // suspenders that keeps a direct post-switch force-logout working.
+      const tokenIssuedAt = req.user.iat ? req.user.iat * 1000 : 0;
       const { rows } = await db._pool.query(
         `SELECT logged_out_at FROM auth_sessions WHERE user_id = $1`,
         [String(workerId)]
       );
-      if (rows.length > 0 && rows[0].logged_out_at) {
+      const loggedOutAt = rows?.[0]?.logged_out_at ? new Date(rows[0].logged_out_at).getTime() : 0;
+      if (loggedOutAt > tokenIssuedAt) {
         return res.status(401).json({ message: 'Session closed. Please login again.' });
       }
     } catch (e) {
