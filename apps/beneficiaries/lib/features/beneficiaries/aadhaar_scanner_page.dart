@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/lucide_icons.dart';
-import '../../core/widgets/app_skeleton.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
 
 /// Scans an Aadhaar card by reading the SecureQR printed on the card
-/// (automatic) and returns the decoded fields (name, dob, gender, address,
-/// aadhaar number) via Navigator.pop.
+/// (automatic) and returns the decoded fields (name, dob, gender, address)
+/// via Navigator.pop. Decoding happens server-side (POST /aadhaar/decode-qr);
+/// the raw QR value is never stored on the device.
 class AadhaarScannerPage extends StatefulWidget {
   const AadhaarScannerPage({super.key});
 
@@ -47,18 +47,14 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
     _controller?.stop();
 
     try {
-      final result = await ApiService.post(
-        '/beneficiaries/aadhaar/parse',
-        body: {'qr_value': barcode.rawValue},
-        timeout: const Duration(seconds: 30),
-      );
+      final data = await ApiService.decodeAadhaarQr(barcode.rawValue!);
       if (!mounted) return;
-      Navigator.pop(context, Map<String, dynamic>.from(result));
-    } catch (e) {
+      Navigator.pop(context, data);
+    } catch (_) {
       if (!mounted) return;
       showAppSnackbar(
         context,
-        e.toString().replaceFirst('Exception: ', ''),
+        'Could not read this Aadhaar QR. Please try again.',
         error: true,
       );
       _controller?.start();
@@ -153,13 +149,25 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
             ),
 
             if (_isProcessing)
-              const Center(
-                child: SkeletonBox(
-                  width: 140,
-                  height: 10,
-                  borderRadius: 5,
-                  baseColor: Colors.white24,
-                  shineColor: Colors.white,
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Reading Aadhaar…', style: TextStyle(color: Colors.white, fontSize: 15)),
+                    ],
+                  ),
                 ),
               ),
           ],

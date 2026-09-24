@@ -17,7 +17,6 @@ import { getBeneficiaryDistributionHistory } from '../models/distributionModel.j
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
-import { decodeAadhaarQr, parseAadhaarXml } from '../utils/aadhaarDecoder.js';
 import { extractAadhaarFromPhoto } from '../utils/aadhaarPhotoOcr.js';
 import db from '../config/db.js';
 
@@ -341,41 +340,12 @@ export const getAuditTrail = async (req, res) => {
   }
 };
 
-// Scans an Aadhaar QR payload and returns the extracted fields so the mobile
-// app can auto-fill the registration form. The raw QR value is decoded and
-// parsed server-side (decoder at utils/aadhaarDecoder.js).
-export const parseAadhaarQrController = async (req, res) => {
-  try {
-    const { qr_value } = req.body || {};
-    if (!qr_value) {
-      return res.status(400).json({ message: 'QR value is required' });
-    }
-
-    const xml = decodeAadhaarQr(String(qr_value));
-    if (!xml) {
-      return res.status(422).json({ message: 'Could not read this Aadhaar QR. Make sure the entire code is in the frame and the card is flat.' });
-    }
-
-    const fields = parseAadhaarXml(xml);
-    if (!fields.name && !fields.aadhaar_number) {
-      return res.status(422).json({ message: 'Aadhaar QR scanned, but no name / number could be read. Try again with better lighting.' });
-    }
-
-    await logAuditEvent({
-      entity_type: 'aadhaar_scan',
-      action: 'AADHAAR_SCANNED',
-      details: { found: Object.keys(fields).filter((k) => fields[k]).length },
-      performed_by: req.user?.name || req.user?.email || 'system',
-    });
-
-    return res.json(fields);
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
+// Aadhaar QR decoding now lives at POST /api/aadhaar/decode-qr
+// (src/aadhaar/routes.js) using @xone-labs/aadharjs with the legacy XML
+// decoder as fallback.
 
 // OCRs a photo of an Aadhaar card and returns the same field shape as
-// parseAadhaarQrController so the mobile app auto-fills the form. Accepts a
+// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a
 // base64 JPEG (/data:image;base64,... or raw). Uses Groq vision first, falls
 // back to OCR.space + regex heuristics.
 export const parseAadhaarPhotoController = async (req, res) => {

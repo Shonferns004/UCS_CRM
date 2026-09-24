@@ -82,6 +82,7 @@ import distributionRoutes from './routes/distributionRoutes.js';
 import biometricRoutes from './routes/biometricRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import operatorRoutes from './routes/operatorRoutes.js';
+import aadhaarRoutes from './aadhaar/routes.js';
 import metropadRouter from './metropad/router.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { startMemoryWatchdog } from './services/memoryWatchdog.js';
@@ -261,6 +262,7 @@ app.use('/api/distributions', distributionRoutes);
 app.use('/api/biometrics', biometricRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/operator', operatorRoutes);
+app.use('/api/aadhaar', aadhaarRoutes);
 app.use('/api/metropad', metropadRouter);
 
 app.get('/api/deploy-test', (req, res) => {

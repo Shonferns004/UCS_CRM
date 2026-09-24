@@ -92,33 +92,15 @@ Future<void> _pickDob() async {
       if (gender != null && gender.isNotEmpty) {
         _gender = gender;
       }
-      final address = result['address_line_1']?.toString();
+      final address = result['address']?.toString();
       if (address != null && address.trim().isNotEmpty) {
         _addressController.text = address.trim();
-      }
-      final city = result['vtc']?.toString() ??
-          result['post_office']?.toString() ??
-          result['district']?.toString();
-      if (city != null && city.trim().isNotEmpty) {
-        _cityController.text = city.trim();
-      }
-      final state = result['state']?.toString();
-      if (state != null && state.trim().isNotEmpty) {
-        _stateController.text = state.trim();
-      }
-      final pincode = result['pincode']?.toString();
-      if (pincode != null && pincode.trim().isNotEmpty) {
-        _pincodeController.text = pincode.trim();
-      }
-      final aadhaar = result['aadhaar_number']?.toString();
-      if (aadhaar != null && aadhaar.trim().isNotEmpty) {
-        _aadhaarController.text = aadhaar.trim();
       }
     });
 
     showAppSnackbar(
       context,
-      'Aadhaar details added. Please review before registering.',
+      'Aadhaar details imported. Please review before registering.',
       success: true,
     );
   }

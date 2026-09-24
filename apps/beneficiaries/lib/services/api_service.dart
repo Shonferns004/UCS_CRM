@@ -48,6 +48,18 @@ class ApiService {
     return _handleResponse(res);
   }
 
+  /// Decodes a raw Aadhaar QR payload server-side and returns the autofill
+  /// fields ({ name, dob, gender, address }). The raw payload is sent once
+  /// and never persisted on the device.
+  static Future<Map<String, dynamic>> decodeAadhaarQr(String qrData) async {
+    final res = await post('/aadhaar/decode-qr',
+        body: {'qrData': qrData}, timeout: const Duration(seconds: 30));
+    final data = res['data'];
+    return data is Map<String, dynamic>
+        ? data
+        : (data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
+  }
+
   static Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? body}) async {
     final res = await http.patch(
       Uri.parse('$baseUrl$path'),
