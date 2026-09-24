@@ -1,18 +1,25 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useIdleTimer } from 'react-idle-timer';
 
-// Multi-tab guard: an FRO working in one tab (opening donors, calling) must not
-// show idle because an older duplicate tab still runs its own 4-minute timer
-// and keeps pushing status 'idle'. Every tab stamps a localStorage activity
-// marker on real work; 'storage' events surface it in the OTHER tabs, which then
-// refuse to open an idle streak while another tab has been active in the last
-// OTHER_TAB_GRACE ms. A mounted non-idle tab also re-stamps every BUSY_INTERVAL
-// ms so a long call / open-record stint never lets a stale tab claim idle.
-const ACTIVITY_KEY = 'ucs_fro_activity';
-const BUSY_INTERVAL = 60 * 1000;
-const OTHER_TAB_GRACE = 90 * 1000;
+// Work-based idle detection via react-idle-timer (v5).
+// Idle means no donor/call/disposition WORK for callIdleThreshold ms — NOT no
+// raw input. Mouse movement / typing are deliberately ignored: only the
+// 'fro-work' event resets the timer, dispatched from resetCallActivity() on
+// every real work action (opening a donor, calling, saving a disposition...).
+// Opening a donor view therefore grants a fresh 4-minute grace but does not
+// suspend detection beyond that, exactly as before.
+//
+// Multi-tab: crossTab + leaderElection replicate activity and idle across all
+// open tabs of this worker (per-user channel name), and only the leader tab
+// opens/book s the streak — so a duplicate/stale tab can neither claim idle
+// while a real tab works, nor double-book when nobody is active. This replaces
+// the old localStorage timestamps + 60s/90s grace algorithm.
+//
+// The hook interface is unchanged: { isCallIdle, callIdleSince, resetCallActivity }.
+const WORK_EVENT = 'fro-work';
 
-const stampActivity = () => {
-  try { localStorage.setItem(ACTIVITY_KEY, String(Date.now())) } catch (_) {}
+const dispatchWork = () => {
+  try { document.dispatchEvent(new CustomEvent(WORK_EVENT)) } catch (_) {}
 };
 
 export function useActivityTracking(userId, options = {}) {
@@ -23,26 +30,23 @@ export function useActivityTracking(userId, options = {}) {
     isExempt, // () => boolean — true while on a call, on break, in a meeting, or paused
   } = options;
 
-  // Time of the last donor/call/disposition activity (drives the idle timer).
-  const lastCallActivityRef = useRef(Date.now());
-  // Latest activity another open tab of this worker reported (see the multi-tab
-  // guard above). 0 = none seen (single-tab case, idle works as normal).
-  const otherTabActiveAtRef = useRef(0);
-  // Open idle streak: no work for the threshold and not exempt.
-  const isCallIdleRef = useRef(false);
   const [isCallIdle, setIsCallIdle] = useState(false);
   const [callIdleSince, setCallIdleSince] = useState(null); // ISO string
-  const userIdRef = useRef(userId);
+  const isCallIdleRef = useRef(false);
+  isCallIdleRef.current = isCallIdle;
 
-  userIdRef.current = userId;
-
-  // Callbacks live in a ref so timers stay stable and always call fresh closures
+  // Callbacks live in a ref so handlers stay stable and always read fresh closures
   const cbsRef = useRef({});
   cbsRef.current = { onCallIdle, onCallResume, isExempt };
 
-  // Close an open idle streak and hand the elapsed time to onCallResume so the
-  // context can book it.
-  const closeCallIdle = useCallback(() => {
+  const openIdle = useCallback((sinceIso) => {
+    isCallIdleRef.current = true
+    setIsCallIdle(true)
+    setCallIdleSince(sinceIso)
+    cbsRef.current.onCallIdle?.(sinceIso)
+  }, [])
+
+  const closeIdle = useCallback(() => {
     if (!isCallIdleRef.current) return
     isCallIdleRef.current = false
     setIsCallIdle(false)
@@ -50,78 +54,47 @@ export function useActivityTracking(userId, options = {}) {
     cbsRef.current.onCallResume?.()
   }, [])
 
-  // Idle opens when no donor/call/disposition work happened for the threshold
-  // AND the caller is not exempt — regardless of mouse movement or which page /
-  // modal is open. Opening a donor view resets the timer, granting a fresh
-  // 4-minute grace, but does NOT suspend it beyond that. A streak is also
-  // suppressed while another open tab reported activity recently (multi-tab
-  // guard) so a working FRO is never painted idle by a stale duplicate tab.
-  const tryOpenCallIdle = useCallback(() => {
-    if (isCallIdleRef.current) return
-    if (cbsRef.current.isExempt?.()) return
-    if (Date.now() - otherTabActiveAtRef.current < OTHER_TAB_GRACE) return
-    if (Date.now() - lastCallActivityRef.current <= callIdleThreshold) return
-    isCallIdleRef.current = true
-    const since = new Date().toISOString()
-    setCallIdleSince(since)
-    setIsCallIdle(true)
-    cbsRef.current.onCallIdle?.(since)
-  }, [callIdleThreshold])
+  const idleTimer = useIdleTimer({
+    timeout: callIdleThreshold,
+    events: [WORK_EVENT],
+    startOnMount: true,
+    stopOnIdle: false,
+    disabled: !userId,
+    crossTab: true,
+    leaderElection: true,
+    name: `fro-activity:${userId || 'anon'}`,
+    onIdle: (_, timer) => {
+      // Exempt states (call/break/meeting/pause) never idle: re-arm the timer
+      // instead of opening a streak — same behaviour as the old periodic check.
+      if (cbsRef.current.isExempt?.()) {
+        timer.reset()
+        return
+      }
+      // Only the cross-tab leader opens/blocks the streak so duplicate tabs
+      // can never double-book the same idle window.
+      if (timer.isLeader()) {
+        openIdle(new Date().toISOString())
+      }
+    },
+    onActive: () => {
+      // Any work event after idle closes the streak on the leader (the tab
+      // that opened it). Followers never opened one, so this is a no-op there.
+      closeIdle()
+    },
+    onAction: () => {},
+  })
 
-  // Donor/call work: resets the "no work" timer, announces this tab as active to
-  // the other open tabs, and closes any open streak (any kind of activity ends
-  // idle). Grace is NOT counted — a streak starts from the moment the warning
-  // fires, not backdated to the last event.
+  // Donor/call work: announce the activity and reset the "no work" timer via the
+  // 'fro-work' event (also replicated cross-tab, clearing idle on every tab of
+  // this worker). If an idle streak is open, the library transitions idle ->
+  // active and onActive commits it through onCallResume.
   const resetCallActivity = useCallback(() => {
-    lastCallActivityRef.current = Date.now()
-    stampActivity()
-    closeCallIdle()
-  }, [closeCallIdle])
-
-  // While this tab is NOT idle it re-stamps the activity marker every minute, so
-  // a stale duplicate tab cannot open an idle streak mid-call or while a single
-  // record stays open. Once this tab genuinely idles it stops stamping and the
-  // guard no longer blocks it.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isCallIdleRef.current) stampActivity()
-    }, BUSY_INTERVAL)
-    return () => clearInterval(interval)
+    dispatchWork()
   }, [])
-
-  // Surface activity written by other tabs of this worker (fires only in the
-  // OTHER tabs — never in the tab that wrote the marker).
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key !== ACTIVITY_KEY || e.newValue == null) return
-      const t = Number(e.newValue)
-      if (Number.isFinite(t) && t > otherTabActiveAtRef.current) otherTabActiveAtRef.current = t
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  // Check every 15 seconds and open the idle streak the moment work has been
-  // quiet for the threshold. Fires onCallIdle exactly once per streak.
-  const checkCallIdle = useCallback(() => {
-    if (!userIdRef.current) return
-    if (cbsRef.current.isExempt?.()) {
-      closeCallIdle() // defensive: break/meeting/pause/call must never idle
-      return
-    }
-    tryOpenCallIdle()
-  }, [tryOpenCallIdle, closeCallIdle])
-
-  useEffect(() => {
-    if (!userId) return;
-    const interval = setInterval(checkCallIdle, 15000);
-    return () => clearInterval(interval);
-  }, [userId, checkCallIdle]);
 
   return {
     isCallIdle,
     callIdleSince,
-    lastCallActivity: lastCallActivityRef.current,
     resetCallActivity,
   };
 }

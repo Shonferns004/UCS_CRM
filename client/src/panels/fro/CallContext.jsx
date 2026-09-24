@@ -249,7 +249,14 @@ export function CallProvider({ children, userId, operatorId }) {
         ...extra,
       }),
     })
-      .then(() => { lastPushAtRef.current = Date.now() })
+      .then((res) => {
+        lastPushAtRef.current = Date.now()
+        // Midnight/clear-reset ephemera: a force push that went through returns
+        // the current epoch, so a panel that stayed open across the IST-midnight
+        // reset re-learns it and keeps writing the new day instead of being
+        // frozen out all day as stale.
+        if (Number.isFinite(Number(res?.idle_epoch))) epochRef.current = Number(res.idle_epoch)
+      })
       .catch((err) => { console.error('Error:', err.message); })
   }, [])
 
@@ -285,6 +292,10 @@ export function CallProvider({ children, userId, operatorId }) {
     const since = callIdleSinceRef.current
     if (!since) return
     callIdleSinceRef.current = null
+    // Defensive: never book a streak that started on an earlier IST day. The
+    // open path guards this too, but a suspended tab may close its streak late
+    // after the day rollover.
+    if (istDateString(since) !== istDateString()) return
     let endMs = Date.now()
     const shiftEndMs = shiftEndMsRef.current
     if (shiftEndMs && endMs > shiftEndMs) endMs = shiftEndMs
@@ -316,6 +327,10 @@ export function CallProvider({ children, userId, operatorId }) {
         syncAllStats({ status: 'offline', idle_since: null })
         return
       }
+      // Never open a streak that started on an earlier IST day — a throttled or
+      // suspended tab can fire this after midnight and would otherwise carry the
+      // previous day's streak into the new day.
+      if (istDateString(sinceIso) !== istDateString()) return
       callIdleSinceRef.current = sinceIso
       syncAllStats({ status: 'idle', idle_since: sinceIso })
     },
