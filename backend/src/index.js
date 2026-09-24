@@ -865,6 +865,17 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/fro-auto-logout', requireCronAuth, async (req, res) => {
+      try {
+        const { runFroAutoLogout } = await import('./services/froAutoLogoutScheduler.js');
+        await runFroAutoLogout();
+        res.json({ success: true, message: 'FRO auto-logout sweep completed' });
+      } catch (error) {
+        console.error('FRO auto-logout cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });
@@ -919,6 +930,7 @@ if (!process.env.VERCEL) {
     await ensureOperatorSchema().catch(e => console.error('ensureOperatorSchema failed:', e?.message || e));
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
+    import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
   });
