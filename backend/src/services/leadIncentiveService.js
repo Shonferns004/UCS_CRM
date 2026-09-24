@@ -687,13 +687,19 @@ export const announceChampion = async ({ date, message, userId }) => {
   }
 
   const inserted = [];
+  const slabs = await getActiveSlabs();
+  const slabById = {};
+  for (const s of slabs || []) slabById[String(s.id)] = s;
   for (const w of winners) {
     const existing = await getAnnouncementByDateAndSlab(targetDate, w.slab_id);
     if (existing) continue;
+    const slab = slabById[String(w.slab_id)] || {};
     const row = await insertAnnouncement({
       announcement_date: targetDate,
       slab_id: w.slab_id,
       slab_label: w.slab_label,
+      started_at: slab.started_at || null,
+      ended_at: slab.ended_at || null,
       fro_worker_id: w.fro_id,
       fro_name: w.fro_name,
       total_leads: w.qualified_leads || 0,
