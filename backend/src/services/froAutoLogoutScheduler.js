@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import db from '../config/db.js';
 import { emitRealtime } from '../socket.js';
+import { makeNonOverlap } from '../utils/noOverlap.js';
 
 // Auto-logout for FRO panels. The manual Sign out button was removed from the
 // FRO panel, so every open FRO session is closed automatically once the
@@ -98,7 +99,8 @@ export async function runFroAutoLogout() {
 function start() {
   if (running) return;
   running = true;
-  cronJobs.push(cron.schedule('20 */5 * * * *', () => runFroAutoLogout().catch(() => {})));
+  const runNoOverlap = makeNonOverlap('fro auto-logout', runFroAutoLogout);
+  cronJobs.push(cron.schedule('20 */5 * * * *', () => runNoOverlap().catch(() => {})));
   console.log(`Scheduled: 5-min auto-logout sweep for FROs past shift end + ${AUTO_LOGOUT_AFTER_MIN} min`);
 }
 

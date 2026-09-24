@@ -16,11 +16,26 @@ import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
 import { checkAndResetFroIdleDaily } from './froIdleResetService.js';
+import { makeNonOverlap } from '../utils/noOverlap.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
 let running = false;
 const cronJobs = [];
+
+// Every scheduled job below is wrapped in a non-overlap guard: if a slow run
+// is still in flight when the next tick fires, that tick is skipped instead of
+// starting a second copy. This is what keeps memory/CPU flat — 5-min jobs that
+// outlive their window previously stacked concurrent copies until OOM.
+const runCycleNoOverlap = makeNonOverlap('notification cycle', runNotificationCycle);
+const runScheduledNoOverlap = makeNonOverlap('scheduled notifications', sendScheduledNotifications);
+const runPunchInNoOverlap = makeNonOverlap('punch-in reminders', sendPunchInReminders);
+const runPunchOutNoOverlap = makeNonOverlap('punch-out reminders', sendPunchOutReminders);
+const runResetNoOverlap = makeNonOverlap('donor cycle reset', resetCycledDonors);
+const runReportNoOverlap = makeNonOverlap('missed-schedule report', autoReportMissedSchedules);
+const runReturnNoOverlap = makeNonOverlap('auto-return transfers', autoReturnTransfers);
+const runIncentiveNoOverlap = makeNonOverlap('special incentive refresh', runSpecialIncentiveRefresh);
+const runIdleResetNoOverlap = makeNonOverlap('fro idle reset', checkAndResetFroIdleDaily);
 
 function getDateString(date) {
   const y = date.getFullYear();
@@ -399,37 +414,37 @@ function start() {
   if (running) return;
   running = true;
 
-  cronJobs.push(cron.schedule('30 10 * * *', () => runNotificationCycle()));
+  cronJobs.push(cron.schedule('30 10 * * *', () => runCycleNoOverlap()));
   console.log('Scheduled: 10:30 AM notification check');
 
-  cronJobs.push(cron.schedule('0 13 * * *', () => runNotificationCycle()));
+  cronJobs.push(cron.schedule('0 13 * * *', () => runCycleNoOverlap()));
   console.log('Scheduled: 1:00 PM notification check');
 
-  cronJobs.push(cron.schedule('0 18 * * *', () => runNotificationCycle()));
+  cronJobs.push(cron.schedule('0 18 * * *', () => runCycleNoOverlap()));
   console.log('Scheduled: 6:00 PM notification check');
 
   // Staggered across the minute (seconds field) and thinned to every 5 minutes:
   // these six jobs all running every 60s created a CPU/DB pile-up on the 2-core
   // host (load ~1.9). A 5-minute cadence cuts ~80% of that churn; each job is
   // a safety net / periodic check, none is latency-critical.
-  cronJobs.push(cron.schedule('25 */5 * * * *', () => sendScheduledNotifications()));
+  cronJobs.push(cron.schedule('25 */5 * * * *', () => runScheduledNoOverlap()));
   console.log('Scheduled: 5-min check for admin-scheduled notifications');
 
-  cronJobs.push(cron.schedule('5 */5 * * * *', () => sendPunchInReminders()));
+  cronJobs.push(cron.schedule('5 */5 * * * *', () => runPunchInNoOverlap()));
   console.log('Scheduled: 5-min check for punch-in reminders');
 
-  cronJobs.push(cron.schedule('15 */5 * * * *', () => sendPunchOutReminders()));
+  cronJobs.push(cron.schedule('15 */5 * * * *', () => runPunchOutNoOverlap()));
   console.log('Scheduled: 5-min check for punch-out reminders');
 
   if (!process.env.VERCEL) {
-    cronJobs.push(cron.schedule('0 0 * * *', () => resetCycledDonors()));
+    cronJobs.push(cron.schedule('0 0 * * *', () => runResetNoOverlap()));
     console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
   }
 
-  cronJobs.push(cron.schedule('35 */5 * * * *', () => autoReportMissedSchedules()));
+  cronJobs.push(cron.schedule('35 */5 * * * *', () => runReportNoOverlap()));
   console.log('Scheduled: 5-min check for missed schedules (10 min overdue)');
 
-  cronJobs.push(cron.schedule('45 */5 * * * *', () => autoReturnTransfers()));
+  cronJobs.push(cron.schedule('45 */5 * * * *', () => runReturnNoOverlap()));
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 10 * *', () => runMonthlyLoanSettlement()));
@@ -438,12 +453,12 @@ function start() {
   // Every 5 min, not 20s: donor-log writes already trigger a refresh via
   // froDonorLogModel, so the poll is only a safety net. Each refresh runs a
   // window aggregation + per-worker upserts that broadcast realtime events.
-  cronJobs.push(cron.schedule('50 */5 * * * *', () => runSpecialIncentiveRefresh()));
+  cronJobs.push(cron.schedule('50 */5 * * * *', () => runIncentiveNoOverlap()));
   console.log('Scheduled: 5-min special incentive ("Sir ka Incentive") live tracking');
 
   // Clears every FRO's idle counter at the first tick of a new IST day (and once
   // after a deploy, so the currently inflated counts are reset immediately).
-  cronJobs.push(cron.schedule('55 */5 * * * *', () => checkAndResetFroIdleDaily()));
+  cronJobs.push(cron.schedule('55 */5 * * * *', () => runIdleResetNoOverlap()));
   console.log('Scheduled: 5-min IST-day idle reset for all FROs');
   console.log('Scheduled: 5-min check for expired lead transfers');
 
