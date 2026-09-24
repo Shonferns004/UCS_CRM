@@ -71,6 +71,8 @@ class _HomePageState extends State<HomePage> {
       'admin',
       'ngo',
       'accounts',
+      'event_head',
+      'worker',
     ].contains(_volunteerData?['role']);
     final pages = [
       FingerprintLookupPage(name: name, canAdd: canAdd),
