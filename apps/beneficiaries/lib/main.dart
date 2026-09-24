@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/app_skeleton.dart';
+import 'core/widgets/jod_splash_screen.dart';
 import 'services/api_service.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/operator_setup_page.dart';
@@ -70,6 +71,7 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool? _loggedIn;
   bool? _setupNeeded;
+  bool _splashDone = false;
 
   @override
   void initState() {
@@ -122,8 +124,7 @@ class _AuthGateState extends State<AuthGate> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildContent() {
     final busy = _loggedIn == null || (_loggedIn == true && _setupNeeded == null);
     if (busy) {
       return const Scaffold(
@@ -156,5 +157,27 @@ class _AuthGateState extends State<AuthGate> {
       return HomePage(onLogout: _onLogout);
     }
     return LoginPage(onLogin: _onLogin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: _splashDone
+          ? KeyedSubtree(
+              key: const ValueKey('app'),
+              child: _buildContent(),
+            )
+          : KeyedSubtree(
+              key: const ValueKey('splash'),
+              child: JodSplashScreen(
+                onFinished: () {
+                  if (mounted) setState(() => _splashDone = true);
+                },
+              ),
+            ),
+    );
   }
 }
