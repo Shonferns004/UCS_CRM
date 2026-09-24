@@ -34,10 +34,9 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS kit_given BOOLEAN NOT NULL DEFAULT FALSE"
   ).catch(() => {});
 
-  // Beneficiaries mobile-app operators — only these workers can log into the app.
-  await db._pool.query(
-    "ALTER TABLE workers ADD COLUMN IF NOT EXISTS bnf_operator BOOLEAN NOT NULL DEFAULT FALSE"
-  ).catch(() => {});
+  // Beneficiaries mobile-app operators previously lived as workers flagged
+  // bnf_operator. They now have their own bnf_operators table (created in
+  // ensureOperatorSchema) — nothing is added to workers here.
 
   await db._pool.query(
     "ALTER TABLE workers ADD COLUMN IF NOT EXISTS phone TEXT"

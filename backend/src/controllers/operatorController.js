@@ -6,7 +6,7 @@ import {
   listEventMarkedBeneficiaries, demoOperatorEvent,
 } from '../models/operatorModel.js';
 import { listCatalog } from '../models/bnfCatalogModel.js';
-import { getWorkerBySession } from '../models/workerModel.js';
+import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import db from '../config/db.js';
 
 const NORMALIZED_DATE = () => new Date().toISOString().split('T')[0];
@@ -114,7 +114,7 @@ export const assignEvent = async (req, res) => {
 
 export const operatorDashboard = async (req, res) => {
   try {
-    const worker = await getWorkerBySession(req.user);
+    const worker = await getBnfOperatorBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Operator not found' });
 
     const today = NORMALIZED_DATE();
@@ -172,7 +172,7 @@ export const operatorDashboard = async (req, res) => {
 // Worker saves their own day's assignment (state/city/event/kit/organizer/selfie).
 export const saveSelfAssignment = async (req, res) => {
   try {
-    const worker = await getWorkerBySession(req.user);
+    const worker = await getBnfOperatorBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Operator not found' });
 
     const { state, city, event_id, selfie_url, kit_id, organizer_id } = req.body;
@@ -201,7 +201,7 @@ export const uploadOperatorSelfie = async (req, res) => {
     if (!selfie_base64) {
       return res.status(400).json({ message: 'selfie_base64 is required' });
     }
-    const worker = await getWorkerBySession(req.user);
+    const worker = await getBnfOperatorBySession(req.user);
     const workerId = worker?.id ?? req.user.id;
 
     await ensureSelfieBucket();
@@ -231,7 +231,7 @@ export const uploadOperatorSelfie = async (req, res) => {
 export const listOperatorDayAssignments = async (req, res) => {
   try {
     const { date } = req.query;
-    const worker = await getWorkerBySession(req.user);
+    const worker = await getBnfOperatorBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Operator not found' });
     const day = date || NORMALIZED_DATE();
     const assignments = await getOperatorAssignmentsByDate(worker.id, day);

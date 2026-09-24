@@ -15,7 +15,7 @@ import { getBiometricStatus } from '../models/biometricModel.js';
 import { getSourceRecords } from '../models/beneficiarySourceModel.js';
 import { getBeneficiaryDistributionHistory } from '../models/distributionModel.js';
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
-import { getWorkerBySession } from '../models/workerModel.js';
+import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { decodeAadhaarQr, parseAadhaarXml } from '../utils/aadhaarDecoder.js';
 import db from '../config/db.js';
@@ -208,7 +208,7 @@ export const markBeneficiaryKitGiven = async (req, res) => {
     let eventName = null;
     let eventId = null;
     try {
-      const worker = await getWorkerBySession(req.user);
+      const worker = await getBnfOperatorBySession(req.user);
       if (worker?.id != null) {
         const today = new Date().toISOString().split('T')[0];
         const assignment = await getTodayAssignment(worker.id, today);

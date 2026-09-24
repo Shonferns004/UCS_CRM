@@ -92,7 +92,16 @@ export const listBeneficiaries = async ({ page = 1, pageSize = 25, search, statu
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  query = query.order('created_at', { ascending: false }).range(from, to);
+  if (kit_given !== undefined && kit_given !== null) {
+    // Kit-given history: newest handout first (matches the app's "Given Today"
+    // overview count so the freshly-given beneficiaries appear at the top).
+    query = query
+      .order('kit_given_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+  } else {
+    query = query.order('created_at', { ascending: false }).range(from, to);
+  }
 
   const { data, error, count } = await query;
   if (error) throw error;

@@ -1,15 +1,15 @@
 import bcrypt from 'bcryptjs';
 import {
-  createWorker,
-  getWorkerByLoginId,
-  getWorkerById,
-  updateWorker,
+  createBnfOperator,
+  getBnfOperatorById,
+  getBnfOperatorByLoginId,
   listBnfOperators,
-} from '../models/workerModel.js';
+  updateBnfOperator,
+} from '../models/bnfOperatorModel.js';
 
-// Operators of the Beneficiaries mobile app. Each operator is a worker row with
-// bnf_operator = true; only these accounts pass the app login gate
-// (/auth/worker/login with client = 'beneficiaries').
+// Operators of the Beneficiaries mobile app, stored in their own
+// bnf_operators table (NOT the workers table). Only these accounts pass the
+// app login gate (/auth/worker/login with client = 'beneficiaries').
 
 function normalizeName(name) {
   return name
@@ -19,14 +19,14 @@ function normalizeName(name) {
     .replace(/^\.+|\.+$/g, '');
 }
 
-// Operator login ids look like op.firstname.lastname (no @ufs) so they never
-// collide with HR/attendance worker accounts.
+// Operator login ids look like op.firstname.lastname so they never collide
+// with HR/attendance worker accounts.
 async function nextLoginId(name) {
   const base = `op.${normalizeName(name) || 'operator'}`;
   let candidate = base;
   let counter = 2;
   while (true) {
-    const existing = await getWorkerByLoginId(candidate);
+    const existing = await getBnfOperatorByLoginId(candidate);
     if (!existing) return candidate;
     candidate = `${base}${counter}`;
     counter++;
@@ -66,22 +66,19 @@ export const createBnfOperatorController = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(plainPassword, salt);
 
-    const worker = await createWorker({
+    const operator = await createBnfOperator({
       name: String(name).trim(),
       email: email || null,
       phone: phone || null,
       login_id,
       password: hashed,
-      department: 'operator',
-      employment_status: 'active',
       is_active: true,
-      bnf_operator: true,
       created_by: req.user?.id || req.user?.name || null,
     });
 
     return res.status(201).json({
       message: 'Operator created successfully',
-      operator: sanitize(worker),
+      operator: sanitize(operator),
       login_id,
       password: plainPassword,
     });
@@ -92,8 +89,8 @@ export const createBnfOperatorController = async (req, res) => {
 
 export const updateBnfOperatorController = async (req, res) => {
   try {
-    const worker = await getWorkerById(String(req.params.id || '').trim());
-    if (!worker || worker.bnf_operator !== true) {
+    const operator = await getBnfOperatorById(String(req.params.id || '').trim());
+    if (!operator) {
       return res.status(404).json({ message: 'Operator not found' });
     }
 
@@ -107,7 +104,7 @@ export const updateBnfOperatorController = async (req, res) => {
       updates.password = await bcrypt.hash(String(req.body.password), salt);
     }
 
-    const updated = await updateWorker(worker.id, updates);
+    const updated = await updateBnfOperator(operator.id, updates);
     return res.json({ message: 'Operator updated successfully', operator: sanitize(updated) });
   } catch (error) {
     return res.status(500).json({ message: error.message });

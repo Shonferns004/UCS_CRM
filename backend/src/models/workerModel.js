@@ -100,17 +100,6 @@ export const getNextEmployeeIdNumber = async () => {
   return rows[0].next || 1;
 };
 
-// Operators designated for the Beneficiaries mobile app (bnf_operator = true).
-export const listBnfOperators = async () => {
-  const { data, error } = await db
-    .from('workers')
-    .select('*')
-    .eq('bnf_operator', true)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data || [];
-};
-
 export const getWorkerByLoginId = async (login_id) => {
   const { data, error } = await db
     .from('workers')
