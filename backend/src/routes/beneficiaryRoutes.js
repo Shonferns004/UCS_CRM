@@ -5,6 +5,7 @@ import {
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
   markBeneficiaryKitGiven, lookupBeneficiaryByToken, parseAadhaarQrController,
+  parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
 } from '../controllers/beneficiaryController.js';
 import {
@@ -42,6 +43,7 @@ router.get('/overview', authenticateRole('super_admin', 'admin', 'ngo', 'account
 // (worker) scan a card and get back name/dob/gender/address fields. Declared
 // before '/:id' so 'aadhaar' is not parsed as an id.
 router.post('/aadhaar/parse', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarQrController);
+router.post('/aadhaar/parse-photo', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarPhotoController);
 
 // App operators — the only accounts allowed to log into the Beneficiaries
 // mobile app. Declared before /:id so '/operators' is not parsed as an id.

@@ -18,6 +18,7 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { decodeAadhaarQr, parseAadhaarXml } from '../utils/aadhaarDecoder.js';
+import { extractAadhaarFromPhoto } from '../utils/aadhaarPhotoOcr.js';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
@@ -363,6 +364,37 @@ export const parseAadhaarQrController = async (req, res) => {
     await logAuditEvent({
       entity_type: 'aadhaar_scan',
       action: 'AADHAAR_SCANNED',
+      details: { found: Object.keys(fields).filter((k) => fields[k]).length },
+      performed_by: req.user?.name || req.user?.email || 'system',
+    });
+
+    return res.json(fields);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// OCRs a photo of an Aadhaar card and returns the same field shape as
+// parseAadhaarQrController so the mobile app auto-fills the form. Accepts a
+// base64 JPEG (/data:image;base64,... or raw). Uses Groq vision first, falls
+// back to OCR.space + regex heuristics.
+export const parseAadhaarPhotoController = async (req, res) => {
+  try {
+    const { image } = req.body || {};
+    if (!image) {
+      return res.status(400).json({ message: 'image is required' });
+    }
+
+    const fields = await extractAadhaarFromPhoto(String(image));
+    if (!fields || Object.keys(fields).length === 0) {
+      return res.status(422).json({
+        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole front of the Aadhaar card.',
+      });
+    }
+
+    await logAuditEvent({
+      entity_type: 'aadhaar_scan',
+      action: 'AADHAAR_PHOTO_SCANNED',
       details: { found: Object.keys(fields).filter((k) => fields[k]).length },
       performed_by: req.user?.name || req.user?.email || 'system',
     });

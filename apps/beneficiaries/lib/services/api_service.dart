@@ -33,7 +33,7 @@ class ApiService {
     }
     final res = await http.get(uri, headers: await _headers()).timeout(timeout);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(jsonDecode(res.body)['message'] ?? 'Request failed (${res.statusCode})');
+      throw Exception(_tryDecode(res.body)['message'] ?? 'Server error (${res.statusCode})');
     }
     return jsonDecode(res.body) as List<dynamic>;
   }
@@ -67,11 +67,25 @@ class ApiService {
   }
 
   static Map<String, dynamic> _handleResponse(http.Response res) {
-    final body = jsonDecode(res.body);
+    final body = _tryDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body['message'] ?? 'Request failed (${res.statusCode})');
+      throw Exception(body['message'] ?? 'Server error (${res.statusCode})');
     }
     return body;
+  }
+
+  /// Decode a JSON body; if the server replied with HTML (404/502 error page
+  /// etc.), return an empty map so callers get a readable error instead of a
+  /// `FormatException: ... <!DOCTYPE html>` crash.
+  static Map<String, dynamic> _tryDecode(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic>
+          ? decoded
+          : (decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{});
+    } catch (_) {
+      return <String, dynamic>{};
+    }
   }
 
   static Future<void> saveToken(String token) async {
