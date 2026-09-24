@@ -146,6 +146,16 @@ const cacheSet = (key, v) => {
   }
   _rCache.set(key, { v, t: Date.now() });
 };
+// Drop every tl-dashboard payload so the next poll recomputes fresh. Pause and
+// resume mutate is_paused, and a stale cached payload (15s TTL) flips the admin
+// FRO Status pill straight back to "Paused" right after a successful resume —
+// which reads as "resume is broken". Rare, admin-only actions: busting all tl:
+// keys is cheap and also covers other tabs/admins watching the same FRO.
+const bustTlCache = () => {
+  for (const k of _rCache.keys()) {
+    if (k.startsWith('tl:')) _rCache.delete(k);
+  }
+};
 const CONNECTED_STATUSES = [
   'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
   'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
@@ -6018,6 +6028,7 @@ export const pauseFro = async (req, res) => {
       { onConflict: 'worker_id' }
     );
     if (error) throw error;
+    bustTlCache();
     emitRealtime('fro:pause', { at: nowIso, by }, `worker:${froId}`);
     return res.json({ message: 'FRO paused', paused: true });
   } catch (error) {
@@ -6049,6 +6060,7 @@ export const resumeFro = async (req, res) => {
       { onConflict: 'worker_id' }
     );
     if (error) throw error;
+    bustTlCache();
     emitRealtime('fro:resume', { at: nowIso }, `worker:${froId}`);
     return res.json({ message: 'FRO resumed', paused: false });
   } catch (error) {
