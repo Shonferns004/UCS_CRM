@@ -12,13 +12,35 @@ function getIstDateStr(date) {
   const d = String(ist.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
-function fmtTime(iso) {
-  if (!iso) return <span style={{ color: '#d1d5db' }}>&mdash;</span>;
-  const d = new Date(new Date(iso).getTime() + IST_OFFSET);
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  return <span>{hh}:{mm}</span>;
+function formatAttendanceTime(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const ist = new Date(d.getTime() + IST_OFFSET);
+  let hh = ist.getUTCHours();
+  const mm = String(ist.getUTCMinutes()).padStart(2, '0');
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  hh = hh % 12 || 12;
+  return `${String(hh).padStart(2, '0')}:${mm} ${suffix}`;
 }
+
+function calcWorkingHours(rec) {
+  if (!rec || !rec.punch_in_time || !rec.punch_out_time) return null;
+  const inMs = new Date(new Date(rec.punch_in_time).getTime() + IST_OFFSET).getTime();
+  const outMs = new Date(new Date(rec.punch_out_time).getTime() + IST_OFFSET).getTime();
+  const mins = Math.max(0, Math.round((outMs - inMs) / 60000));
+  if (mins < 1) return null;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+const CELL_STATUS = {
+  present:    { icon: '\u2713', label: 'PRESENT',  text: '#065f46', bg: '#d1fae5' },
+  late:       { icon: '\u26A0', label: 'LATE',     text: '#92400e', bg: '#fef3c7' },
+  'half-day': { icon: '\u25D0', label: 'HALF DAY', text: '#9a3412', bg: '#ffedd5' },
+  absent:     { icon: '\u2715', label: 'ABSENT',   text: '#991b1b', bg: '#fee2e2' },
+  leave:      { icon: '\u270B', label: 'LEAVE',    text: '#1e40af', bg: '#dbeafe' },
+  off:        { icon: '\u25CB', label: 'OFF',      text: '#6b7280', bg: '#f3f4f6' },
+};
 
 function istTimeStr(iso) {
   if (!iso) return '';
@@ -48,9 +70,12 @@ export default function Attendance() {
   const [workerMonth, setWorkerMonth] = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [loadError, setLoadError] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const results = await Promise.allSettled([
         apiGet('/workers?status=all'),
@@ -65,6 +90,7 @@ export default function Attendance() {
       setAllRecords(Array.isArray(allData) ? allData : []);
     } catch (e) {
       console.error(e);
+      setLoadError(true);
     }
     setLoading(false);
   };
@@ -271,49 +297,319 @@ export default function Attendance() {
   })();
 
   if (selectedWorker) {
+    const [y, m] = workerMonth.split('-').map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const firstDow = new Date(y, m - 1, 1).getDay();
+    const monthLabel = new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const todayStr = getIstDateStr(new Date());
+    const nowMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+
+    const shiftMonth = (delta) => {
+      const nd = new Date(y, m - 1 + delta, 1);
+      const nm = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`;
+      if (nm > nowMonth) return;
+      setWorkerMonth(nm);
+    };
+
+    const resolveStatus = (rec, dow) => {
+      if (rec && rec.id) return rec.status;
+      if (dow === 0) return 'off';
+      return 'absent';
+    };
+
+    const calendarDays = [];
+    const counts = { present: 0, late: 0, 'half-day': 0, absent: 0, leave: 0, off: 0 };
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${workerMonth}-${String(d).padStart(2, '0')}`;
+      const dow = new Date(y, m - 1, d).getDay();
+      const rec = workerRecords.find(r => r.date === dateStr) || null;
+      const day = {
+        dateStr,
+        day: d,
+        dow,
+        isToday: dateStr === todayStr,
+        isFuture: dateStr > todayStr,
+        rec,
+        status: resolveStatus(rec, dow),
+      };
+      if (!day.isFuture) counts[day.status] = (counts[day.status] || 0) + 1;
+      calendarDays.push(day);
+    }
+
+    const summaryCards = [
+      { label: 'Present', value: counts.present, ...CELL_STATUS.present },
+      { label: 'Late', value: counts.late, ...CELL_STATUS.late },
+      { label: 'Half Day', value: counts['half-day'], ...CELL_STATUS['half-day'] },
+      { label: 'Absent', value: counts.absent, ...CELL_STATUS.absent },
+      { label: 'Leave', value: counts.leave, ...CELL_STATUS.leave },
+    ];
+
+    const previewModal = previewImg && (
+      <div
+        onClick={() => setPreviewImg(null)}
+        style={{
+          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.8)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2200, cursor: 'pointer',
+        }}
+      >
+        <img src={previewImg} alt="selfie preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 12, objectFit: 'contain' }} />
+        <div style={{ position: 'absolute', top: 16, right: 20, color: 'white', fontSize: 28, fontWeight: 300 }}>✕</div>
+      </div>
+    );
+
     return (
       <div style={{ padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <button onClick={() => setSelectedWorker(null)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: 13 }}>← Back</button>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{selectedWorker.name}</h2>
-            <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>{deptLabel(selectedWorker.department) || '—'} · {selectedWorker.login_id || selectedWorker.email || ''}</p>
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input type="month" value={workerMonth} onChange={e => setWorkerMonth(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', fontSize: 13 }} />
+        <div className="acc-head">
+          <button onClick={() => setSelectedWorker(null)} className="acc-back">← Back</button>
+          <div className="acc-head-main">
+            <h2>{selectedWorker.name}</h2>
+            <p>{deptLabel(selectedWorker.department) || '—'} · {selectedWorker.login_id || selectedWorker.email || ''}</p>
           </div>
         </div>
 
-        <div style={{ overflowX: 'auto', background: 'white', border: '1px solid #e5e7eb', borderRadius: 8 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left', background: '#f9fafb' }}>
-                <th style={{ padding: '10px 12px', fontWeight: 600 }}>Date</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600 }}>Punch In</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600 }}>Punch Out</th>
-                <th style={{ padding: '10px 12px', fontWeight: 600 }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workerRecords.map(r => (
-                <tr key={r.date} style={{ borderBottom: '1px solid #f3f4f6', background: r.status === 'absent' ? '#fef2f2' : r.status === 'late' ? '#fef3c7' : r.id ? 'white' : '#f9fafb' }}>
-                  <td style={{ padding: '8px 12px', fontWeight: 500 }}>{r.date}</td>
-                  <td style={{ padding: '8px 12px' }}>{fmtTime(r.punch_in_time)}</td>
-                  <td style={{ padding: '8px 12px' }}>{fmtTime(r.punch_out_time)}</td>
-                  <td style={{ padding: '8px 12px' }}>
-                    {r.id ? (
-                      r.status === 'present' ? <span style={{ padding: '2px 8px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontSize: 12 }}>Present</span>
-                      : r.status === 'late' ? <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontSize: 12 }}>Late {r.late_minutes ? `${r.late_minutes}m` : ''}</span>
-                      : r.status === 'half-day' ? <span style={{ padding: '2px 8px', borderRadius: 4, background: '#ffedd5', color: '#9a3412', fontSize: 12 }}>Half-day</span>
-                      : r.status === 'leave' ? <span style={{ padding: '2px 8px', borderRadius: 4, background: '#dbeafe', color: '#1e40af', fontSize: 12 }}>Leave</span>
-                      : <span style={{ padding: '2px 8px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontSize: 12 }}>{r.status}</span>
-                    ) : <span style={{ color: '#9ca3af', fontSize: 12 }}>Absent</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="acc-cards">
+          {summaryCards.map(c => (
+            <div key={c.label} className="acc-card">
+              <div className="acc-card-label">{c.label}</div>
+              <div className="acc-card-val" style={{ color: c.text }}>{c.value}</div>
+            </div>
+          ))}
         </div>
+
+        <div className="acc-cal-card">
+          <div className="acc-cal-head">
+            <div>
+              <h3>Attendance Calendar</h3>
+              <p>Tap any day to view punch details and selfies</p>
+            </div>
+            <div className="acc-nav">
+              <button className="acc-nav-btn" onClick={() => shiftMonth(-1)}>‹</button>
+              <span className="acc-month-label">{monthLabel}</span>
+              <button className="acc-nav-btn" onClick={() => shiftMonth(1)} disabled={workerMonth >= nowMonth}>›</button>
+              <button className="acc-today-btn" onClick={() => setWorkerMonth(nowMonth)}>Today</button>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="acc-skeleton">{Array.from({ length: 35 }).map((_, i) => <div key={i} className="acc-skel-cell" />)}</div>
+          ) : loadError ? (
+            <div className="acc-state">
+              <p>Could not load attendance data.</p>
+              <div><button className="acc-today-btn" onClick={load}>Try Again</button></div>
+            </div>
+          ) : workerRecords.length === 0 ? (
+            <div className="acc-state">
+              <p>No attendance records for this month.</p>
+              <div><button className="acc-today-btn" onClick={() => setWorkerMonth(nowMonth)}>Go to Current Month</button></div>
+            </div>
+          ) : (
+            <>
+              <div className="acc-grid">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                  <div key={d} className="acc-cal-dayhead">{d}</div>
+                ))}
+                {Array.from({ length: firstDow }).map((_, i) => <div key={`b${i}`} className="acc-grid-blank" />)}
+                {calendarDays.map(d => (
+                  <div
+                    key={d.dateStr}
+                    onClick={() => { if (!d.isFuture) setSelectedDay(d); }}
+                    className={`acc-cal-day ${d.isFuture ? 'acc-future' : ''} ${d.isToday ? 'acc-today' : ''} ${selectedDay && selectedDay.dateStr === d.dateStr ? 'acc-selected' : ''}`}
+                  >
+                    <div className="acc-cal-day-top">
+                      <span className="acc-cal-daynum">{d.day}{d.isToday ? <span className="acc-today-tag">TODAY</span> : null}</span>
+                      {d.rec && d.rec.id && (
+                        <span className="acc-cal-selfies" onClick={e => e.stopPropagation()}>
+                          {d.rec.punch_in_selfie_url ? (
+                            <img
+                              src={d.rec.punch_in_selfie_url}
+                              alt="in"
+                              title="Punch-in selfie"
+                              className="acc-sel-thumb"
+                              onClick={() => setPreviewImg(d.rec.punch_in_selfie_url)}
+                            />
+                          ) : null}
+                          {d.rec.punch_out_selfie_url && d.rec.punch_out_selfie_url !== d.rec.punch_in_selfie_url ? (
+                            <img
+                              src={d.rec.punch_out_selfie_url}
+                              alt="out"
+                              title="Punch-out selfie"
+                              className="acc-sel-thumb"
+                              onClick={() => setPreviewImg(d.rec.punch_out_selfie_url)}
+                            />
+                          ) : null}
+                        </span>
+                      )}
+                    </div>
+                    <span className="acc-cal-badge" style={{ background: CELL_STATUS[d.status].bg, color: CELL_STATUS[d.status].text }}>
+                      {CELL_STATUS[d.status].icon} {CELL_STATUS[d.status].label}
+                    </span>
+                    {d.status === 'present' || d.status === 'late' || d.status === 'half-day' ? (
+                      <div className="acc-cal-times">
+                        <span>IN {d.rec.punch_in_time ? formatAttendanceTime(d.rec.punch_in_time) : 'Not recorded'}</span>
+                        <span>OUT {d.rec.punch_out_time ? formatAttendanceTime(d.rec.punch_out_time) : 'Not recorded'}</span>
+                      </div>
+                    ) : (
+                      <div className="acc-cal-times acc-cal-times-muted">
+                        <span>{d.status === 'leave' ? 'Marked leave' : d.status === 'off' ? 'Weekly off' : 'No attendance recorded'}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="acc-mob-list">
+                {calendarDays.filter(d => !d.isFuture).slice().reverse().map(d => (
+                  <div key={d.dateStr} className="acc-mob-row" onClick={() => setSelectedDay(d)}>
+                    <div>
+                      <b className="acc-mob-date">{d.dateStr}</b>
+                      <div className="acc-mob-sub">
+                        {d.rec && d.rec.id
+                          ? `IN ${d.rec.punch_in_time ? formatAttendanceTime(d.rec.punch_in_time) : '—'}${d.rec.punch_out_time ? ` · OUT ${formatAttendanceTime(d.rec.punch_out_time)}` : ''}`
+                          : d.status === 'absent' || d.status === 'off' ? 'No attendance' : 'Marked leave'}
+                      </div>
+                    </div>
+                    <span className="acc-cal-badge" style={{ background: CELL_STATUS[d.status].bg, color: CELL_STATUS[d.status].text }}>
+                      {CELL_STATUS[d.status].icon} {CELL_STATUS[d.status].label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="acc-legend">
+                {Object.entries(CELL_STATUS).map(([k, v]) => (
+                  <span key={k} className="acc-legend-item">
+                    <i style={{ background: v.bg, color: v.text }}>{v.icon}</i> {v.label}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {selectedDay && (
+          <div className="acc-modal-wrap" onClick={() => setSelectedDay(null)}>
+            <div className="acc-modal" onClick={e => e.stopPropagation()}>
+              <button className="acc-modal-close" onClick={() => setSelectedDay(null)}>✕</button>
+              <h3 className="acc-modal-title">
+                {selectedDay.dateStr}
+                <span className="acc-modal-sub">
+                  {new Date(selectedDay.dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                </span>
+              </h3>
+              <span className="acc-modal-badge" style={{ background: CELL_STATUS[selectedDay.status].bg, color: CELL_STATUS[selectedDay.status].text }}>
+                {CELL_STATUS[selectedDay.status].icon} {CELL_STATUS[selectedDay.status].label}
+              </span>
+              {selectedDay.rec && selectedDay.rec.id ? (
+                <div className="acc-modal-meta">
+                  <div><span>Punch In</span><b>{selectedDay.rec.punch_in_time ? formatAttendanceTime(selectedDay.rec.punch_in_time) : 'Not recorded'}</b></div>
+                  <div><span>Punch Out</span><b>{selectedDay.rec.punch_out_time ? formatAttendanceTime(selectedDay.rec.punch_out_time) : 'Not recorded'}</b></div>
+                  <div><span>Working Hours</span><b>{calcWorkingHours(selectedDay.rec) || '—'}</b></div>
+                  {selectedDay.status === 'late' && selectedDay.rec.late_minutes ? (
+                    <div><span>Late By</span><b>{selectedDay.rec.late_minutes} min</b></div>
+                  ) : null}
+                  <div className="acc-modal-selfies">
+                    {selectedDay.rec.punch_in_selfie_url ? (
+                      <img
+                        src={selectedDay.rec.punch_in_selfie_url}
+                        alt="Punch-in selfie"
+                        title="Punch-in selfie"
+                        onClick={() => setPreviewImg(selectedDay.rec.punch_in_selfie_url)}
+                        className="acc-modal-selfie"
+                      />
+                    ) : null}
+                    {selectedDay.rec.punch_out_selfie_url && selectedDay.rec.punch_out_selfie_url !== selectedDay.rec.punch_in_selfie_url ? (
+                      <img
+                        src={selectedDay.rec.punch_out_selfie_url}
+                        alt="Punch-out selfie"
+                        title="Punch-out selfie"
+                        onClick={() => setPreviewImg(selectedDay.rec.punch_out_selfie_url)}
+                        className="acc-modal-selfie"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <p className="acc-modal-empty">
+                  {selectedDay.status === 'off' ? 'Weekly off — no work scheduled for this day.' : 'No punch-in record found for this day.'}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {previewModal}
+
+        <style>{`
+.acc-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+.acc-back { padding: 6px 14px; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; color: #374151; }
+.acc-back:hover { background: #f9fafb; }
+.acc-head-main h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.acc-head-main p { margin: 2px 0 0; font-size: 12px; color: #6b7280; }
+.acc-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.acc-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; }
+.acc-card-label { font-size: 11px; color: #6b7280; font-weight: 500; letter-spacing: .4px; }
+.acc-card-val { font-size: 24px; font-weight: 700; margin-top: 4px; }
+.acc-cal-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; }
+.acc-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.acc-cal-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.acc-cal-head p { margin: 2px 0 0; font-size: 12px; color: #6b7280; }
+.acc-nav { display: flex; align-items: center; gap: 8px; }
+.acc-nav-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; cursor: pointer; font-size: 16px; line-height: 1; color: #374151; }
+.acc-nav-btn:hover:not(:disabled) { background: #f9fafb; }
+.acc-nav-btn:disabled { opacity: .4; cursor: default; }
+.acc-month-label { font-size: 14px; font-weight: 600; min-width: 140px; text-align: center; color: #111827; }
+.acc-today-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid #0f766e; background: #fff; color: #0f766e; cursor: pointer; font-size: 13px; font-weight: 500; }
+.acc-today-btn:hover { background: #f0fdfa; }
+.acc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.acc-grid-blank { visibility: hidden; }
+.acc-cal-dayhead { text-align: center; font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .6px; padding: 4px 0; }
+.acc-cal-day { border: 1px solid #e5e7eb; border-radius: 10px; min-height: 96px; padding: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 5px; transition: box-shadow .15s, border-color .15s; background: #fff; }
+.acc-cal-day:hover { border-color: #10b981; box-shadow: 0 2px 8px rgba(4,120,87,.08); }
+.acc-cal-day.acc-today { border-color: #10b981; box-shadow: 0 0 0 1px #10b981; }
+.acc-cal-day.acc-selected { border-color: #0f766e; box-shadow: 0 0 0 2px rgba(15,118,110,.35); }
+.acc-cal-day.acc-future { background: #f9fafb; cursor: default; opacity: .5; }
+.acc-cal-day.acc-future:hover { border-color: #e5e7eb; box-shadow: none; }
+.acc-cal-day-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.acc-cal-daynum { font-size: 13px; font-weight: 600; color: #111827; display: flex; align-items: center; gap: 6px; }
+.acc-today-tag { font-size: 8px; font-weight: 800; letter-spacing: .5px; background: #10b981; color: #fff; padding: 1px 5px; border-radius: 4px; }
+.acc-cal-selfies { display: flex; gap: 3px; }
+.acc-sel-thumb { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.acc-cal-badge { align-self: flex-start; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .3px; white-space: nowrap; }
+.acc-cal-times { display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: #374151; }
+.acc-cal-times span { white-space: nowrap; }
+.acc-cal-times-muted { color: #9ca3af; }
+.acc-mob-list { display: none; }
+.acc-mob-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid #f3f4f6; cursor: pointer; background: #fff; }
+.acc-mob-date { font-size: 13px; color: #111827; }
+.acc-mob-sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.acc-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #f3f4f6; }
+.acc-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #374151; }
+.acc-legend-item i { font-style: normal; width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+.acc-state { text-align: center; padding: 48px 20px; color: #6b7280; font-size: 14px; }
+.acc-state .acc-today-btn { margin-top: 12px; }
+.acc-skeleton { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.acc-skel-cell { height: 96px; border-radius: 10px; background: linear-gradient(100deg, #f3f4f6 40%, #e5e7eb 50%, #f3f4f6 60%); background-size: 200% 100%; animation: acc-shimmer 1.2s infinite; }
+@keyframes acc-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.acc-modal-wrap { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: flex; align-items: center; justify-content: center; z-index: 2100; padding: 20px; }
+.acc-modal { background: #fff; border-radius: 14px; max-width: 420px; width: 100%; padding: 24px; position: relative; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.acc-modal-close { position: absolute; top: 12px; right: 12px; border: none; background: #f3f4f6; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 13px; color: #374151; }
+.acc-modal-title { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.acc-modal-sub { display: block; font-size: 12px; font-weight: 400; color: #6b7280; margin-top: 2px; }
+.acc-modal-badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; margin-top: 10px; }
+.acc-modal-meta { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.acc-modal-meta > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.acc-modal-meta span { color: #6b7280; }
+.acc-modal-meta b { font-weight: 600; color: #111827; }
+.acc-modal-selfies { display: flex; gap: 10px; margin-top: 6px; }
+.acc-modal-selfie { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; cursor: pointer; border: 1px solid #e5e7eb; }
+.acc-modal-empty { color: #6b7280; font-size: 13px; margin-top: 14px; }
+@media (max-width: 700px) {
+  .acc-cards { grid-template-columns: repeat(2, 1fr); }
+  .acc-grid { display: none; }
+  .acc-mob-list { display: block; }
+  .acc-nav { width: 100%; justify-content: space-between; }
+}
+`}</style>
       </div>
     );
   }

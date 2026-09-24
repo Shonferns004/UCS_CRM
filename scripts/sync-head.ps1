@@ -15,10 +15,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Temp = "C:\Users\ADMIN\AppData\Local\Temp\opencode"
-$Key  = "C:\Users\ADMIN\.ssh\ucs-crm-head.pem"
+$Temp = Join-Path $env:USERPROFILE "AppData\Local\Temp\opencode"
+$Key  = Join-Path $env:USERPROFILE ".ssh\ucs-crm-head.pem"
 $HeadHost = "ubuntu@52.66.211.205"
-$FE   = Join-Path $Root "ucs crm"
+$FE   = Join-Path $Root "client"
 $BE   = Join-Path $Root "backend"
 
 function Invoke-SSH([string]$Cmd) {
