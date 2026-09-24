@@ -4333,7 +4333,21 @@ export const updateLiveStatus = async (req, res) => {
     // only the deliberate force_counters push or a current epoch may.
     const mayWriteIdleData = forceCounters || !staleEpoch;
     if (mayWriteIdleData) {
-      if (idle_since !== undefined) payload.idle_since = parseTs(idle_since);
+      // Same-day streak guard: idle_since is the start of the current idle
+      // streak. A stale panel resurrecting a streak that began on an earlier
+      // IST day must never re-open a cleared streak — only today's streaks are
+      // accepted (force_counters pushes carry idle_since:null, so they are
+      // unaffected).
+      const istDayOfIso = (v) => {
+        const d = new Date(v);
+        if (isNaN(d.getTime())) return null;
+        return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+      };
+      let parsedSince = parseTs(idle_since);
+      if (parsedSince && !forceCounters && istDayOfIso(parsedSince) !== istDayOfIso(Date.now())) {
+        parsedSince = null;
+      }
+      if (idle_since !== undefined) payload.idle_since = parsedSince;
       if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
     }
     // Any non-idle status always clears the streak (server-side safety net).
@@ -4433,7 +4447,10 @@ export const updateLiveStatus = async (req, res) => {
             return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
           };
           const day = istDayOf(Date.now());
-          if (istDayOf(liveRow.updated_at) === day) {
+          // Both the row's last write AND the streak's start must be today —
+          // an idle_since left over from an earlier IST day (stale panel) must
+          // never book a multi-day span into today's counter.
+          if (istDayOf(liveRow.updated_at) === day && istDayOf(liveRow.idle_since) === day) {
             const committed = Number(liveRow.today_idle_seconds || 0);
             const incomingCommitted = Number.isFinite(Number(today_idle_seconds)) ? Number(today_idle_seconds) : committed;
             if (incomingCommitted <= committed) {
@@ -4507,7 +4524,13 @@ export const updateLiveStatus = async (req, res) => {
       // Non-fatal: auth_sessions may be absent until migration 125 is applied.
     }
 
-    return res.json({ message: 'Status updated' });
+    // Midnight epoch heal: a panel that stayed open across the IST-midnight
+    // reset still carries the old epoch, so its non-forced pushes would be
+    // treated as stale all day (counters frozen until reload/reconnect). Teach
+    // it the current epoch — but ONLY on a deliberate force_counters push
+    // (daily rollover / admin Clear Idle). Stale resurrected panels heartbeat
+    // without force, so they never learn the epoch and stay barred.
+    return res.json({ message: 'Status updated', ...(forceCounters ? { idle_epoch: serverEpoch } : {}) });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
