@@ -1158,6 +1158,7 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
               <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {c.slab_label} · ₹{fmt(c.total_amount)} collected
               </div>
+              <TimeRange started_at={c.started_at} ended_at={c.ended_at} slab={slabById[String(c.slab_id)]} />
             </div>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: '#FFF5DF', color: '#B7791F', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#F2A23A', display: 'inline-block' }} /> Won — not announced
