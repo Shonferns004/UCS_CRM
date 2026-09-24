@@ -84,6 +84,7 @@ import reportRoutes from './routes/reportRoutes.js';
 import operatorRoutes from './routes/operatorRoutes.js';
 import metropadRouter from './metropad/router.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
+import { startMemoryWatchdog } from './services/memoryWatchdog.js';
 import { authenticate } from './middleware/authMiddleware.js';
 import { ensureEventHeadSchema } from './bootstrap/ensureEventHeadSchema.js';
 import { ensureTicketSchema } from './bootstrap/ensureTicketSchema.js';
@@ -933,6 +934,9 @@ if (!process.env.VERCEL) {
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
+    // Hard ceiling on resident memory: restart (via PM2) if RSS stays over
+    // MEM_WATCHDOG_MB (default 900) for 20s, so the 2 GB box can never OOM.
+    startMemoryWatchdog();
   });
   const { initRealtime } = await import('./socket.js');
   initRealtime(server);
