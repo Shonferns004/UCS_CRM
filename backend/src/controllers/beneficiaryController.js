@@ -101,16 +101,17 @@ export const createNewBeneficiary = async (req, res) => {
   }
 };
 
-const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
-
-// True when the beneficiary collected their kit within the last 3 months —
-// the window in which an event-kit should only be handed out after an
-// explicit operator override.
+// True when the beneficiary collected their kit within the last 3 calendar
+// months — the window in which an event-kit should only be handed out after
+// an explicit operator override. Calendar months (not flat 90 days) match the
+// app's cutoff: given on Mar 10 → window ends Jun 10.
 export function isWithinThreeMonths(dateStr) {
   if (!dateStr) return false;
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return false;
-  return Date.now() - date.getTime() <= THREE_MONTHS_MS;
+  const cutoff = new Date(date);
+  cutoff.setMonth(cutoff.getMonth() + 3);
+  return Date.now() <= cutoff.getTime();
 }
 
 // Assembles the fully-enriched beneficiary shape (base row + every

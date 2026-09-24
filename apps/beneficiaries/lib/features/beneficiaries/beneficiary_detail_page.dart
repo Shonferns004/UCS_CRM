@@ -257,7 +257,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     }
   }
 
-  Future<void> _markKitDonated() async {
+  Future<void> _markKitGiven() async {
     if (_markingKit) return;
     setState(() => _markingKit = true);
     try {
@@ -765,7 +765,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     if (_justGiven) {
       return const Padding(
         padding: EdgeInsets.fromLTRB(24, 14, 24, 24),
-        child: _DonatedBanner(),
+        child: _GivenBanner(),
       );
     }
     if (_rejected) {
@@ -778,7 +778,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     if (blocked) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
-      child: _DonateSwipe(onConfirm: _markKitDonated, busy: _markingKit),
+      child: _GiveSwipe(onConfirm: _markKitGiven, busy: _markingKit),
     );
   }
 
@@ -1106,19 +1106,19 @@ class _SwipeHandle extends StatelessWidget {
   }
 }
 
-/// The "Swipe to mark as donated" bar. The actual API call happens here;
+/// The "Swipe to mark as given" bar. The actual API call happens here;
 /// success plays the green acceptance flash.
-class _DonateSwipe extends StatefulWidget {
+class _GiveSwipe extends StatefulWidget {
   final VoidCallback onConfirm;
   final bool busy;
 
-  const _DonateSwipe({required this.onConfirm, required this.busy});
+  const _GiveSwipe({required this.onConfirm, required this.busy});
 
   @override
-  State<_DonateSwipe> createState() => _DonateSwipeState();
+  State<_GiveSwipe> createState() => _GiveSwipeState();
 }
 
-class _DonateSwipeState extends State<_DonateSwipe> {
+class _GiveSwipeState extends State<_GiveSwipe> {
   static const double _height = 72;
 
   double _dragX = 0;
@@ -1175,7 +1175,7 @@ class _DonateSwipeState extends State<_DonateSwipe> {
               ),
               SizedBox(width: 10),
               Text(
-                'Marking kit as donated…',
+                'Marking kit as given…',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -1211,7 +1211,7 @@ Container(
                   children: [
                     Expanded(
                       child: Text(
-                        'Swipe to mark as donated',
+                        'Swipe to mark as given',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 15,
@@ -1318,8 +1318,8 @@ class _RejectBanner extends StatelessWidget {
 }
 
 /// Green confirmation label that replaces the slider after a successful give.
-class _DonatedBanner extends StatelessWidget {
-  const _DonatedBanner();
+class _GivenBanner extends StatelessWidget {
+  const _GivenBanner();
 
   @override
   Widget build(BuildContext context) {
@@ -1343,7 +1343,7 @@ class _DonatedBanner extends StatelessWidget {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Donated successfully',
+              'Kit given successfully',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
