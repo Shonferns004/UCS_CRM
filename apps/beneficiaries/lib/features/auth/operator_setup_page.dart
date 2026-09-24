@@ -26,9 +26,13 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
   String? _error;
 
   List<Map<String, dynamic>> _events = [];
+  List<Map<String, dynamic>> _kits = [];
+  List<Map<String, dynamic>> _organizers = [];
   String? _selectedState;
   String? _selectedCity;
   int? _selectedEventId;
+  int? _selectedKitId;
+  int? _selectedOrganizerId;
   String? _selfieBase64;
   String? _selfieUrl;
 
@@ -49,11 +53,23 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
       final events = (body['events'] as List?) ?? [];
       setState(() {
         _events = events.map((e) => Map<String, dynamic>.from(e)).toList();
+        _kits = ((body['kits'] as List?) ?? [])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        _organizers = ((body['organizers'] as List?) ?? [])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
         _selectedState = body['state']?.toString();
         _selectedCity = body['city']?.toString();
         final event = body['event'] as Map<String, dynamic>?;
         _selectedEventId =
             event?['id'] != null ? (event?['id'] as num).toInt() : null;
+        _selectedKitId = body['kit_id'] != null
+            ? (body['kit_id'] as num).toInt()
+            : null;
+        _selectedOrganizerId = body['organizer_id'] != null
+            ? (body['organizer_id'] as num).toInt()
+            : null;
         _selfieUrl =
             body['selfie_url']?.toString() ?? body['selfie']?.toString();
         _selfieBase64 = null;
@@ -114,6 +130,8 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
         'state': _selectedState,
         'city': _selectedCity,
         'event_id': _selectedEventId,
+        'kit_id': _selectedKitId,
+        'organizer_id': _selectedOrganizerId,
         'selfie_url': selfieUrl,
       });
       if (!mounted) return;
@@ -211,6 +229,47 @@ class _OperatorSetupPageState extends State<OperatorSetupPage> {
                         isExpanded: true,
                         onChanged: (v) =>
                             setState(() => _selectedEventId = v),
+                      ),
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<int>(
+                        initialValue: _selectedKitId,
+                        decoration:
+                            const InputDecoration(labelText: 'Kit'),
+                        hint: const Text('Select kit'),
+                        items: _kits
+                            .map((k) => DropdownMenuItem<int>(
+                                value: k['id'] != null
+                                    ? (k['id'] as num).toInt()
+                                    : null,
+                                child: Text(
+                                  k['name']?.toString() ?? 'Kit',
+                                  overflow: TextOverflow.ellipsis,
+                                )))
+                            .toList(),
+                        isExpanded: true,
+                        onChanged: (v) => setState(() => _selectedKitId = v),
+                      ),
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<int>(
+                        initialValue: _selectedOrganizerId,
+                        decoration: const InputDecoration(
+                            labelText: 'Organizer'),
+                        hint: const Text('Select organizer'),
+                        items: _organizers
+                            .map((o) => DropdownMenuItem<int>(
+                                value: o['id'] != null
+                                    ? (o['id'] as num).toInt()
+                                    : null,
+                                child: Text(
+                                  o['name']?.toString() ?? 'Organizer',
+                                  overflow: TextOverflow.ellipsis,
+                                )))
+                            .toList(),
+                        isExpanded: true,
+                        onChanged: (v) =>
+                            setState(() => _selectedOrganizerId = v),
                       ),
 
                       if (_selectedEventId != null) ...[

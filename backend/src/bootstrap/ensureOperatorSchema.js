@@ -22,6 +22,22 @@ export async function ensureOperatorSchema() {
 
   await db._pool.query(`ALTER TABLE operator_events ADD COLUMN IF NOT EXISTS city TEXT`);
 
+  await db._pool.query(`CREATE TABLE IF NOT EXISTS bnf_kits (
+       id          SERIAL PRIMARY KEY,
+       name        TEXT NOT NULL,
+       is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+       created_by  TEXT,
+       created_at  TIMESTAMPTZ DEFAULT NOW()
+     )`);
+
+  await db._pool.query(`CREATE TABLE IF NOT EXISTS bnf_organizers (
+       id          SERIAL PRIMARY KEY,
+       name        TEXT NOT NULL,
+       is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+       created_by  TEXT,
+       created_at  TIMESTAMPTZ DEFAULT NOW()
+     )`);
+
   const { rows: typeRows } = await db._pool.query(
     `SELECT format_type(a.atttypid, a.atttypmod) AS t
      FROM pg_attribute a
@@ -43,6 +59,8 @@ export async function ensureOperatorSchema() {
 
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS city TEXT`);
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS selfie_url TEXT`);
+  await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS kit_id INT REFERENCES bnf_kits(id) ON DELETE SET NULL`);
+  await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS organizer_id INT REFERENCES bnf_organizers(id) ON DELETE SET NULL`);
 
   const steps = [
     `CREATE INDEX IF NOT EXISTS idx_operator_events_date ON operator_events (event_date)`,

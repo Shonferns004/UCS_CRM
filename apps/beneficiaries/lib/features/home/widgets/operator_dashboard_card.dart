@@ -25,10 +25,12 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
   String? _error;
   String? _savedMessage;
 
-  // Selected dropdown values.
+// Selected dropdown values.
   String? _selectedState;
   String? _selectedCity;
   int? _selectedEventId;
+  int? _selectedKitId;
+  int? _selectedOrganizerId;
   String? _selfieBase64;
   String? _selfieUrl;
 
@@ -79,12 +81,14 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
     try {
       final body = await _get('/operator/dashboard');
       if (!mounted) return;
-      setState(() {
+setState(() {
         _data = body;
         _selectedState = body['state']?.toString();
         _selectedCity = body['city']?.toString();
         final event = body['event'] as Map<String, dynamic>?;
         _selectedEventId = event?['id'] != null ? (event!['id'] as num).toInt() : null;
+        _selectedKitId = body['kit_id'] != null ? (body['kit_id'] as num).toInt() : null;
+        _selectedOrganizerId = body['organizer_id'] != null ? (body['organizer_id'] as num).toInt() : null;
         _selfieUrl = body['selfie_url']?.toString() ?? body['selfie']?.toString();
         _selfieBase64 = null;
         _loading = false;
@@ -134,10 +138,12 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
         });
         selfieUrl = up['selfie_url']?.toString();
       }
-      await _post('/operator/self-assign', {
+await _post('/operator/self-assign', {
         'state': _selectedState,
         'city': _selectedCity,
         'event_id': _selectedEventId,
+        'kit_id': _selectedKitId,
+        'organizer_id': _selectedOrganizerId,
         'selfie_url': selfieUrl,
       });
       await _loadDashboard();
@@ -153,10 +159,12 @@ class _OperatorDashboardCardState extends State<OperatorDashboardCard> {
 
   @override
   Widget build(BuildContext context) {
-    final data = _data;
+final data = _data;
     final operator = (data?['operator'] as Map<String, dynamic>?);
     final operatorName = operator?['name'] ?? 'Operator';
     final events = (data?['events'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
+    final kits = (data?['kits'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
+    final organizers = (data?['organizers'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [];
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -262,6 +270,52 @@ if (_loading)
                   .toList(),
 hint: 'Select event',
               onChanged: (v) => setState(() => _selectedEventId = v),
+            ),
+            const SizedBox(height: 10),
+
+            _dropdown<int>(
+              label: 'Kit',
+              value: _selectedKitId,
+              items: (kits.isEmpty
+                      ? [
+                          {'id': null, 'name': 'No kits yet'}
+                        ]
+                      : kits)
+                  .map((k) => DropdownMenuItem<int>(
+                        value: k['id'] != null
+                            ? (k['id'] as num).toInt()
+                            : null,
+                        child: Text(
+                          k['name']?.toString() ?? 'Kit',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ))
+                  .toList(),
+              hint: 'Select kit',
+              onChanged: (v) => setState(() => _selectedKitId = v),
+            ),
+            const SizedBox(height: 10),
+
+            _dropdown<int>(
+              label: 'Organizer',
+              value: _selectedOrganizerId,
+              items: (organizers.isEmpty
+                      ? [
+                          {'id': null, 'name': 'No organizers yet'}
+                        ]
+                      : organizers)
+                  .map((o) => DropdownMenuItem<int>(
+                        value: o['id'] != null
+                            ? (o['id'] as num).toInt()
+                            : null,
+                        child: Text(
+                          o['name']?.toString() ?? 'Organizer',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ))
+                  .toList(),
+              hint: 'Select organizer',
+              onChanged: (v) => setState(() => _selectedOrganizerId = v),
             ),
             const SizedBox(height: 10),
             if (_selectedEventId != null)
