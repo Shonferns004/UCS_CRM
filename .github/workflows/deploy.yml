@@ -39,12 +39,14 @@ jobs:
             # node_modules is broken (boot would crash on ERR_MODULE_NOT_FOUND).
             cd backend
             node -e "require('@aws-sdk/client-s3'); require('pg')" || { echo "ERROR: node_modules broken (missing required modules)"; exit 1; }
+
+            # Start-or-restart from the PM2 ecosystem config so heap caps and
+            # max_memory_restart are applied on every deploy.
+            git show HEAD:backend/ecosystem.config.cjs > /dev/null 2>&1 && pm2 startOrRestart ecosystem.config.cjs --update-env || pm2 restart backend --update-env
             cd ..
 
             # LibreOffice headless is required for PPTX template preview snapshots.
             bash backend/scripts/install-libreoffice-al2023.sh
-
-            pm2 restart backend --update-env
 
             # Save commit for potential rollback
             echo "$PREVIOUS_COMMIT" > /home/ec2-user/app/.previous-commit
@@ -82,8 +84,9 @@ jobs:
             if [ -n "$PREVIOUS_COMMIT" ]; then
               echo "Rolling back to $PREVIOUS_COMMIT"
               git reset --hard "$PREVIOUS_COMMIT"
-              cd backend && npm ci && cd ..
-              pm2 restart backend --update-env
+              cd backend && npm ci &&
+              git show HEAD:backend/ecosystem.config.cjs > /dev/null 2>&1 && pm2 startOrRestart ecosystem.config.cjs --update-env || pm2 restart backend --update-env
+              cd ..
               echo "Rollback complete"
             else
               echo "No previous commit found for rollback"
