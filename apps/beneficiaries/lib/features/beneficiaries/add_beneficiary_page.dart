@@ -10,6 +10,7 @@ import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
 import 'aadhaar_scanner_page.dart';
+import 'document_capture_page.dart';
 import 'fingerprint_enroll_panel.dart';
 
 class AddBeneficiaryPage extends StatefulWidget {
@@ -153,6 +154,66 @@ Future<void> _pickDob() async {
         error: true,
       );
     }
+  }
+
+  // Capture a photo of the certificate and apply the scan (whitening) effect
+  // so it attaches as a proper scanned document.
+  Future<void> _captureHandicapCert() async {
+    if (_loading || _created != null) return;
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const DocumentCapturePage()),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _handicapCertBase64 = result['base64']?.toString();
+      _handicapCertName = result['name']?.toString() ?? 'scanned_document.jpg';
+    });
+    showAppSnackbar(
+      context,
+      'Scanned certificate copy attached to this registration.',
+      success: true,
+    );
+  }
+
+  void _showDocumentOptions() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 4),
+              child: Text(
+                'Attach certificate copy',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(LucideIcons.scanLine),
+              title: const Text('Capture with scanner'),
+              subtitle: const Text('Photograph the document and whiten it like a scan'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _captureHandicapCert();
+              },
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.camera),
+              title: const Text('Choose from gallery'),
+              subtitle: const Text('Pick an existing image of the certificate'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _pickHandicapCert();
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _submit() async {
@@ -407,8 +468,9 @@ const SizedBox(height: 16),
                     ),
                   ),
                   TextButton.icon(
-                    onPressed:
-                        (_loading || created != null) ? null : _pickHandicapCert,
+                    onPressed: (_loading || created != null)
+                        ? null
+                        : _showDocumentOptions,
                     icon: Icon(
                         _handicapCertBase64 != null
                             ? LucideIcons.checkCircle
