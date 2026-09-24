@@ -4,7 +4,7 @@ import {
   createNewBeneficiary, getBeneficiary, getBeneficiaryByCodeController,
   updateBeneficiaryController, listAllBeneficiaries, searchBeneficiariesController,
   getOverview, searchByQR, searchByMobileController, getAuditTrail,
-  markBeneficiaryKitGiven, lookupBeneficiaryByToken, parseAadhaarQrController,
+  markBeneficiaryKitGiven, lookupBeneficiaryByToken,
   parseAadhaarPhotoController,
   uploadBeneficiaryDocumentBase64,
 } from '../controllers/beneficiaryController.js';
@@ -39,10 +39,9 @@ const router = Router();
 // Overview
 router.get('/overview', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getOverview);
 
-// Aadhaar QR decoding for the registration "Scan Doc" flow — the app operators
-// (worker) scan a card and get back name/dob/gender/address fields. Declared
+// Aadhaar QR decoding moved to /api/aadhaar/decode-qr (src/aadhaar/routes.js).
+// The OCR photo path is kept for the existing document-scan flow. Declared
 // before '/:id' so 'aadhaar' is not parsed as an id.
-router.post('/aadhaar/parse', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarQrController);
 router.post('/aadhaar/parse-photo', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), parseAadhaarPhotoController);
 
 // App operators — the only accounts allowed to log into the Beneficiaries
