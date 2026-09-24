@@ -71,7 +71,7 @@ export default function ProgramDetail() {
   }
 
   if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>Loading...</div>
-  if (!program) return <div style={{ padding: '40px', textAlign: 'center', color: '#dc2626' }}>Program not found</div>
+  if (!program) return <div style={{ padding: '40px', textAlign: 'center', color: '#dc2626' }}>Event not found</div>
 
   const [bg, fg] = STATUS_COLORS[program.status] || ['var(--bg)', 'var(--ink-soft)']
   const assigned = program.assigned_beneficiaries || program.beneficiaries || []
@@ -82,7 +82,7 @@ export default function ProgramDetail() {
     <div>
       <div style={styles.header}>
         <div>
-          <button onClick={() => navigate(base + '/programs')} style={{ background: 'none', border: 'none', color: 'var(--sage)', cursor: 'pointer', fontSize: '13px', marginBottom: '4px' }}>← Back to programs</button>
+          <button onClick={() => navigate(base + '/programs')} style={{ background: 'none', border: 'none', color: 'var(--sage)', cursor: 'pointer', fontSize: '13px', marginBottom: '4px' }}>← Back to events</button>
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>{program.title}</h2>
           <div style={{ fontSize: '13px', color: 'var(--ink-soft)', marginTop: '4px', display: 'flex', gap: '12px', alignItems: 'center' }}>
             <code style={{ background: 'var(--bg)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>{program.program_code}</code>

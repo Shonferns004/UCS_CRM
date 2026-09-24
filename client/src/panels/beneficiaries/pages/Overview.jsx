@@ -102,7 +102,7 @@ export default function Overview() {
           <div style={{ ...styles.statValue, color: '#d97706' }}>{stats?.pending_fingerprint || 0}</div>
         </div>
         <div style={styles.statCard}>
-          <div style={styles.statLabel}>Programs</div>
+          <div style={styles.statLabel}>Events</div>
           <div style={{ ...styles.statValue, color: '#0891b2' }}>{stats?.programs || 0}</div>
         </div>
         <div style={styles.statCard}>
@@ -133,7 +133,7 @@ export default function Overview() {
               <span style={styles.pill('#059669')}>{stats?.active || 0}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-              <span style={{ color: 'var(--ink-soft)' }}>Total Programs</span>
+              <span style={{ color: 'var(--ink-soft)' }}>Total Events</span>
               <span style={styles.pill('var(--sage)')}>{stats?.programs || 0}</span>
             </div>
           </div>
@@ -180,13 +180,13 @@ export default function Overview() {
           ) : noData}
         </div>
 
-        {/* Program Reports */}
+        {/* Event Reports */}
         <div style={styles.card}>
-          <div style={styles.cardTitle}>Program Summary</div>
+          <div style={styles.cardTitle}>Event Summary</div>
           {p ? (
             <>
               <div style={styles.row}>
-                <span style={styles.subLabel}>Total Programs</span>
+                <span style={styles.subLabel}>Total Events</span>
                 <span style={styles.subValue}>{p.summary?.total_programs || 0}</span>
               </div>
               <div style={styles.row}>
