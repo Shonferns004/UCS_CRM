@@ -5,6 +5,7 @@ import {
   attachProgramsToEvent, listEventPrograms, removeEventProgram,
   listEventMarkedBeneficiaries, demoOperatorEvent,
 } from '../models/operatorModel.js';
+import { listCatalog } from '../models/bnfCatalogModel.js';
 import { getWorkerBySession } from '../models/workerModel.js';
 import db from '../config/db.js';
 
@@ -121,6 +122,8 @@ export const operatorDashboard = async (req, res) => {
     let city = null;
     let event = null;
     let selfie = null;
+    let kitId = null;
+    let organizerId = null;
 
     const assignment = await getTodayAssignment(worker.id, today);
     if (assignment) {
@@ -128,6 +131,8 @@ export const operatorDashboard = async (req, res) => {
       city = assignment.city || null;
       selfie = assignment.selfie_url || assignment.operator_events?.selfie_url || null;
       event = assignment.operator_events || null;
+      kitId = assignment.kit_id || null;
+      organizerId = assignment.organizer_id || null;
     }
 
     // Events available for today (dropdown source). Fall back to a demo event
@@ -136,6 +141,14 @@ export const operatorDashboard = async (req, res) => {
     if (!events || events.length === 0) {
       events = [demoOperatorEvent];
     }
+
+    // Kit + organizer catalogs (dropdown sources). Only active entries are
+    // selectable; previously-picked inactive ones are still shown so the
+    // operator can see their saved assignment.
+    const [kits, organizers] = await Promise.all([
+      listCatalog('kits'),
+      listCatalog('organizers'),
+    ]);
 
     return res.json({
       operator: { id: worker.id, name: worker.name, login_id: worker.login_id, role: req.user.role },
@@ -146,19 +159,23 @@ export const operatorDashboard = async (req, res) => {
       selfie_url: selfie,
       has_event: !!event,
       events,
+      kit_id: kitId,
+      organizer_id: organizerId,
+      kits,
+      organizers,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
 
-// Worker saves their own day's assignment (state/city/event/selfie).
+// Worker saves their own day's assignment (state/city/event/kit/organizer/selfie).
 export const saveSelfAssignment = async (req, res) => {
   try {
     const worker = await getWorkerBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Operator not found' });
 
-    const { state, city, event_id, selfie_url } = req.body;
+    const { state, city, event_id, selfie_url, kit_id, organizer_id } = req.body;
     const assignmentDate = req.body.assignment_date || NORMALIZED_DATE();
 
     const assignment = await upsertSelfAssignment(worker.id, {
@@ -167,6 +184,8 @@ export const saveSelfAssignment = async (req, res) => {
       event_id: event_id ? parseInt(event_id) : null,
       assignment_date: assignmentDate,
       selfie_url,
+      kit_id: kit_id ? parseInt(kit_id) : null,
+      organizer_id: organizer_id ? parseInt(organizer_id) : null,
     });
 
     return res.json({ message: 'Assignment saved', assignment });

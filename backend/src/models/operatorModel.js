@@ -82,7 +82,7 @@ export const getTodayAssignment = async (operatorId, date) => {
 };
 
 // Upsert the operator's own assignment for one day (no event required).
-export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url }) => {
+export const upsertSelfAssignment = async (operatorId, { state, city, event_id, assignment_date, selfie_url, kit_id, organizer_id }) => {
   const { data, error } = await db
     .from('operator_assignments')
     .upsert(
@@ -93,6 +93,8 @@ export const upsertSelfAssignment = async (operatorId, { state, city, event_id, 
         event_id: event_id || null,
         assignment_date,
         selfie_url: selfie_url || null,
+        kit_id: kit_id || null,
+        organizer_id: organizer_id || null,
       },
       { onConflict: 'operator_id,assignment_date,event_id' }
     )

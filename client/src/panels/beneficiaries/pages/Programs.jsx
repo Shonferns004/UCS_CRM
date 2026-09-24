@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useBnfBase } from '../bnfUi'
 import { apiGet, apiPost, apiPatch } from '../store'
+import CatalogModal from '../components/CatalogModal'
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
@@ -47,6 +48,10 @@ export default function Programs() {
   const [opForm, setOpForm] = useState({ name: '', phone: '', email: '' })
   const [opSaving, setOpSaving] = useState(false)
   const [newOp, setNewOp] = useState(null)
+
+  // ── Kit + organizer catalogs ─────────────────────────────────────────
+  const [showKits, setShowKits] = useState(false)
+  const [showOrganizers, setShowOrganizers] = useState(false)
 
   const loadOperators = useCallback(async () => {
     setOpsLoading(true)
@@ -129,6 +134,12 @@ export default function Programs() {
       <div style={styles.header}>
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Programs</h2>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => setShowKits(true)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
+            Kits
+          </button>
+          <button onClick={() => setShowOrganizers(true)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
+            Organizers
+          </button>
           <button onClick={openModal} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
             Operators
           </button>
@@ -302,6 +313,26 @@ export default function Programs() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Kit catalog modal */}
+      {showKits && (
+        <CatalogModal
+          kind="kits"
+          title="Kits"
+          subtitle="Kits the operators hand out. Shown as a dropdown on the app's Operator Details screen."
+          onClose={() => setShowKits(false)}
+        />
+      )}
+
+      {/* Organizer catalog modal */}
+      {showOrganizers && (
+        <CatalogModal
+          kind="organizers"
+          title="Organizers"
+          subtitle="Who runs the program. Shown as a dropdown on the app's Operator Details screen."
+          onClose={() => setShowOrganizers(false)}
+        />
       )}
     </div>
   )

@@ -29,6 +29,9 @@ import { logAuditEvent } from '../models/auditLogModel.js';
 import {
   listBnfOperatorsController, createBnfOperatorController, updateBnfOperatorController,
 } from '../controllers/bnfOperatorController.js';
+import {
+  listCatalogController, createCatalogItemController, updateCatalogItemController,
+} from '../controllers/bnfCatalogController.js';
 
 const router = Router();
 
@@ -45,6 +48,11 @@ router.post('/aadhaar/parse', authenticateRole('super_admin', 'admin', 'ngo', 'a
 router.get('/operators', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), listBnfOperatorsController);
 router.post('/operators', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), createBnfOperatorController);
 router.patch('/operators/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBnfOperatorController);
+
+// Kit + organizer catalogs (name lists powering the operator app dropdowns).
+router.get('/catalog/:kind', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), listCatalogController);
+router.post('/catalog/:kind', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), createCatalogItemController);
+router.patch('/catalog/:kind/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateCatalogItemController);
 
 // Search
 router.get('/search', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), searchBeneficiariesController);
