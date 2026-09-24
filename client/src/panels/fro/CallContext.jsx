@@ -111,7 +111,7 @@ const IdleAlertPopup = ({ callIdleSince, resetCallActivity }) => {
         </div>
 
         <div style={{ marginBottom: 16, fontSize: 13, fontWeight: 600, color: '#d97706' }}>
-          No mouse movement or call activity for over 6 minutes. Please resume calling donors.
+          No mouse movement or call activity for over 4 minutes. Please resume calling donors.
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -295,11 +295,12 @@ export function CallProvider({ children, userId, operatorId }) {
   }, [commitTodayStats])
 
   const { isCallIdle, callIdleSince, resetCallActivity } = useActivityTracking(userId, {
-    callIdleThreshold: 6 * 60 * 1000,
+    callIdleThreshold: 4 * 60 * 1000,
     // Breaks, live calls, meeting mode and admin pause are exempt from idle
     // detection. Open donor views are NOT exempt: opening a record refreshes
-    // the activity timers, but a record left open with no mouse/call activity
-    // for over 6 minutes starts counting as idle (per the UCS rule).
+    // the activity timers, but a record left open with no work for over 4
+    // minutes starts counting as idle (mouse movement does NOT reset it — idle
+    // tracks panel work only, on any page or modal).
     isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || activeCallRef.current != null,
     onCallIdle: (sinceIso) => {
       const nowMs = Date.now()
@@ -323,11 +324,6 @@ export function CallProvider({ children, userId, operatorId }) {
       markPostShiftIdle(false)
       syncAllStats({ idle_since: null })
     },
-    // Combined activity callbacks own backend status updates. The legacy
-    // browser-idle callbacks are intentionally no-ops to avoid an online
-    // heartbeat racing the idle status update.
-    onIdle: () => {},
-    onActive: () => syncAllStats({ idle_since: null }),
   })
 
   // ---------- Meeting mode: freeze every counter ----------
@@ -664,7 +660,7 @@ export function CallProvider({ children, userId, operatorId }) {
     lastDonorIdRef.current = donorId
     // Opening a donor record IS the work (the FRO dials from the record on her
     // phone): counts as activity, clearing any open idle streak and restarting
-    // the 6-minute timer. It does not exempt the record beyond that grace.
+    // the 4-minute timer. It does not exempt the record beyond that grace.
     resetCallActivity()
   }, [resetCallActivity])
 

@@ -879,7 +879,7 @@ export const getMyPerformance = async (req, res) => {
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('today_idle_seconds, today_break_seconds, today_calls, idle_since, updated_at')
+      .select('today_idle_seconds, today_break_seconds, today_calls, idle_since, updated_at, work_as_operator_id')
       .eq('worker_id', workerId)
       .maybeSingle();
 
@@ -913,10 +913,19 @@ export const getMyPerformance = async (req, res) => {
       // auth_sessions may be absent until migration 125 — fall back to shift start.
     }
     const workedEndMs = Math.min(nowMs, officeEndMs);
-    const workedSeconds = Math.max(
-      0,
-      Math.round((workedEndMs - loginAnchorMs) / 1000) - idleSeconds - (liveStatus?.today_break_seconds || 0)
-    );
+    // Worked attribution: live counters accrue on the COVERED FRO's row (the one
+    // the acting operator's heartbeat writes to). That time belongs to the acting
+    // operator — when the painted identity is NOT that operator (i.e. the covered
+    // owner themselves, absent from the field), they get 0 worked. An absent FRO
+    // must not accrue hours from coverage.
+    const coveredByOther = liveStatus?.work_as_operator_id != null
+      && String(liveStatus.work_as_operator_id) !== String(identityWorkerId);
+    const workedSeconds = coveredByOther
+      ? 0
+      : Math.max(
+          0,
+          Math.round((workedEndMs - loginAnchorMs) / 1000) - idleSeconds - (liveStatus?.today_break_seconds || 0)
+        );
     const workedTarget = 8 * 3600;
 
     return res.json({
