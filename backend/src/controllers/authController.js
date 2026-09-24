@@ -127,14 +127,35 @@ export const salaryLogin = async (req, res) => {
 
 async function touchLogin(userId, name, role) {
   try {
+    const now = new Date().toISOString();
+    const key = String(userId);
+    // Preserve the same-day login anchor: a mid-day re-login (auto-logout +
+    // login) must not wipe hours already worked today. logged_in_at only moves
+    // forward on a new IST day (or a missing/first session).
+    let loginAt = now;
+    try {
+      const { data } = await db
+        .from('auth_sessions')
+        .select('logged_in_at')
+        .eq('user_id', key)
+        .maybeSingle();
+      if (data?.logged_in_at) {
+        const sameIstDay = (a, b) =>
+          new Date(new Date(a).getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10) ===
+          new Date(new Date(b).getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        if (sameIstDay(data.logged_in_at, now)) loginAt = data.logged_in_at;
+      }
+    } catch (_) {
+      // First login / no row — keep the fresh anchor.
+    }
     await db.from('auth_sessions').upsert(
       {
-        user_id: String(userId),
+        user_id: key,
         client: 'crm',
         name: name || null,
         role: role || null,
-        logged_in_at: new Date().toISOString(),
-        last_active_at: new Date().toISOString(),
+        logged_in_at: loginAt,
+        last_active_at: now,
         logged_out_at: null,
       },
       { onConflict: 'user_id' }

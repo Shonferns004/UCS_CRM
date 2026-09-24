@@ -879,7 +879,7 @@ export const getMyPerformance = async (req, res) => {
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('today_idle_seconds, today_calls, idle_since, updated_at')
+      .select('today_idle_seconds, today_break_seconds, today_calls, idle_since, updated_at')
       .eq('worker_id', workerId)
       .maybeSingle();
 
@@ -891,6 +891,33 @@ export const getMyPerformance = async (req, res) => {
     const liveStreakSecs = (liveStatus?.idle_since && liveFresh)
       ? Math.max(0, Math.floor((Date.now() - new Date(liveStatus.idle_since).getTime()) / 1000))
       : 0;
+    const idleSeconds = (liveStatus?.today_idle_seconds || 0) + liveStreakSecs;
+
+    // Worked clock: active time only — the Working metric freezes while the FRO
+    // is idle or on break. It runs from the CRM login anchor, clamped to never
+    // start before today's shift start, and never past today's shift end (an
+    // early login earns nothing; time after shift end can't inflate the day).
+    const nowMs = Date.now();
+    const [officeStart, officeEnd] = await Promise.all([getOfficeStart(workerId), getOfficeEnd(workerId)]);
+    const officeStartMs = new Date(`${day}T${String(officeStart.hour).padStart(2, '0')}:${String(officeStart.minute).padStart(2, '0')}:00.000+05:30`).getTime();
+    const officeEndMs = new Date(`${day}T${String(officeEnd.hour).padStart(2, '0')}:${String(officeEnd.minute).padStart(2, '0')}:00.000+05:30`).getTime();
+    let loginAnchorMs = officeStartMs;
+    try {
+      const { rows } = await db._pool.query(
+        `SELECT logged_in_at FROM auth_sessions WHERE user_id = $1`,
+        [String(workerId)]
+      );
+      const lgMs = rows?.[0]?.logged_in_at ? new Date(rows[0].logged_in_at).getTime() : NaN;
+      if (Number.isFinite(lgMs)) loginAnchorMs = Math.max(officeStartMs, Math.min(nowMs, lgMs));
+    } catch (_) {
+      // auth_sessions may be absent until migration 125 — fall back to shift start.
+    }
+    const workedEndMs = Math.min(nowMs, officeEndMs);
+    const workedSeconds = Math.max(
+      0,
+      Math.round((workedEndMs - loginAnchorMs) / 1000) - idleSeconds - (liveStatus?.today_break_seconds || 0)
+    );
+    const workedTarget = 8 * 3600;
 
     return res.json({
       worker: { id: identityWorkerId, name: currentName },
@@ -902,8 +929,12 @@ export const getMyPerformance = async (req, res) => {
       rank: rank || null,
       team_size: leaderboard.length,
       calls: hours,
-      idle_seconds: (liveStatus?.today_idle_seconds || 0) + liveStreakSecs,
+      idle_seconds: idleSeconds,
       idle_since: liveStatus?.idle_since || null,
+      worked_seconds: workedSeconds,
+      worked_target_seconds: workedTarget,
+      worked_remaining: Math.max(0, workedTarget - workedSeconds),
+      worked_pct: workedTarget > 0 ? Math.min(100, Math.round((workedSeconds / workedTarget) * 1000) / 10) : 0,
       today_calls: connected,
       today_collected: todayCollection[String(identityWorkerId)] || 0,
       monthly_collected: monthCollection[String(identityWorkerId)] || 0,
