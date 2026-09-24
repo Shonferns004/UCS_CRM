@@ -10,6 +10,7 @@ import {
   getProgramDashboard, isBeneficiaryRegistered,
 } from '../models/programBeneficiaryModel.js';
 import { logAuditEvent } from '../models/auditLogModel.js';
+import { createOperatorEvent, getOperatorEventByTitleDate } from '../models/operatorModel.js';
 
 export const createNewProgram = async (req, res) => {
   try {
@@ -29,6 +30,27 @@ export const createNewProgram = async (req, res) => {
       description, location_id, location_name,
       status: 'DRAFT', created_by,
     });
+
+    // Auto-create an operator event so any event added here also appears in
+    // the operator details dropdown on the app (operator_events is what that
+    // dropdown reads). Skip if one with the same title + date already exists.
+    try {
+      const existingEvent = await getOperatorEventByTitleDate(title, program_date || null);
+      if (!existingEvent) {
+        await createOperatorEvent({
+          title,
+          description: description || null,
+          event_date: program_date || null,
+          start_time: start_time || null,
+          end_time: end_time || null,
+          location: location_name || null,
+          state: req.body.state || null,
+          created_by,
+        });
+      }
+    } catch (e) {
+      console.error('Auto-create operator event failed:', e.message);
+    }
 
     if (volunteer_requirements) {
       for (const vr of volunteer_requirements) {

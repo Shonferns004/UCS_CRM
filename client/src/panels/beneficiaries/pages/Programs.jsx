@@ -132,7 +132,7 @@ export default function Programs() {
   return (
     <div>
       <div style={styles.header}>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Programs</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Events</h2>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={() => setShowKits(true)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
             Kits
@@ -144,7 +144,7 @@ export default function Programs() {
             Operators
           </button>
           <button onClick={() => navigate(base + '/programs/new')} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>
-            + New Program
+            + New Event
           </button>
         </div>
       </div>
@@ -152,7 +152,7 @@ export default function Programs() {
       <div style={styles.filterBar}>
         <input
           type="text"
-          placeholder="Search programs..."
+          placeholder="Search events..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           style={{ ...styles.input, minWidth: '220px' }}
@@ -166,14 +166,14 @@ export default function Programs() {
           <option value="COMPLETED">Completed</option>
           <option value="CANCELLED">Cancelled</option>
         </select>
-        <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>{data.total || 0} programs</span>
+        <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>{data.total || 0} events</span>
       </div>
 
       <div style={styles.card}>
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>Loading...</div>
         ) : data.data?.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No programs found</div>
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No events found</div>
         ) : (
           <table style={styles.table}>
             <thead>

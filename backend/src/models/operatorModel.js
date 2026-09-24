@@ -21,6 +21,18 @@ export const updateOperatorEvent = async (id, updates) => {
   return data;
 };
 
+export const getOperatorEventByTitleDate = async (title, date) => {
+  if (!title) return null;
+  let query = db
+    .from('operator_events')
+    .select('*')
+    .eq('title', title);
+  if (date) query = query.eq('event_date', date);
+  const { data, error } = await query.maybeSingle();
+  if (error && error.code !== 'PGRST116') throw error;
+  return data || null;
+};
+
 export const getOperatorEventById = async (id) => {
   const { data, error } = await db
     .from('operator_events')

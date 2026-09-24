@@ -56,7 +56,7 @@ export default function ProgramForm() {
           location_name: data.location_name || '',
           status: data.status || 'DRAFT',
         }))
-      }).catch(e => setError(e.message || 'Failed to load program'))
+      }).catch(e => setError(e.message || 'Failed to load event'))
     }
   }, [id, isEdit])
 
@@ -74,7 +74,7 @@ export default function ProgramForm() {
       }
       navigate(base + `/programs/${result.program?.id || result.id || id}`)
     } catch (e) {
-      setError(e.message || 'Failed to save program')
+      setError(e.message || 'Failed to save event')
     } finally {
       setSaving(false)
     }
@@ -84,8 +84,8 @@ export default function ProgramForm() {
     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div>
-          <button onClick={() => navigate(base + '/programs')} style={{ background: 'none', border: 'none', color: 'var(--sage)', cursor: 'pointer', fontSize: '13px', marginBottom: '4px' }}>← Back to programs</button>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>{isEdit ? 'Edit Program' : 'New Program'}</h2>
+          <button onClick={() => navigate(base + '/programs')} style={{ background: 'none', border: 'none', color: 'var(--sage)', cursor: 'pointer', fontSize: '13px', marginBottom: '4px' }}>← Back to events</button>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>{isEdit ? 'Edit Event' : 'New Event'}</h2>
         </div>
       </div>
 
@@ -93,14 +93,14 @@ export default function ProgramForm() {
 
       <form onSubmit={handleSubmit}>
         <div style={styles.card}>
-          <div style={styles.title}>Program Details</div>
+          <div style={styles.title}>Event Details</div>
           <div style={styles.grid}>
             <div style={{ ...styles.field, gridColumn: 'span 2' }}>
               <label style={styles.label}>Title *</label>
-              <input style={styles.input} value={form.title} onChange={e => set('title', e.target.value)} placeholder="Program title" />
+              <input style={styles.input} value={form.title} onChange={e => set('title', e.target.value)} placeholder="Event title" />
             </div>
             <div style={styles.field}>
-              <label style={styles.label}>Program Date</label>
+              <label style={styles.label}>Event Date</label>
               <input type="date" style={styles.input} value={form.program_date} onChange={e => set('program_date', e.target.value)} />
             </div>
             <div style={styles.field}>
@@ -123,7 +123,7 @@ export default function ProgramForm() {
             </div>
             <div style={{ ...styles.field, gridColumn: 'span 2' }}>
               <label style={styles.label}>Description</label>
-              <textarea style={styles.textarea} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Program description" />
+              <textarea style={styles.textarea} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Event description" />
             </div>
           </div>
         </div>
@@ -131,7 +131,7 @@ export default function ProgramForm() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
           <button type="button" onClick={() => navigate(base + '/programs')} style={{ ...styles.btn, ...styles.btnSecondary }}>Cancel</button>
           <button type="submit" disabled={saving} style={{ ...styles.btn, ...styles.btnPrimary, opacity: saving ? 0.5 : 1 }}>
-            {saving ? 'Saving...' : isEdit ? 'Update Program' : 'Create Program'}
+            {saving ? 'Saving...' : isEdit ? 'Update Event' : 'Create Event'}
           </button>
         </div>
       </form>
