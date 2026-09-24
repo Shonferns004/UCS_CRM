@@ -4211,6 +4211,44 @@ export const getDonorHistory = async (req, res) => {
   }
 };
 
+// Book a worker's open idle streak into today_idle_seconds (clamped to the
+// shift end) and clear idle_since. Used when the panel's heartbeats are about
+// to stop writing this worker's row — a work-as start/switch/release handled in
+// authController — so uncommitted idle minutes survive the identity handover.
+// Same-IST-day only: a cross-day streak is never booked into today. No-op when
+// no streak is open.
+export const bookOpenIdleStreak = async (workerId) => {
+  try {
+    const { data: live } = await db
+      .from('fro_live_status')
+      .select('today_idle_seconds, idle_since, updated_at')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    if (!live?.idle_since) return 0;
+    const istDayOf = (v) => {
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return null;
+      return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    };
+    const day = istDayOf(Date.now());
+    if (istDayOf(live.updated_at) !== day) return 0;
+    const end = await getOfficeEnd(workerId);
+    const shiftEndMs = new Date(`${day}T${String(end.hour).padStart(2, '0')}:${String(end.minute).padStart(2, '0')}:00.000+05:30`).getTime();
+    const endMs = Math.min(Date.now(), shiftEndMs);
+    const elapsed = Math.max(0, Math.floor((endMs - new Date(live.idle_since).getTime()) / 1000));
+    if (elapsed <= 0) return 0;
+    const next = elapsed + Number(live.today_idle_seconds || 0);
+    const { error } = await db
+      .from('fro_live_status')
+      .update({ today_idle_seconds: next, idle_since: null, updated_at: new Date().toISOString() })
+      .eq('worker_id', workerId);
+    if (error) throw error;
+    return elapsed;
+  } catch (_) {
+    return 0;
+  }
+};
+
 export const updateLiveStatus = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -4365,6 +4403,44 @@ export const updateLiveStatus = async (req, res) => {
     // Any non-idle status always clears the streak (server-side safety net).
     if (status && status !== 'idle') payload.idle_since = null;
 
+    // Catch-up booking: a non-idle push that clears a running idle streak books
+    // the elapsed streak time whenever the client's committed idle did not also
+    // grow (i.e. the streak was never closed/committed on the client). Rebuilds
+    // the minutes wiped by a reload, second tab, browser drop or tab close —
+    // the same "Idle 7m became 1m" bug. Books into today only, clamped to the
+    // shift end; skipped when the client already booked (incoming grew) so a
+    // clean close never double-counts.
+    if (mayWriteIdleData && payload.idle_since === null) {
+      try {
+        const { data: liveRow } = await db
+          .from('fro_live_status')
+          .select('today_idle_seconds, idle_since, updated_at')
+          .eq('worker_id', workerId)
+          .maybeSingle();
+        if (liveRow?.idle_since) {
+          const istDayOf = (v) => {
+            const d = new Date(v);
+            if (isNaN(d.getTime())) return null;
+            return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+          };
+          const day = istDayOf(Date.now());
+          if (istDayOf(liveRow.updated_at) === day) {
+            const committed = Number(liveRow.today_idle_seconds || 0);
+            const incomingCommitted = Number.isFinite(Number(today_idle_seconds)) ? Number(today_idle_seconds) : committed;
+            if (incomingCommitted <= committed) {
+              const end = await getOfficeEnd(workerId);
+              const shiftEndMs = new Date(`${day}T${String(end.hour).padStart(2, '0')}:${String(end.minute).padStart(2, '0')}:00.000+05:30`).getTime();
+              const endMs = Math.min(Date.now(), shiftEndMs);
+              const elapsed = Math.max(0, Math.floor((endMs - new Date(liveRow.idle_since).getTime()) / 1000));
+              if (elapsed > 0) payload.today_idle_seconds = committed + elapsed;
+            }
+          }
+        }
+      } catch (_) {
+        // Non-fatal: a failed catch-up must never block the live-status write.
+      }
+    }
+
     const { error } = await db
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
@@ -4381,7 +4457,7 @@ export const updateLiveStatus = async (req, res) => {
     if (mayWriteIdleData) try {
       const istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const daily = {
-        idle_seconds: today_idle_seconds,
+        idle_seconds: payload.today_idle_seconds ?? today_idle_seconds,
         talk_seconds: today_talk_seconds,
         break_seconds: today_break_seconds,
         calls: today_calls,
