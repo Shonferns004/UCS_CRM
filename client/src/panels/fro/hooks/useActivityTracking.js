@@ -8,12 +8,20 @@ export function useActivityTracking(userId, options = {}) {
     callIdleThreshold = 6 * 60 * 1000, // 6 minutes without call activity
     onCallIdle,
     onCallResume,
-    isExempt, // () => boolean — true while on a call, on break, or in a donor view
+    isExempt, // () => boolean — true while on a call, on break, in a meeting, or paused
   } = options;
 
   const idleTimerRef = useRef(null);
+  // Time of the last mouse-driven activity (drives the mouse side of the AND rule).
   const lastActivityRef = useRef(Date.now());
-  const isIdleRef = useRef(false);
+  // Time of the last donor/call/disposition activity (drives the call side).
+  const lastCallActivityRef = useRef(Date.now());
+  // Mouse side of the AND rule: true once 6 min pass with no mouse movement.
+  const isMouseIdleRef = useRef(false);
+  // Open idle streak: both sides idle for the threshold and not exempt.
+  const isCallIdleRef = useRef(false);
+  const [isCallIdle, setIsCallIdle] = useState(false);
+  const [callIdleSince, setCallIdleSince] = useState(null); // ISO string
   const userIdRef = useRef(userId);
 
   userIdRef.current = userId;
@@ -22,85 +30,74 @@ export function useActivityTracking(userId, options = {}) {
   const cbsRef = useRef({});
   cbsRef.current = { onIdle, onActive, onCallIdle, onCallResume, isExempt };
 
-  // ---------- Mouse-idle timer ----------
-  // Mouse inactivity is one side of the OR-based idle rule.
-  const resetIdleTimer = useCallback(() => {
-    const now = Date.now();
-    lastActivityRef.current = now;
+  // Close an open idle streak and hand the elapsed time to onCallResume so the
+  // context can book it.
+  const closeCallIdle = useCallback(() => {
+    if (!isCallIdleRef.current) return
+    isCallIdleRef.current = false
+    setIsCallIdle(false)
+    setCallIdleSince(null)
+    cbsRef.current.onCallResume?.()
+  }, [])
 
-    if (isIdleRef.current) {
-      isIdleRef.current = false;
-      if (!callIdleConditionRef.current) {
-        isCallIdleRef.current = false;
-        setIsCallIdle(false);
-        setCallIdleSince(null);
-        cbsRef.current.onCallResume?.();
-      }
-      cbsRef.current.onActive?.();
+  // AND rule: idle opens only when BOTH sides have been quiet for the threshold
+  // AND the caller is not exempt. Opening a donor view resets the call side, so
+  // it grants a fresh 6-minute grace but does NOT suspend the timer beyond that.
+  const tryOpenCallIdle = useCallback(() => {
+    if (isCallIdleRef.current) return
+    if (cbsRef.current.isExempt?.()) return
+    if (!isMouseIdleRef.current) return
+    if (Date.now() - lastCallActivityRef.current <= callIdleThreshold) return
+    isCallIdleRef.current = true
+    const since = new Date().toISOString()
+    setCallIdleSince(since)
+    setIsCallIdle(true)
+    cbsRef.current.onCallIdle?.(since)
+  }, [callIdleThreshold])
+
+  // ---------- Mouse-idle timer ----------
+  // Mouse movement is the "no mouse" side of the AND rule and always counts as
+  // activity: it refreshes the timer, clears the mouse-idle flag, closes any
+  // open streak and announces activity.
+  const resetIdleTimer = useCallback(() => {
+    lastActivityRef.current = Date.now()
+
+    if (isMouseIdleRef.current) {
+      isMouseIdleRef.current = false
+      closeCallIdle()
+      cbsRef.current.onActive?.()
     }
 
     if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
+      clearTimeout(idleTimerRef.current)
     }
 
     idleTimerRef.current = setTimeout(() => {
-      isIdleRef.current = true;
-      cbsRef.current.onIdle?.();
-      if (!isCallIdleRef.current && !cbsRef.current.isExempt?.()) {
-        // Grace period is NOT counted: the streak starts when the warning
-        // fires (now), not backdated to the last mouse movement.
-        cbsRef.current.onCallIdle?.(new Date().toISOString());
-      }
+      isMouseIdleRef.current = true
+      cbsRef.current.onIdle?.()
+      // Mouse side elapsed — the AND rule still needs the call side.
+      tryOpenCallIdle()
     }, idleThreshold);
-  }, [idleThreshold]);
+  }, [idleThreshold, tryOpenCallIdle, closeCallIdle])
 
-  // ---------- Call-idle engine ----------
-  // Call inactivity is the other side of the OR-based idle rule. Mouse
-  // activity does not reset this timer.
-  const lastCallActivityRef = useRef(Date.now());
-  const callIdleConditionRef = useRef(false);
-  const isCallIdleRef = useRef(false);
-  const [isCallIdle, setIsCallIdle] = useState(false);
-  const [callIdleSince, setCallIdleSince] = useState(null); // ISO string
-
+  // Donor/call work: resets the "no call activity" side and closes any open
+  // streak (any kind of activity ends idle). Grace is NOT counted — a streak
+  // starts from the moment the warning fires, not backdated to the last event.
   const resetCallActivity = useCallback(() => {
-    lastCallActivityRef.current = Date.now();
-    callIdleConditionRef.current = false;
-    if (isCallIdleRef.current && !isIdleRef.current && !callIdleConditionRef.current) {
-      isCallIdleRef.current = false;
-      setIsCallIdle(false);
-      setCallIdleSince(null);
-      cbsRef.current.onCallResume?.();
-    }
-  }, []);
+    lastCallActivityRef.current = Date.now()
+    closeCallIdle()
+  }, [closeCallIdle])
 
-  // Check every 15 seconds. Fires onCallIdle exactly once per idle streak.
+  // Check every 15 seconds and open the idle streak the moment both sides have
+  // been quiet for the threshold. Fires onCallIdle exactly once per streak.
   const checkCallIdle = useCallback(() => {
-    if (!userIdRef.current) return;
-    if (cbsRef.current.isExempt?.()) return; // on call / on break / in donor view
-    const elapsed = Date.now() - lastCallActivityRef.current;
-    if (elapsed > callIdleThreshold) {
-      callIdleConditionRef.current = true;
-      if (!isCallIdleRef.current) {
-        isCallIdleRef.current = true;
-        // Grace period is NOT counted: the streak starts when the warning
-        // fires (now), not backdated to the last call activity.
-        const since = new Date().toISOString();
-        setCallIdleSince(since);
-        setIsCallIdle(true);
-        cbsRef.current.onCallIdle?.(since);
-      }
-    } else {
-      // Safety net (e.g. clock jump) — normal clears go through resetCallActivity
-      callIdleConditionRef.current = false;
-      if (isCallIdleRef.current && !isIdleRef.current) {
-        isCallIdleRef.current = false;
-        setIsCallIdle(false);
-        setCallIdleSince(null);
-        cbsRef.current.onCallResume?.();
-      }
+    if (!userIdRef.current) return
+    if (cbsRef.current.isExempt?.()) {
+      closeCallIdle() // defensive: break/meeting/pause/call must never idle
+      return
     }
-  }, [callIdleThreshold]);
+    tryOpenCallIdle()
+  }, [tryOpenCallIdle, closeCallIdle])
 
   useEffect(() => {
     if (!userId) return;
@@ -150,7 +147,7 @@ export function useActivityTracking(userId, options = {}) {
   }, []);
 
   return {
-    isIdle: isIdleRef.current,
+    isIdle: isMouseIdleRef.current,
     isCallIdle,
     callIdleSince,
     lastActivity: lastActivityRef.current,

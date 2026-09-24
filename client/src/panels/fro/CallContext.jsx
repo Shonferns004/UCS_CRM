@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react'
 import { api } from './api/auth'
 import { useActivityTracking } from './hooks/useActivityTracking'
-import { istDateString } from './utils/time'
+import { istDateString, istDateTimeToIso } from './utils/time'
 import { useMeeting } from '../../meetingStore'
 import { onFroResetIdle, onSocketConnect, onFroPause, onFroResume, onDbChange } from '../../lib/socket'
 
@@ -150,12 +150,22 @@ export function CallProvider({ children, userId, operatorId }) {
   const [elapsed, setElapsed] = useState(0)
   const timerRef = useRef(null)
   const [todayStats, setTodayStats] = useState(ZERO_STATS)
-  const donorViewStartRef = useRef(null)
   const lastDonorIdRef = useRef(null)
   const [onBreak, setOnBreak] = useState(false)
   const [breakElapsed, setBreakElapsed] = useState(0)
   const breakTimerRef = useRef(null)
   const [liveStatus, setLiveStatus] = useState('online')
+
+  // Post-shift freeze: once the FRO falls idle after their own shift end
+  // (worker shift_end_time → office_end_time setting → 19:00 default) the panel
+  // reports offline and stops booking idle. Active overtime work keeps showing
+  // its real status (on_call / break / online).
+  const [postShiftIdle, setPostShiftIdle] = useState(false)
+  const postShiftIdleRef = useRef(false)
+  // Today's shift window (ms epoch) resolved from GET /attendance/today.
+  const shiftStartMsRef = useRef(null)
+  const shiftEndMsRef = useRef(null)
+  const shiftTimesRef = useRef({ start: '10:00', end: '19:00' })
 
   // Admin per-FRO pause: freezes every live counter exactly like meeting mode.
   // Only an admin resume lifts it — the panel never unpauses itself.
@@ -214,7 +224,8 @@ export function CallProvider({ children, userId, operatorId }) {
     const status = (meetingActiveRef.current || pausedRef.current) ? 'meeting'
       : (onBreakRef.current ? 'break'
         : (activeCallRef.current ? 'on_call'
-          : (callIdleSinceRef.current ? 'idle' : 'online')))
+          : (postShiftIdleRef.current ? 'offline'
+            : (callIdleSinceRef.current ? 'idle' : 'online'))))
     setLiveStatus(status)
     // Pre-hydration (or explicit stats): never send unseeded in-memory
     // counters — status-only announce keeps presence fresh without risking
@@ -261,30 +272,62 @@ export function CallProvider({ children, userId, operatorId }) {
   }, [])
 
 // ---------- Combined mouse/call idle engine (6 min) ----------
+  const markPostShiftIdle = useCallback((value) => {
+    postShiftIdleRef.current = value
+    setPostShiftIdle(value)
+  }, [])
+
+  // Book an open idle streak (started via onCallIdle) once, clamped to the shift
+  // end so a streak that ran past the FRO's shift never books after-hours time.
+  // No-op when no streak is open. Called on activity, meeting/pause start, day
+  // rollover and the shift-end boundary tick.
+  const closeIdleStreak = useCallback(() => {
+    const since = callIdleSinceRef.current
+    if (!since) return
+    callIdleSinceRef.current = null
+    let endMs = Date.now()
+    const shiftEndMs = shiftEndMsRef.current
+    if (shiftEndMs && endMs > shiftEndMs) endMs = shiftEndMs
+    const idleSecs = Math.max(0, Math.floor((endMs - new Date(since).getTime()) / 1000))
+    if (idleSecs > 0) {
+      commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
+    }
+  }, [commitTodayStats])
+
   const { isCallIdle, callIdleSince, resetCallActivity } = useActivityTracking(userId, {
     callIdleThreshold: 6 * 60 * 1000,
-    // Breaks, live calls, open donor views, meeting mode and admin pause are exempt from idle detection
-    isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || activeCallRef.current != null || donorViewStartRef.current != null,
+    // Breaks, live calls, meeting mode and admin pause are exempt from idle
+    // detection. Open donor views are NOT exempt: opening a record refreshes
+    // the activity timers, but a record left open with no mouse/call activity
+    // for over 6 minutes starts counting as idle (per the UCS rule).
+    isExempt: () => meetingActiveRef.current || pausedRef.current || onBreakRef.current || activeCallRef.current != null,
     onCallIdle: (sinceIso) => {
+      const nowMs = Date.now()
+      if (shiftStartMsRef.current && nowMs < shiftStartMsRef.current) {
+        // Before the shift: idle is not booked, the panel stays online.
+        syncAllStats({ status: 'online', idle_since: null })
+        return
+      }
+      if (shiftEndMsRef.current && nowMs >= shiftEndMsRef.current) {
+        // After the shift: never open a streak; the panel goes offline and books
+        // nothing until the FRO becomes active again.
+        markPostShiftIdle(true)
+        syncAllStats({ status: 'offline', idle_since: null })
+        return
+      }
       callIdleSinceRef.current = sinceIso
       syncAllStats({ status: 'idle', idle_since: sinceIso })
     },
     onCallResume: () => {
-      const since = callIdleSinceRef.current
-      callIdleSinceRef.current = null
-      if (since) {
-        const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
-        if (idleSecs > 0) {
-          commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
-        }
-      }
+      closeIdleStreak()
+      markPostShiftIdle(false)
       syncAllStats({ idle_since: null })
     },
     // Combined activity callbacks own backend status updates. The legacy
     // browser-idle callbacks are intentionally no-ops to avoid an online
     // heartbeat racing the idle status update.
     onIdle: () => {},
-    onActive: () => {},
+    onActive: () => syncAllStats({ idle_since: null }),
   })
 
   // ---------- Meeting mode: freeze every counter ----------
@@ -293,15 +336,7 @@ export function CallProvider({ children, userId, operatorId }) {
       meetingStartRef.current = Date.now()
       // Close any open idle streak counting only up to the meeting start, so
       // meeting time never becomes idle time.
-      if (callIdleSinceRef.current) {
-        const since = callIdleSinceRef.current
-        const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
-        callIdleSinceRef.current = null
-        if (idleSecs > 0) {
-          commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
-        }
-        syncAllStats({ idle_since: null })
-      }
+      closeIdleStreak()
       resetCallActivity()
       syncAllStats({ idle_since: null })
     } else {
@@ -315,7 +350,7 @@ export function CallProvider({ children, userId, operatorId }) {
       resetCallActivity() // fresh idle streak starts post-meeting, no meeting seconds
       syncAllStats()
     }
-  }, [meetingActive, syncAllStats, resetCallActivity])
+  }, [meetingActive, syncAllStats, resetCallActivity, closeIdleStreak])
 
   // ---------- Stats sync & status transitions ----------
   useEffect(() => {
@@ -391,17 +426,10 @@ export function CallProvider({ children, userId, operatorId }) {
     setPaused(true)
     setPausedBy(by || null)
     if (pauseStartRef.current == null) pauseStartRef.current = Date.now()
-    if (callIdleSinceRef.current) {
-      const since = callIdleSinceRef.current
-      const idleSecs = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000))
-      callIdleSinceRef.current = null
-      if (idleSecs > 0) {
-        commitTodayStats({ ...todayStatsRef.current, idleSeconds: todayStatsRef.current.idleSeconds + idleSecs })
-      }
-    }
+    closeIdleStreak()
     resetCallActivity()
     syncAllStats({ idle_since: null })
-  }, [commitTodayStats, resetCallActivity, syncAllStats])
+  }, [closeIdleStreak, resetCallActivity, syncAllStats])
 
   const clearPause = useCallback(() => {
     if (!pausedRef.current) return
@@ -525,6 +553,60 @@ export function CallProvider({ children, userId, operatorId }) {
     return () => clearInterval(timer)
   }, [syncAllStats])
 
+  // ---------- Shift window (idle only within the FRO's own shift) ----------
+  // The per-worker shift is resolved by GET /attendance/today (worker
+  // shift_start/shift_end → office_start/office_end settings → 10:00–19:00).
+  const resolveShift = useCallback(() => {
+    const date = istDateString()
+    const startIso = istDateTimeToIso(date, shiftTimesRef.current.start)
+    const endIso = istDateTimeToIso(date, shiftTimesRef.current.end)
+    shiftStartMsRef.current = startIso ? new Date(startIso).getTime() : null
+    shiftEndMsRef.current = endIso ? new Date(endIso).getTime() : null
+  }, [])
+
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    let cancelled = false
+    api('/attendance/today')
+      .then((d) => {
+        if (cancelled || !d) return
+        shiftTimesRef.current = {
+          start: d.officeStartTime || '10:00',
+          end: d.officeEndTime || '19:00',
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) resolveShift() })
+    return () => { cancelled = true }
+  }, [resolveShift])
+
+  // Every 30s: roll the shift window at IST midnight and freeze idle the moment
+  // the shift ends while an idle streak is running (booking only the in-shift
+  // part). Active overtime work is left untouched.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    let day = istDateString()
+    const tick = () => {
+      const today = istDateString()
+      if (today !== day) {
+        day = today
+        resolveShift()
+        if (postShiftIdleRef.current) markPostShiftIdle(false)
+        resetCallActivity()
+      }
+      const endMs = shiftEndMsRef.current
+      if (!endMs || Date.now() < endMs) return
+      if (callIdleSinceRef.current) {
+        closeIdleStreak() // clamps the streak to the shift end
+        markPostShiftIdle(true)
+        syncAllStats({ status: 'offline', idle_since: null })
+      }
+    }
+    tick()
+    const timer = setInterval(tick, 30 * 1000)
+    return () => clearInterval(timer)
+  }, [resolveShift, resetCallActivity, closeIdleStreak, markPostShiftIdle, syncAllStats])
+
   // Push status whenever it changes (call started/ended, break toggled)
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return
@@ -564,23 +646,18 @@ export function CallProvider({ children, userId, operatorId }) {
   }, [onBreak])
 
   const startDonorView = useCallback((donorId) => {
-    donorViewStartRef.current = Date.now()
     lastDonorIdRef.current = donorId
-  }, [])
+    // Opening a donor record IS the work (the FRO dials from the record on her
+    // phone): counts as activity, clearing any open idle streak and restarting
+    // the 6-minute timer. It does not exempt the record beyond that grace.
+    resetCallActivity()
+  }, [resetCallActivity])
 
-  const endDonorView = useCallback((wasCalled) => {
-    const start = donorViewStartRef.current
-    if (!start) return
-    const elapsedView = Math.floor((Date.now() - start) / 1000)
-    // Meeting mode and admin pause freeze all counters — a donor view during
-    // either counts as neither a skip nor idle time.
-    if (!meetingActiveRef.current && !pausedRef.current && !wasCalled && elapsedView >= 3) {
-      commitTodayStats({
-        skippedDonors: todayStatsRef.current.skippedDonors + 1,
-        idleSeconds: todayStatsRef.current.idleSeconds + elapsedView,
-      })
-    }
-    donorViewStartRef.current = null
+  const endDonorView = useCallback(() => {
+    // A donor view is working time, never idle (the panel's call button is
+    // unused — the call happens on the FRO's phone while the record is open).
+    // No skipped/idle booking happens here; idle is booked only by the streak
+    // engine, which closes on this activity reset.
     resetCallActivity() // donor reviewed → counts as activity
   }, [resetCallActivity])
 
@@ -602,7 +679,6 @@ export function CallProvider({ children, userId, operatorId }) {
 
   const startCall = useCallback((donor) => {
     if (onBreak) toggleBreak()
-    donorViewStartRef.current = null
     setActiveCall({
       donorId: donor.id || donor.donorId,
       donorName: donor.donor_name || donor.donorName,
@@ -638,7 +714,7 @@ export function CallProvider({ children, userId, operatorId }) {
       paused, pausedBy, resumeSelf,
     }}>
       {children}
-      {isCallIdle && !meetingActive && !paused && (
+      {isCallIdle && !meetingActive && !paused && !postShiftIdle && (
         <IdleAlertPopup
           callIdleSince={callIdleSince}
           resetCallActivity={resetCallActivity}

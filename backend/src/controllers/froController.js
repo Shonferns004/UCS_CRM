@@ -15,6 +15,7 @@ import {
 } from '../models/froAssignmentModel.js';
 import { getTargetByWorker } from '../models/froTargetModel.js';
 import { classifyLogSide } from './ngoAdminController.js';
+import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
 import {
   createDonorLog,
   ensureLogSequenceHealth,
@@ -4226,6 +4227,27 @@ export const updateLiveStatus = async (req, res) => {
     }
     // Any non-idle status always clears the streak (server-side safety net).
     if (status && status !== 'idle') payload.idle_since = null;
+    // Shift-window guard: idle may only accrue inside the worker's own shift
+    // (worker shift_end_time → office_end_time setting → 19:00 default). An
+    // idle push arriving outside that window comes from a stale/legacy panel
+    // and is downgraded to offline with no streak, so after-hours time can
+    // never inflate idle. Active states (on_call / break / online) are left
+    // untouched.
+    if (status === 'idle' && mayWriteIdleData) {
+      try {
+        const [start, end] = await Promise.all([getOfficeStart(workerId), getOfficeEnd(workerId)]);
+        const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
+        const nowMinutes = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+        const startMinutes = start.hour * 60 + start.minute;
+        const endMinutes = end.hour * 60 + end.minute;
+        if (nowMinutes < startMinutes || nowMinutes >= endMinutes) {
+          payload.status = 'offline';
+          payload.idle_since = null;
+        }
+      } catch (_) {
+        // Shift could not be resolved — fall back to the client's idle push.
+      }
+    }
     // Same-day max-keep for cumulative counters: the heartbeat blind-overwrites
     // fro_live_status, so a second tab/device (or a fresh panel that hasn't
     // hydrated yet) pushing smaller numbers would wipe the day's totals while
