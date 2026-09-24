@@ -796,6 +796,12 @@ export const getDashboard = async (req, res) => {
 export const getMyPerformance = async (req, res) => {
   try {
     const workerId = req.user.id;
+    // Work-as: the token subject is the impersonated owner, but the strip paints
+    // the ACTING operator's own performance (their logs and leaderboard entry).
+    // Station scope and the live-status/idle row stay on the owner: that is the
+    // queue being worked and the row the heartbeat actually writes to.
+    const isWorkAs = !!(req.user.impersonation && req.user.imposter_id != null);
+    const identityWorkerId = isWorkAs ? req.user.imposter_id : req.user.id;
     const worker = await getWorkerBySession(req.user);
     const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const istOffset = 5.5 * 60 * 60 * 1000;
@@ -817,35 +823,37 @@ export const getMyPerformance = async (req, res) => {
     const { data: logs, error } = await db
       .from('fro_donor_logs')
       .select('created_at, fro_worker_id, disposition_detail, disposition_category, accounts_status, workers!fro_donor_logs_fro_worker_id_fkey(id, name, is_test)')
-      .eq('fro_worker_id', workerId)
+      .eq('fro_worker_id', identityWorkerId)
       .gte('created_at', dayStart)
       .lte('created_at', dayEnd);
     if (error) throw error;
 
     const teamConnected = {};
     const teamLogs = {};
-    const currentName = worker?.name || logs?.find(l => String(l.fro_worker_id) === String(workerId))?.workers?.name || null;
+    const currentName = isWorkAs
+      ? (req.user.imposter_name || worker?.name || logs?.find(l => String(l.fro_worker_id) === String(identityWorkerId))?.workers?.name || null)
+      : (worker?.name || logs?.find(l => String(l.fro_worker_id) === String(workerId))?.workers?.name || null);
     for (const log of logs || []) {
       if (!log.fro_worker_id || log.workers?.is_test === true) continue;
       const id = String(log.fro_worker_id);
       teamConnected[id] = (teamConnected[id] || 0);
       teamLogs[id] = (teamLogs[id] || 0) + 1;
       if (classifyLogSide(log) === 'connected') teamConnected[id]++;
-      if (id !== String(workerId)) continue;
+      if (id !== String(identityWorkerId)) continue;
       const hour = new Date(new Date(log.created_at).getTime() + istOffset).getUTCHours();
       if (hour < 9 || hour > 20) continue;
       const bucket = hours[hour - 9];
       bucket.calls++;
       if (classifyLogSide(log) === 'connected') bucket.connected++;
     }
-    if (!teamLogs[String(workerId)]) teamLogs[String(workerId)] = 0;
-    if (!teamConnected[String(workerId)]) teamConnected[String(workerId)] = 0;
+    if (!teamLogs[String(identityWorkerId)]) teamLogs[String(identityWorkerId)] = 0;
+    if (!teamConnected[String(identityWorkerId)]) teamConnected[String(identityWorkerId)] = 0;
 
     // Leaderboard: one shared org-wide ranking service so the strip number is
     // always identical to the admin High/Low tables. This worker's own logged
     // metrics above stay scoped to their stations.
     const leaderboard = await buildFroLeaderboard({ startDay: day, endDay: day, todayDay: day });
-    const me = leaderboard.find(p => String(p.id) === String(workerId));
+    const me = leaderboard.find(p => String(p.id) === String(identityWorkerId));
     const rank = me?.rank || null;
 
     const todayCollection = {};
@@ -859,7 +867,7 @@ export const getMyPerformance = async (req, res) => {
       dailyTargetMap[id] = Math.round((p.period_target || 0) * 100) / 100;
       pacePct[id] = p.performance_pct;
     }
-    const workerKey = String(workerId);
+    const workerKey = String(identityWorkerId);
     if (!(workerKey in todayCollection)) {
       todayCollection[workerKey] = 0;
       monthCollection[workerKey] = 0;
@@ -867,7 +875,7 @@ export const getMyPerformance = async (req, res) => {
       pacePct[workerKey] = 0;
     }
 
-    const connected = teamConnected[String(workerId)] || 0;
+    const connected = teamConnected[String(identityWorkerId)] || 0;
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
     const { data: liveStatus } = await db
       .from('fro_live_status')
@@ -885,7 +893,7 @@ export const getMyPerformance = async (req, res) => {
       : 0;
 
     return res.json({
-      worker: { id: workerId, name: currentName },
+      worker: { id: identityWorkerId, name: currentName },
       connected,
       target_pace: targetPace,
       elapsed_hours: elapsedHours,
@@ -897,10 +905,10 @@ export const getMyPerformance = async (req, res) => {
       idle_seconds: (liveStatus?.today_idle_seconds || 0) + liveStreakSecs,
       idle_since: liveStatus?.idle_since || null,
       today_calls: connected,
-      today_collected: todayCollection[String(workerId)] || 0,
-      monthly_collected: monthCollection[String(workerId)] || 0,
-      daily_target: dailyTargetMap[String(workerId)] || 0,
-      today_pct: Math.round(pacePct[String(workerId)] * 10) / 10,
+      today_collected: todayCollection[String(identityWorkerId)] || 0,
+      monthly_collected: monthCollection[String(identityWorkerId)] || 0,
+      daily_target: dailyTargetMap[String(identityWorkerId)] || 0,
+      today_pct: Math.round(pacePct[String(identityWorkerId)] * 10) / 10,
       date: day,
     });
   } catch (error) {
