@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
@@ -9,6 +10,9 @@ import 'features/home/home_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kReleaseMode) {
+    _installSemanticsAssertFilter();
+  }
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
@@ -17,6 +21,29 @@ void main() {
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
   runApp(const BeneficiariesApp());
+}
+
+/// In debug/profile builds the Flutter framework throws two known
+/// false-positive rendering assertions (flutter/flutter#191188) whenever the
+/// semantics/accessibility tree is active (e.g. TalkBack) while camera routes
+/// are stacked:
+///   - object.dart:5724  '!semantics.parentDataDirty'
+///   - object.dart:6018  '!childSemantics.renderObject._needsLayout'
+/// The production code around them explicitly tolerates those dirty nodes, so
+/// the throw is purely a too-strict diagnostic. These `assert()`s are compiled
+/// out of release builds; here we drop only those two exact messages and
+/// forward every other error to the default handler untouched.
+void _installSemanticsAssertFilter() {
+  void Function(FlutterErrorDetails details) original =
+      FlutterError.onError ?? FlutterError.dumpErrorToConsole;
+  FlutterError.onError = (details) {
+    final String text = details.exceptionAsString();
+    if (text.contains("'!semantics.parentDataDirty'") ||
+        text.contains("'!childSemantics.renderObject._needsLayout'")) {
+      return;
+    }
+    original(details);
+  };
 }
 
 class BeneficiariesApp extends StatelessWidget {
