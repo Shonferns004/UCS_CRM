@@ -46,6 +46,7 @@ import {
   resetAllFroIdle,
   getMyLiveStatus,
   resumeOwnPause,
+  logoutAllFros,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -54,6 +55,7 @@ router.use(authenticate);
 
 router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
 router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
+router.post('/status/logout-all', authenticateRole('admin', 'super_admin'), logoutAllFros);
 router.get('/status/me', getMyLiveStatus);
 
 const requireFro = (req, res, next) => {

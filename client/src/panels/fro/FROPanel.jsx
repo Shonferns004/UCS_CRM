@@ -8,7 +8,7 @@ import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import DataUsageModal from './components/DataUsageModal'
 import { useRealtime } from '../../hooks/useRealtime'
-import { onFroAction, onFroBroadcast, onFroTeamBroadcast } from '../../lib/socket'
+import { onFroAction, onFroBroadcast, onFroTeamBroadcast, onFroForceLogout } from '../../lib/socket'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, getFroWorkAsStations, releaseWorkAs, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { toast } from '../../components/Toast'
@@ -717,6 +717,10 @@ useEffect(() => onFroAction((action) => {
     setFroBroadcastMin(false);
     setFroBroadcast(evt);
   }), []);
+  // Admin "Logout All FROs": end the session immediately and bounce to login.
+  useEffect(() => onFroForceLogout(() => {
+    logout()
+  }), [logout]);
   useEffect(() => {
     if (!froBroadcast) return;
     const minimize = setTimeout(() => setFroBroadcastMin(true), 30000);
