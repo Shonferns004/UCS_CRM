@@ -408,42 +408,44 @@ function start() {
   cronJobs.push(cron.schedule('0 18 * * *', () => runNotificationCycle()));
   console.log('Scheduled: 6:00 PM notification check');
 
-  // Staggered across the minute (seconds field): six jobs all firing at
-  // second 0 created a CPU/DB pile-up every 60s on the 2-core host.
-  cronJobs.push(cron.schedule('25 * * * * *', () => sendScheduledNotifications()));
-  console.log('Scheduled: every-minute check for admin-scheduled notifications');
+  // Staggered across the minute (seconds field) and thinned to every 5 minutes:
+  // these six jobs all running every 60s created a CPU/DB pile-up on the 2-core
+  // host (load ~1.9). A 5-minute cadence cuts ~80% of that churn; each job is
+  // a safety net / periodic check, none is latency-critical.
+  cronJobs.push(cron.schedule('25 */5 * * * *', () => sendScheduledNotifications()));
+  console.log('Scheduled: 5-min check for admin-scheduled notifications');
 
-  cronJobs.push(cron.schedule('5 * * * * *', () => sendPunchInReminders()));
-  console.log('Scheduled: every-minute check for punch-in reminders');
+  cronJobs.push(cron.schedule('5 */5 * * * *', () => sendPunchInReminders()));
+  console.log('Scheduled: 5-min check for punch-in reminders');
 
-  cronJobs.push(cron.schedule('15 * * * * *', () => sendPunchOutReminders()));
-  console.log('Scheduled: every-minute check for punch-out reminders');
+  cronJobs.push(cron.schedule('15 */5 * * * *', () => sendPunchOutReminders()));
+  console.log('Scheduled: 5-min check for punch-out reminders');
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 * * *', () => resetCycledDonors()));
     console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
   }
 
-  cronJobs.push(cron.schedule('35 * * * * *', () => autoReportMissedSchedules()));
-  console.log('Scheduled: every-minute check for missed schedules (10 min overdue)');
+  cronJobs.push(cron.schedule('35 */5 * * * *', () => autoReportMissedSchedules()));
+  console.log('Scheduled: 5-min check for missed schedules (10 min overdue)');
 
-  cronJobs.push(cron.schedule('45 * * * * *', () => autoReturnTransfers()));
+  cronJobs.push(cron.schedule('45 */5 * * * *', () => autoReturnTransfers()));
 
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 10 * *', () => runMonthlyLoanSettlement()));
     console.log('Scheduled: 10th of month - auto loan/advance settlement for previous month');
   }
-  // Every 60s, not 20s: donor-log writes already trigger a refresh via
+  // Every 5 min, not 20s: donor-log writes already trigger a refresh via
   // froDonorLogModel, so the poll is only a safety net. Each refresh runs a
   // window aggregation + per-worker upserts that broadcast realtime events.
-  cronJobs.push(cron.schedule('50 * * * * *', () => runSpecialIncentiveRefresh()));
-  console.log('Scheduled: every 60s - special incentive ("Sir ka Incentive") live tracking');
+  cronJobs.push(cron.schedule('50 */5 * * * *', () => runSpecialIncentiveRefresh()));
+  console.log('Scheduled: 5-min special incentive ("Sir ka Incentive") live tracking');
 
   // Clears every FRO's idle counter at the first tick of a new IST day (and once
   // after a deploy, so the currently inflated counts are reset immediately).
-  cronJobs.push(cron.schedule('55 * * * * *', () => checkAndResetFroIdleDaily()));
-  console.log('Scheduled: every-minute IST-day idle reset for all FROs');
-  console.log('Scheduled: every-minute check for expired lead transfers');
+  cronJobs.push(cron.schedule('55 */5 * * * *', () => checkAndResetFroIdleDaily()));
+  console.log('Scheduled: 5-min IST-day idle reset for all FROs');
+  console.log('Scheduled: 5-min check for expired lead transfers');
 
   // Email imports and Razorpay synchronization are manual-only. Do not schedule
   // background jobs for them; the Accounts screens can still start either action.

@@ -98,8 +98,8 @@ export async function runFroAutoLogout() {
 function start() {
   if (running) return;
   running = true;
-  cronJobs.push(cron.schedule('20 * * * * *', () => runFroAutoLogout().catch(() => {})));
-  console.log(`Scheduled: every-minute auto-logout sweep for FROs past shift end + ${AUTO_LOGOUT_AFTER_MIN} min`);
+  cronJobs.push(cron.schedule('20 */5 * * * *', () => runFroAutoLogout().catch(() => {})));
+  console.log(`Scheduled: 5-min auto-logout sweep for FROs past shift end + ${AUTO_LOGOUT_AFTER_MIN} min`);
 }
 
 function stop() {

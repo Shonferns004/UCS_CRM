@@ -14,11 +14,22 @@ export async function snapshotToPng(buffer, ext = 'pptx') {
   const safeExt = ext === 'docx' ? 'docx' : 'pptx';
   const dir = mkdtempSync(path.join(tmpdir(), 'cert-slide-'));
   const src = path.join(dir, `input.${safeExt}`);
+  // Each run gets an isolated LibreOffice user profile. Without it, LibreOffice
+  // reuses a daemonized instance keyed on the shared ~/.config profile and can
+  // leave a resident soffice.bin (~300-500MB) behind that never exits.
+  const profile = path.join(dir, 'lo-profile');
+  const profileUrl = 'file://' + profile;
   try {
     writeFileSync(src, buffer);
     let stdout = '';
     try {
-      const res = await execFileAsync('soffice', ['--headless', '--convert-to', 'png', '--outdir', dir, src], { timeout: 60000 });
+      const res = await execFileAsync('soffice', [
+        `-env:UserInstallation=${profileUrl}`,
+        '--headless',
+        '--convert-to', 'png',
+        '--outdir', dir,
+        src,
+      ], { timeout: 60000 });
       stdout = res.stdout || '';
     } catch (e) {
       // soffice not installed on the host -> no auto snapshot, stay on manual upload.
@@ -30,6 +41,12 @@ export async function snapshotToPng(buffer, ext = 'pptx') {
     if (!existsSync(out)) return null;
     return readFileSync(out);
   } finally {
+    // Kill any processes still attached to this run's profile. The unique
+    // profile path appears in the soffice command line, so pkill -f only
+    // matches this run's orphaned processes, never concurrent conversions.
+    try {
+      await execFileAsync('pkill', ['-f', profile], { timeout: 5000 });
+    } catch {}
     rmSync(dir, { recursive: true, force: true });
   }
 }

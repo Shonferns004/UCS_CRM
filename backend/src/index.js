@@ -112,7 +112,7 @@ app.set('trust proxy', 'loopback');
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Type'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Type', 'x-admin-key'],
 }));
 app.use(express.json({
   limit: '10mb',
@@ -498,7 +498,7 @@ app.get('/db-viewer', (req, res) => {
 });
 
 app.get('/env-admin', (req, res) => {
-  res.sendFile(path.resolve(__dirname, '../../env-admin.html'));
+  res.sendFile(path.resolve(__dirname, '../../others/env-admin.html'));
 });
 
 app.get('/api/db/tables', async (req, res) => {
