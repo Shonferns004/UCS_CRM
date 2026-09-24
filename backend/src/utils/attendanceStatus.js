@@ -13,7 +13,7 @@ function istDateStr(date = new Date()) {
   return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
 }
 
-async function getOfficeStart(workerId) {
+export async function getOfficeStart(workerId) {
   try {
     const worker = await getWorkerById(workerId);
     if (worker?.shift_start_time) {
@@ -27,7 +27,7 @@ async function getOfficeStart(workerId) {
   return { hour: hour || 10, minute: minute || 0 };
 }
 
-async function getOfficeEnd(workerId) {
+export async function getOfficeEnd(workerId) {
   try {
     const worker = await getWorkerById(workerId);
     if (worker?.shift_end_time) {
