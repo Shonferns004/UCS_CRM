@@ -5290,7 +5290,7 @@ export const getTLDashboard = async (req, res) => {
       // pill correctly shows the streak). Same streak source as idleMinutes.
       const idleStreakSeconds = acting
         ? (acting.status === 'idle' && acting.idle_since ? Math.max(0, Math.floor((now - new Date(acting.idle_since)) / 1000)) : 0)
-        : (!workAsName && ls.status === 'idle' && lsFresh && ls.idle_since)
+        : (!isWorkAs(ls) && ls.status === 'idle' && lsFresh && ls.idle_since)
           ? Math.max(0, Math.floor((now - new Date(ls.idle_since)) / 1000))
           : 0;
       const effectiveIdleSeconds = (ls.today_idle_seconds || 0) + idleStreakSeconds;
@@ -5310,7 +5310,7 @@ export const getTLDashboard = async (req, res) => {
         } else {
           status = 'online';
         }
-      } else if (isPresent(w.id) && !workAsName && lsFresh) {
+      } else if (isPresent(w.id) && !isWorkAs(ls) && lsFresh) {
         if (ls.status === 'on_call' && lsFresh) {
           status = 'on_call';
         } else if (ls.status === 'idle' && lsFresh) {
