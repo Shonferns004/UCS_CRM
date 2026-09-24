@@ -1,7 +1,4 @@
 ﻿import '../../core/lucide_icons.dart';
-import 'dart:convert';
-import 'dart:typed_data';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
@@ -126,38 +123,8 @@ Future<void> _pickDob() async {
     );
   }
 
-  Future<void> _pickHandicapCert() async {
-    if (_loading || _created != null) return;
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final file = result.files.first;
-      final Uint8List bytes = file.bytes ?? await file.xFile.readAsBytes();
-      if (!mounted) return;
-      setState(() {
-        _handicapCertBase64 = base64Encode(bytes);
-        _handicapCertName = file.name;
-      });
-      showAppSnackbar(
-        context,
-        'Handicap certificate copy attached to this registration.',
-        success: true,
-      );
-    } catch (_) {
-      if (!mounted) return;
-      showAppSnackbar(
-        context,
-        'Could not pick the certificate image. Try again.',
-        error: true,
-      );
-    }
-  }
-
-  // Capture a photo of the certificate and apply the scan (whitening) effect
-  // so it attaches as a proper scanned document.
+  // Capture a photo of the certificate and run it through the document
+  // scanner so it attaches as a proper scanned copy.
   Future<void> _captureHandicapCert() async {
     if (_loading || _created != null) return;
     final result = await Navigator.push<Map<String, dynamic>>(
@@ -173,46 +140,6 @@ Future<void> _pickDob() async {
       context,
       'Scanned certificate copy attached to this registration.',
       success: true,
-    );
-  }
-
-  void _showDocumentOptions() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetCtx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 20, 24, 4),
-              child: Text(
-                'Attach certificate copy',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(LucideIcons.scanLine),
-              title: const Text('Capture with scanner'),
-              subtitle: const Text('Photograph the document and whiten it like a scan'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                _captureHandicapCert();
-              },
-            ),
-            ListTile(
-              leading: const Icon(LucideIcons.camera),
-              title: const Text('Choose from gallery'),
-              subtitle: const Text('Pick an existing image of the certificate'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                _pickHandicapCert();
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
     );
   }
 
@@ -470,7 +397,7 @@ const SizedBox(height: 16),
                   TextButton.icon(
                     onPressed: (_loading || created != null)
                         ? null
-                        : _showDocumentOptions,
+                        : _captureHandicapCert,
                     icon: Icon(
                         _handicapCertBase64 != null
                             ? LucideIcons.checkCircle
