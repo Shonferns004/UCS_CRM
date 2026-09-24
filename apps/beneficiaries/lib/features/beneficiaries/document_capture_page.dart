@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'dart:isolate';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/lucide_icons.dart';
@@ -42,8 +41,10 @@ class _DocumentCapturePageState extends State<DocumentCapturePage> {
       if (bytes == null) return;
       if (!mounted) return;
       // Run edge detection + perspective warp + whitening off the UI isolate
-      // so the loading indicator can paint while it works.
-      final scanned = await Isolate.run(() => scanDocument(bytes));
+      // so the loading indicator can paint while it works. `compute` sends
+      // the top-level `scanDocument` function and the bytes as data, avoiding
+      // the Isolate.run closure-capture (unsendable _AsyncCompleter) bug.
+      final scanned = await compute(scanDocument, bytes);
       if (!mounted) return;
       setState(() {
         _original = bytes;
