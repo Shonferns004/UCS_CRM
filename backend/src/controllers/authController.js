@@ -502,6 +502,35 @@ export const impersonateFRO = async (req, res) => {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
+    // Reopen the target's CRM session: a work-as switch is an explicit
+    // activation of the covered FRO's session. Without this, the heartbeat
+    // force-logout guard (froController.updateLiveStatus) sees the target's
+    // stale logged_out_at left by an earlier auto/manual logout and answers
+    // 401 — bouncing the acting operator to /login the moment they finish the
+    // switch. The login anchor becomes the switch time so the worked clock
+    // starts from actual coverage; an existing same-day anchor is preserved so
+    // hours the owner already put in today are not wiped.
+    try {
+      const now = new Date().toISOString();
+      let loginAt = now;
+      const existing = await sql('SELECT logged_in_at FROM auth_sessions WHERE user_id = $1', [String(target.id)]);
+      if (existing?.[0]?.logged_in_at) {
+        const sameIstDay = (a, b) =>
+          new Date(new Date(a).getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10) ===
+          new Date(new Date(b).getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+        if (sameIstDay(existing[0].logged_in_at, now)) loginAt = existing[0].logged_in_at;
+      }
+      await sql(
+        `INSERT INTO auth_sessions (user_id, client, name, role, logged_in_at, last_active_at, logged_out_at)
+         VALUES ($1, 'crm', $2, 'fro', $3, $4, NULL)
+         ON CONFLICT (user_id)
+         DO UPDATE SET name = $2, role = 'fro', logged_in_at = $3, last_active_at = $4, logged_out_at = NULL`,
+        [String(target.id), target.name || null, loginAt, now]
+      );
+    } catch (e) {
+      // auth_sessions may be absent until migration 125 — the switch still works.
+    }
+
     // Station-scoped work-as: the operator picks which of the target's stations
     // they will work. Claimed pairs are locked for the session duration so
     // another operator acting as the same FRO cannot take them too. Omitted
