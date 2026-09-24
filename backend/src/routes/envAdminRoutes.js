@@ -337,6 +337,10 @@ router.get('/system', async (req, res) => {
       mem,
       disk,
       pm2,
+      // This process's own heap breakdown: rss vs the V8 heap we cap in
+      // ecosystem.config.cjs (old-space limit) — use it to spot Buffer/native
+      // growth that V8 GC can never reclaim.
+      proc_mem: process.memoryUsage(),
       now: new Date().toISOString(),
     });
   } catch (err) {
@@ -344,12 +348,40 @@ router.get('/system', async (req, res) => {
   }
 });
 
+// Top CPU/memory consumers on the host (one line per PID). Shows things PM2
+// does not manage — stray soffice orphans, converters, pg_dump, etc.
+router.get('/system/procs', async (req, res) => {
+  try {
+    const out = execSync(
+      "ps -eo pid,ppid,pcpu,pmem,rss,etime,user,comm,args --sort=-rss | head -n 30",
+      { encoding: 'utf8', timeout: 8000 }
+    );
+    const lines = out.trim().split('\n').map((l) => l.replace(/\s+/g, ' ').split(' '));
+    const [, ...rows] = lines;
+    const procs = rows.map((r) => ({
+      pid: Number(r[0]),
+      ppid: Number(r[1]),
+      pcpu: parseFloat(r[2]),
+      pmem: parseFloat(r[3]),
+      rss_mb: Math.round((+r[4] / 1024) * 10) / 10,
+      etime: r[5],
+      user: r[6],
+      cmd: r.slice(8).join(' '),
+    }));
+    res.json({ procs });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Trigger a backend restart so .env changes take effect. The restart is fired
 // as a detached child (with a short delay) so the response is sent before the
-// current process is killed.
+// current process is killed. Also kills any orphaned LibreOffice (soffice)
+// processes — those are not PM2 children, so a plain restart never reclaimed
+// them and they could chew hundreds of MB of RAM each.
 router.post('/restart', async (req, res) => {
   try {
-    const child = spawn('sh', ['-c', 'sleep 2 && pm2 restart backend --update-env'], {
+    const child = spawn('sh', ['-c', 'pkill -f soffice.bin; sleep 2 && pm2 restart backend --update-env'], {
       detached: true,
       stdio: 'ignore',
       cwd: PROJECTS_ROOT,
