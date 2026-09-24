@@ -11,13 +11,14 @@ class KitGivenUsersCard extends StatefulWidget {
   const KitGivenUsersCard({super.key});
 
   @override
-  State<KitGivenUsersCard> createState() => _KitGivenUsersCardState();
+  State<KitGivenUsersCard> createState() => KitGivenUsersCardState();
 }
 
-class _KitGivenUsersCardState extends State<KitGivenUsersCard> {
+class KitGivenUsersCardState extends State<KitGivenUsersCard> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
   bool _showAll = false;
+  String? _error;
 
   @override
   void initState() {
@@ -25,20 +26,28 @@ class _KitGivenUsersCardState extends State<KitGivenUsersCard> {
     _loadUsers();
   }
 
+  Future<void> refresh() => _loadUsers();
+
   Future<void> _loadUsers() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final result = await ApiService.get('/beneficiaries', queryParams: {
         'kit_given': 'true',
-        'pageSize': '50',
+        'pageSize': '100',
       });
       final data = result['data'] ?? result['beneficiaries'] ?? [];
       setState(() {
         _users = data.map((e) => Map<String, dynamic>.from(e)).toList();
         _loading = false;
       });
-    } catch (_) {
-      setState(() => _loading = false);
+    } catch (e) {
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
     }
   }
 
@@ -77,6 +86,38 @@ class _KitGivenUsersCardState extends State<KitGivenUsersCard> {
               decoration: BoxDecoration(
                 color: AppColors.skeleton,
                 borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          )
+        else if (_error != null)
+          InkWell(
+            onTap: _loadUsers,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceSoft,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  const Icon(LucideIcons.alertCircle,
+                      color: AppColors.error, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                          fontSize: 12.5, color: AppColors.textSecondary),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _loadUsers,
+                    child: const Text('Retry',
+                        style: TextStyle(fontSize: 12.5)),
+                  ),
+                ],
               ),
             ),
           )

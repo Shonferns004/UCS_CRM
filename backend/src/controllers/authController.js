@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import db, { sql } from '../config/db.js';
 import { getWorkerByLoginId, getWorkerById, updateWorker } from '../models/workerModel.js';
+import { getBnfOperatorByLoginId, getBnfOperatorById, updateBnfOperator } from '../models/bnfOperatorModel.js';
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
@@ -214,14 +215,29 @@ export const unifiedLogin = async (req, res) => {
     const signOptions = expiry ? { expiresIn: expiry } : {};
 
     // Beneficiaries app login gate: when the client declares itself, only
-    // workers flagged bnf_operator may sign in. Everything else is denied.
+    // accounts in the bnf_operators table may sign in. Everything else is
+    // denied. Operators have their own table (not workers).
     const isAppLogin = req.body.client === 'beneficiaries';
-    const denyNonAppOperator = (account) => {
-      if (!isAppLogin) return false;
-      if (account && account.bnf_operator === true && account.is_active !== false) return false;
-      return true;
-    };
     const appDenied = () => res.status(403).json({ message: 'Access denied. Only designated operators can log into the Beneficiaries app.' });
+
+    if (isAppLogin) {
+      const operator = await getBnfOperatorByLoginId(identifier);
+      if (!operator || operator.is_active === false) return appDenied();
+      const isMatch = await bcrypt.compare(password, operator.password);
+      if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
+      const role = 'worker';
+      const token = jwt.sign(
+        { id: operator.id, login_id: operator.login_id, name: operator.name, role, department: 'operator' },
+        process.env.JWT_SECRET,
+        signOptions
+      );
+      return res.json({
+        token,
+        role,
+        user: { id: operator.id, name: operator.name, email: operator.email, login_id: operator.login_id, department: 'operator' },
+        message: 'Login successful',
+      });
+    }
 
     if (isUfsLogin) {
       const worker = await getWorkerByLoginId(identifier);
@@ -231,7 +247,6 @@ export const unifiedLogin = async (req, res) => {
       if (worker.is_active === false || worker.employment_status === 'terminated') {
         return res.status(403).json({ message: 'Account is deactivated' });
       }
-      if (denyNonAppOperator(worker)) return appDenied();
       const isMatch = await bcrypt.compare(password, worker.password);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid password' });
@@ -265,7 +280,6 @@ export const unifiedLogin = async (req, res) => {
         identifier === process.env.ADMIN_EMAIL &&
         password === process.env.ADMIN_PASSWORD
       ) {
-        if (denyNonAppOperator(null)) return appDenied();
         const token = jwt.sign(
           { id: 0, email: identifier, role: 'super_admin', name: 'Super Admin' },
           process.env.JWT_SECRET,
@@ -279,7 +293,6 @@ export const unifiedLogin = async (req, res) => {
         identifier === process.env.USER_EMAIL &&
         password === process.env.USER_PASSWORD
       ) {
-        if (denyNonAppOperator(null)) return appDenied();
         const token = jwt.sign(
           { id: -1, email: identifier, role: 'user', name: 'User' },
           process.env.JWT_SECRET,
@@ -294,7 +307,6 @@ export const unifiedLogin = async (req, res) => {
         if (user.is_active === false) {
           return res.status(403).json({ message: 'Account is deactivated' });
         }
-        if (denyNonAppOperator(user)) return appDenied();
         const isMatch = await bcrypt.compare(password, user.password_hash);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -314,7 +326,6 @@ export const unifiedLogin = async (req, res) => {
         if (hr.is_active === false) {
           return res.status(403).json({ message: 'Account is deactivated' });
         }
-        if (denyNonAppOperator(hr)) return appDenied();
         const isMatch = await bcrypt.compare(password, hr.password_hash);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -335,7 +346,6 @@ export const unifiedLogin = async (req, res) => {
         if (workerByLogin.is_active === false || workerByLogin.employment_status === 'terminated') {
           return res.status(403).json({ message: 'Account is deactivated' });
         }
-        if (denyNonAppOperator(workerByLogin)) return appDenied();
         const isMatch = await bcrypt.compare(password, workerByLogin.password);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -372,7 +382,6 @@ export const unifiedLogin = async (req, res) => {
       if (userFromName.is_active === false) {
         return res.status(403).json({ message: 'Account is deactivated' });
       }
-      if (denyNonAppOperator(userFromName)) return appDenied();
       const isMatch = await bcrypt.compare(password, userFromName.password_hash);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid password' });
@@ -394,7 +403,6 @@ export const unifiedLogin = async (req, res) => {
     if (worker.is_active === false || worker.employment_status === 'terminated') {
       return res.status(403).json({ message: 'Account is deactivated' });
     }
-    if (denyNonAppOperator(worker)) return appDenied();
     const isMatch = await bcrypt.compare(password, worker.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid password' });
@@ -762,8 +770,15 @@ export const changePassword = async (req, res) => {
 
     let source = null; // { id, table, passwordColumn, currentHash }
     if (req.user.login_id) {
-      const worker = await getWorkerByLoginId(req.user.login_id) || await getWorkerById(req.user.id);
-      if (worker) source = { id: worker.id, update: (h) => updateWorker(worker.id, { password: h }), currentHash: worker.password };
+      // Operators (Beneficiaries app) live in bnf_operators — check there first,
+      // then fall back to the workers table.
+      const bnfOp = await getBnfOperatorByLoginId(req.user.login_id) || await getBnfOperatorById(req.user.id);
+      if (bnfOp) {
+        source = { id: bnfOp.id, update: (h) => updateBnfOperator(bnfOp.id, { password: h }), currentHash: bnfOp.password };
+      } else {
+        const worker = await getWorkerByLoginId(req.user.login_id) || await getWorkerById(req.user.id);
+        if (worker) source = { id: worker.id, update: (h) => updateWorker(worker.id, { password: h }), currentHash: worker.password };
+      }
     } else if (req.user.role === 'hr') {
       const hr = await getHRById(req.user.id) || await getHRByEmail(req.user.email);
       if (hr) source = { id: hr.id, update: (h) => updateHR(hr.id, { password_hash: h }), currentHash: hr.password_hash };

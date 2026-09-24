@@ -84,10 +84,15 @@ class _HomePageState extends State<HomePage> {
       body: pages[_currentTab],
       bottomNavigationBar: BottomNavigation(
         currentIndex: _currentTab,
-        onChanged: (i) => setState(() => _currentTab = i),
+        onChanged: (i) {
+          setState(() => _currentTab = i);
+          if (i == 1) _kitCardKey.currentState?.refresh();
+        },
       ),
     );
   }
+
+  final GlobalKey<KitGivenUsersCardState> _kitCardKey = GlobalKey();
 
   Widget _buildHomeContent() {
     return SafeArea(
@@ -96,13 +101,14 @@ class _HomePageState extends State<HomePage> {
         onRefresh: () async {
           await _loadData();
           await _checkDevice();
+          await _kitCardKey.currentState?.refresh();
         },
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           children: [
             if (_overview != null) _buildStats(),
             if (_overview != null) const SizedBox(height: 28),
-            const KitGivenUsersCard(),
+            KitGivenUsersCard(key: _kitCardKey),
           ],
         ),
       ),
