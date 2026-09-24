@@ -199,6 +199,16 @@ ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS slab_label TEXT
 -- (celebrated_at set once when Super Admin hits Send; never rewritten).
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS winner_photo_url TEXT;
 ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS celebrated_at TIMESTAMPTZ;
+-- Snapshot the range's competition window so History can show start/end time.
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE lead_champion_announcements ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+-- Backfill older announcements (no-op when nothing to fill).
+UPDATE lead_champion_announcements a
+SET started_at = s.started_at, ended_at = s.ended_at
+FROM incentive_slabs s
+WHERE a.slab_id = s.id
+  AND s.started_at IS NOT NULL
+  AND (a.started_at IS NULL OR a.ended_at IS NULL);
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint

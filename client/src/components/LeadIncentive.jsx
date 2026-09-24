@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from '../api/auth'
 import { useRealtime } from '../hooks/useRealtime'
-import { ChartBar, ArrowsClockwise, GearSix, Stack, CaretRight, Plus, X, Trophy, Users, CalendarBlank, FileText, PencilSimple, Trash, Play, ClockCounterClockwise, Sparkle, Camera, PaperPlaneTilt, CheckCircle } from '@phosphor-icons/react'
+import { ChartBar, ArrowsClockwise, GearSix, Stack, CaretRight, Plus, X, Trophy, Users, CalendarBlank, FileText, PencilSimple, Trash, Play, ClockCounterClockwise, Sparkle, Camera, PaperPlaneTilt, CheckCircle, Clock } from '@phosphor-icons/react'
 
 const fmt = (n) => {
   const v = Number(n)
@@ -31,6 +31,12 @@ const fmtDate = (d) => {
   const dt = new Date(d)
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+const fmtTime = (d) => {
+  if (!d) return '—'
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
 }
 
 const fmtSlabRange = (s) => `₹${fmt(s.min_amount)} ↔ ₹${fmt(s.max_amount)}`
@@ -1042,7 +1048,27 @@ function WinnerComposer({ row, onSent }) {
 }
 
 // ─── History: winners + celebrations ──────────────────────
-function HistoryPanel({ date, onDateChange, champions, announcements, loading, fetchError, onRetry, announcing, announceError, onAnnounce, onSent }) {
+// Shows the range's competition window (start → end) for each winner.
+function TimeRange({ slab, started_at, ended_at }) {
+  const s = started_at || slab?.started_at
+  const e = ended_at || slab?.ended_at
+  if (!s && !e) return null
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 3, fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <Clock size={12} />
+      <span style={{ color: C.dark, fontWeight: 600 }}>{fmtTime(s)}</span>
+      <span style={{ color: '#B9C8DC' }}>→</span>
+      <span style={{ color: C.dark, fontWeight: 600 }}>{fmtTime(e)}</span>
+    </div>
+  )
+}
+
+function HistoryPanel({ date, onDateChange, champions, announcements, loading, fetchError, onRetry, announcing, announceError, onAnnounce, onSent, slabs }) {
+  const slabById = useMemo(() => {
+    const m = {}
+    for (const s of slabs || []) m[String(s.id)] = s
+    return m
+  }, [slabs])
   const announcedSlabIds = useMemo(
     () => new Set((announcements || []).map(a => String(a.slab_id))),
     [announcements]
@@ -1150,6 +1176,7 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
                 <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {a.slab_label} · ₹{fmt(a.total_amount)} · Prize ₹{fmt(a.slab_bonus || a.total_incentive)}
                 </div>
+                <TimeRange started_at={a.started_at} ended_at={a.ended_at} slab={slabById[String(a.slab_id)]} />
               </div>
               {a.celebrated_at ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: C.greenBg, color: C.green, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -1186,6 +1213,7 @@ function HistoryPanel({ date, onDateChange, champions, announcements, loading, f
                     <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {a.slab_label} · {String(a.announcement_date).slice(0, 10)}
                     </div>
+                    <TimeRange started_at={a.started_at} ended_at={a.ended_at} slab={slabById[String(a.slab_id)]} />
                   </div>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: '#B7791F', whiteSpace: 'nowrap' }}>₹{fmt(a.slab_bonus || a.total_incentive)}</span>
                 </div>
@@ -1277,39 +1305,39 @@ export default function LeadIncentive() {
       })
   }, [uniqueSlabs, summary])
 
-  const loadSlabs = useCallback(async () => {
+  const loadSlabs = useCallback(async (silent = false) => {
     try {
-      setSlabsLoading(true)
+      if (!silent) setSlabsLoading(true)
       const data = await api('/incentive/lead/slabs', { _prefix: 'ucs' })
       if (Array.isArray(data)) setSlabs(data)
     } catch { /* ignore */ }
-    finally { setSlabsLoading(false) }
+    finally { if (!silent) setSlabsLoading(false) }
   }, [])
 
-  const loadSummary = useCallback(async () => {
+  const loadSummary = useCallback(async (silent = false) => {
     try {
-      setLoading(true)
-      setSummaryError(null)
+      if (!silent) setLoading(true)
       const data = await api(`/incentive/lead/lead-summary?date=${date}`, { _prefix: 'ucs' })
       if (data) setSummary(data)
+      setSummaryError(null)
     } catch {
-      setSummaryError('Failed to load the leaderboard data')
+      if (!silent) setSummaryError('Failed to load the leaderboard data')
     }
-    finally { setLoading(false) }
+    finally { if (!silent) setLoading(false) }
   }, [date])
 
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyFetchError, setHistoryFetchError] = useState(null)
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (silent = false) => {
     try {
-      setHistoryFetchError(null)
       const h = await api('/incentive/lead/champion/history', { _prefix: 'ucs' })
       setHistory(Array.isArray(h) ? h : [])
+      setHistoryFetchError(null)
     } catch (e) {
-      setHistoryFetchError(e.message || 'Failed to load history')
+      if (!silent) setHistoryFetchError(e.message || 'Failed to load history')
     }
-    finally { setHistoryLoading(false) }
+    finally { if (!silent) setHistoryLoading(false) }
   }, [])
 
   useEffect(() => { loadSlabs() }, [loadSlabs])
@@ -1317,11 +1345,12 @@ export default function LeadIncentive() {
 
   // Live updates via realtime (no polling): slabs, verified collections,
   // champion announcements and celebrations all refresh this page instantly.
+  // Background refreshes are silent — they never flash the loading skeleton.
   const reloadTimer = useRef(null)
   const reloadAll = useCallback(() => {
-    loadSlabs()
-    loadSummary()
-    loadHistory()
+    loadSlabs(true)
+    loadSummary(true)
+    loadHistory(true)
   }, [loadSlabs, loadSummary, loadHistory])
   const reloadSoon = useCallback(() => {
     clearTimeout(reloadTimer.current)
@@ -1341,7 +1370,7 @@ export default function LeadIncentive() {
         method: 'POST', _prefix: 'ucs',
         body: JSON.stringify({ date }),
       })
-      await Promise.all([loadHistory(), loadSummary()])
+      await Promise.all([loadHistory(true), loadSummary(true)])
     } catch (e) {
       setHistoryError(e.message || 'Failed to announce winners')
     } finally { setAnnouncing(false) }
@@ -1447,6 +1476,7 @@ export default function LeadIncentive() {
             onDateChange={setHistDate}
             champions={histDate === date ? (summary?.champions || []) : []}
             announcements={history}
+            slabs={uniqueSlabs}
             loading={historyLoading}
             fetchError={historyFetchError}
             onRetry={() => { setHistoryLoading(true); loadHistory() }}
