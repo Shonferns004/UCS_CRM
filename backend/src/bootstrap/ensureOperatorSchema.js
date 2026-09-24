@@ -62,6 +62,23 @@ export async function ensureOperatorSchema() {
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS kit_id INT REFERENCES bnf_kits(id) ON DELETE SET NULL`);
   await db._pool.query(`ALTER TABLE operator_assignments ADD COLUMN IF NOT EXISTS organizer_id INT REFERENCES bnf_organizers(id) ON DELETE SET NULL`);
 
+  // Default kit catalog seeded for immediate use — the operator app's Kit
+  // dropdown is populated from bnf_kits. Same 'WHERE NOT EXISTS' guard as the
+  // categories/benefits seed; already-present names are skipped on re-boot.
+  const kits = [
+    'Foodgrain Kit', 'Stationery Kit', 'Sanitary Pad', 'Sewing Machine',
+    'Floor Mill', 'Blind Stick', 'School Bag & Kit', 'Meal Distribution',
+    'Cloths Distribution', 'Snacks Distribution', 'Utensils Distribution',
+    'Toys Distribution', 'Festival Kit Distribution', 'Tricycle',
+    'Wheelchair', 'Rojghar Booth', 'Financial Support',
+  ];
+  for (const name of kits) {
+    await db._pool.query(
+      `INSERT INTO bnf_kits (name) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM bnf_kits WHERE name = $1)`,
+      [name]
+    ).catch(() => {});
+  }
+
   const steps = [
     `CREATE INDEX IF NOT EXISTS idx_operator_events_date ON operator_events (event_date)`,
     `CREATE INDEX IF NOT EXISTS idx_operator_assignments_operator ON operator_assignments (operator_id, assignment_date)`,
