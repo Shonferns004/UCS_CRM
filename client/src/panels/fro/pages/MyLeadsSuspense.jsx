@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Trophy, Clock, PhoneOutgoing, Activity, ArrowUp, ArrowDown } from 'lucide-react';
+import { Trophy, Clock, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown } from 'lucide-react';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
@@ -65,6 +65,7 @@ return (
         <div style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', height: '100%' }}>
           <Metric label="Rank" value={data?.rank ? `#${data.rank}` : '—'} accent="#7c3aed" icon={<Trophy size={16} />} />
           <Metric label="Idle" value={formatIdle(data?.idle_seconds)} accent="#d97706" icon={<Clock size={16} />} />
+          <Metric label="Worked" value={`${formatIdle(data?.worked_seconds)} / 8h`} good={(data?.worked_seconds ?? 0) >= 8 * 3600} accent="#0891b2" icon={<Timer size={16} />} />
           <Metric label="Calls" value={(data?.today_calls ?? 0).toString()} good={(data?.today_calls ?? 0) >= callTarget} accent="#2563eb" icon={<PhoneOutgoing size={16} />} />
 <Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
         </div>
