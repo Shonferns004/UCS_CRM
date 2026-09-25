@@ -5,7 +5,6 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
-import 'aadhaar_scanner_page.dart';
 import 'document_capture_page.dart';
 import 'fingerprint_enroll_panel.dart';
 
@@ -92,6 +91,29 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     }
   }
 
+  // Dropdown items, tolerant of ids coming as int OR string, de-duplicated so
+  // the dropdown never sees two items with the same value.
+  List<DropdownMenuItem<int>> _ngoItems() {
+    final seen = <int, String>{};
+    for (final n in _ngos) {
+      final id = int.tryParse('${n['id'] ?? ''}');
+      if (id == null) continue;
+      seen.putIfAbsent(id, () => n['name']?.toString() ?? 'NGO');
+    }
+    return [
+      for (final e in seen.entries)
+        DropdownMenuItem<int>(
+          value: e.key,
+          child: Text(e.value, overflow: TextOverflow.ellipsis),
+        ),
+    ];
+  }
+
+  Set<int> _ngoIdSet() => {
+        for (final n in _ngos)
+          if (int.tryParse('${n['id'] ?? ''}') case final int id) id,
+      };
+
   Future<void> _pickDob() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
@@ -101,48 +123,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       lastDate: now,
     );
     if (picked != null) setState(() => _dob = picked);
-  }
-
-  Future<void> _scanAadhaar() async {
-    if (_loading || _created != null) return;
-    final result = await Navigator.push<Map<String, dynamic>>(
-      context,
-      MaterialPageRoute(builder: (_) => const AadhaarScannerPage()),
-    );
-    if (result == null || !mounted) return;
-
-    setState(() {
-      final name = result['name']?.toString();
-      if (name != null && name.trim().isNotEmpty) {
-        _fullNameController.text = name.trim();
-      }
-      final dob = result['dob']?.toString();
-      if (dob != null && dob.isNotEmpty) {
-        final parts = dob.split('-');
-        if (parts.length == 3) {
-          final y = int.tryParse(parts[0]);
-          final m = int.tryParse(parts[1]);
-          final d = int.tryParse(parts[2]);
-          if (y != null && m != null && d != null) {
-            _dob = DateTime(y, m, d);
-          }
-        }
-      }
-      final gender = result['gender']?.toString();
-      if (gender != null && gender.isNotEmpty) {
-        _gender = gender;
-      }
-      final address = result['address']?.toString();
-      if (address != null && address.trim().isNotEmpty) {
-        _addressController.text = address.trim();
-      }
-    });
-
-    showAppSnackbar(
-      context,
-      'Aadhaar details imported. Please review before registering.',
-      success: true,
-    );
   }
 
   String _docLabel(_DocType type) => _docs.firstWhere((d) => d.type == type).label;
@@ -233,6 +213,65 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       '${_docLabel(selected)} copy attached.',
       success: true,
     );
+    // An uploaded Aadhaar card is automatically scraped for every field it
+    // shows, so the form fills itself from the attached photo.
+    if (selected == _DocType.aadhaar) {
+      await _scrapeAadhaarDoc();
+    }
+  }
+
+  Future<void> _scrapeAadhaarDoc() async {
+    final base64 = _docs.firstWhere((d) => d.type == _DocType.aadhaar).base64;
+    if (base64 == null || base64.isEmpty) return;
+    try {
+      final fields = await ApiService.parseAadhaarPhoto(base64);
+      if (!mounted) return;
+
+      setState(() {
+        final name = fields['name']?.toString();
+        if (name != null && name.trim().isNotEmpty) {
+          _fullNameController.text = name.trim();
+        }
+        final dob = fields['dob']?.toString();
+        if (dob != null && dob.length >= 10) {
+          final parts = dob.split('-');
+          if (parts.length == 3) {
+            final y = int.tryParse(parts[0]);
+            final m = int.tryParse(parts[1]);
+            final d = int.tryParse(parts[2]);
+            if (y != null && m != null && d != null) {
+              _dob = DateTime(y, m, d);
+            }
+          }
+        }
+        final gender = fields['gender']?.toString();
+        if (gender != null && gender.trim().isNotEmpty) {
+          _gender = gender;
+        }
+        final address = fields['address_line_1']?.toString();
+        if (address != null && address.trim().isNotEmpty) {
+          _addressController.text = address.trim();
+        }
+        final aadhaar = fields['aadhaar_number']?.toString();
+        if (aadhaar != null && aadhaar.trim().isNotEmpty) {
+          _aadhaarController.text = aadhaar.trim();
+        }
+      });
+
+      showAppSnackbar(
+        context,
+        'Aadhaar details auto-filled. Please review before registering.',
+        success: true,
+      );
+    } catch (e) {
+      if (mounted) {
+        showAppSnackbar(
+          context,
+          'Aadhaar copy attached, but details could not be read: $e',
+          warning: true,
+        );
+      }
+    }
   }
 
   Widget _docOption(_DocType type, String label, String sub, IconData icon) {
@@ -387,18 +426,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             const SectionHeader(title: 'Personal Information'),
             const SizedBox(height: 16),
 
-            // Aadhaar auto-fill entry point: opens the camera to scan the
-            // SecureQR on an Aadhaar card and fills the form below.
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _scanAadhaar,
-                icon: const Icon(LucideIcons.scanLine, size: 18),
-                label: const Text('Scan Aadhaar (auto-fill)'),
-              ),
-            ),
-            const SizedBox(height: 16),
-
             TextFormField(
               controller: _fullNameController,
               decoration: const InputDecoration(labelText: 'Full Name *'),
@@ -464,18 +491,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
-              initialValue: _selectedNgoId,
+              initialValue: _ngoIdSet().contains(_selectedNgoId) ? _selectedNgoId : null,
               decoration: const InputDecoration(labelText: 'NGO *'),
               hint: const Text('Select NGO'),
-              items: _ngos
-                  .map((n) => DropdownMenuItem<int>(
-                        value: (n['id'] as num?)?.toInt(),
-                        child: Text(
-                          n['name']?.toString() ?? 'NGO',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ))
-                  .toList(),
+              items: _ngoItems(),
               isExpanded: true,
               onChanged:
                   (_loading || created != null) ? null : (v) => setState(() => _selectedNgoId = v),

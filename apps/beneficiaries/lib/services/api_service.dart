@@ -48,23 +48,13 @@ class ApiService {
     return _handleResponse(res);
   }
 
-  /// Decodes a raw Aadhaar QR payload server-side and returns the autofill
-  /// fields ({ name, dob, gender, address }). The raw payload is sent once
-  /// and never persisted on the device.
-  static Future<Map<String, dynamic>> decodeAadhaarQr(String qrData) async {
-    final res = await post('/aadhaar/decode-qr',
-        body: {'qrData': qrData}, timeout: const Duration(seconds: 30));
-    final data = res['data'];
-    return data is Map<String, dynamic>
-        ? data
-        : (data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
-  }
-
-  /// Sends a card photo (base64) to the backend, which reads the fields with
-  /// Gemini vision. `side` selects which fields are extracted: 'front' returns
-  /// name/dob/gender/aadhaar_number, 'back' returns address_line_1. The photo
-  /// is sent once and never persisted on the device.
-  static Future<Map<String, dynamic>> parseAadhaarPhoto(String base64, {String side = 'front'}) async {
+  /// Sends a card photo (base64) to the backend which reads the details with
+  /// Gemini vision and returns the fields scraped from it (name/dob/gender/
+  /// address_line_1/aadhaar_number). `side` picks the extraction scope:
+  /// 'front', 'back', or 'all' (default). The photo is sent once and never
+  /// persisted on the device.
+  static Future<Map<String, dynamic>> parseAadhaarPhoto(String base64,
+      {String side = 'all'}) async {
     return post('/beneficiaries/aadhaar/parse-photo',
         body: {'image': base64, 'side': side}, timeout: const Duration(seconds: 60));
   }
