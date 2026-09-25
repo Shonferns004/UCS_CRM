@@ -67,7 +67,7 @@ export const createNewBeneficiary = async (req, res) => {
       bpl_available, ration_card_available, occupation, mother_name, father_name,
       guardian_name, guardian_occupation, total_family_members, ngo_id, registration_date,
       category_ids, disabilities, family_members, education, employment, assistance_requirements,
-      aadhaar_number,
+      aadhaar_number, needed,
     } = req.body;
 
     if (!full_name) return res.status(400).json({ message: 'Full name is required' });
@@ -81,7 +81,7 @@ export const createNewBeneficiary = async (req, res) => {
       address_line_1, address_line_2, area, city, district, state, pincode, photo,
       monthly_family_income, income_category, bpl_available, ration_card_available,
       occupation, mother_name, father_name, guardian_name, guardian_occupation,
-      total_family_members, ngo_id, registration_date, aadhaar_number,
+      total_family_members, ngo_id, registration_date, aadhaar_number, needed,
       status: 'ACTIVE', fingerprint_status: 'NOT_REGISTERED',
       created_by, updated_by: created_by,
     });

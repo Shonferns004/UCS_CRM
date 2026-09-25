@@ -112,7 +112,7 @@ export const searchBeneficiaries = async (q) => {
   if (!q || q.length < 2) return [];
   const { data, error } = await db
     .from('beneficiaries')
-    .select('id, beneficiary_code, full_name, mobile, status, city, photo')
+    .select('id, beneficiary_code, full_name, mobile, status, city, photo, needed')
     .or(`beneficiary_code.ilike.%${q}%,full_name.ilike.%${q}%,mobile.ilike.%${q}%`)
     .limit(20);
   if (error) throw error;

@@ -54,6 +54,12 @@ await db._pool.query(
     "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS aadhaar_number TEXT"
   ).catch(() => {});
 
+  // Free-text "what does this beneficiary need" (typed by the operator on the
+  // Add Beneficiary screen).
+  await db._pool.query(
+    "ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS needed TEXT"
+  ).catch(() => {});
+
   // Upgrade guard for installations that still use the old kit_collected*
   // naming: copy the values over and drop the legacy columns.
   await db._pool.query(
