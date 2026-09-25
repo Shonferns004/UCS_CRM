@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useBnfBase } from '../bnfUi'
-import { apiGet } from '../store'
+import { apiGet, apiPost } from '../store'
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
@@ -52,6 +52,40 @@ export default function AllBeneficiaries() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  const [selected, setSelected] = useState(new Set())
+
+  const currentIds = data.data?.map((b) => b.id) || []
+  const allSelected = currentIds.length > 0 && currentIds.every((id) => selected.has(id))
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(currentIds))
+
+  const handleDeleteSelected = async () => {
+    if (selected.size === 0) return
+    const ok = window.confirm(
+      `Permanently delete ${selected.size} beneficiary(ies)?\n\n` +
+      `This removes ALL records: profile, documents, fingerprints (biometric), disability, family, education, benefits.\n` +
+      `This cannot be undone.`
+    )
+    if (!ok) return
+    try {
+      await apiPost('/beneficiaries/bulk-delete', { ids: [...selected] })
+      setSelected(new Set())
+      loadData()
+    } catch (e) {
+      console.error('Delete failed:', e)
+      alert('Delete failed: ' + (e.message || 'unknown error'))
+    }
+  }
+
   const handleSearch = (e) => {
     e.preventDefault()
     setPage(1)
@@ -86,6 +120,11 @@ export default function AllBeneficiaries() {
           <option value="DECEASED">Deceased</option>
           <option value="DUPLICATE">Duplicate</option>
         </select>
+        {selected.size > 0 && (
+          <button onClick={handleDeleteSelected} style={{ ...styles.btn, background: '#dc2626', color: '#fff' }}>
+            Delete Selected ({selected.size})
+          </button>
+        )}
         <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>{data.total || 0} beneficiaries</span>
       </div>
 
@@ -99,6 +138,9 @@ export default function AllBeneficiaries() {
             <table style={{ ...styles.table, minWidth: 1500 }}>
               <thead>
                 <tr>
+                  <th style={{ ...styles.th, width: 36 }}>
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                  </th>
                   <th style={styles.th}>Code</th>
                   <th style={styles.th}>Name</th>
                   <th style={styles.th}>Mobile</th>
@@ -122,6 +164,9 @@ export default function AllBeneficiaries() {
                   const [bg, fg] = STATUS_COLORS[b.status] || ['var(--bg)', 'var(--ink-soft)']
                   return (
                     <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => navigate(base + `/${b.id}`)}>
+                      <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggleSelect(b.id)} />
+                      </td>
                       <td style={styles.td}><code style={{ fontSize: '12px', background: 'var(--bg)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>{b.beneficiary_code}</code></td>
                       <td style={styles.td}><span style={styles.link}>{b.full_name}</span></td>
                       <td style={styles.td}>{b.mobile || '-'}</td>
