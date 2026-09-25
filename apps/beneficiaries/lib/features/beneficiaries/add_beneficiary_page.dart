@@ -60,6 +60,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   final _addressController = TextEditingController();
   final _pincodeController = TextEditingController();
   final _aadhaarController = TextEditingController();
+  final _disabilityPctController = TextEditingController();
 
   final List<_PendingDoc> _docs = [
     _PendingDoc(type: _DocType.aadhaar, label: 'Aadhaar Card', required: true),
@@ -96,6 +97,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     _addressController.dispose();
     _pincodeController.dispose();
     _aadhaarController.dispose();
+    _disabilityPctController.dispose();
     super.dispose();
   }
 
@@ -365,6 +367,16 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       if (_addressController.text.trim().isNotEmpty) body['address_line_1'] = _addressController.text.trim();
       if (_pincodeController.text.trim().isNotEmpty) body['pincode'] = _pincodeController.text.trim();
       if (_aadhaarController.text.trim().isNotEmpty) body['aadhaar_number'] = _aadhaarController.text.trim();
+      final disabilityPct = int.tryParse(_disabilityPctController.text.trim());
+      if (disabilityPct != null) {
+        body['disabilities'] = [
+          {
+            'disability_type': 'General',
+            'disability_percentage': disabilityPct,
+            'certificate_available': true,
+          },
+        ];
+      }
       if (_selectedNgoId != null) body['ngo_id'] = _selectedNgoId;
 
       final result = await ApiService.post('/beneficiaries', body: body);
@@ -591,6 +603,25 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _docStatusRow(doc),
                 )),
+            const SizedBox(height: 12),
+
+            TextFormField(
+              controller: _disabilityPctController,
+              decoration: const InputDecoration(
+                labelText: 'Disability Percentage (%) *',
+                counterText: '',
+              ),
+              keyboardType: TextInputType.number,
+              maxLength: 3,
+              enabled: !_loading && created == null,
+              validator: (v) {
+                final n = int.tryParse((v ?? '').trim());
+                if (n == null || n < 1 || n > 100) {
+                  return 'Enter a disability percentage between 1-100';
+                }
+                return null;
+              },
+            ),
             const SizedBox(height: 12),
 
             // Fingerprint enrollment (buffered until registration)
