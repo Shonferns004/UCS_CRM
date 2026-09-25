@@ -71,6 +71,12 @@ export default function BeneficiaryProfile() {
               <Field label="Mobile">{data.mobile}</Field>
               <Field label="City">{data.city}</Field>
               <Field label="State">{data.state}</Field>
+              <Field label="NGO">{data.ngos?.name || '-'}</Field>
+              <Field label="Occupation">{data.occupation}</Field>
+              <Field label="Needed">{data.needed}</Field>
+              <Field label="Address">{data.address_line_1}</Field>
+              <Field label="Pincode">{data.pincode}</Field>
+              <Field label="Aadhaar Number">{data.aadhaar_number}</Field>
               <Field label="Fingerprint"><span style={styles.pill(
                 data.fingerprint_status === 'REGISTERED' ? '#dcfce7' : '#fef3c7',
                 data.fingerprint_status === 'REGISTERED' ? '#166534' : '#92400e'
