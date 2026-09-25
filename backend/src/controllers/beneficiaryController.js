@@ -355,10 +355,13 @@ export const parseAadhaarPhotoController = async (req, res) => {
       return res.status(400).json({ message: 'image is required' });
     }
 
-    const fields = await extractAadhaarFromPhoto(String(image), side === 'back' ? 'back' : 'front');
+    // side: 'front' | 'back' | anything else → 'all' (scrape every visible
+    // detail, used when a single uploaded Aadhaar document must autofill).
+    const sideKey = side === 'front' ? 'front' : side === 'back' ? 'back' : 'all';
+    const fields = await extractAadhaarFromPhoto(String(image), sideKey);
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
-        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole front of the Aadhaar card.',
+        message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole Aadhaar card.',
       });
     }
 

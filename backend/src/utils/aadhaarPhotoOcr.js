@@ -108,12 +108,20 @@ function toRawBase64(base64) {
 }
 
 // Keeps only usable fields and normalizes aadhaar_number / dob, mirroring the
-// QR decoder's field shape so the app auto-fills identically. Only the fields
-// relevant to the card side are kept: the FRONT carries name/DOB/gender and the
-// masked 12-digit number; the BACK carries the address block (no city/state
-// decomposition — a single address_line_1 is enough for the app).
+// QR decoder's field shape so the app auto-fills identically. Which fields are
+// kept depends on the card side: the FRONT carries name/DOB/gender and the
+// masked 12-digit number; the BACK carries the address block; 'all' keeps
+// everything visible in the photo (used when a single uploaded document should
+// be scraped for every detail — no city/state decomposition, one address_line_1).
 const FRONT_KEYS = ['name', 'dob', 'gender', 'aadhaar_number'];
 const BACK_KEYS = ['address_line_1', 'vtc'];
+const ALL_KEYS = ['name', 'dob', 'gender', 'address_line_1', 'vtc', 'aadhaar_number'];
+
+function keysForSide(side) {
+  if (side === 'back') return BACK_KEYS;
+  if (side === 'front') return FRONT_KEYS;
+  return ALL_KEYS;
+}
 
 function cleanFields(parsed, allowedKeys) {
   const cleaned = {};
@@ -139,11 +147,22 @@ function buildPrompt(side) {
       'Do not extract the name, DOB or Aadhaar number. Do not invent anything.',
     ].join(' ');
   }
+  if (side === 'front') {
+    return [
+      'You read the FRONT side of an Aadhaar card.',
+      'Reply with ONLY a JSON object. Extract exactly these keys (null if not visible):',
+      '{"name","dob","gender","aadhaar_number"}',
+      'dob must be YYYY-MM-DD. aadhaar_number must be 12 digits with no spaces.',
+      'Do not invent values that are not on the card.',
+    ].join(' ');
+  }
   return [
-    'You read the FRONT side of an Aadhaar card.',
+    'You read an Aadhaar card photo.',
     'Reply with ONLY a JSON object. Extract exactly these keys (null if not visible):',
-    '{"name","dob","gender","aadhaar_number"}',
-    'dob must be YYYY-MM-DD. aadhaar_number must be 12 digits with no spaces.',
+    '{"name","dob","gender","address_line_1","aadhaar_number"}',
+    'name is the cardholder name. dob must be YYYY-MM-DD.',
+    'aadhaar_number must be 12 contiguous digits with no spaces.',
+    'address_line_1 must be the full address as one comma-separated string if any address text is visible.',
     'Do not invent values that are not on the card.',
   ].join(' ');
 }
@@ -186,13 +205,13 @@ async function extractWithGemini(base64, prompt) {
 // Reads an Aadhaar card photo. Primary path: Gemini vision (structured,
 // reliable). Fallback: OCR.space text + regex heuristics. Returns only the
 // fields for the requested side (front = name/dob/gender/aadhaar_number,
-// back = address_line_1) in the same shape as decodeAadhaarQr.
-export async function extractAadhaarFromPhoto(base64, side = 'front') {
-  const isBack = side === 'back';
-  const allowedKeys = isBack ? BACK_KEYS : FRONT_KEYS;
+// back = address_line_1, all = everything visible in the photo) in the same
+// shape as decodeAadhaarQr.
+export async function extractAadhaarFromPhoto(base64, side = 'all') {
+  const allowedKeys = keysForSide(side);
 
   try {
-    const parsed = await extractWithGemini(base64, buildPrompt(isBack));
+    const parsed = await extractWithGemini(base64, buildPrompt(side));
     if (parsed && typeof parsed === 'object') {
       const cleaned = cleanFields(parsed, allowedKeys);
       if (Object.keys(cleaned).length > 0) return cleaned;
