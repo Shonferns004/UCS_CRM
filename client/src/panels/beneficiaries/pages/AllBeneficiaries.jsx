@@ -95,44 +95,64 @@ export default function AllBeneficiaries() {
         ) : data.data?.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No beneficiaries found</div>
         ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Code</th>
-                <th style={styles.th}>Name</th>
-                <th style={styles.th}>Mobile</th>
-                <th style={styles.th}>City</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Fingerprint</th>
-                <th style={styles.th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.data?.map((b) => {
-                const [bg, fg] = STATUS_COLORS[b.status] || ['var(--bg)', 'var(--ink-soft)']
-                return (
-                  <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => navigate(base + `/${b.id}`)}>
-                    <td style={styles.td}><code style={{ fontSize: '12px', background: 'var(--bg)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>{b.beneficiary_code}</code></td>
-                    <td style={styles.td}><span style={styles.link}>{b.full_name}</span></td>
-                    <td style={styles.td}>{b.mobile || '-'}</td>
-                    <td style={styles.td}>{b.city || '-'}</td>
-                    <td style={styles.td}><span style={styles.pill(bg, fg)}>{b.status}</span></td>
-                    <td style={styles.td}>
-                      <span style={styles.pill(
-                        b.fingerprint_status === 'REGISTERED' ? '#dcfce7' : b.fingerprint_status === 'REVOKED' ? '#fee2e2' : '#fef3c7',
-                        b.fingerprint_status === 'REGISTERED' ? '#166534' : b.fingerprint_status === 'REVOKED' ? '#991b1b' : '#92400e'
-                      )}>
-                        {b.fingerprint_status === 'REGISTERED' ? '✓' : b.fingerprint_status === 'REVOKED' ? '✗' : '○'}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      <span onClick={(e) => { e.stopPropagation(); navigate(base + `/${b.id}`) }} style={styles.link}>View</span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ ...styles.table, minWidth: 1500 }}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Code</th>
+                  <th style={styles.th}>Name</th>
+                  <th style={styles.th}>Mobile</th>
+                  <th style={styles.th}>NGO</th>
+                  <th style={styles.th}>Gender</th>
+                  <th style={styles.th}>DOB</th>
+                  <th style={styles.th}>Occupation</th>
+                  <th style={styles.th}>Address</th>
+                  <th style={styles.th}>Pincode</th>
+                  <th style={styles.th}>Aadhaar No.</th>
+                  <th style={styles.th}>Needed</th>
+                  <th style={styles.th}>City</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Fingerprint</th>
+                  <th style={styles.th}>Registered</th>
+                  <th style={styles.th}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.data?.map((b) => {
+                  const [bg, fg] = STATUS_COLORS[b.status] || ['var(--bg)', 'var(--ink-soft)']
+                  return (
+                    <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => navigate(base + `/${b.id}`)}>
+                      <td style={styles.td}><code style={{ fontSize: '12px', background: 'var(--bg)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>{b.beneficiary_code}</code></td>
+                      <td style={styles.td}><span style={styles.link}>{b.full_name}</span></td>
+                      <td style={styles.td}>{b.mobile || '-'}</td>
+                      <td style={styles.td}>{b.ngos?.name || '-'}</td>
+                      <td style={styles.td}>{b.gender || '-'}</td>
+                      <td style={styles.td}>{b.date_of_birth || '-'}</td>
+                      <td style={styles.td}>{b.occupation || '-'}</td>
+                      <td style={{ ...styles.td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.address_line_1 || '-'}</td>
+                      <td style={styles.td}>{b.pincode || '-'}</td>
+                      <td style={styles.td}>{b.aadhaar_number || '-'}</td>
+                      <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.needed || '-'}</td>
+                      <td style={styles.td}>{b.city || '-'}</td>
+                      <td style={styles.td}><span style={styles.pill(bg, fg)}>{b.status}</span></td>
+                      <td style={styles.td}>
+                        <span style={styles.pill(
+                          b.fingerprint_status === 'REGISTERED' ? '#dcfce7' : b.fingerprint_status === 'REVOKED' ? '#fee2e2' : '#fef3c7',
+                          b.fingerprint_status === 'REGISTERED' ? '#166534' : b.fingerprint_status === 'REVOKED' ? '#991b1b' : '#92400e'
+                        )}>
+                          {b.fingerprint_status === 'REGISTERED' ? '✓' : b.fingerprint_status === 'REVOKED' ? '✗' : '○'}
+                        </span>
+                      </td>
+                      <td style={styles.td}>{b.registration_date || '-'}</td>
+                      <td style={styles.td}>
+                        <span onClick={(e) => { e.stopPropagation(); navigate(base + `/${b.id}`) }} style={styles.link}>View</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
