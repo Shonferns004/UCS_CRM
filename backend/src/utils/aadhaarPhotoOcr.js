@@ -1,6 +1,18 @@
 import FormData from 'form-data';
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// Fallback model chain: the vision model used for Aadhaar photo OCR. Free keys
+// get deprecated quickly (gemini-2.5-flash is gone for new users, Gemini's API
+// redirects to gemini-3.8-flash), so we always try the configured model first,
+// then rotate through the known-good defaults, skipping models the API reports
+// as "no longer available".
+const DEFAULT_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+const GEMINI_MODELS = (() => {
+  const chain = [];
+  if (process.env.GEMINI_MODEL) chain.push(process.env.GEMINI_MODEL);
+  for (const m of DEFAULT_MODELS) if (!chain.includes(m)) chain.push(m);
+  return chain;
+})();
+const GEMINI_MODEL = GEMINI_MODELS[0];
 
 // Regex heuristics used only when vision OCR is unavailable. The front side of
 // an Aadhaar card is fairly regular: name near the top, DOB / Gender lines, an
@@ -170,38 +182,55 @@ function buildPrompt(side) {
 
 // Gemini REST (generativelanguage.googleapis.com). The free API key only
 // works through the /v1beta top-level key query endpoint. Fails loudly so the
-// caller can report which OCR engine was missing/broken.
+// caller can report which OCR engine was missing/broken. Tries each model in
+// the chain, skipping ones that are "no longer available".
 async function extractWithGemini(base64, prompt) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY is not set on the server');
-  const endpoint =
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            { inline_data: { mime_type: 'image/jpeg', data: toRawBase64(base64) } },
+
+  let lastError = null;
+  for (const model of GEMINI_MODELS) {
+    const endpoint =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: 'image/jpeg', data: toRawBase64(base64) } },
+              ],
+            },
           ],
-        },
-      ],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Gemini HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+          generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        const msg = `Gemini HTTP ${res.status}: ${body.slice(0, 300)}`;
+        if (/no longer available|does not exist|404/i.test(msg)) {
+          lastError = new Error(msg);
+          continue; // skip to the next model in the chain
+        }
+        throw new Error(msg);
+      }
+      const json = await res.json();
+      const text = (json.candidates?.[0]?.content?.parts ?? [])
+        .map((p) => p.text ?? '')
+        .join('')
+        .trim();
+      if (!text) return null;
+      return JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch (e) {
+      if (!/no longer available|does not exist|404/i.test(e.message)) throw e;
+      lastError = e;
+    }
   }
-  const json = await res.json();
-  const text = (json.candidates?.[0]?.content?.parts ?? [])
-    .map((p) => p.text ?? '')
-    .join('')
-    .trim();
-  if (!text) return null;
-  return JSON.parse(text.replace(/```json|```/g, '').trim());
+  throw lastError ?? new Error('no Gemini model available');
 }
 
 // Fallback OCR.space engine. Fails loudly with its HTTP/parse status when the
@@ -222,7 +251,7 @@ async function extractWithOcrSpace(base64, allowedKeys) {
     body: form,
   });
   if (!ocrRes.ok) {
-    throw new Error(`OCR.space HTTP ${ocrRes.status}`);
+    throw new Error(`OCR.space HTTP ${ocrRes.status}: ${(await ocrRes.text()).slice(0, 200)}`);
   }
   const json = await ocrRes.json();
   if (json.OCRExitCode === 1 && json.ParsedResults?.length > 0) {
