@@ -155,7 +155,7 @@ export default function BeneficiaryProfile() {
             {data.documents?.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>No documents uploaded</p> : (
               <table style={styles.table}>
                 <thead><tr><th style={styles.th}>Type</th><th style={styles.th}>File</th><th style={styles.th}>Status</th><th style={styles.th}>Uploaded</th></tr></thead>
-                <tbody>{data.documents?.map((d, i) => <tr key={i}><td style={styles.td}>{d.document_type}</td><td style={styles.td}>{d.file_name || '-'}</td><td style={styles.td}>{d.verification_status}</td><td style={styles.td}>{d.uploaded_at}</td></tr>)}</tbody>
+                <tbody>{data.documents?.map((d, i) => <tr key={i}><td style={styles.td}>{d.document_type}</td><td style={styles.td}>{d.file_url ? <a href={d.file_url} target="_blank" rel="noreferrer" style={{ color: 'var(--sage)', textDecoration: 'none', fontWeight: 500 }}>{d.file_name || 'Open'}</a> : (d.file_name || '-')}</td><td style={styles.td}>{d.verification_status}</td><td style={styles.td}>{d.uploaded_at}</td></tr>)}</tbody>
               </table>
             )}
           </div>
