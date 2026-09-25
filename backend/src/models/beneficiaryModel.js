@@ -139,6 +139,12 @@ export const getBeneficiaryOverview = async () => {
   const { count: programsCount } = await db.from('bnf_programs').select('id', { count: 'exact', head: true });
   const { count: distributionsCount } = await db.from('benefit_distributions').select('id', { count: 'exact', head: true });
 
+  // Total donations collected (verified receipts). sum.0 so a missing/empty
+  // receipts table never breaks the home screen overview.
+  const { rows: donationRows } = await db._pool
+    .query(`SELECT COALESCE(SUM(amount), 0)::float8 AS total FROM receipts WHERE receipt_no IS NOT NULL`)
+    .catch(() => ({ rows: [{ total: 0 }] }));
+
   // Members per NGO (drives the Beneficiaries app "NGO Members" breakdown).
   const [{ data: ngoIdRows }, { data: ngos }] = await Promise.all([
     db.from('beneficiaries').select('ngo_id'),
@@ -167,6 +173,7 @@ export const getBeneficiaryOverview = async () => {
     pending_fingerprint: pendingFingerprint || 0,
     new_this_month: newThisMonth || 0,
     kit_given_today: kitGivenToday || 0,
+    total_donated: parseFloat(donationRows[0]?.total) || 0,
     programs: programsCount || 0,
     benefits_distributed: distributionsCount || 0,
     ngos: ngoBreakdown,

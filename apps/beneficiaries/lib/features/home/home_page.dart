@@ -132,9 +132,9 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(width: 12),
         Expanded(
           child: StatCard(
-            icon: LucideIcons.package,
-            value: '${_overview!['kit_given_today'] ?? 0}',
-            label: 'Given Today',
+            icon: LucideIcons.checkCircle,
+            value: _fmtAmount(_overview!['total_donated'] ?? 0),
+            label: 'Donated',
             background: AppColors.statDonationsBg,
             border: AppColors.statDonationsBorder,
             iconBackground: AppColors.statDonationsIconBg,
@@ -143,5 +143,34 @@ class _HomePageState extends State<HomePage> {
         ),
       ],
     );
+  }
+
+  // Compact Indian-style amount for the Donated stat: 1.2 Cr / 1.5 L above
+  // lakh thresholds, else ₹12,34,567-style grouping.
+  String _fmtAmount(dynamic v) {
+    final n = (v is num) ? v.toDouble() : 0.0;
+    if (n >= 10000000) {
+      return '₹${_t(n / 10000000)} Cr';
+    }
+    if (n >= 100000) {
+      return '₹${_t(n / 100000)} L';
+    }
+    final i = n.round();
+    final s = i.toString();
+    if (s.length <= 3) return '₹$s';
+    final last3 = s.substring(s.length - 3);
+    var rest = s.substring(0, s.length - 3);
+    final parts = <String>[];
+    while (rest.length > 2) {
+      parts.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) parts.insert(0, rest);
+    return '₹${parts.join(',')},$last3';
+  }
+
+  String _t(double d) {
+    if (d == d.roundToDouble()) return d.round().toString();
+    return d.toStringAsFixed(1);
   }
 }
