@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme/app_colors.dart';
 
-/// JOD splash — the official JOD logo (assets/images/jod_splash_logo.svg) is
+/// JOD splash — the official JOD logo (assets/images/jod_splash_logo.png) is
 /// revealed with a short entrance animation and then held still so the app can
 /// crossfade into the login/home screen.
 ///
@@ -135,7 +134,10 @@ class _JodSplashScreenState extends State<JodSplashScreen>
           ),
         );
       },
-      child: SvgPicture.asset('assets/images/jod_splash_logo.svg'),
+      child: Image.asset(
+        'assets/images/jod_splash_logo.png',
+        fit: BoxFit.contain,
+      ),
     );
   }
 }
