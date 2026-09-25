@@ -2,10 +2,8 @@
 import 'package:flutter/material.dart';
 import '../../core/lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/bottom_navigation.dart';
 import '../../core/widgets/stat_card.dart';
-import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
 import 'widgets/kit_given_users_card.dart';
@@ -110,8 +108,6 @@ class _HomePageState extends State<HomePage> {
           children: [
             if (_overview != null) _buildStats(),
             if (_overview != null) const SizedBox(height: 28),
-            if (_overview != null) _buildNgoBreakdown(),
-            if (_overview != null) const SizedBox(height: 28),
             KitGivenUsersCard(key: _kitCardKey),
           ],
         ),
@@ -145,114 +141,6 @@ class _HomePageState extends State<HomePage> {
             iconColor: AppColors.successGreen,
           ),
         ),
-      ],
-    );
-  }
-
-  // Member counts per NGO. Maps every element explicitly so a bare
-  // List<dynamic> from the server never trips a List<Map<String, dynamic>>
-  // cast at runtime.
-  Widget _buildNgoBreakdown() {
-    final raw = _overview!['ngos'];
-    final ngos = raw is List
-        ? raw
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList()
-        : <Map<String, dynamic>>[];
-    if (ngos.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeader(
-          title: 'NGO Members',
-          subtitle: 'Members registered under each NGO',
-        ),
-        const SizedBox(height: 16),
-        ...ngos.map((n) {
-          final name = n['name']?.toString() ?? 'NGO';
-          final code = n['code']?.toString() ?? '';
-          final count = (n['count'] as num?)?.toInt() ?? 0;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: AppTheme.radiusCard,
-                boxShadow: AppTheme.cardShadow,
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryBlueSoft,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : '?',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primaryBlue,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        if (code.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            code,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.statMembersIconBg,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      '$count members',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primaryBlue,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
       ],
     );
   }

@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
+import 'edit_beneficiary_page.dart';
 
 /// Spec-exact colors (JOD Beneficiary Detail Screen) not already in AppColors.
 const Color _kAvatarBg = Color(0xFFEEF4FF);
@@ -23,7 +24,15 @@ const Color _kWarnText = Color(0xFF80500F);
 class BeneficiaryDetailPage extends StatefulWidget {
   final Map<String, dynamic> beneficiary;
 
-  const BeneficiaryDetailPage({super.key, required this.beneficiary});
+  /// Read-only presentation (no give-again accept/reject flow, no "give kit"
+  /// swipe). Used by the kit-given list on the home screen.
+  final bool readOnly;
+
+  const BeneficiaryDetailPage({
+    super.key,
+    required this.beneficiary,
+    this.readOnly = false,
+  });
 
   @override
   State<BeneficiaryDetailPage> createState() => _BeneficiaryDetailPageState();
@@ -49,7 +58,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     _b = widget.beneficiary;
     _player = AudioPlayer();
     if (_b['id'] != null) _refresh();
-    _maybePromptDecision();
+    if (!widget.readOnly) _maybePromptDecision();
   }
 
   @override
@@ -319,6 +328,21 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
     }
   }
 
+  // ---- edit ----------------------------------------------------------------
+
+  Future<void> _openEdit() async {
+    if (_markingKit) return;
+    final updated = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditBeneficiaryPage(beneficiary: _b),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _b = updated);
+    _refresh();
+  }
+
   // ---- helpers ------------------------------------------------------------
 
   String _fmt(dynamic v) {
@@ -384,6 +408,17 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
                 color: AppColors.textPrimary,
               ),
             ),
+            const Spacer(),
+            if (!widget.readOnly)
+              IconButton(
+                onPressed: _openEdit,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 44, minHeight: 44),
+                tooltip: 'Edit beneficiary',
+                icon: const Icon(Icons.edit_outlined,
+                    size: 21, color: AppColors.textPrimary),
+              ),
           ],
         ),
       ),
@@ -398,8 +433,10 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
         children: [
           _buildProfileCard(),
           const SizedBox(height: 24),
+          _buildDetailsCard(),
+          const SizedBox(height: 24),
           _buildHistoryCard(),
-          if (_kitGiven && !_justGiven) ...[
+          if (_kitGiven && !_justGiven && !widget.readOnly) ...[
             const SizedBox(height: 24),
             _buildWarning(),
           ],
@@ -513,6 +550,114 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---- details card ---------------------------------------------------------
+  // Every registration-captured field except fingerprints, Aadhaar number and
+  // document uploads — those stay out of this read-mostly screen.
+
+  Widget _buildDetailsCard() {
+    final rows = <(String, String)>[
+      ('Date of Birth', _fmt(_b['date_of_birth'])),
+      ('Gender', _b['gender']?.toString() ?? ''),
+      ('Mobile', _b['mobile']?.toString() ?? ''),
+      ('Occupation', _b['occupation']?.toString() ?? ''),
+      ('Address', _address),
+      ('Pincode', _b['pincode']?.toString() ?? ''),
+      ('NGO', _ngoName),
+      ('Disability', _disability),
+      ('Needed', _b['needed']?.toString() ?? ''),
+    ].where((r) => r.$2.isNotEmpty).toList();
+
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    return _card(
+      Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Details',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(height: 12),
+              _labelValueRow(rows[i].$1, rows[i].$2),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String get _address {
+    final parts = <String>[
+      _b['address_line_1']?.toString() ?? '',
+      _b['city']?.toString() ?? '',
+      _b['state']?.toString() ?? '',
+    ].where((p) => p.trim().isNotEmpty).toList();
+    return parts.join(', ');
+  }
+
+  String get _ngoName {
+    final ngo = _b['ngos'];
+    if (ngo is Map) {
+      final parts = <String>[
+        ngo['name']?.toString() ?? '',
+        ngo['code']?.toString() ?? '',
+      ].where((p) => p.trim().isNotEmpty).toList();
+      return parts.join(' • ');
+    }
+    return '';
+  }
+
+  String get _disability {
+    final list = _b['disabilities'];
+    if (list is! List || list.isEmpty) return '';
+    final d = list.first;
+    if (d is! Map) return '';
+    final type = d['disability_type']?.toString() ?? '';
+    final pct = d['disability_percentage']?.toString() ?? '';
+    if (type.isEmpty && pct.isEmpty) return '';
+    final val = [type, pct.isNotEmpty ? '$pct%' : '']
+        .where((p) => p.isNotEmpty)
+        .join(' — ');
+    return val;
+  }
+
+  Widget _labelValueRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 96,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.3,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+            ),
           ),
         ),
       ],
@@ -816,6 +961,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   // after Reject a persistent banner; otherwise the decision sheet owns the
   // screen (nothing pinned) until the delegate picks.
   Widget _buildBottomArea() {
+    if (widget.readOnly) return const SizedBox.shrink();
     if (_justGiven) {
       return const Padding(
         padding: EdgeInsets.fromLTRB(24, 14, 24, 24),
