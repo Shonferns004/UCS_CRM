@@ -1,7 +1,7 @@
 import {
   generateBeneficiaryCode, createBeneficiary, getBeneficiaryById, getBeneficiaryByCode,
   updateBeneficiary, listBeneficiaries, searchBeneficiaries, getBeneficiaryOverview,
-  searchByQRToken, searchByMobile, markKitGiven
+  searchByQRToken, searchByMobile, markKitGiven, deleteBeneficiaries
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
 import { getDisabilities, addDisability, removeDisability } from '../models/beneficiaryDisabilityModel.js';
@@ -213,6 +213,36 @@ export const getBeneficiaryByCodeController = async (req, res) => {
     const beneficiary = await getBeneficiaryByCode(req.params.code);
     if (!beneficiary) return res.status(404).json({ message: 'Beneficiary not found' });
     return res.json(beneficiary);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Deletes one or more beneficiaries and everything attached to them (all
+// "details" including fingerprints and documents). Used by both
+// DELETE /beneficiaries/:id and POST /beneficiaries/bulk-delete.
+export const deleteBeneficiariesController = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids
+      : req.params.id
+        ? [req.params.id]
+        : [];
+    const cleanIds = [...new Set(ids.map((n) => parseInt(n, 10)).filter((n) => Number.isInteger(n) && n > 0))];
+    if (cleanIds.length === 0) {
+      return res.status(400).json({ message: 'No valid beneficiary ids provided' });
+    }
+
+    const { deleted } = await deleteBeneficiaries(cleanIds);
+
+    await logAuditEvent({
+      entity_type: 'beneficiary', entity_id: cleanIds[0], beneficiary_id: null,
+      action: 'BULK_DELETED',
+      details: { ids: cleanIds, requested: cleanIds.length, deleted },
+      performed_by: req.user?.name || 'system',
+    });
+
+    return res.json({ message: `Deleted ${deleted} beneficiary${deleted === 1 ? '' : 'ies'}. All related records removed (documents, fingerprints, disability, family, benefits).`, deleted });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
