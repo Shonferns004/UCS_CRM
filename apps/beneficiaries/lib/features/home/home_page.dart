@@ -120,18 +120,6 @@ class _HomePageState extends State<HomePage> {
       children: [
         Expanded(
           child: StatCard(
-            icon: LucideIcons.user,
-            value: '${_overview!['total_beneficiaries'] ?? 0}',
-            label: 'Total Members',
-            background: AppColors.statMembersBg,
-            border: AppColors.statMembersBorder,
-            iconBackground: AppColors.statMembersIconBg,
-            iconColor: AppColors.primaryBlue,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: StatCard(
             icon: LucideIcons.checkCircle,
             value: _fmtAmount(_overview!['total_donated'] ?? 0),
             label: 'Donated',
