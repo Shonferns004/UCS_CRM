@@ -218,3 +218,69 @@ export const markKitGiven = async (id, givenBy) => {
   if (error) throw error;
   return data;
 };
+
+// Tables holding per-beneficiary subordinate data. Deleted explicitly because
+// FK constraints are often dropped in the RDS migration — we never rely on
+// ON DELETE CASCADE. benefit_distribution_items is handled separately because
+// it hangs off benefit_distributions, not beneficiaries directly.
+const BENEFICIARY_CHILD_TABLES = [
+  'beneficiary_documents',
+  'biometric_credentials',
+  'beneficiary_cards',
+  'beneficiary_disabilities',
+  'beneficiary_family_members',
+  'beneficiary_education',
+  'beneficiary_employment',
+  'beneficiary_assistance_requirements',
+  'beneficiary_category_assignments',
+  'beneficiary_source_records',
+  'program_beneficiaries',
+];
+
+// Permanently deletes beneficiaries and every record that belongs to them
+// (fingerprints, documents, disabilities, family, education, employment,
+// assistance, category assignments, cards, source records, program links and
+// benefit distributions). audit_logs are intentionally kept as an
+// accountability trail. Runs in a single transaction so a failure rolls back
+// the whole batch.
+export const deleteBeneficiaries = async (ids) => {
+  const pool = db._pool;
+  const cleanIds = [...new Set((ids || []).map((n) => parseInt(n, 10)).filter((n) => Number.isInteger(n) && n > 0))];
+  if (cleanIds.length === 0) return { deleted: 0 };
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Benefit distribution items first (they reference distributions).
+    await client
+      .query(
+        `DELETE FROM benefit_distribution_items WHERE distribution_id IN
+           (SELECT id FROM benefit_distributions WHERE beneficiary_id = ANY($1::int[]))`,
+        [cleanIds]
+      )
+      .catch(() => {});
+    await client
+      .query('DELETE FROM benefit_distributions WHERE beneficiary_id = ANY($1::int[])', [cleanIds])
+      .catch(() => {});
+
+    for (const t of BENEFICIARY_CHILD_TABLES) {
+      await client.query(`DELETE FROM ${t} WHERE beneficiary_id = ANY($1::int[])`, [cleanIds]).catch(() => {});
+    }
+
+    // Loosely-referenced staging rows: null the link instead of dropping them.
+    await client
+      .query('UPDATE import_rows SET beneficiary_id = NULL WHERE beneficiary_id = ANY($1::int[])', [cleanIds])
+      .catch(() => {});
+
+    const res = await client.query('DELETE FROM beneficiaries WHERE id = ANY($1::int[])', [cleanIds]);
+
+    await client.query('COMMIT');
+    return { deleted: res.rowCount || 0 };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
