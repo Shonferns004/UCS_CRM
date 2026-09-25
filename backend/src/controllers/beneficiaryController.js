@@ -18,6 +18,7 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
+import { addDisability } from '../models/beneficiaryDisabilityModel.js';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
@@ -87,6 +88,27 @@ export const createNewBeneficiary = async (req, res) => {
 
     if (category_ids && category_ids.length > 0) {
       await assignCategories(beneficiary.id, category_ids);
+    }
+
+    // Persist disability records (disability_type + percentage) sent from the
+    // operator app. Failures here never block the registration itself.
+    if (Array.isArray(disabilities)) {
+      for (const d of disabilities) {
+        if (!d || typeof d !== 'object') continue;
+        try {
+          await addDisability(beneficiary.id, {
+            disability_type: String(d.disability_type || 'General'),
+            disability_percentage:
+              d.disability_percentage != null && d.disability_percentage !== ''
+                ? Number(d.disability_percentage)
+                : null,
+            certificate_available:
+              d.certificate_available != null ? Boolean(d.certificate_available) : false,
+          });
+        } catch (e) {
+          console.error(`[beneficiaries] disability save failed for ${beneficiary.id}:`, e.message);
+        }
+      }
     }
 
     await logAuditEvent({
