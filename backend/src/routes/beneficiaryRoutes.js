@@ -68,7 +68,7 @@ router.get('/lookup/:token', authenticateRole('super_admin', 'admin', 'ngo', 'ac
 router.get('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), listAllBeneficiaries);
 router.post('/', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), createNewBeneficiary);
 router.get('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiary);
-router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts'), updateBeneficiaryController);
+router.patch('/:id', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), updateBeneficiaryController);
 router.get('/code/:code', authenticateRole('super_admin', 'admin', 'ngo', 'accounts', 'event_head', 'worker'), getBeneficiaryByCodeController);
 
 // Kit given — records that the event kit was handed to the beneficiary

@@ -416,23 +416,31 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         }
       }
 
-      // Attach every scanned document copy to the new beneficiary.
+      final serverWarnings = (result['warnings'] as List?)?.cast<String>() ?? const <String>[];
+      final failedDocs = <String>[];
       if (id != null) {
         for (final doc in _docs.where((d) => d.base64 != null)) {
-          try {
-            await ApiService.post(
-              '/beneficiaries/$id/documents',
-              body: {
-                'document_type': _docTypeId(doc.type),
-                'file_base64': doc.base64,
-                'mime_type': 'image/jpeg',
-                'file_name': doc.name ?? 'scanned_document.jpg',
-              },
-              timeout: const Duration(minutes: 2),
-            );
-          } catch (_) {
-            // Registration already succeeded — don't block on the doc upload.
+          var ok = false;
+          for (var attempt = 1; attempt <= 3 && !ok; attempt++) {
+            try {
+              await ApiService.post(
+                '/beneficiaries/$id/documents',
+                body: {
+                  'document_type': _docTypeId(doc.type),
+                  'file_base64': doc.base64,
+                  'mime_type': 'image/jpeg',
+                  'file_name': doc.name ?? 'scanned_document.jpg',
+                },
+                timeout: const Duration(minutes: 2),
+              );
+              ok = true;
+            } catch (_) {
+              if (attempt < 3) {
+                await Future<void>.delayed(Duration(milliseconds: 800 * attempt));
+              }
+            }
           }
+          if (!ok) failedDocs.add(_docLabel(doc.type));
         }
       }
 
@@ -441,13 +449,22 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         _loading = false;
         _created = created;
       });
-      showAppSnackbar(
-        context,
-        code != null
-            ? 'Beneficiary registered: $code'
-            : 'Beneficiary registered',
-        success: true,
-      );
+      final headline = code != null
+          ? 'Beneficiary registered: $code'
+          : 'Beneficiary registered';
+      final problems = <String>[
+        ...failedDocs.map((d) => 'Could not upload $d'),
+        ...serverWarnings,
+      ];
+      if (problems.isEmpty) {
+        showAppSnackbar(context, headline, success: true);
+      } else {
+        showAppSnackbar(
+          context,
+          '$headline. ${problems.join('. ')}',
+          warning: true,
+        );
+      }
       // Go straight to the home page after successful registration.
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {

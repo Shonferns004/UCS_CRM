@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/lucide_icons.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/widgets/beneficiary_tile.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../services/api_service.dart';
@@ -137,46 +137,127 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
           )
         else
           ...visible.map((u) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _userTile(u),
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _kitGivenCard(u),
               )),
       ],
     );
   }
 
-  Widget _userTile(Map<String, dynamic> u) {
+  Widget _kitGivenCard(Map<String, dynamic> u) {
     final name = u['full_name'] ?? u['first_name'] ?? 'Unknown';
     final code = u['beneficiary_code'] ?? '';
     final city = u['city'] ?? '';
     final givenAt = u['kit_given_at']?.toString();
+    final subtitle = [code, city]
+        .where((e) => e != null && e.toString().isNotEmpty)
+        .map((e) => e.toString())
+        .join(' • ');
 
-    return BeneficiaryTile(
-      name: name,
-      code: code,
-      subtitle: city,
-      accent: AppColors.successGreen,
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => BeneficiaryDetailPage(beneficiary: u)),
-      ),
-      trailing: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          const Text(
-            'Kit Given',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.successGreen,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => BeneficiaryDetailPage(
+              beneficiary: u,
+              readOnly: true,
             ),
           ),
-          if (givenAt != null && givenAt.isNotEmpty)
-            Text(
-              givenAt.substring(0, 10),
-              style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
-            ),
-        ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: AppTheme.cardShadow,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: const BoxDecoration(
+                  color: AppColors.successGreenSoft,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.successGreen,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.successGreenSoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Kit Given',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.successGreen,
+                      ),
+                    ),
+                  ),
+                  if (givenAt != null && givenAt.length >= 10) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      givenAt.substring(0, 10),
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

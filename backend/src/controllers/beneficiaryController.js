@@ -4,7 +4,7 @@ import {
   searchByQRToken, searchByMobile, markKitGiven
 } from '../models/beneficiaryModel.js';
 import { assignCategories, getBeneficiaryCategories } from '../models/beneficiaryCategoryModel.js';
-import { getDisabilities } from '../models/beneficiaryDisabilityModel.js';
+import { getDisabilities, addDisability, removeDisability } from '../models/beneficiaryDisabilityModel.js';
 import { getFamilyMembers } from '../models/beneficiaryFamilyModel.js';
 import { getEducation } from '../models/beneficiaryEducationModel.js';
 import { getEmployment } from '../models/beneficiaryEmploymentModel.js';
@@ -18,7 +18,6 @@ import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
 import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
-import { addDisability } from '../models/beneficiaryDisabilityModel.js';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
@@ -91,22 +90,36 @@ export const createNewBeneficiary = async (req, res) => {
     }
 
     // Persist disability records (disability_type + percentage) sent from the
-    // operator app. Failures here never block the registration itself.
+    // operator app. Failures here never block the registration itself, but are
+    // surfaced to the caller as warnings instead of being swallowed.
+    const warnings = [];
     if (Array.isArray(disabilities)) {
       for (const d of disabilities) {
         if (!d || typeof d !== 'object') continue;
-        try {
-          await addDisability(beneficiary.id, {
-            disability_type: String(d.disability_type || 'General'),
-            disability_percentage:
-              d.disability_percentage != null && d.disability_percentage !== ''
-                ? Number(d.disability_percentage)
-                : null,
-            certificate_available:
-              d.certificate_available != null ? Boolean(d.certificate_available) : false,
-          });
-        } catch (e) {
-          console.error(`[beneficiaries] disability save failed for ${beneficiary.id}:`, e.message);
+        let saved = false;
+        for (let attempt = 1; attempt <= 3 && !saved; attempt++) {
+          try {
+            await addDisability(beneficiary.id, {
+              disability_type: String(d.disability_type || 'General'),
+              disability_percentage:
+                d.disability_percentage != null && d.disability_percentage !== ''
+                  ? Number(d.disability_percentage)
+                  : null,
+              certificate_available:
+                d.certificate_available != null ? Boolean(d.certificate_available) : false,
+            });
+            saved = true;
+          } catch (e) {
+            if (attempt === 3) {
+              const msg = `Disability details could not be saved (${String(
+                d.disability_type || 'General'
+              )} — ${e.message}).`;
+              console.error(`[beneficiaries] disability save failed for ${beneficiary.id}:`, e.message);
+              warnings.push(msg);
+            } else {
+              await new Promise((r) => setTimeout(r, 400 * attempt));
+            }
+          }
         }
       }
     }
@@ -117,7 +130,11 @@ export const createNewBeneficiary = async (req, res) => {
       details: { beneficiary_code }, performed_by: created_by,
     });
 
-    return res.status(201).json({ message: 'Beneficiary created', beneficiary });
+    return res.status(201).json({
+      message: 'Beneficiary created',
+      beneficiary,
+      warnings: warnings.length ? warnings : undefined,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -284,6 +301,18 @@ export const updateBeneficiaryController = async (req, res) => {
 
     if (req.body.category_ids) {
       await assignCategories(beneficiary.id, req.body.category_ids);
+    }
+
+    // The operator app edits disabilities together, so replace the whole set
+    // when the payload carries one.
+    if (Array.isArray(req.body.disabilities)) {
+      const existing = await getDisabilities(beneficiary.id);
+      for (const d of existing) {
+        await removeDisability(d.id);
+      }
+      for (const d of req.body.disabilities) {
+        await addDisability(beneficiary.id, d);
+      }
     }
 
     await logAuditEvent({
