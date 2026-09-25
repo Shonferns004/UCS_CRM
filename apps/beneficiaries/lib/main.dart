@@ -100,8 +100,16 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<bool> _checkOperatorSetup() async {
-    // Operator Details is always the first screen after login.
-    return true;
+    // Ask for Operator Details only once after login: if the backend already
+    // has today's assignment saved (state/city), skip the screen on refresh.
+    try {
+      final body = await ApiService.get('/operator/dashboard');
+      final hasState = (body['state']?.toString() ?? '').isNotEmpty;
+      final hasCity = (body['city']?.toString() ?? '').isNotEmpty;
+      return !(hasState && hasCity);
+    } catch (_) {
+      return true;
+    }
   }
 
   void _onLogin() {

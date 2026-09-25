@@ -87,6 +87,19 @@ export const addNgo = async (req, res) => {
   }
 };
 
+// Lightweight NGO list for the Beneficiaries app operator dropdown — only the
+// options the worker actually needs (id, name, code), no user aggregation.
+export const listNgoOptions = async (req, res) => {
+  try {
+    const ngos = await getAllNgos();
+    return res.json(
+      ngos.map(({ id, name, code }) => ({ id, name, code }))
+    );
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const listNgos = async (req, res) => {
   try {
     const ngos = await getAllNgos();
