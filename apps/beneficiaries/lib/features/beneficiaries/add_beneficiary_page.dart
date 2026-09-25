@@ -46,7 +46,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   ];
 
   final List<Map<String, dynamic>> _ngos = [];
-  int? _selectedNgoId;
+  String? _selectedNgoId;
 
   String? _gender;
   DateTime? _dob;
@@ -91,27 +91,27 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     }
   }
 
-  // Dropdown items, tolerant of ids coming as int OR string, de-duplicated so
-  // the dropdown never sees two items with the same value.
-  List<DropdownMenuItem<int>> _ngoItems() {
-    final seen = <int, String>{};
+  // Dropdown items. ngos.id is a UUID string (never an int), so the value is
+  // kept as text and de-duplicated so the dropdown never sees a duplicate value.
+  List<DropdownMenuItem<String>> _ngoItems() {
+    final seen = <String, String>{};
     for (final n in _ngos) {
-      final id = int.tryParse('${n['id'] ?? ''}');
-      if (id == null) continue;
+      final id = n['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
       seen.putIfAbsent(id, () => n['name']?.toString() ?? 'NGO');
     }
     return [
       for (final e in seen.entries)
-        DropdownMenuItem<int>(
+        DropdownMenuItem<String>(
           value: e.key,
           child: Text(e.value, overflow: TextOverflow.ellipsis),
         ),
     ];
   }
 
-  Set<int> _ngoIdSet() => {
+  Set<String> _ngoIdSet() => {
         for (final n in _ngos)
-          if (int.tryParse('${n['id'] ?? ''}') case final int id) id,
+          if ((n['id']?.toString() ?? '') case final String id when id.isNotEmpty) id,
       };
 
   Future<void> _pickDob() async {
@@ -490,7 +490,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               enabled: !_loading && created == null,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
+            DropdownButtonFormField<String>(
               initialValue: _ngoIdSet().contains(_selectedNgoId) ? _selectedNgoId : null,
               decoration: const InputDecoration(labelText: 'NGO *'),
               hint: const Text('Select NGO'),
