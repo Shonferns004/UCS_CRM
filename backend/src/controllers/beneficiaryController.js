@@ -350,12 +350,12 @@ export const getAuditTrail = async (req, res) => {
 // back to OCR.space + regex heuristics.
 export const parseAadhaarPhotoController = async (req, res) => {
   try {
-    const { image } = req.body || {};
+    const { image, side } = req.body || {};
     if (!image) {
       return res.status(400).json({ message: 'image is required' });
     }
 
-    const fields = await extractAadhaarFromPhoto(String(image));
+    const fields = await extractAadhaarFromPhoto(String(image), side === 'back' ? 'back' : 'front');
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
         message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole front of the Aadhaar card.',
