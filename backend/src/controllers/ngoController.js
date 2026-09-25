@@ -74,6 +74,25 @@ export const getNgoSummary = async (req, res) => {
   }
 };
 
+// Total beneficiaries (members) recorded under each NGO. Serves the NGO cards
+// on the Beneficiaries app home "kit" section — one card per NGO with its
+// member count.
+export const getNgoMemberCounts = async (req, res) => {
+  try {
+    const { rows } = await db._pool.query(`
+      SELECT n.id, n.name, n.code,
+             COUNT(b.id)::int AS member_count
+        FROM ngos n
+        LEFT JOIN beneficiaries b ON b.ngo_id = n.id
+       GROUP BY n.id, n.name, n.code
+       ORDER BY n.name ASC
+    `);
+    return res.json(rows.map((r) => ({ id: r.id, name: r.name, code: r.code, member_count: r.member_count || 0 })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const addNgo = async (req, res) => {
   try {
     const { name, code, address, registration_no } = req.body;

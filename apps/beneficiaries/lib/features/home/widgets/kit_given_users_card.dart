@@ -5,7 +5,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../services/api_service.dart';
-import '../../beneficiaries/beneficiary_detail_page.dart';
 
 class KitGivenUsersCard extends StatefulWidget {
   const KitGivenUsersCard({super.key});
@@ -15,7 +14,7 @@ class KitGivenUsersCard extends StatefulWidget {
 }
 
 class KitGivenUsersCardState extends State<KitGivenUsersCard> {
-  List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _ngos = [];
   bool _loading = true;
   bool _showAll = false;
   String? _error;
@@ -23,31 +22,27 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
   @override
   void initState() {
     super.initState();
-    _loadUsers();
+    _loadNgos();
   }
 
-  Future<void> refresh() => _loadUsers();
+  Future<void> refresh() => _loadNgos();
 
-  Future<void> _loadUsers() async {
+  Future<void> _loadNgos() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final result = await ApiService.get('/beneficiaries', queryParams: {
-        'kit_given': 'true',
-        'pageSize': '100',
-      });
+      final result = await ApiService.get('/ngos/member-counts');
       // Guard the shape defensively: the server may return a bare list or a
       // {data: [...]} body. Mapping each element (never casting the raw list)
       // avoids the "List<dynamic> is not a subtype of List<Map<String, dynamic>>"
       // runtime crash.
-      final rawData = result['data'] ?? result['beneficiaries'] ?? const [];
+      final rawData =
+          result is List ? result : (result['data'] ?? result['ngos'] ?? const []);
       final data = rawData is List ? rawData : const <dynamic>[];
       setState(() {
-        _users = data
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
+        _ngos = data.map((e) => Map<String, dynamic>.from(e)).toList();
         _loading = false;
       });
     } catch (e) {
@@ -60,16 +55,16 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
 
   @override
   Widget build(BuildContext context) {
-    final showingAll = _showAll || _users.length <= 8;
-    final visible = showingAll ? _users : _users.take(8).toList();
+    final showingAll = _showAll || _ngos.length <= 8;
+    final visible = showingAll ? _ngos : _ngos.take(8).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionHeader(
-          title: 'Users Who Were Given the Kit',
-          subtitle: 'Recently given beneficiaries',
-          action: _users.isEmpty
+          title: 'NGOs',
+          subtitle: 'Members under each NGO',
+          action: _ngos.isEmpty
               ? null
               : TextButton(
                   onPressed: () => setState(() => _showAll = !_showAll),
@@ -88,17 +83,17 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
           ...List.generate(
             3,
             (i) => Container(
-              height: 72,
+              height: 76,
               margin: const EdgeInsets.only(bottom: 8),
               decoration: BoxDecoration(
                 color: AppColors.skeleton,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(18),
               ),
             ),
           )
         else if (_error != null)
           InkWell(
-            onTap: _loadUsers,
+            onTap: _loadNgos,
             borderRadius: BorderRadius.circular(16),
             child: Container(
               width: double.infinity,
@@ -120,7 +115,7 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
                     ),
                   ),
                   TextButton(
-                    onPressed: _loadUsers,
+                    onPressed: _loadNgos,
                     child: const Text('Retry',
                         style: TextStyle(fontSize: 12.5)),
                   ),
@@ -128,136 +123,114 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
               ),
             ),
           )
-        else if (_users.isEmpty)
+        else if (_ngos.isEmpty)
           const EmptyState(
-            icon: LucideIcons.package,
-            title: 'No kits given yet',
-            message: 'Once a kit is given to a beneficiary, they will appear here.',
+            icon: LucideIcons.box,
+            title: 'No NGOs yet',
+            message: 'NGOs with their member counts will appear here.',
             dashed: true,
           )
         else
-          ...visible.map((u) => Padding(
+          ...visible.map((n) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _kitGivenCard(u),
+                child: _ngoCard(n),
               )),
       ],
     );
   }
 
-  Widget _kitGivenCard(Map<String, dynamic> u) {
-    final name = u['full_name'] ?? u['first_name'] ?? 'Unknown';
-    final code = u['beneficiary_code'] ?? '';
-    final city = u['city'] ?? '';
-    final givenAt = u['kit_given_at']?.toString();
-    final subtitle = [code, city]
-        .where((e) => e != null && e.toString().isNotEmpty)
-        .map((e) => e.toString())
-        .join(' • ');
+  Widget _ngoCard(Map<String, dynamic> n) {
+    final name = n['name']?.toString() ?? 'Unknown NGO';
+    final code = n['code']?.toString() ?? '';
+    final members = n['member_count'] is num
+        ? (n['member_count'] as num).toInt()
+        : 0;
 
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BeneficiaryDetailPage(
-              beneficiary: u,
-              readOnly: true,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: const BoxDecoration(
+              color: AppColors.primaryBlueSoft,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              name.isNotEmpty ? name[0].toUpperCase() : '?',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primaryBlue,
+              ),
             ),
           ),
-        ),
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: AppTheme.cardShadow,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: const BoxDecoration(
-                  color: AppColors.successGreenSoft,
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.successGreen,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    if (subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.successGreenSoft,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'Kit Given',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.successGreen,
-                      ),
+                if (code.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    code,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
                     ),
                   ),
-                  if (givenAt != null && givenAt.length >= 10) ...[
-                    const SizedBox(height: 5),
-                    Text(
-                      givenAt.substring(0, 10),
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
                 ],
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primaryBlueSoft,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '$members',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primaryBlue,
+                  ),
+                ),
+                Text(
+                  members == 1 ? 'member' : 'members',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
