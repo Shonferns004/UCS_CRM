@@ -400,15 +400,18 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
               color: AppColors.textPrimary,
             ),
             const SizedBox(width: 8),
-            const Text(
-              'Beneficiary',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+            const Expanded(
+              child: Text(
+                'Beneficiary',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
               ),
             ),
-            const Spacer(),
             if (!widget.readOnly)
               IconButton(
                 onPressed: _openEdit,

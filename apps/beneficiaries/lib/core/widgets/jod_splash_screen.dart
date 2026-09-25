@@ -26,34 +26,40 @@ class JodSplashScreen extends StatefulWidget {
 class _JodSplashScreenState extends State<JodSplashScreen>
     with SingleTickerProviderStateMixin {
   static const Duration _kTotal = Duration(milliseconds: 2300);
+  static const double _kTotalSeconds = 2.3;
 
   late final AnimationController _controller;
   bool _notified = false;
 
+  // Seconds → normalized 0..1 fraction of the parent controller. Interval
+  // values are parent-relative, not absolute time.
+  double _fx(double seconds) =>
+      (seconds / _kTotalSeconds).clamp(0.0, 1.0).toDouble();
+
   // Fade + lift-in of the logo.
   late final Animation<double> _fade = CurvedAnimation(
     parent: _controller,
-    curve: const Interval(0.20, 0.75, curve: Curves.easeInOut),
+    curve: Interval(_fx(0.20), _fx(0.75), curve: Curves.easeInOut),
   );
   late final Animation<double> _scale = CurvedAnimation(
     parent: _controller,
-    curve: const Interval(0.20, 0.80, curve: Curves.easeOutCubic),
+    curve: Interval(_fx(0.20), _fx(0.80), curve: Curves.easeOutCubic),
   );
   late final Animation<double> _rise = CurvedAnimation(
     parent: _controller,
-    curve: const Interval(0.20, 0.80, curve: Curves.easeOutCubic),
+    curve: Interval(_fx(0.20), _fx(0.80), curve: Curves.easeOutCubic),
   );
 
   // A single soft green "growth" halo pulse behind the wordmark.
   late final Animation<double> _halo = CurvedAnimation(
     parent: _controller,
-    curve: const Interval(1.00, 1.80, curve: Curves.easeInOut),
+    curve: Interval(_fx(1.00), _fx(1.80), curve: Curves.easeInOut),
   );
 
   // 0.985 → 1.0 settle at the very end.
   late final Animation<double> _settle = CurvedAnimation(
     parent: _controller,
-    curve: const Interval(1.80, 2.10, curve: Curves.easeOut),
+    curve: Interval(_fx(1.80), _fx(2.10), curve: Curves.easeOut),
   );
 
   static const Color _kGreen = AppColors.successGreen;
