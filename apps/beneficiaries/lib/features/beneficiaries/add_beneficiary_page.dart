@@ -152,8 +152,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
   String _docLabel(_DocType type) => _docs.firstWhere((d) => d.type == type).label;
 
-  // Dotted "Upload document" area: opens a bottom sheet with the 3 choices,
-  // then a doc-capture flow. Re-choosing an already-attached type replaces it.
+  // Dotted "Upload document" area: opens a bottom sheet with the choices that
+  // are not yet attached, then a doc-capture flow.
   Future<void> _uploadDocument() async {
     if (_loading || _created != null) return;
     final selected = await showModalBottomSheet<_DocType>(
@@ -180,30 +180,26 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               ),
             ),
             const Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 14),
+              padding: EdgeInsets.fromLTRB(24, 8, 24, 14),
               child: Text(
-                'Aadhaar card is required. UDID card or Disability certificate — any one is fine, all three is great.',
+                'Choose a document to upload',
                 style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.textSecondary),
               ),
             ),
-            _docOption(
-              _DocType.aadhaar,
-              'Aadhaar Card',
-              'Required',
-              LucideIcons.userCheck,
-            ),
-            _docOption(
-              _DocType.udid,
-              'UDID Card',
-              'OR Disability certificate',
-              LucideIcons.clipboardCheck,
-            ),
-            _docOption(
-              _DocType.disability,
-              'Disability Certificate',
-              'OR UDID card',
-              LucideIcons.checkCircle,
-            ),
+            ..._docs.where((d) => d.base64 == null).map((d) => _docOption(
+                  d.type,
+                  d.label,
+                  d.type == _DocType.aadhaar
+                      ? 'Required'
+                      : (d.type == _DocType.udid
+                          ? 'OR Disability certificate'
+                          : 'OR UDID card'),
+                  d.type == _DocType.aadhaar
+                      ? LucideIcons.userCheck
+                      : (d.type == _DocType.udid
+                          ? LucideIcons.clipboardCheck
+                          : LucideIcons.checkCircle),
+                )),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
               child: OutlinedButton(
@@ -552,43 +548,38 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
             // Documents — Aadhaar required, UDID or Disability certificate.
             const SectionHeader(title: 'Documents'),
-            const SizedBox(height: 8),
-            const Text(
-              'Aadhaar card is required. UDID card or Disability certificate (any one) — all three is fine.',
-              style: TextStyle(fontSize: 12.5, height: 1.4, color: AppColors.textSecondary),
-            ),
             const SizedBox(height: 16),
 
-            // Dotted upload area → bottom sheet with the 3 choices.
+            // Dotted upload area → bottom sheet with the not-yet-added choices.
             InkWell(
               onTap: (_loading || created != null) ? null : _uploadDocument,
               borderRadius: BorderRadius.circular(16),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.dashedBorder, width: 1.4),
+              child: CustomPaint(
+                foregroundPainter: const _DottedRoundedRectPainter(
+                  color: AppColors.dashedBorder,
                 ),
-                child: const Column(
-                  children: [
-                    Icon(LucideIcons.camera, size: 28, color: AppColors.primaryBlue),
-                    SizedBox(height: 8),
-                    Text(
-                      'Upload document',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(Icons.upload_rounded,
+                          size: 28, color: AppColors.primaryBlue),
+                      SizedBox(height: 8),
+                      Text(
+                        'Upload document',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Tap to pick Aadhaar / UDID / Disability certificate',
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -705,8 +696,56 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               color: attached ? AppColors.successGreen : AppColors.textSecondary,
             ),
           ),
+          const SizedBox(width: 6),
+          IconButton(
+            onPressed: (_loading || _created != null)
+                ? null
+                : () => setState(() {
+                      doc.base64 = null;
+                      doc.name = null;
+                    }),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            tooltip: 'Remove ${doc.label}',
+            icon: const Icon(Icons.delete_outline,
+                size: 20, color: AppColors.textTertiary),
+          ),
         ],
       ),
     );
   }
+}
+
+class _DottedRoundedRectPainter extends CustomPainter {
+  final Color color;
+
+  const _DottedRoundedRectPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const dotRadius = 2.2;
+    const gap = 5.0;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final path = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Offset.zero & size,
+        const Radius.circular(16),
+      ));
+    for (final metric in path.computeMetrics()) {
+      var dist = 0.0;
+      while (dist < metric.length) {
+        final tangent = metric.getTangentForOffset(dist);
+        if (tangent != null) {
+          canvas.drawCircle(tangent.position, dotRadius, paint);
+        }
+        dist += dotRadius * 2 + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DottedRoundedRectPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
