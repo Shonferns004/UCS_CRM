@@ -38,9 +38,16 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
         'kit_given': 'true',
         'pageSize': '100',
       });
-      final data = result['data'] ?? result['beneficiaries'] ?? [];
+      // Guard the shape defensively: the server may return a bare list or a
+      // {data: [...]} body. Mapping each element (never casting the raw list)
+      // avoids the "List<dynamic> is not a subtype of List<Map<String, dynamic>>"
+      // runtime crash.
+      final rawData = result['data'] ?? result['beneficiaries'] ?? const [];
+      final data = rawData is List ? rawData : const <dynamic>[];
       setState(() {
-        _users = data.map((e) => Map<String, dynamic>.from(e)).toList();
+        _users = data
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
         _loading = false;
       });
     } catch (e) {

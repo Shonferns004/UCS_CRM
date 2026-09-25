@@ -139,6 +139,27 @@ export const getBeneficiaryOverview = async () => {
   const { count: programsCount } = await db.from('bnf_programs').select('id', { count: 'exact', head: true });
   const { count: distributionsCount } = await db.from('benefit_distributions').select('id', { count: 'exact', head: true });
 
+  // Members per NGO (drives the Beneficiaries app "NGO Members" breakdown).
+  const [{ data: ngoIdRows }, { data: ngos }] = await Promise.all([
+    db.from('beneficiaries').select('ngo_id'),
+    db.from('ngos').select('id, name, code'),
+  ]);
+  const countByNgo = {};
+  for (const r of ngoIdRows || []) {
+    const key = r.ngo_id == null ? 'unassigned' : String(r.ngo_id);
+    countByNgo[key] = (countByNgo[key] || 0) + 1;
+  }
+  const ngoBreakdown = (ngos || []).map((n) => ({
+    id: n.id,
+    name: n.name || `NGO #${n.id}`,
+    code: n.code || null,
+    count: countByNgo[String(n.id)] || 0,
+  }));
+  if (countByNgo.unassigned) {
+    ngoBreakdown.push({ id: null, name: 'Unassigned', code: null, count: countByNgo.unassigned });
+  }
+  ngoBreakdown.sort((a, b) => b.count - a.count);
+
   return {
     total_beneficiaries: total || 0,
     active: active || 0,
@@ -148,6 +169,7 @@ export const getBeneficiaryOverview = async () => {
     kit_given_today: kitGivenToday || 0,
     programs: programsCount || 0,
     benefits_distributed: distributionsCount || 0,
+    ngos: ngoBreakdown,
   };
 };
 
