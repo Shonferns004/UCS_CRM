@@ -3,21 +3,17 @@ import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_zxing/flutter_zxing.dart';
 import '../../core/lucide_icons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
-import 'camera_capture_page.dart';
 
-/// Scans an Aadhaar card by reading the SecureQR printed on the card
-/// (automatic) and returns the decoded fields (name, dob, gender, address)
-/// via Navigator.pop. Decoding happens server-side (POST /aadhaar/decode-qr);
-/// the raw QR value is never stored on the device.
-///
-/// Uses ZXing (flutter_zxing ReaderWidget) instead of ML Kit: the Android
-/// ML Kit pipeline silently skips the very dense Aadhaar SecureQR even when
-/// it fills the frame, while ZXing reads it reliably.
+/// Reads an Aadhaar card from a photo: the user aligns the whole card front
+/// inside the card-shaped frame, taps "Read card", confirms the captured
+/// picture, and the backend reads the printed fields with vision/OCR
+/// (POST /beneficiaries/aadhaar/parse-photo). Returns the decoded fields
+/// (name, dob, gender, address) via Navigator.pop. The raw card is never
+/// stored on the device.
 class AadhaarScannerPage extends StatefulWidget {
   const AadhaarScannerPage({super.key});
 
@@ -26,62 +22,67 @@ class AadhaarScannerPage extends StatefulWidget {
 }
 
 class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
+  CameraController? _cameraController;
+  bool _initializing = true;
   bool _isProcessing = false;
   bool _isFlashOn = false;
-  CameraController? _cameraController;
+  String? _error;
 
-  // The same (only, valid) code is re-reported every scan cycle while the
-  // card stays in frame. Don't re-post to the backend immediately after a
-  // failed decode; let the user adjust framing first.
-  DateTime? _lastAttemptAt;
+  // Captured photo awaiting confirmation (shown for review before OCR).
+  Uint8List? _shot;
 
-  Future<void> _handleScan(Code code) async {
-    if (_isProcessing) return;
-    final text = code.text?.trim() ?? '';
-    if (text.isEmpty) return;
-
-    final now = DateTime.now();
-    if (_lastAttemptAt != null &&
-        now.difference(_lastAttemptAt!) < const Duration(seconds: 2)) {
-      return;
-    }
-    _lastAttemptAt = now;
-
-    setState(() => _isProcessing = true);
-    try {
-      final data = await ApiService.decodeAadhaarQr(text);
-      if (!mounted) return;
-      Navigator.pop(context, data);
-    } catch (e) {
-      if (!mounted) return;
-      // Surface the server's exact reason (message + safe diagnostic detail)
-      // so failures can be diagnosed from the phone.
-      final reason = e is Exception ? '$e' : 'Could not read this Aadhaar QR.';
-      showAppSnackbar(
-        context,
-        reason.replaceFirst('Exception: ', ''),
-        error: true,
-      );
-      setState(() => _isProcessing = false);
-    }
+  @override
+  void initState() {
+    super.initState();
+    _initCamera();
   }
 
-  void _onControllerCreated(CameraController? controller, Exception? error) {
-    _cameraController = controller;
-    if (error != null && mounted) {
-      showAppSnackbar(
-        context,
-        'Could not start the camera. Please try again.',
-        error: true,
-      );
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initCamera() async {
+    try {
+      final cameras = await availableCameras();
+      if (!mounted) return;
+      final cam = cameras.isEmpty
+          ? null
+          : cameras.firstWhere(
+              (c) => c.lensDirection == CameraLensDirection.back,
+              orElse: () => cameras.first,
+            );
+      if (cam == null) {
+        setState(() {
+          _initializing = false;
+          _error = 'No camera found on this device.';
+        });
+        return;
+      }
+      final controller = CameraController(cam, ResolutionPreset.high, enableAudio: false);
+      await controller.initialize();
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() {
+        _cameraController = controller;
+        _initializing = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _initializing = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
   Future<void> _toggleFlash() async {
     final controller = _cameraController;
-    if (controller == null) return;
+    if (controller == null || !controller.value.isInitialized) return;
     try {
-      if (!controller.value.isInitialized) return;
       await controller.setFlashMode(_isFlashOn ? FlashMode.off : FlashMode.torch);
       if (mounted) setState(() => _isFlashOn = !_isFlashOn);
     } catch (_) {
@@ -89,25 +90,37 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
     }
   }
 
-  // Google-Lens-style fallback: capture a card photo and let the backend read
-  // the printed fields with vision/OCR (POST /beneficiaries/aadhaar/parse-photo).
-  Future<void> _scanFromPhoto() async {
+  Future<void> _capture() async {
     if (_isProcessing) return;
-    final Uint8List? bytes = await Navigator.push<Uint8List>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const CameraCapturePage(
-          hint: 'Fill the whole front of the card in the frame',
-          captureLabel: 'Read card',
-        ),
-      ),
-    );
-    if (bytes == null || !mounted) return;
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    try {
+      final XFile shot = await controller.takePicture();
+      if (!mounted) return;
+      final bytes = await shot.readAsBytes();
+      if (!mounted) return;
+      setState(() => _shot = bytes);
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackbar(
+        context,
+        'Capture failed: ${e.toString().replaceFirst('Exception: ', '')}',
+        error: true,
+      );
+    }
+  }
 
+  void _retake() {
+    if (_isProcessing) return;
+    setState(() => _shot = null);
+  }
+
+  Future<void> _usePhoto() async {
+    final bytes = _shot;
+    if (bytes == null || _isProcessing) return;
     setState(() => _isProcessing = true);
     try {
-      final base64 = base64Encode(bytes);
-      final fields = await ApiService.parseAadhaarPhoto(base64);
+      final fields = await ApiService.parseAadhaarPhoto(base64Encode(bytes));
       if (!mounted) return;
       final name = fields['name']?.toString().trim();
       final dob = fields['dob']?.toString();
@@ -131,7 +144,7 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
       } else {
         showAppSnackbar(
           context,
-          'Could not read the card from the photo. Try again with better lighting.',
+          'Could not read the card from this photo. Try again with better lighting.',
           error: true,
         );
         setState(() => _isProcessing = false);
@@ -160,34 +173,50 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            ExcludeSemantics(
-              // Avoid framework bug flutter/flutter#191188: the camera
-              // texture stays layout-dirty while the route transitions.
-              child: ReaderWidget(
-                onControllerCreated: _onControllerCreated,
-                onScan: _handleScan,
-                codeFormat: Format.qrCode,
-                tryHarder: true,
-                tryInverted: true,
-                tryRotate: true,
-                tryDownscale: false,
-                cropPercent: 0.9,
-                scanDelay: const Duration(milliseconds: 250),
-                resolution: ResolutionPreset.high,
-                lensDirection: CameraLensDirection.back,
-                showScannerOverlay: false,
-                showFlashlight: false,
-                showToggleCamera: false,
-                showGallery: false,
-                allowPinchZoom: true,
+            if (_shot != null)
+              // Review the capture before it is sent to OCR.
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black,
+                  child: Center(
+                    child: Image.memory(_shot!, fit: BoxFit.contain),
+                  ),
+                ),
+              )
+            else
+              Positioned.fill(
+                // The live preview is letterboxed to the camera's aspect ratio
+                // so the captured photo matches exactly what the user framed.
+                child: ExcludeSemantics(
+                  // Avoid framework bug flutter/flutter#191188: the camera
+                  // texture stays layout-dirty while the route transitions.
+                  child: _cameraController != null && _cameraController!.value.isInitialized
+                      ? Center(
+                          child: AspectRatio(
+                            aspectRatio: _cameraController!.value.aspectRatio,
+                            child: CameraPreview(_cameraController!),
+                          ),
+                        )
+                      : Center(
+                          child: _initializing
+                              ? const CircularProgressIndicator(color: Colors.white)
+                              : Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Text(
+                                    _error ?? 'Camera unavailable',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: Colors.white70),
+                                  ),
+                                ),
+                        ),
+                ),
               ),
-            ),
 
-            // Overlay
-            CustomPaint(
-              size: Size.infinite,
-              painter: _AadhaarOverlayPainter(),
-            ),
+            if (_shot == null)
+              CustomPaint(
+                size: Size.infinite,
+                painter: _AadhaarOverlayPainter(),
+              ),
 
             // Top bar
             Positioned(
@@ -208,7 +237,7 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
                             style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
                       ),
                       IconButton(
-                        onPressed: _toggleFlash,
+                        onPressed: _shot == null ? _toggleFlash : null,
                         icon: Icon(_isFlashOn ? LucideIcons.flashlight : LucideIcons.flashlightOff, color: Colors.white),
                       ),
                     ],
@@ -217,37 +246,75 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
               ),
             ),
 
-            // Bottom hint + photo fallback
+            // Bottom actions
             Positioned(
-              bottom: 60,
+              bottom: 40,
               left: 0,
               right: 0,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
+              child: _shot != null
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _isProcessing ? null : _retake,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white54),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          ),
+                          icon: const Icon(LucideIcons.refreshCw, size: 18),
+                          label: const Text('Retake'),
+                        ),
+                        const SizedBox(width: 16),
+                        ElevatedButton.icon(
+                          onPressed: _isProcessing ? null : _usePhoto,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.secondary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          ),
+                          icon: _isProcessing
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(LucideIcons.check, size: 20),
+                          label: const Text('Use this photo'),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            'Place the card flat inside the frame, then tap Read card',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white70, fontSize: 13),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed:
+                              (_initializing || _cameraController == null || _isProcessing)
+                                  ? null
+                                  : _capture,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.secondary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 14),
+                          ),
+                          icon: const Icon(LucideIcons.camera, size: 20),
+                          label: const Text('Read card'),
+                        ),
+                      ],
                     ),
-                    child: const Text(
-                      'Hold the card flat inside the card-shaped frame · pinch to zoom',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextButton.icon(
-                    onPressed: _isProcessing ? null : _scanFromPhoto,
-                    icon: const Icon(LucideIcons.camera, color: Colors.white70, size: 18),
-                    label: const Text(
-                      'QR not reading? Read the card from a photo',
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
             ),
 
             if (_isProcessing)
