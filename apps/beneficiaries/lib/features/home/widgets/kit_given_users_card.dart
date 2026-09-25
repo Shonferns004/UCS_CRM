@@ -145,6 +145,7 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
     final members = n['member_count'] is num
         ? (n['member_count'] as num).toInt()
         : 0;
+    final donated = (n['donated'] is num) ? (n['donated'] as num).toDouble() : 0.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -199,6 +200,19 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
                     ),
                   ),
                 ],
+                if (donated > 0) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Donated: ${_inr(donated)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.successGreen,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -233,5 +247,20 @@ class KitGivenUsersCardState extends State<KitGivenUsersCard> {
         ],
       ),
     );
+  }
+
+  String _inr(double d) {
+    final i = d.round();
+    final s = i.toString();
+    if (s.length <= 3) return '₹$s';
+    final last3 = s.substring(s.length - 3);
+    var rest = s.substring(0, s.length - 3);
+    final parts = <String>[];
+    while (rest.length > 2) {
+      parts.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) parts.insert(0, rest);
+    return '₹${parts.join(',')},$last3';
   }
 }

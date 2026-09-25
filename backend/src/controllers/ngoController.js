@@ -81,13 +81,17 @@ export const getNgoMemberCounts = async (req, res) => {
   try {
     const { rows } = await db._pool.query(`
       SELECT n.id, n.name, n.code,
-             COUNT(b.id)::int AS member_count
+             (SELECT COUNT(*) FROM beneficiaries b WHERE b.ngo_id = n.id)::int AS member_count,
+             (SELECT COALESCE(SUM(r.amount), 0) FROM receipts r
+               WHERE r.receipt_no IS NOT NULL AND lower(r.project_id) = lower(n.name))::float8 AS donated
         FROM ngos n
-        LEFT JOIN beneficiaries b ON b.ngo_id = n.id
-       GROUP BY n.id, n.name, n.code
        ORDER BY n.name ASC
     `);
-    return res.json(rows.map((r) => ({ id: r.id, name: r.name, code: r.code, member_count: r.member_count || 0 })));
+    return res.json(rows.map((r) => ({
+      id: r.id, name: r.name, code: r.code,
+      member_count: r.member_count || 0,
+      donated: parseFloat(r.donated) || 0,
+    })));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
