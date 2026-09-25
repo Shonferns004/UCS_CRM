@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -521,11 +521,37 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
 
   // ---- history card -------------------------------------------------------
 
+  // Every kit handed out to this beneficiary, newest first. Kits are recorded
+  // as `KIT_GIVEN` audit entries; if the trail is somehow empty we still
+  // surface the beneficiary's own kit_given_at so History never lies.
+  List<Map<String, dynamic>> get _historyEntries {
+    if (_kitHistory.isNotEmpty) return _kitHistory;
+    final at = _b['kit_given_at'];
+    if (at != null && at.toString().trim().isNotEmpty) {
+      return [
+        {
+          'action': 'KIT_GIVEN',
+          'performed_at': at,
+          'performed_by': _b['kit_given_by'],
+          'details': null,
+        },
+      ];
+    }
+    return const [];
+  }
+
+  String _historyGivenBy(Map<String, dynamic> entry) {
+    final by = entry['performed_by']?.toString().trim();
+    if (by == null || by.isEmpty || by.toLowerCase() == 'system') return '';
+    return by;
+  }
+
   Widget _buildHistoryCard() {
-    final n = _kitHistory.length;
+    final entries = _historyEntries;
+    final n = entries.length;
     final visible = _historyExpanded
-        ? _kitHistory
-        : _kitHistory.take(_initialHistoryRows).toList();
+        ? entries
+        : entries.take(_initialHistoryRows).toList();
     final showToggle = n > _initialHistoryRows;
 
     return _card(
@@ -538,7 +564,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
               children: [
                 const Expanded(
                   child: Text(
-                    'Kit Given History',
+                    'History',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
@@ -546,7 +572,7 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
                     ),
                   ),
                 ),
-                _countBadge(n),
+                if (n > 0) _countBadge(n),
               ],
             ),
             const SizedBox(height: 16),
@@ -611,13 +637,19 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   Widget _historyRow(Map<String, dynamic> entry, {required bool notLast}) {
     final name = _historyEventName(entry);
     final at = _fmtDateTime(entry['performed_at']);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 56),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: 32,
+    final by = _historyGivenBy(entry);
+    // IntrinsicHeight gives the stretch Row a bounded height even when
+    // AnimatedSize measures its child with an unbounded max height; without
+    // it the constraining assertions throw and the whole card fails to lay
+    // out for any beneficiary with kit history.
+    return IntrinsicHeight(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 56),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 32,
             child: Column(
               children: [
                 Container(
@@ -674,11 +706,33 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
                     at,
                     style: const TextStyle(fontSize: 12.5, color: _kHistTs),
                   ),
+                  if (by.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(LucideIcons.user,
+                            size: 12, color: _kHistTs),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            by,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _kHistTs,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
