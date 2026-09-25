@@ -1,9 +1,8 @@
-import groq from '../config/groq.js';
 import FormData from 'form-data';
 
-const VISION_MODEL = 'llama-3.2-90b-vision-preview';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Regex heuristics used only when Groq vision is unavailable. The front side of
+// Regex heuristics used only when vision OCR is unavailable. The front side of
 // an Aadhaar card is fairly regular: name near the top, DOB / Gender lines, an
 // address block, and the 12-digit number (possibly masked) near the bottom.
 const STATE_NAMES = [
@@ -104,60 +103,107 @@ export function parseAadhaarFromText(text = '') {
   return out;
 }
 
-// Tries Groq vision (structured, reliable) then falls back to OCR.space text +
-// regex heuristics. Returns the same shape as parseAadhaarXml.
-export async function extractAadhaarFromPhoto(base64) {
-  const dataUrl = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`;
+function toRawBase64(base64) {
+  return base64.includes('base64,') ? base64.split('base64,')[1] : base64;
+}
 
-  try {
-    const completion = await groq.chat.completions.create({
-      model: VISION_MODEL,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: [
-            'You read Aadhaar cards from photos. Reply with ONLY a JSON object.',
-            'Extract exactly these keys (null if not visible):',
-            '{"name","dob","gender","address_line_1","vtc","district","state","pincode","aadhaar_number"}',
-            'dob must be YYYY-MM-DD. aadhaar_number must be 12 digits with no spaces.',
-            'Do not invent values that are not on the card.',
-          ].join(' '),
-        },
+// Keeps only usable fields and normalizes aadhaar_number / dob, mirroring the
+// QR decoder's field shape so the app auto-fills identically. Only the fields
+// relevant to the card side are kept: the FRONT carries name/DOB/gender and the
+// masked 12-digit number; the BACK carries the address block (no city/state
+// decomposition — a single address_line_1 is enough for the app).
+const FRONT_KEYS = ['name', 'dob', 'gender', 'aadhaar_number'];
+const BACK_KEYS = ['address_line_1', 'vtc'];
+
+function cleanFields(parsed, allowedKeys) {
+  const cleaned = {};
+  for (const k of allowedKeys) {
+    const v = parsed?.[k];
+    if (v != null && String(v).trim() !== '') cleaned[k] = String(v).trim();
+  }
+  if (cleaned.aadhaar_number) {
+    cleaned.aadhaar_number = String(cleaned.aadhaar_number).replace(/[^0-9]/g, '').slice(0, 12);
+  }
+  const dob = parseDob(cleaned.dob);
+  if (dob) cleaned.dob = dob;
+  return cleaned;
+}
+
+function buildPrompt(side) {
+  if (side === 'back') {
+    return [
+      'You read the BACK side of an Aadhaar card, which shows the address table.',
+      'Reply with ONLY a JSON object. Extract exactly these keys (null if not visible):',
+      '{"address_line_1"}',
+      'address_line_1 must be the full address as a single comma-separated string.',
+      'Do not extract the name, DOB or Aadhaar number. Do not invent anything.',
+    ].join(' ');
+  }
+  return [
+    'You read the FRONT side of an Aadhaar card.',
+    'Reply with ONLY a JSON object. Extract exactly these keys (null if not visible):',
+    '{"name","dob","gender","aadhaar_number"}',
+    'dob must be YYYY-MM-DD. aadhaar_number must be 12 digits with no spaces.',
+    'Do not invent values that are not on the card.',
+  ].join(' ');
+}
+
+// Gemini REST (generativelanguage.googleapis.com). The free API key only
+// works through the /v1beta top-level key query endpoint.
+async function extractWithGemini(base64, prompt) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
         {
           role: 'user',
-          content: [
-            { type: 'text', text: 'Extract the Aadhaar details from this card photo.' },
-            { type: 'image_url', image_url: { url: dataUrl } },
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: 'image/jpeg', data: toRawBase64(base64) } },
           ],
         },
       ],
-    });
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 500)}`);
+  }
+  const json = await res.json();
+  const text = (json.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p.text ?? '')
+    .join('')
+    .trim();
+  if (!text) return null;
+  return JSON.parse(text.replace(/```json|```/g, '').trim());
+}
 
-    const raw = completion.choices?.[0]?.message?.content || '';
-    const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
+// Reads an Aadhaar card photo. Primary path: Gemini vision (structured,
+// reliable). Fallback: OCR.space text + regex heuristics. Returns only the
+// fields for the requested side (front = name/dob/gender/aadhaar_number,
+// back = address_line_1) in the same shape as decodeAadhaarQr.
+export async function extractAadhaarFromPhoto(base64, side = 'front') {
+  const isBack = side === 'back';
+  const allowedKeys = isBack ? BACK_KEYS : FRONT_KEYS;
+
+  try {
+    const parsed = await extractWithGemini(base64, buildPrompt(isBack));
     if (parsed && typeof parsed === 'object') {
-      const cleaned = {};
-      for (const k of ['name', 'dob', 'gender', 'address_line_1', 'vtc', 'district', 'state', 'pincode', 'aadhaar_number']) {
-        const v = parsed[k];
-        if (v != null && String(v).trim() !== '') cleaned[k] = String(v).trim();
-      }
-      if (cleaned.aadhaar_number) {
-        cleaned.aadhaar_number = String(cleaned.aadhaar_number).replace(/[^0-9]/g, '').slice(0, 12);
-      }
-      const dob = parseDob(cleaned.dob);
-      if (dob) cleaned.dob = dob;
-      return cleaned;
+      const cleaned = cleanFields(parsed, allowedKeys);
+      if (Object.keys(cleaned).length > 0) return cleaned;
     }
   } catch (_) {
-    // Fall through to OCR.space heuristics.
+    // Fall through to the OCR.space heuristics.
   }
 
-  // Fallback: OCR.space text → regex.
+  // Fallback: OCR.space text → regex, keeping only this side's fields.
   try {
-    let b64 = base64;
-    if (base64.includes('base64,')) b64 = base64.split('base64,')[1];
+    const b64 = toRawBase64(base64);
     const form = new FormData();
     form.append('base64image', b64);
     form.append('language', 'eng');
@@ -171,7 +217,9 @@ export async function extractAadhaarFromPhoto(base64) {
     });
     const json = await ocrRes.json();
     if (json.OCRExitCode === 1 && json.ParsedResults?.length > 0) {
-      return parseAadhaarFromText(json.ParsedResults[0].ParsedText);
+      const fromText = parseAadhaarFromText(json.ParsedResults[0].ParsedText);
+      const cleaned = cleanFields(fromText, allowedKeys);
+      return cleaned;
     }
     return {};
   } catch (_) {

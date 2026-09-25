@@ -8,12 +8,13 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
 
-/// Reads an Aadhaar card from a photo: the user aligns the whole card front
-/// inside the card-shaped frame, taps "Read card", confirms the captured
-/// picture, and the backend reads the printed fields with vision/OCR
-/// (POST /beneficiaries/aadhaar/parse-photo). Returns the decoded fields
-/// (name, dob, gender, address) via Navigator.pop. The raw card is never
-/// stored on the device.
+/// Reads an Aadhaar card in two photos: the FRONT side (name, DOB, gender,
+/// Aadhaar number) then the BACK side (address). The user aligns the card side
+/// inside the card-shaped frame, taps "Read front"/"Read back", confirms each
+/// capture, and the backend reads the fields with Gemini vision/OCR
+/// (POST /beneficiaries/aadhaar/parse-photo). Returns the combined fields
+/// (name, dob, gender, address, aadhaar_number) via Navigator.pop. The raw
+/// card photos are never stored on the device.
 class AadhaarScannerPage extends StatefulWidget {
   const AadhaarScannerPage({super.key});
 
@@ -30,6 +31,12 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
 
   // Captured photo awaiting confirmation (shown for review before OCR).
   Uint8List? _shot;
+
+  // Confirmed FRONT photo. While null the user is photographing the front;
+  // once set they photograph the BACK side.
+  Uint8List? _frontBytes;
+
+  bool get _awaitingBack => _frontBytes != null;
 
   @override
   void initState() {
@@ -115,18 +122,48 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
     setState(() => _shot = null);
   }
 
+  // "Use this photo": the front shot just gets confirmed and we move on to the
+  // back; once both sides are captured we read the whole card.
   Future<void> _usePhoto() async {
     final bytes = _shot;
     if (bytes == null || _isProcessing) return;
+    if (_frontBytes == null) {
+      setState(() {
+        _frontBytes = bytes;
+        _shot = null;
+      });
+      return;
+    }
+    await _readCard();
+  }
+
+  // Reads name/dob/gender/aadhaar_number from the FRONT photo and the address
+  // from the BACK photo, then pops with the combined autofill fields.
+  Future<void> _readCard() async {
+    final front = _frontBytes;
+    final back = _shot;
+    if (front == null || back == null || _isProcessing) return;
     setState(() => _isProcessing = true);
     try {
-      final fields = await ApiService.parseAadhaarPhoto(base64Encode(bytes));
+      final frontFields = await ApiService.parseAadhaarPhoto(base64Encode(front), side: 'front');
+      final backFields = await ApiService.parseAadhaarPhoto(base64Encode(back), side: 'back');
       if (!mounted) return;
-      final name = fields['name']?.toString().trim();
-      final dob = fields['dob']?.toString();
-      final photoAddress = fields['address_line_1']?.toString().trim();
+
+      String? first(Map<String, dynamic> fields, List<String> keys) {
+        for (final k in keys) {
+          final v = fields[k];
+          if (v is String && v.trim().isNotEmpty) return v.trim();
+        }
+        return null;
+      }
+
+      final name = first(frontFields, ['name', 'fullName', 'FullName', 'holder_name']);
+      final dob = first(frontFields, ['dob', 'dateOfBirth', 'date_of_birth', 'DOB']);
+      final aadhaarNumber = first(frontFields, ['aadhaar_number', 'aadhaarNumber', 'uid']);
+      final photoAddress = first(backFields, ['address_line_1', 'address', 'address1']);
+
       String? gender;
-      switch ((fields['gender'] ?? '').toString().trim().toLowerCase()) {
+      switch ((frontFields['gender'] ?? '').toString().trim().toLowerCase()) {
         case 'm' || 'male':
           gender = 'Male';
         case 'f' || 'female':
@@ -134,17 +171,19 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
         case 'transgender' || 't':
           gender = 'Other';
       }
-      if ((name?.isNotEmpty ?? false) || (dob?.isNotEmpty ?? false)) {
+
+      if (name != null || dob != null) {
         Navigator.pop(context, {
-          'name': (name?.isNotEmpty ?? false) ? name : null,
+          'name': name,
           'dob': dob,
           'gender': gender,
-          'address': (photoAddress?.isNotEmpty ?? false) ? photoAddress : null,
+          'address': photoAddress,
+          'aadhaar_number': aadhaarNumber,
         });
       } else {
         showAppSnackbar(
           context,
-          'Could not read the card from this photo. Try again with better lighting.',
+          'Could not read the front of this card. Retake with the whole card in view, flat and well-lit.',
           error: true,
         );
         setState(() => _isProcessing = false);
@@ -185,18 +224,13 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
               )
             else
               Positioned.fill(
-                // The live preview is letterboxed to the camera's aspect ratio
-                // so the captured photo matches exactly what the user framed.
+                // Live preview, full screen (same pattern as the app's other
+                // capture pages) so it is never stretched out of shape.
                 child: ExcludeSemantics(
                   // Avoid framework bug flutter/flutter#191188: the camera
                   // texture stays layout-dirty while the route transitions.
                   child: _cameraController != null && _cameraController!.value.isInitialized
-                      ? Center(
-                          child: AspectRatio(
-                            aspectRatio: _cameraController!.value.aspectRatio,
-                            child: CameraPreview(_cameraController!),
-                          ),
-                        )
+                      ? CameraPreview(_cameraController!)
                       : Center(
                           child: _initializing
                               ? const CircularProgressIndicator(color: Colors.white)
@@ -280,7 +314,7 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
                                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                 )
                               : const Icon(LucideIcons.check, size: 20),
-                          label: const Text('Use this photo'),
+                          label: Text(_awaitingBack ? 'Use back' : 'Use front'),
                         ),
                       ],
                     )
@@ -293,10 +327,12 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Text(
-                            'Place the card flat inside the frame, then tap Read card',
+                          child: Text(
+                            _awaitingBack
+                                ? 'Step 2 of 2 · BACK side — place the back of the card inside the frame'
+                                : 'Step 1 of 2 · FRONT side — place the front of the card inside the frame',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white70, fontSize: 13),
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -311,7 +347,7 @@ class _AadhaarScannerPageState extends State<AadhaarScannerPage> {
                             padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 14),
                           ),
                           icon: const Icon(LucideIcons.camera, size: 20),
-                          label: const Text('Read card'),
+                          label: Text(_awaitingBack ? 'Read back' : 'Read front'),
                         ),
                       ],
                     ),
