@@ -115,7 +115,7 @@ function toRawBase64(base64) {
 // be scraped for every detail — no city/state decomposition, one address_line_1).
 const FRONT_KEYS = ['name', 'dob', 'gender', 'aadhaar_number'];
 const BACK_KEYS = ['address_line_1', 'vtc'];
-const ALL_KEYS = ['name', 'dob', 'gender', 'address_line_1', 'vtc', 'aadhaar_number'];
+export const ALL_KEYS = ['name', 'dob', 'gender', 'address_line_1', 'vtc', 'aadhaar_number', 'pincode'];
 
 function keysForSide(side) {
   if (side === 'back') return BACK_KEYS;
@@ -159,19 +159,21 @@ function buildPrompt(side) {
   return [
     'You read an Aadhaar card photo.',
     'Reply with ONLY a JSON object. Extract exactly these keys (null if not visible):',
-    '{"name","dob","gender","address_line_1","aadhaar_number"}',
+    '{"name","dob","gender","address_line_1","aadhaar_number","pincode"}',
     'name is the cardholder name. dob must be YYYY-MM-DD.',
     'aadhaar_number must be 12 contiguous digits with no spaces.',
     'address_line_1 must be the full address as one comma-separated string if any address text is visible.',
+    'pincode must be the 6-digit postal code if any address text is visible (omit when absent).',
     'Do not invent values that are not on the card.',
   ].join(' ');
 }
 
 // Gemini REST (generativelanguage.googleapis.com). The free API key only
-// works through the /v1beta top-level key query endpoint.
+// works through the /v1beta top-level key query endpoint. Fails loudly so the
+// caller can report which OCR engine was missing/broken.
 async function extractWithGemini(base64, prompt) {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
+  if (!key) throw new Error('GEMINI_API_KEY is not set on the server');
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
   const res = await fetch(endpoint, {
@@ -191,7 +193,7 @@ async function extractWithGemini(base64, prompt) {
     }),
   });
   if (!res.ok) {
-    throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 500)}`);
+    throw new Error(`Gemini HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
   const json = await res.json();
   const text = (json.candidates?.[0]?.content?.parts ?? [])
@@ -202,46 +204,58 @@ async function extractWithGemini(base64, prompt) {
   return JSON.parse(text.replace(/```json|```/g, '').trim());
 }
 
+// Fallback OCR.space engine. Fails loudly with its HTTP/parse status when the
+// OCR service itself rejects the request or needs its API key.
+async function extractWithOcrSpace(base64, allowedKeys) {
+  const key = process.env.OCR_SPACE_KEY;
+  if (!key) throw new Error('OCR_SPACE_KEY is not set on the server');
+  const form = new FormData();
+  form.append('base64image', toRawBase64(base64));
+  form.append('language', 'eng');
+  form.append('filetype', 'JPG');
+  form.append('isOverlayRequired', 'false');
+  form.append('isTable', 'true');
+
+  const ocrRes = await fetch('https://api.ocr.space/parse/image', {
+    method: 'POST',
+    headers: { apikey: key },
+    body: form,
+  });
+  if (!ocrRes.ok) {
+    throw new Error(`OCR.space HTTP ${ocrRes.status}`);
+  }
+  const json = await ocrRes.json();
+  if (json.OCRExitCode === 1 && json.ParsedResults?.length > 0) {
+    return cleanFields(parseAadhaarFromText(json.ParsedResults[0].ParsedText), allowedKeys);
+  }
+  throw new Error(`OCR.space error ${json.OCRExitCode}: ${json.ErrorMessage || 'no result'}`);
+}
+
 // Reads an Aadhaar card photo. Primary path: Gemini vision (structured,
-// reliable). Fallback: OCR.space text + regex heuristics. Returns only the
-// fields for the requested side (front = name/dob/gender/aadhaar_number,
-// back = address_line_1, all = everything visible in the photo) in the same
-// shape as decodeAadhaarQr.
+// reliable). Fallback: OCR.space text + regex heuristics. Returns
+// `{ fields, via, errors }` — fields may be empty. `errors` explains why every
+// OCR engine failed so the app can show a helpful message (missing API key,
+// HTTP status, ...) instead of a generic "could not read".
 export async function extractAadhaarFromPhoto(base64, side = 'all') {
   const allowedKeys = keysForSide(side);
+  const errors = [];
 
   try {
     const parsed = await extractWithGemini(base64, buildPrompt(side));
     if (parsed && typeof parsed === 'object') {
       const cleaned = cleanFields(parsed, allowedKeys);
-      if (Object.keys(cleaned).length > 0) return cleaned;
+      if (Object.keys(cleaned).length > 0) return { fields: cleaned, via: 'gemini', errors };
     }
-  } catch (_) {
-    // Fall through to the OCR.space heuristics.
+  } catch (e) {
+    errors.push(`Gemini: ${e.message}`);
   }
 
-  // Fallback: OCR.space text → regex, keeping only this side's fields.
   try {
-    const b64 = toRawBase64(base64);
-    const form = new FormData();
-    form.append('base64image', b64);
-    form.append('language', 'eng');
-    form.append('filetype', 'JPG');
-    form.append('isOverlayRequired', 'false');
-
-    const ocrRes = await fetch('https://api.ocr.space/parse/image', {
-      method: 'POST',
-      headers: { apikey: process.env.OCR_SPACE_KEY },
-      body: form,
-    });
-    const json = await ocrRes.json();
-    if (json.OCRExitCode === 1 && json.ParsedResults?.length > 0) {
-      const fromText = parseAadhaarFromText(json.ParsedResults[0].ParsedText);
-      const cleaned = cleanFields(fromText, allowedKeys);
-      return cleaned;
-    }
-    return {};
-  } catch (_) {
-    return {};
+    const cleaned = await extractWithOcrSpace(base64, allowedKeys);
+    if (Object.keys(cleaned).length > 0) return { fields: cleaned, via: 'ocr.space', errors };
+  } catch (e) {
+    errors.push(`OCR.space: ${e.message}`);
   }
+
+  return { fields: {}, via: null, errors };
 }
