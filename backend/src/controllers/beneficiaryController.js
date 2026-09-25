@@ -17,7 +17,7 @@ import { getBeneficiaryDistributionHistory } from '../models/distributionModel.j
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
-import { extractAadhaarFromPhoto } from '../utils/aadhaarPhotoOcr.js';
+import { extractAadhaarFromPhoto, ALL_KEYS } from '../utils/aadhaarPhotoOcr.js';
 import db from '../config/db.js';
 
 const DOC_BUCKET = 'beneficiary-documents';
@@ -345,9 +345,10 @@ export const getAuditTrail = async (req, res) => {
 // decoder as fallback.
 
 // OCRs a photo of an Aadhaar card and returns the same field shape as
-// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a
-// base64 JPEG (/data:image;base64,... or raw). Uses Groq vision first, falls
-// back to OCR.space + regex heuristics.
+// decodeAadhaarQr so the mobile app auto-fills the form. Accepts a base64 JPEG
+// (/data:image;base64,... or raw). Uses Gemini vision first, falls back to
+// OCR.space + regex heuristics. If everything fails, `detail` explains which
+// OCR engine was missing/broken so the operator can fix it server-side.
 export const parseAadhaarPhotoController = async (req, res) => {
   try {
     const { image, side } = req.body || {};
@@ -358,20 +359,23 @@ export const parseAadhaarPhotoController = async (req, res) => {
     // side: 'front' | 'back' | anything else → 'all' (scrape every visible
     // detail, used when a single uploaded Aadhaar document must autofill).
     const sideKey = side === 'front' ? 'front' : side === 'back' ? 'back' : 'all';
-    const fields = await extractAadhaarFromPhoto(String(image), sideKey);
+    const { fields, via, errors } = await extractAadhaarFromPhoto(String(image), sideKey);
     if (!fields || Object.keys(fields).length === 0) {
       return res.status(422).json({
         message: 'Could not read this card. Make sure the photo is sharp, well-lit, and shows the whole Aadhaar card.',
+        detail: errors.join('; ') || 'No OCR engine returned usable text.',
       });
     }
 
     await logAuditEvent({
       entity_type: 'aadhaar_scan',
       action: 'AADHAAR_PHOTO_SCANNED',
-      details: { found: Object.keys(fields).filter((k) => fields[k]).length },
+      details: { found: Object.keys(fields).filter((k) => fields[k]).length, via },
       performed_by: req.user?.name || req.user?.email || 'system',
     });
 
+    const discarded = [...new Set([...ALL_KEYS].filter((k) => !(k in fields)))];
+    console.log(`[aadhaar OCR] via=${via} found=${Object.keys(fields).join(',')} missing=${discarded.join(',')}`);
     return res.json(fields);
   } catch (error) {
     return res.status(500).json({ message: error.message });

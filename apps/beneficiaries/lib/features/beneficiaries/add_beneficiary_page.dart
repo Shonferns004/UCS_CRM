@@ -1,5 +1,10 @@
-﻿import '../../core/lucide_icons.dart';
+﻿import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
+
+import '../../core/lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
@@ -7,6 +12,26 @@ import '../../core/widgets/section_header.dart';
 import '../../services/api_service.dart';
 import 'document_capture_page.dart';
 import 'fingerprint_enroll_panel.dart';
+
+// Squeezes a captured Aadhaar photo down to at most 1600px on the long edge so
+// the OCR request is small and fast (and never bumps into server/gateway
+// payload limits). Runs on a background isolate via compute().
+String _compactAadhaarJpeg(String base64) {
+  try {
+    final decoded = img.decodeImage(base64Decode(base64));
+    if (decoded == null) return base64;
+    final longest = decoded.width > decoded.height ? decoded.width : decoded.height;
+    final scale = longest > 1600 ? 1600 / longest : 1.0;
+    final resized = img.copyResize(
+      decoded,
+      width: (decoded.width * scale).round(),
+      height: (decoded.height * scale).round(),
+    );
+    return base64Encode(img.encodeJpg(resized, quality: 85));
+  } catch (_) {
+    return base64;
+  }
+}
 
 enum _DocType { aadhaar, udid, disability }
 
@@ -224,7 +249,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     final base64 = _docs.firstWhere((d) => d.type == _DocType.aadhaar).base64;
     if (base64 == null || base64.isEmpty) return;
     try {
-      final fields = await ApiService.parseAadhaarPhoto(base64);
+      // Downscale first so the OCR request is small, fast, and never rejected
+      // for being too large. The original photo stays attached to the record.
+      final compact = await compute(_compactAadhaarJpeg, base64);
+      final fields = await ApiService.parseAadhaarPhoto(compact);
       if (!mounted) return;
 
       setState(() {
@@ -255,6 +283,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         final aadhaar = fields['aadhaar_number']?.toString();
         if (aadhaar != null && aadhaar.trim().isNotEmpty) {
           _aadhaarController.text = aadhaar.trim();
+        }
+        final pincode = fields['pincode']?.toString();
+        if (pincode != null && pincode.trim().isNotEmpty) {
+          _pincodeController.text = pincode.replaceAll(RegExp(r'[^0-9]'), '');
         }
       });
 
@@ -562,8 +594,9 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 12),
 
-            // Per-document status rows.
-            ..._docs.map((doc) => Padding(
+            // Per-document status rows — only show docs that were actually
+            // scanned, so "Not scanned" placeholders stay out of the way.
+            ..._docs.where((doc) => doc.base64 != null).map((doc) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _docStatusRow(doc),
                 )),
