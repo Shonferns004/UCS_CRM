@@ -183,51 +183,67 @@ function buildPrompt(side) {
 // Gemini REST (generativelanguage.googleapis.com). The free API key only
 // works through the /v1beta top-level key query endpoint. Fails loudly so the
 // caller can report which OCR engine was missing/broken. Tries each model in
-// the chain, skipping ones that are "no longer available".
+// the chain; on "no longer available" it skips ahead, on 503/429 (high demand
+// / quota) it retries with a short backoff, then moves to the next model.
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function extractWithGemini(base64, prompt) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY is not set on the server');
 
   let lastError = null;
   for (const model of GEMINI_MODELS) {
-    const endpoint =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: 'image/jpeg', data: toRawBase64(base64) } },
-              ],
-            },
-          ],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        const msg = `Gemini HTTP ${res.status}: ${body.slice(0, 300)}`;
-        if (/no longer available|does not exist|404/i.test(msg)) {
-          lastError = new Error(msg);
-          continue; // skip to the next model in the chain
-        }
-        throw new Error(msg);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let res;
+      try {
+        const endpoint =
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: 'image/jpeg', data: toRawBase64(base64) } },
+                ],
+              },
+            ],
+            generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+          }),
+        });
+      } catch (e) {
+        lastError = e;
+        break; // network failure — try the next model
       }
-      const json = await res.json();
-      const text = (json.candidates?.[0]?.content?.parts ?? [])
-        .map((p) => p.text ?? '')
-        .join('')
-        .trim();
-      if (!text) return null;
-      return JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch (e) {
-      if (!/no longer available|does not exist|404/i.test(e.message)) throw e;
-      lastError = e;
+
+      if (res.ok) {
+        const json = await res.json();
+        const text = (json.candidates?.[0]?.content?.parts ?? [])
+          .map((p) => p.text ?? '')
+          .join('')
+          .trim();
+        if (text) return JSON.parse(text.replace(/```json|```/g, '').trim());
+        return null;
+      }
+
+      const body = await res.text();
+      const msg = `Gemini HTTP ${res.status}: ${body.slice(0, 300)}`;
+      if (/no longer available|does not exist/i.test(msg)) {
+        lastError = new Error(msg);
+        break; // model retired — try the next model
+      }
+      if (res.status === 503 || res.status === 429) {
+        if (attempt < 2) {
+          await sleep(600 * (attempt + 1));
+          continue; // transient overload — retry same model
+        }
+        lastError = new Error(msg);
+        break; // still overloaded — try the next model
+      }
+      throw new Error(msg);
     }
   }
   throw lastError ?? new Error('no Gemini model available');
@@ -247,7 +263,10 @@ async function extractWithOcrSpace(base64, allowedKeys) {
 
   const ocrRes = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
-    headers: { apikey: key },
+    // form-data + fetch cannot guess the boundary via the default headers map,
+    // so we must merge getHeaders() (Content-Type: multipart/form-data with a
+    // real boundary) or the server sees an empty body.
+    headers: { apikey: key, ...form.getHeaders() },
     body: form,
   });
   if (!ocrRes.ok) {
