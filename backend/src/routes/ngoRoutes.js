@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { addNgo, listNgos, getNgo, editNgo, removeNgo, toggleNgo, getNgoSummary, listNgoOptions } from '../controllers/ngoController.js';
+import { addNgo, listNgos, getNgo, editNgo, removeNgo, toggleNgo, getNgoSummary, listNgoOptions, getNgoMemberCounts } from '../controllers/ngoController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -15,6 +15,8 @@ router.get('/summary', adminHrAccounts, getNgoSummary);
 // Lightweight options for the operator app NGO dropdown. Must be declared
 // before '/:id' so "options" is not parsed as an id.
 router.get('/options', appWorker, listNgoOptions);
+// Total members per NGO — NGO cards on the Beneficiaries app home section.
+router.get('/member-counts', appWorker, getNgoMemberCounts);
 router.post('/', adminOrHrOrHo, addNgo);
 router.get('/:id', adminOrHrOrHo, getNgo);
 router.put('/:id', adminOrHrOrHo, editNgo);
