@@ -83,6 +83,23 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
   static const int requiredFingers = 3;
 
+  static const List<String> _disabilityTypes = [
+    'Locomotor / Orthopedic',
+    'Visual Impairment',
+    'Hearing Impairment',
+    'Speech & Language',
+    'Intellectual Disability',
+    'Mental Illness',
+    'Multiple Disabilities',
+    'Cerebral Palsy',
+    'Autism Spectrum Disorder',
+    'Dwarfism',
+    'Leprosy Cured',
+    'Other',
+  ];
+
+  String? _disabilityType;
+
   @override
   void initState() {
     super.initState();
@@ -371,7 +388,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       if (disabilityPct != null) {
         body['disabilities'] = [
           {
-            'disability_type': 'General',
+            'disability_type': _disabilityType ?? 'General',
             'disability_percentage': disabilityPct,
             'certificate_available': true,
           },
@@ -604,6 +621,24 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                   child: _docStatusRow(doc),
                 )),
             const SizedBox(height: 12),
+
+            DropdownButtonFormField<String>(
+              initialValue: _disabilityType,
+              decoration: const InputDecoration(labelText: 'Disability Type *'),
+              hint: const Text('Select disability type'),
+              items: _disabilityTypes
+                  .map((t) => DropdownMenuItem<String>(
+                        value: t,
+                        child: Text(t, overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(),
+              isExpanded: true,
+              onChanged: (_loading || created != null)
+                  ? null
+                  : (v) => setState(() => _disabilityType = v),
+              validator: (v) => v == null ? 'Select disability type' : null,
+            ),
+            const SizedBox(height: 16),
 
             TextFormField(
               controller: _disabilityPctController,
