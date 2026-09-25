@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:beneficiaries/core/widgets/jod_splash_screen.dart';
 
 void main() {
-  testWidgets('JodSplashScreen renders the splash SVG without throwing',
+  testWidgets('JodSplashScreen renders the JOD splash without throwing',
       (tester) async {
     final errors = <FlutterErrorDetails>[];
     final oldOnError = FlutterError.onError;
