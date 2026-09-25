@@ -1,5 +1,6 @@
 ﻿import 'dart:convert';
 
+import 'package:dropdown_button2/dropdown_button2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
@@ -57,6 +58,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   final _fullNameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _occupationController = TextEditingController();
+  final _neededController = TextEditingController();
   final _addressController = TextEditingController();
   final _pincodeController = TextEditingController();
   final _aadhaarController = TextEditingController();
@@ -111,6 +113,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     _fullNameController.dispose();
     _mobileController.dispose();
     _occupationController.dispose();
+    _neededController.dispose();
     _addressController.dispose();
     _pincodeController.dispose();
     _aadhaarController.dispose();
@@ -137,7 +140,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
   // Dropdown items. ngos.id is a UUID string (never an int), so the value is
   // kept as text and de-duplicated so the dropdown never sees a duplicate value.
-  List<DropdownMenuItem<String>> _ngoItems() {
+  List<DropdownItem<String>> _ngoItems() {
     final seen = <String, String>{};
     for (final n in _ngos) {
       final id = n['id']?.toString() ?? '';
@@ -146,7 +149,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     }
     return [
       for (final e in seen.entries)
-        DropdownMenuItem<String>(
+        DropdownItem<String>(
           value: e.key,
           child: Text(e.value, overflow: TextOverflow.ellipsis),
         ),
@@ -384,6 +387,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       if (_addressController.text.trim().isNotEmpty) body['address_line_1'] = _addressController.text.trim();
       if (_pincodeController.text.trim().isNotEmpty) body['pincode'] = _pincodeController.text.trim();
       if (_aadhaarController.text.trim().isNotEmpty) body['aadhaar_number'] = _aadhaarController.text.trim();
+      if (_neededController.text.trim().isNotEmpty) body['needed'] = _neededController.text.trim();
       final disabilityPct = int.tryParse(_disabilityPctController.text.trim());
       if (disabilityPct != null) {
         body['disabilities'] = [
@@ -502,13 +506,27 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             Row(
               children: [
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _gender,
+                  child: DropdownButtonFormField2<String>(
+                    valueListenable: ValueNotifier<String?>(_gender),
                     decoration: const InputDecoration(labelText: 'Gender'),
                     items: ['Male', 'Female', 'Other']
-                        .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                        .map((g) => DropdownItem<String>(value: g, child: Text(g)))
                         .toList(),
                     onChanged: (v) => setState(() => _gender = v),
+                    buttonStyleData: const FormFieldButtonStyleData(
+                      height: 52,
+                      padding: EdgeInsets.only(left: 12),
+                    ),
+                    iconStyleData: const IconStyleData(iconSize: 20),
+                    dropdownStyleData: const DropdownStyleData(
+                      maxHeight: 260,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.all(Radius.circular(12)),
+                      ),
+                    ),
+                    menuItemStyleData: const MenuItemStyleData(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -540,6 +558,17 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 16),
             TextFormField(
+              controller: _neededController,
+              decoration: const InputDecoration(
+                labelText: 'Needed',
+                hintText: 'What does the beneficiary need?',
+              ),
+              textCapitalization: TextCapitalization.sentences,
+              maxLines: 2,
+              enabled: !_loading && created == null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
               controller: _addressController,
               decoration: const InputDecoration(labelText: 'Address'),
               textCapitalization: TextCapitalization.words,
@@ -547,8 +576,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               enabled: !_loading && created == null,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: _ngoIdSet().contains(_selectedNgoId) ? _selectedNgoId : null,
+            DropdownButtonFormField2<String>(
+              valueListenable: ValueNotifier<String?>(
+                _ngoIdSet().contains(_selectedNgoId) ? _selectedNgoId : null,
+              ),
               decoration: const InputDecoration(labelText: 'NGO *'),
               hint: const Text('Select NGO'),
               items: _ngoItems(),
@@ -556,6 +587,18 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               onChanged:
                   (_loading || created != null) ? null : (v) => setState(() => _selectedNgoId = v),
               validator: (v) => v == null ? 'Please select an NGO' : null,
+              buttonStyleData: const FormFieldButtonStyleData(
+                height: 52,
+                padding: EdgeInsets.only(left: 12),
+              ),
+              iconStyleData: const IconStyleData(iconSize: 20),
+              dropdownStyleData: const DropdownStyleData(
+                maxHeight: 300,
+                padding: EdgeInsets.symmetric(vertical: 4),
+              ),
+              menuItemStyleData: const MenuItemStyleData(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+              ),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -622,12 +665,12 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                 )),
             const SizedBox(height: 12),
 
-            DropdownButtonFormField<String>(
-              initialValue: _disabilityType,
+            DropdownButtonFormField2<String>(
+              valueListenable: ValueNotifier<String?>(_disabilityType),
               decoration: const InputDecoration(labelText: 'Disability Type *'),
               hint: const Text('Select disability type'),
               items: _disabilityTypes
-                  .map((t) => DropdownMenuItem<String>(
+                  .map((t) => DropdownItem<String>(
                         value: t,
                         child: Text(t, overflow: TextOverflow.ellipsis),
                       ))
@@ -637,6 +680,18 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                   ? null
                   : (v) => setState(() => _disabilityType = v),
               validator: (v) => v == null ? 'Select disability type' : null,
+              buttonStyleData: const FormFieldButtonStyleData(
+                height: 52,
+                padding: EdgeInsets.only(left: 12),
+              ),
+              iconStyleData: const IconStyleData(iconSize: 20),
+              dropdownStyleData: const DropdownStyleData(
+                maxHeight: 320,
+                padding: EdgeInsets.symmetric(vertical: 4),
+              ),
+              menuItemStyleData: const MenuItemStyleData(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+              ),
             ),
             const SizedBox(height: 16),
 
