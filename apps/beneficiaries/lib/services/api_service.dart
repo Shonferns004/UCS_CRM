@@ -60,6 +60,15 @@ class ApiService {
         : (data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
   }
 
+  /// Google-Lens-style fallback: sends a card photo (base64) to the backend,
+  /// which OCRs/reads the fields with vision and returns e.g.
+  /// { name, dob, gender, address_line_1, ... }. The photo is sent once and
+  /// never persisted on the device.
+  static Future<Map<String, dynamic>> parseAadhaarPhoto(String base64) async {
+    return post('/beneficiaries/aadhaar/parse-photo',
+        body: {'image': base64}, timeout: const Duration(seconds: 60));
+  }
+
   static Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? body}) async {
     final res = await http.patch(
       Uri.parse('$baseUrl$path'),
@@ -81,7 +90,13 @@ class ApiService {
   static Map<String, dynamic> _handleResponse(http.Response res) {
     final body = _tryDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body['message'] ?? 'Server error (${res.statusCode})');
+      final message = body['message'] ?? 'Server error (${res.statusCode})';
+      final detail = body['detail'];
+      throw Exception(
+        detail != null && detail.toString().isNotEmpty
+            ? '$message ($detail)'
+            : message,
+      );
     }
     return body;
   }
