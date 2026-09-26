@@ -182,6 +182,104 @@ export const listEventMarkedBeneficiaries = async (eventId) => {
   }));
 };
 
+// Per-NGO (BSCT/AFLF/MANN) registration and kit-given counts, today's event
+// name, and the most recent kit handouts. Drives the Beneficiaries app's Kits
+// screen.
+export const getKitsDashboard = async ({ operatorId, date } = {}) => {
+  const { data: ngoRows } = await db._pool
+    .query(
+      `SELECT n.id, n.name,
+              COUNT(b.id) FILTER (WHERE b.ngo_id = n.id)                                        AS registered,
+              COUNT(b.id) FILTER (WHERE b.ngo_id = n.id AND b.kit_given = true)                 AS kit_given
+         FROM ngos n
+         LEFT JOIN beneficiaries b ON b.ngo_id = n.id
+        WHERE UPPER(n.name) IN ('BSCT', 'AFLF', 'MANN')
+        GROUP BY n.id, n.name
+        ORDER BY n.name`
+    )
+    .catch(() => ({ data: [] }));
+
+  const byName = {};
+  for (const r of ngoRows || []) {
+    const key = String(r.name || '').toUpperCase();
+    byName[key] = {
+      name: String(r.name || ''),
+      registered: Number(r.registered) || 0,
+      kit_given: Number(r.kit_given) || 0,
+    };
+  }
+  const programs = ['BSCT', 'AFLF', 'MANN'].map((code) => ({
+    code,
+    ...(byName[code] || { name: code, registered: 0, kit_given: 0 }),
+  }));
+
+  const total_registered = programs.reduce((s, p) => s + p.registered, 0);
+
+  const { count: kitGivenTotal } = await db
+    .from('beneficiaries')
+    .select('id', { count: 'exact', head: true })
+    .eq('kit_given', true);
+
+  // Today's event: the operator's assignment first, then any event scheduled
+  // for today, then the demo fallback (mirrors markBeneficiaryKitGiven).
+  let event_name = null;
+  let event_id = null;
+  try {
+    if (operatorId) {
+      const assignment = await getTodayAssignment(operatorId, date);
+      const ev = assignment?.operator_events;
+      if (ev) {
+        event_name = ev?.title || ev?.name || null;
+        event_id = ev?.id != null ? Number(ev.id) : null;
+      }
+    }
+    if (!event_name) {
+      const events = await listOperatorEvents({ date });
+      if (events && events.length > 0) {
+        event_name = events[0].title || events[0].name || demoOperatorEvent.title;
+        event_id = events[0].id != null ? Number(events[0].id) : null;
+      } else {
+        event_name = demoOperatorEvent.title;
+      }
+    }
+  } catch (_) {
+    if (!event_name) event_name = demoOperatorEvent.title;
+  }
+
+  // Most recent kit handouts with beneficiary identity + the event it was
+  // collected at.
+  const { data: logs, error } = await db
+    .from('beneficiary_audit_logs')
+    .select(
+      'beneficiary_id, performed_by, performed_at, details, beneficiaries(id, beneficiary_code, full_name, mobile, photo)'
+    )
+    .eq('action', 'KIT_GIVEN')
+    .order('performed_at', { ascending: false })
+    .limit(200);
+  if (error) throw error;
+
+  const collectors = (logs || []).map((r) => ({
+    beneficiary_id: r.beneficiary_id,
+    beneficiary_code: r.beneficiaries?.beneficiary_code || null,
+    full_name: r.beneficiaries?.full_name || null,
+    mobile: r.beneficiaries?.mobile || null,
+    photo: r.beneficiaries?.photo || null,
+    event_name: r.details?.event_name || null,
+    event_id: r.details?.event_id != null ? Number(r.details.event_id) : null,
+    performed_by: r.performed_by,
+    performed_at: r.performed_at,
+  }));
+
+  return {
+    programs,
+    total_registered,
+    kit_given_total: kitGivenTotal || 0,
+    event_name,
+    event_id,
+    collectors,
+  };
+};
+
 // Demo event used when no real event exists yet (for testing the dropdown).
 export const demoOperatorEvent = {
   id: null,
