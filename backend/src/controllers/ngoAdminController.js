@@ -133,6 +133,7 @@ async function getUserNgoIds(user) {
 }
 
 const _rCache = new Map();
+let tlCacheGeneration = 0;
 const cacheGet = (key, ttlMs) => {
   const e = _rCache.get(key);
   if (e && Date.now() - e.t < ttlMs) return e.v;
@@ -152,6 +153,7 @@ const cacheSet = (key, v) => {
 // which reads as "resume is broken". Rare, admin-only actions: busting all tl:
 // keys is cheap and also covers other tabs/admins watching the same FRO.
 const bustTlCache = () => {
+  tlCacheGeneration += 1;
   for (const k of _rCache.keys()) {
     if (k.startsWith('tl:')) _rCache.delete(k);
   }
@@ -4779,6 +4781,7 @@ export const getDataOverview = async (req, res) => {
 // Combined TL Dashboard Summary
 export const getTLDashboard = async (req, res) => {
   try {
+    const requestGeneration = tlCacheGeneration;
     const tlCacheKey = `tl:${req.user.id}:${req.query.ngo_id || 'all'}:${req.query.from || ''}:${req.query.to || ''}:${req.query.fro_id || ''}`;
     if (req.query.fresh !== '1') {
       const cached = cacheGet(tlCacheKey, 15000);
@@ -5300,15 +5303,16 @@ export const getTLDashboard = async (req, res) => {
       // own live_status row is stale / they have no own auth_session).
       const acting = workAsByOp.get(String(w.id));
       const workAsLabel = acting ? null : workAsName;
+      const idleStreakFor = (row) => row?.idle_since && row.updated_at && (now - new Date(row.updated_at)) <= LIVE_FRESH_MS
+        ? Math.max(0, Math.floor((now - new Date(row.idle_since).getTime()) / 1000))
+        : 0;
       // Effective idle today: committed counter PLUS the still-running streak.
       // The FRO panel only commits elapsed idle when a streak ends, so the raw
       // counter reads 0 mid-streak (blank IDLE HR column while the "Idle Xm"
       // pill correctly shows the streak). Same streak source as idleMinutes.
       const idleStreakSeconds = acting
-        ? (acting.status === 'idle' && acting.idle_since ? Math.max(0, Math.floor((now - new Date(acting.idle_since)) / 1000)) : 0)
-        : (!isWorkAs(ls) && ls.status === 'idle' && rowFresh && ls.idle_since)
-          ? Math.max(0, Math.floor((now - new Date(ls.idle_since)) / 1000))
-          : 0;
+        ? idleStreakFor(acting)
+        : (!isWorkAs(ls) ? idleStreakFor(ls) : 0);
       // Work-as attribution: live counters accrue on the covered FRO's row (the
       // acting operator's heartbeat writes there). That committed idle belongs to
       // the OPERATOR, who carries it via the acting row — so the covered FRO
@@ -5535,7 +5539,7 @@ export const getTLDashboard = async (req, res) => {
       stations_per_ngo: stationActivity.per_ngo,
       stations_summary: stationActivity.summary,
     };
-    cacheSet(tlCacheKey, tlPayload);
+    if (requestGeneration === tlCacheGeneration) cacheSet(tlCacheKey, tlPayload);
     return res.json(tlPayload);
   } catch (error) {
     console.error('getTLDashboard error:', error.message);
