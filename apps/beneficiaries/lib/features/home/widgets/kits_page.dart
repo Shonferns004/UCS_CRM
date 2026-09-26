@@ -22,7 +22,7 @@ class KitsPageState extends State<KitsPage> {
   List<Map<String, dynamic>> _programs = [];
   List<Map<String, dynamic>> _collectors = [];
   int _totalRegistered = 0;
-  int _kitGivenTotal = 0;
+  int _kitGivenToday = 0;
   String _eventName = '';
   bool _loading = true;
   String? _error;
@@ -54,8 +54,8 @@ class KitsPageState extends State<KitsPage> {
             : const [];
         _totalRegistered =
             data['total_registered'] is num ? (data['total_registered'] as num).toInt() : 0;
-        _kitGivenTotal = data['kit_given_total'] is num
-            ? (data['kit_given_total'] as num).toInt()
+        _kitGivenToday = data['kit_given_today'] is num
+            ? (data['kit_given_today'] as num).toInt()
             : 0;
         _eventName = (data['event_name']?.toString() ?? '');
         _loading = false;
@@ -132,7 +132,7 @@ class KitsPageState extends State<KitsPage> {
         const SizedBox(width: 10),
         Expanded(child: _programCard('AFLF', _count(a), AppColors.statDonationsBg, AppColors.statDonationsBorder, AppColors.successGreen)),
         const SizedBox(width: 10),
-        Expanded(child: _programCard('MANN', _count(m), AppColors.statDonationsBg, AppColors.statDonationsBorder, AppColors.successGreen)),
+        Expanded(child: _programCard('MANN', _count(m), AppColors.statPinkBg, AppColors.statPinkBorder, AppColors.statPinkText)),
       ],
     );
   }
@@ -178,16 +178,6 @@ class KitsPageState extends State<KitsPage> {
               color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(height: 2),
-          const Text(
-            'registered',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 10.5,
-              color: AppColors.textSecondary,
-            ),
-          ),
         ],
       ),
     );
@@ -219,8 +209,8 @@ class KitsPageState extends State<KitsPage> {
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'Total (BSCT+AFLF+MANN)',
-                  maxLines: 2,
+                  'Total',
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11,
@@ -245,7 +235,7 @@ class KitsPageState extends State<KitsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '$_kitGivenTotal',
+                  '$_kitGivenToday',
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,

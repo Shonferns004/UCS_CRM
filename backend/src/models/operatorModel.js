@@ -215,10 +215,14 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
 
   const total_registered = programs.reduce((s, p) => s + p.registered, 0);
 
-  const { count: kitGivenTotal } = await db
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { count: kitGivenToday } = await db
     .from('beneficiaries')
     .select('id', { count: 'exact', head: true })
-    .eq('kit_given', true);
+    .eq('kit_given', true)
+    .gte('kit_given_at', todayStart.toISOString());
 
   // Today's event: the operator's assignment first, then any event scheduled
   // for today, then the demo fallback (mirrors markBeneficiaryKitGiven).
@@ -247,13 +251,14 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
   }
 
   // Most recent kit handouts with beneficiary identity + the event it was
-  // collected at.
+  // collected at. Today-scoped to match the kit-given counter above.
   const { data: logs, error } = await db
     .from('beneficiary_audit_logs')
     .select(
       'beneficiary_id, performed_by, performed_at, details, beneficiaries(id, beneficiary_code, full_name, mobile, photo)'
     )
     .eq('action', 'KIT_GIVEN')
+    .gte('performed_at', todayStart.toISOString())
     .order('performed_at', { ascending: false })
     .limit(200);
   if (error) throw error;
@@ -273,7 +278,7 @@ export const getKitsDashboard = async ({ operatorId, date } = {}) => {
   return {
     programs,
     total_registered,
-    kit_given_total: kitGivenTotal || 0,
+    kit_given_today: kitGivenToday || 0,
     event_name,
     event_id,
     collectors,
