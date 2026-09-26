@@ -1,12 +1,9 @@
 ﻿import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../core/lucide_icons.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/widgets/bottom_navigation.dart';
-import '../../core/widgets/stat_card.dart';
 import '../../services/api_service.dart';
 import '../../services/fingerprint_service.dart';
-import 'widgets/kit_given_users_card.dart';
+import 'widgets/kits_page.dart';
 import '../profile/profile_page.dart';
 import '../beneficiaries/fingerprint_lookup_page.dart';
 
@@ -21,7 +18,6 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentTab = 0;
   Map<String, dynamic>? _volunteerData;
-  Map<String, dynamic>? _overview;
   StreamSubscription<Map<String, dynamic>>? _deviceEventSub;
 
   @override
@@ -49,9 +45,6 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadData() async {
     _volunteerData = await ApiService.getVolunteerData();
-    try {
-      _overview = await ApiService.get('/beneficiaries/overview');
-    } catch (_) {}
     if (mounted) setState(() {});
   }
 
@@ -92,7 +85,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  final GlobalKey<KitGivenUsersCardState> _kitCardKey = GlobalKey();
+  final GlobalKey<KitsPageState> _kitCardKey = GlobalKey();
 
   Widget _buildHomeContent() {
     return SafeArea(
@@ -106,59 +99,10 @@ class _HomePageState extends State<HomePage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           children: [
-            if (_overview != null) _buildStats(),
-            if (_overview != null) const SizedBox(height: 28),
-            KitGivenUsersCard(key: _kitCardKey),
+            KitsPage(key: _kitCardKey),
           ],
         ),
       ),
     );
-  }
-
-  Widget _buildStats() {
-    return Row(
-      children: [
-        Expanded(
-          child: StatCard(
-            icon: LucideIcons.checkCircle,
-            value: _fmtAmount(_overview!['total_donated'] ?? 0),
-            label: 'Donated',
-            background: AppColors.statDonationsBg,
-            border: AppColors.statDonationsBorder,
-            iconBackground: AppColors.statDonationsIconBg,
-            iconColor: AppColors.successGreen,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Compact Indian-style amount for the Donated stat: 1.2 Cr / 1.5 L above
-  // lakh thresholds, else ₹12,34,567-style grouping.
-  String _fmtAmount(dynamic v) {
-    final n = (v is num) ? v.toDouble() : 0.0;
-    if (n >= 10000000) {
-      return '₹${_t(n / 10000000)} Cr';
-    }
-    if (n >= 100000) {
-      return '₹${_t(n / 100000)} L';
-    }
-    final i = n.round();
-    final s = i.toString();
-    if (s.length <= 3) return '₹$s';
-    final last3 = s.substring(s.length - 3);
-    var rest = s.substring(0, s.length - 3);
-    final parts = <String>[];
-    while (rest.length > 2) {
-      parts.insert(0, rest.substring(rest.length - 2));
-      rest = rest.substring(0, rest.length - 2);
-    }
-    if (rest.isNotEmpty) parts.insert(0, rest);
-    return '₹${parts.join(',')},$last3';
-  }
-
-  String _t(double d) {
-    if (d == d.roundToDouble()) return d.round().toString();
-    return d.toStringAsFixed(1);
   }
 }
