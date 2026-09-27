@@ -41,6 +41,7 @@ import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
+import { effectiveIdleSeconds } from '../utils/froIdle.js';
 
 // ─── Idle reset epoch ──────────────────────────────────────────────
 // Every Clear Idle Time / midnight reset bumps fro_idle_epoch. Heartbeats
@@ -884,15 +885,11 @@ export const getMyPerformance = async (req, res) => {
       .eq('worker_id', workerId)
       .maybeSingle();
 
-    // Effective idle = committed counter + still-running streak (the panel
-    // only commits elapsed idle when a streak ends). Stale streaks (dead
-    // panel, heartbeat older than 3 min) are ignored so the number can't grow
-    // unbounded. Matches the admin Telecaller Performance definition.
-    const liveFresh = liveStatus?.updated_at && (Date.now() - new Date(liveStatus.updated_at).getTime()) <= 3 * 60 * 1000;
-    const liveStreakSecs = (liveStatus?.idle_since && liveFresh)
-      ? Math.max(0, Math.floor((Date.now() - new Date(liveStatus.idle_since).getTime()) / 1000))
-      : 0;
-    const idleSeconds = (liveStatus?.today_idle_seconds || 0) + liveStreakSecs;
+    // Effective idle = committed counter + still-running streak (see
+    // effectiveIdleSeconds). Stale streaks (dead panel, heartbeat older than
+    // 3 min) are ignored so the number can't grow unbounded. Matches the
+    // admin Telecaller Performance definition.
+    const idleSeconds = effectiveIdleSeconds(liveStatus);
 
     // Worked clock: active time only — the Working metric freezes while the FRO
     // is idle or on break. It runs from the CRM login anchor, clamped to never
@@ -4844,7 +4841,13 @@ export const getLiveStatuses = async (req, res) => {
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
       const dataUsed = stats.contacted + stats.donation_collected;
-      const totalActive = (ls.today_talk_seconds || 0) + (ls.today_idle_seconds || 0);
+      // Effective idle = committed counter + still-running streak. Reading the
+      // raw column here is what made the super-admin screens report 0 idle for a
+      // FRO who had been idle for hours (the panel only commits on streak
+      // close). Fixes both the displayed figure and the productivity ratio,
+      // which divides by it — with idle pinned at 0 an idle FRO scored 100%.
+      const idleSeconds = effectiveIdleSeconds(ls);
+      const totalActive = (ls.today_talk_seconds || 0) + idleSeconds;
       const productivity = totalActive > 0 ? Math.round(((ls.today_talk_seconds || 0) / totalActive) * 100) : null;
 
       return {
@@ -4877,7 +4880,7 @@ export const getLiveStatuses = async (req, res) => {
           today_calls: ls.today_calls || 0,
           today_talk_seconds: ls.today_talk_seconds || 0,
           today_skipped: ls.today_skipped || 0,
-          today_idle_seconds: ls.today_idle_seconds || 0,
+          today_idle_seconds: idleSeconds,
           today_break_seconds: ls.today_break_seconds || 0,
           today_collection: collectionMap[ls.worker_id] || 0,
           total_data: stats.total,

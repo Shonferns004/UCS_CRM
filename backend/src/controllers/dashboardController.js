@@ -5,6 +5,7 @@ import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import db from '../config/db.js';
+import { effectiveIdleSeconds } from '../utils/froIdle.js';
 
 function calcDateRange(period) {
   const now = new Date();
@@ -1462,13 +1463,20 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 15. FRO High Idle Time (>50% of work hours) (HIGH) ──
     try {
       const workHoursSeconds = 8 * 3600;
+      // idle_since/updated_at are required: the panel only commits elapsed idle
+      // when a streak closes, so the raw counter reads 0 mid-streak and an FRO
+      // idle for hours would never trip this >4h alert. effectiveIdleSeconds
+      // adds the still-running streak.
       const { data: idleFros } = await db
         .from('fro_live_status')
-        .select('worker_id, today_idle_seconds, today_skipped, today_calls, is_active')
+        .select('worker_id, today_idle_seconds, today_skipped, today_calls, is_active, idle_since, updated_at')
         .eq('is_active', true);
 
+      const idleByWorker = {};
+      for (const f of idleFros || []) idleByWorker[f.worker_id] = effectiveIdleSeconds(f);
+
       const highIdle = (idleFros || []).filter(f =>
-        (f.today_idle_seconds || 0) > workHoursSeconds * 0.5 &&
+        idleByWorker[f.worker_id] > workHoursSeconds * 0.5 &&
         (f.today_calls || 0) > 0
       );
 
@@ -1489,7 +1497,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           actionLabel: 'View FRO Performance',
           details: highIdle.slice(0, 6).map(f => ({
             name: iwMap[f.worker_id] || 'Unknown',
-            value: `Idle: ${Math.round((f.today_idle_seconds || 0) / 60)}min · Skipped: ${f.today_skipped || 0} · Calls: ${f.today_calls || 0}`,
+            value: `Idle: ${Math.round(idleByWorker[f.worker_id] / 60)}min · Skipped: ${f.today_skipped || 0} · Calls: ${f.today_calls || 0}`,
           })),
           createdAt: now.toISOString(),
         });
