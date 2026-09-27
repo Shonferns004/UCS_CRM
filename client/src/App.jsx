@@ -16,6 +16,8 @@ import DevPanel from './panels/dev-panel/DevPanel'
 import SimCardPanel from './panels/sim-card/SimCardPanel'
 import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
+import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
+import ChatFabHost from './components/chat/ChatFabHost'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -64,7 +66,19 @@ function PanelWrapper({ roleKey }) {
   const mapping = ROLE_PANELS[roleKey]
   if (!mapping) return <AccessDenied />
   const Panel = mapping.panel
-  return <div className={mapping.cls}><Panel /><NoticesBar /></div>
+  // Derived rather than stored on ROLE_PANELS so a changed base path can never
+  // leave the circle pointing at a route that no longer exists.
+  const base = ROLE_PATHS[roleKey]
+  const chatPath = base ? `${base}/chat` : null
+  return (
+    <ChatUnreadProvider>
+      <div className={mapping.cls}>
+        <Panel />
+        <NoticesBar />
+        {chatPath && <ChatFabHost chatPath={chatPath} />}
+      </div>
+    </ChatUnreadProvider>
+  )
 }
 
 function AccessDenied() {
