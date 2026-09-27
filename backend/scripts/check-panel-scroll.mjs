@@ -29,6 +29,20 @@
  * requirement for the three panels confirmed to scroll via the window. If one
  * of them is ever restructured to own a real inner scroller, delete it here.
  *
+ * ROUTE-SCOPED SHELLS ARE ALLOWED, WITH AN OBLIGATION. Community chat needs a
+ * bounded, internally scrolling region on these same panels, so
+ * `.panel-hr.is-chat-route .app` (and its siblings) are accepted. The
+ * qualifier is what makes that safe: it cannot reach the panel's other pages,
+ * which keeps the window scroll they depend on. In exchange the same scope has
+ * to turn `.content-body` into a box that grows and can shrink - `flex:1` plus
+ * `min-height:0` - so the clipping has something scrolling behind it.
+ *
+ * Both halves are asserted. Dropping the qualifier fails as the 52d8600a
+ * regression did; keeping the shell but removing the fill fails too, which is
+ * the subtler half: `flex:1` without `min-height:0` leaves a flex item that
+ * refuses to shrink below its content, and the parent's overflow:hidden clips
+ * it anyway.
+ *
  * Run: node backend/scripts/check-panel-scroll.mjs [path-to-css]
  */
 
@@ -52,19 +66,35 @@ const css = readFileSync(cssPath, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 /** Panels whose content region scrolls the WINDOW, not a nested box. */
 const WINDOW_SCROLLERS = ['panel-hr', 'panel-recruiter', 'panel-ngo-admin']
 
-/** Body text of every rule whose selector mentions `${panel} .${leaf}`. */
+/**
+ * Body text of every rule whose selector mentions `${panel} .${leaf}`.
+ *
+ * Qualifier classes between the panel and the leaf are captured rather than
+ * ignored. `.panel-hr .app` and `.panel-hr.is-chat-route .app` are different
+ * rules with opposite consequences, and treating them the same is what let the
+ * 52d8600a regression pass this check.
+ */
 function appRuleBodies(panel, leaf = 'app') {
   const bodies = []
-  // Match `... <panel> .<leaf> ... { ... }`, including inside selector lists, so a
-  // shared rule like `.panel-accounts .app, .panel-ngo-admin .app { ... }` is
-  // seen for every panel it covers.
+  // Match `... <panel>[.<qualifier>]* .<leaf> ... { ... }`, including inside
+  // selector lists, so a shared rule like `.panel-accounts .app, .panel-fro .app`
+  // is seen for every panel it covers.
   const ruleRe = /([^{}]+)\{([^{}]*)\}/g
+  const leafRe = new RegExp(`\\.${panel}(?:\\.([\\w-]+))?\\s+\\.${leaf}\\s*$`)
   let m
   while ((m = ruleRe.exec(css)) !== null) {
     const [, selector, body] = m
     const selectors = selector.split(',').map((s) => s.trim())
-    if (!selectors.some((s) => new RegExp(`\\.${panel}\\s+\\.${leaf}\\s*$`).test(s))) continue
-    bodies.push({ selector: selectors.join(', '), body })
+    const qualifiers = []
+    let matched = false
+    for (const s of selectors) {
+      const hit = leafRe.exec(s)
+      if (!hit) continue
+      matched = true
+      if (hit[1]) qualifiers.push(hit[1])
+    }
+    if (!matched) continue
+    bodies.push({ selector: selectors.join(', '), body, qualifiers })
   }
   return bodies
 }
@@ -94,6 +124,21 @@ function innerScrollerSelectors(panel) {
   return [...found]
 }
 
+/**
+ * True if a body turns its box into a growing, shrinkable flex item.
+ *
+ * This is what makes a route-scoped clipping shell legitimate: the region is
+ * bounded but no longer growing with its content, so a scrolling child can
+ * take over. `flex:1` alone is not enough - without `min-height:0` a flex item
+ * refuses to shrink below its content and the parent's `overflow:hidden`
+ * quietly clips again.
+ */
+function fillsHeight(body) {
+  const grows = /(^|[\s;{])flex\s*:\s*1/.test(body)
+  const shrinkable = /(^|[\s;{])min-height\s*:\s*0/.test(body)
+  return grows && shrinkable
+}
+
 const failures = []
 const notes = []
 
@@ -113,6 +158,35 @@ for (const panel of WINDOW_SCROLLERS) {
     if (!rules.length) continue
 
     for (const o of rules.filter((r) => clips(r.body) && hasDefiniteHeight(r.body))) {
+      // A shell qualified by a route/state class is allowed, because it cannot
+      // reach the panel's other pages. It is not allowed for free: something
+      // inside has to become the scroller, or that route clips the same way
+      // 52d8600a did.
+      if (o.qualifiers.length) {
+        const body = appRuleBodies(panel, 'content-body').find(
+          (r) => r.qualifiers.some((q) => o.qualifiers.includes(q)) && fillsHeight(r.body)
+        )
+        if (body) {
+          notes.push(
+            `${panel}: .${leaf} fixed shell ok when ${o.qualifiers.map((q) => `.${q}`).join('')} ` +
+              `- scoped, and .content-body fills in the same scope`
+          )
+          continue
+        }
+        failures.push(
+          `${panel}: .${leaf} is a clipping fixed shell scoped to ` +
+            `${o.qualifiers.map((q) => `.${q}`).join('')} but nothing scrolls inside\n` +
+            `    rule: ${o.selector} { ${o.body.trim()} }\n` +
+            `    why:  the scope keeps the panel's other pages safe, but this route then\n` +
+            `          has the same unreachable-overflow bug unless the content region\n` +
+            `          becomes a box that grows and scrolls.\n` +
+            `    fix:  in the same scope give .content-body 'flex:1' plus 'min-height:0'\n` +
+            `          (and a scroller, or overflow:hidden with a scrolling child).`
+        )
+        flagged++
+        continue
+      }
+
       flagged++
       failures.push(
         `${panel}: .${leaf} is a clipping fixed shell\n` +
@@ -121,7 +195,10 @@ for (const panel of WINDOW_SCROLLERS) {
           `          scroller. A definite height plus overflow:hidden on the shell clips\n` +
           `          every page taller than the viewport, and the overflow cannot be\n` +
           `          reached: the panel looks unscrollable and has no scrollbar to drag.\n` +
-          `    fix:  min-height:100vh, and do not set overflow on .${leaf}.` +
+          `          This is exactly what 52d8600a did to all three panels.\n` +
+          `    fix:  min-height:100vh and no overflow on .${leaf} for the default\n` +
+          `          routes. If ONE route genuinely needs an internal scroller, scope it\n` +
+          `          with a class (e.g. .${panel}.is-chat-route) so the rest are untouched.` +
           (comps.length
             ? `\n    note: ${panel} does declare overflow-y:auto on ${comps.join(' ')} - those are\n` +
               `          sidebar/drawer/card components, not the content region. If a real\n` +
