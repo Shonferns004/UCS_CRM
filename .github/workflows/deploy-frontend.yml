@@ -24,12 +24,39 @@ jobs:
         env:
           VITE_API_URL: https://api.beingsevak.org/api
           VITE_SOCKET_URL: https://api.beingsevak.org
+          # MUST be set here. chatApi reads VITE_CHAT_MOCK !== 'false', so an
+          # absent variable means mock mode ON, and production silently serves
+          # chatMock.js fixtures ("Priya Nair") instead of the real database.
+          VITE_CHAT_MOCK: 'false'
           VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
           VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
         run: |
           cd client
           npm ci
           npm run build
+
+      - name: Verify chat data source
+        run: |
+          cd client
+          if [ "${VITE_CHAT_MOCK}" != "false" ]; then
+            echo "::error::VITE_CHAT_MOCK must be 'false' for a production build (got '${VITE_CHAT_MOCK}')"
+            exit 1
+          fi
+          # The guard lives inside `if (CHAT_MOCK)`, so when the flag folds to
+          # false the minifier deletes the string with the branch. Its presence
+          # in dist therefore proves the mock is ON. Verified in both
+          # directions: VITE_CHAT_MOCK=true keeps it, =false drops it.
+          #
+          # Do not replace this with a grep for the mock fixture data
+          # ("Priya Nair", "u-acc"). chatMock.js is statically imported and
+          # survives minification either way, so those greps match even with the
+          # mock off - which is exactly how mock mode stayed on in production
+          # while an earlier "it looks clean" check kept reporting success.
+          if grep -rq "CHAT MOCK IS ENABLED" dist/assets 2>/dev/null; then
+            echo "::error::chat mock is enabled in this build - Community would serve invented data"
+            exit 1
+          fi
+          echo "chat mock is off: Community will read the real database"
 
       - name: Clear old entry point (keep hashed assets for open tabs)
         uses: appleboy/ssh-action@v1

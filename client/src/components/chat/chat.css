@@ -44,12 +44,14 @@
 .chat-page {
   display: flex;
   min-width: 0;
+  /* A viewport-derived floor (min(620px, 100dvh - 96px)) cannot coexist with a
+     scrolling host: whenever the host's content region is shorter than the
+     floor, the page overflows a box that is already overflow:hidden, and the
+     overflow is unreachable. The host now supplies a definite height, so obey
+     it exactly and let .chat-workspace do the internal scrolling. */
   min-height: 0;
   height: 100%;
-  /* Sensible floor only when the viewport allows it. Never a hard 100vh —
-     every host panel already owns a header, and nesting a second viewport-sized
-     box is what produces the double-scrollbar bug. */
-  min-height: min(620px, calc(100dvh - 96px));
+  flex: 1 1 auto;
 }
 
 .chat-workspace {
@@ -334,7 +336,10 @@
 }
 .chat-thread-sub { font-size: 12px; color: var(--chat-muted); margin-top: 1px; }
 
-.chat-backbtn { display: none; }
+/* Always visible, not mobile-only. On a phone it steps back to the conversation
+   list; on a desktop it leaves Community for the previous page. See the
+   onClick in ChatWorkspace. */
+.chat-backbtn { display: inline-flex; }
 
 /* Avatar stack for the group member count — designed.md §9 open item 2 */
 .chat-avatars { display: flex; align-items: center; }
@@ -914,7 +919,7 @@
   .chat-workspace[data-view='thread'] .chat-rail { display: none; }
   .chat-bubble { max-width: 88%; }
   .chat-backbtn { display: inline-flex; }
-  .chat-page { min-height: min(560px, calc(100dvh - 64px)); }
+  .chat-page { min-height: 0; }
   .chat-overlay { align-items: flex-end; padding: 0; }
   .chat-dialog { max-width: 100%; max-height: 88dvh; border-radius: var(--chat-r-lg) var(--chat-r-lg) 0 0; }
 }

@@ -230,6 +230,10 @@ function PageShell({ children }) {
   useEffect(() => { setMobileSidebar(false) }, [location.pathname])
 
   const isIframeRoute = ['/sa/accounts', '/sa/fro', '/sa/ngo-admin', '/sa/hr', '/sa/event-head', '/sa/recruiter'].some(p => location.pathname.startsWith(p))
+  // Community manages its own scrolling (rail + thread scroll independently), so
+  // the host must not also scroll it. Without this the shell's overflow-y:auto
+  // and the chat's internal panes fight each other and you get two scrollbars.
+  const isChatRoute = location.pathname.startsWith('/sa/chat')
   const meta = NAV.find(n => location.pathname.startsWith(n.path))
   const userName = user?.name || 'Super Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -306,7 +310,15 @@ function PageShell({ children }) {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <div className="content-body" style={{maxWidth:'none', padding: isIframeRoute ? 0 : undefined, marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+        <div
+          className={`content-body${isChatRoute ? ' content-body-chat' : ''}`}
+          style={{
+            maxWidth: 'none',
+            padding: isIframeRoute || isChatRoute ? 0 : undefined,
+            marginRight: drawerOpen ? 320 : 0,
+            transition: 'margin-right .25s ease',
+          }}
+        >
           {children}
         </div>
       </div>
