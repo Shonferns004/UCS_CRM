@@ -5,7 +5,7 @@ import { toast } from '../Toast'
 import { Avatar } from '../ui'
 import { chatApi, isAuthError } from './chatApi'
 import { resolveChatIdentity } from './chatIdentity'
-import { useTypingIn, useUnreadCount } from './useChatRealtime'
+import { useTypingIn, useUnreadCount, announceUnreadChanged } from './useChatRealtime'
 import ConversationList from './ConversationList'
 import MessageThread from './MessageThread'
 import ChatComposer from './ChatComposer'
@@ -163,14 +163,47 @@ export default function ChatWorkspace() {
     setUnreadKey((k) => k + 1)
   }, [])
 
-  const handleMarkRead = useCallback(
-    (convoId, messageId) => {
+  const handleMarkRead = useCallback(    async (convoId, messageId) => {
       if (!convoId || !messageId) return
-      chatApi.markRead(me, convoId, messageId).catch(() => {})
-      refreshUnread?.()
+      // Wait for the server to actually move the read cursor BEFORE re-reading
+      // the totals. Refreshing in parallel races the POST and can come back
+      // with the count the user just cleared, which is what left the badge
+      // showing a stale number.
+      try {
+        await chatApi.markRead(me, convoId, messageId)
+      } catch {
+        // A failed cursor write is not worth interrupting the read view over;
+        // the next message, focus or mount will retry it.
+      }
+      setUnreadKey((k) => k + 1)
+      // Nudge every other copy of the total (the sidebar badge), not just ours.
+      announceUnreadChanged()
     },
-    [me, refreshUnread]
+    [me]
   )
+
+  // ---- back ----------------------------------------------------------------
+  // "Back" has to mean the obvious thing per layout, and navigate(-1) on its own
+  // did not: on a wide layout it followed browser history, so opening Community
+  // from the sidebar and pressing back threw the user out to the Dashboard
+  // instead of back to the conversation list they were just reading.
+  const goBack = useCallback(() => {
+    if (narrow) {
+      // Phone: the list is a separate pane, so just reveal it again. Keep the
+      // selection so re-opening the room is instant.
+      setView('list')
+      return
+    }
+    if (activeId) {
+      // Desktop: the rail is already on screen, so close the thread and show
+      // the "Select a conversation" placeholder rather than leaving Community.
+      setActiveId(null)
+      setView('list')
+      return
+    }
+    // Nothing left to step back to inside the app, so honour history.
+    navigate(-1)
+  }, [narrow, activeId, navigate])
 
   // ---- sending ------------------------------------------------------------
   const send = useCallback(
@@ -320,9 +353,9 @@ export default function ChatWorkspace() {
                 <button
                   type="button"
                   className="chat-iconbtn chat-backbtn"
-                  onClick={() => (narrow ? setView('list') : navigate(-1))}
-                  aria-label={narrow ? 'Back to conversations' : 'Go back'}
-                  title={narrow ? 'Back to conversations' : 'Go back'}
+                  onClick={goBack}
+                  aria-label={narrow ? 'Back to conversations' : 'Close conversation'}
+                  title={narrow ? 'Back to conversations' : 'Close conversation'}
                 >
                   <BackIcon />
                 </button>

@@ -2,6 +2,24 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { chatApi } from './chatApi'
 
 /**
+ * Fan-out for "somebody changed the unread totals".
+ *
+ * The sidebar badge (ChatNavBadge) and the workspace each call useUnreadCount,
+ * which means N independent copies of the same number. That was invisible until
+ * it was wrong: reading a conversation advances the read cursor on the server,
+ * but emits no socket event, so the badge's own copy was never re-read and it
+ * kept showing the old count until a full page reload. A local bus lets whoever
+ * performed the read tell every other copy, without threading a prop through
+ * two unrelated component trees.
+ */
+const UNREAD_BUS = new EventTarget()
+
+/** Tell every useUnreadCount instance to re-read the totals. */
+export function announceUnreadChanged() {
+  UNREAD_BUS.dispatchEvent(new Event('change'))
+}
+
+/**
  * Subscribes to chat realtime events for the lifetime of the component.
  * The handler is held in a ref so callers do not have to memoise it and
  * re-subscribe on every render.
@@ -90,6 +108,31 @@ export function useUnreadCount(me, refreshKey = 0) {
   useEffect(() => {
     refresh()
   }, [refresh, refreshKey])
+
+  // Reading is not a realtime event, so listen for the local "unread changed"
+  // signal as well. Without this the badge only ever updated on mount or when
+  // somebody else happened to post.
+  useEffect(() => {
+    const onChange = () => refresh()
+    UNREAD_BUS.addEventListener('change', onChange)
+    return () => UNREAD_BUS.removeEventListener('change', onChange)
+  }, [refresh])
+
+  // Re-read when the tab comes back to the foreground: a read that happened in
+  // another tab, or a message that arrived while this one was in the
+  // background, would otherwise leave a stale count on screen.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [refresh])
 
   // Keep the badge honest while the tab is open.
   useChatEvents(
