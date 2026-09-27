@@ -87,6 +87,34 @@ function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&
 
 function titleCase(s) { return String(s ?? '').replace(/\b\w/g, c => c.toUpperCase()); }
 
+const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function twoDigitWords(n) {
+  if (n < 20) return ONES[n];
+  const t = TENS[Math.floor(n / 10)];
+  const o = ONES[n % 10];
+  return o ? `${t} ${o}` : t;
+}
+
+function numberToWordsIndian(num) {
+  const n = Math.floor(Math.abs(Number(num) || 0));
+  if (n === 0) return 'Zero';
+  const parts = [];
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const hundred = Math.floor((n % 1000) / 100);
+  const rest = n % 100;
+  if (crore) parts.push(`${numberToWordsIndian(crore)} Crore`);
+  if (lakh) parts.push(`${twoDigitWords(lakh)} Lakh`);
+  if (thousand) parts.push(`${twoDigitWords(thousand)} Thousand`);
+  if (hundred) parts.push(`${ONES[hundred]} Hundred`);
+  if (rest) parts.push(twoDigitWords(rest));
+  return parts.join(' ');
+}
+
 function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const ngo = getNgo(ngoKey);
   const r = deptLabel(w.role || w.department) || 'Team Member';
@@ -205,10 +233,13 @@ ${body}
 </div>`;
 }
 
-function buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey) {
+function buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey, amount) {
   const ngo = getNgo(ngoKey);
   const r = deptLabel(w.role || w.department) || 'Team Member';
   const subj = subjectText || 'NO OBJECTION & VOLUNTARY SERVICE DECLARATION';
+  const amtNum = Math.floor(Number(amount) || 0);
+  const amtDigits = amtNum > 0 ? amtNum.toLocaleString('en-IN') : '__________';
+  const amtWords = amtNum > 0 ? numberToWordsIndian(amtNum) : '__________';
   const subjDiv = (mTop) => `<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:${mTop} 0 6px">Subject:- ${subj}</div>`;
   const body = `<div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
@@ -216,8 +247,8 @@ function buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey
 <ol style="margin:0 0 10px 0;padding-left:26px;text-align:left">
 <li style="margin-bottom:8px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
 <li style="margin-bottom:8px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
-<li style="margin-bottom:8px">In such circumstances, I have no objection if the organization limits my monthly payment to ₹6,000 (Rupees Six Thousand Only) as Volunteer Expenses/Honorarium, until further review by the Management.</li>
-<li style="margin-bottom:8px">I clearly understand that the payment of ₹6,000 is towards volunteer expenses/honorarium and shall not be considered as a guaranteed salary or permanent entitlement.</li>
+<li style="margin-bottom:8px">In such circumstances, I have no objection if the organization limits my monthly payment to ₹${amtDigits} (Rupees ${amtWords} Only) as Volunteer Expenses/Honorarium, until further review by the Management.</li>
+<li style="margin-bottom:8px">I clearly understand that the payment of ₹${amtDigits} is towards volunteer expenses/honorarium and shall not be considered as a guaranteed salary or permanent entitlement.</li>
 <li style="margin-bottom:8px">I accept that the Management's decision regarding my remuneration, based on my performance and conduct, shall be final and binding.</li>
 <li style="margin-bottom:8px">I confirm that I am signing this declaration voluntarily, without any pressure, coercion, or undue influence, after fully understanding its contents.</li>
 </ol>
@@ -720,6 +751,7 @@ export default function Letters() {
   const [letterDate, setLetterDate] = useState('');
   const [hrName, setHrName] = useState('');
   const [subject, setSubject] = useState('');
+  const [bsd2Amount, setBsd2Amount] = useState(6000);
   const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
   const [showDownload, setShowDownload] = useState(false);
@@ -794,7 +826,7 @@ export default function Letters() {
     } else if (type === 'NOBSD2') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subject, ngo);
+      body = buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subject, ngo, bsd2Amount);
       today = dateText;
     } else if (type === 'ODAR') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
@@ -884,13 +916,13 @@ export default function Letters() {
 
   useEffect(() => {
     if (showDownload) setShowDownload(false);
-  }, [name, type, letterDate, hrName, subject, docRows]);
+  }, [name, type, letterDate, hrName, subject, docRows, bsd2Amount]);
 
   useEffect(() => {
     if (!workers.length) return;
     const t = setTimeout(generate, 400);
     return () => clearTimeout(t);
-  }, [ngo, name, type, letterDate, hrName, subject, docRows, workers]);
+  }, [ngo, name, type, letterDate, hrName, subject, docRows, bsd2Amount, workers]);
 
   const updateDocRow = (i, patch) => setDocRows(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addDocRow = () => setDocRows(rows => [...rows, { sr: rows.length + 1, doc: '', original: false, returned: false, remarks: '' }]);
@@ -921,6 +953,11 @@ export default function Letters() {
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Letter type
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
           </label>
+          {type === 'NOBSD2' && (
+          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Monthly Amount (₹)
+            <input type="number" min="0" step="100" value={bsd2Amount} onChange={e=>setBsd2Amount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0))} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
+          </label>
+          )}
           <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
             <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
           </label>
