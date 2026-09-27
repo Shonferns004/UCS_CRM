@@ -112,7 +112,12 @@ export default function Teams() {
   };
 
   const setWorkerTeam = async (w, val) => {
-    setWorkers(prev => prev.map(x => x.id === w.id ? { ...x, team: val || null } : w));
+    // The untouched branch must yield `x` (the element being mapped), never `w`.
+    // Returning `w` here replaced EVERY other worker in the list with a copy of
+    // the row being edited, so assigning one FRO to a team turned the whole table
+    // into that same FRO repeated — including the count tiles, since `counts` is
+    // derived from this same state.
+    setWorkers(prev => prev.map(x => (x.id === w.id ? { ...x, team: val || null } : x)));
     try { await apiPut('/workers/' + w.id, { team: val || null }); }
     catch (e) { setErr(e.message); }
   };
