@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { SimProvider, useSim } from '../sim/store'
 import { SimFormModal, SimViewModal, ReplaceModal, SimHistoryModal, SimBrandHistoryModal } from '../sim/modals'
 import { ImportModal, DeleteConfirmModal } from '../sim/ImportModal'
@@ -32,6 +32,7 @@ const PAGE_META = {
 function SectionInner() {
   const sim = useSim()
   const location = useLocation()
+  const navigate = useNavigate()
   const isOwner = location.pathname.endsWith('/owner')
   const isDashboard = location.pathname === '/accounts/sim' || location.pathname.endsWith('/sim/dashboard') || location.pathname.endsWith('/sim')
   const isInventory = location.pathname.endsWith('/sim/inventory') || location.pathname.endsWith('/sim/cards')
@@ -49,6 +50,33 @@ function SectionInner() {
   const [simName, setSimName] = useState('All')
 
   useEffect(() => { sim.refresh(); /* eslint-disable-next-line */ }, [])
+
+  /* The sticky topbar's height is content-driven, so it is measured rather than
+     hard-coded, and published as --sim-chrome-top for the SIM History overlay to
+     start below. That keeps the "SIM Management / All SIM Cards" header out of the
+     overlay entirely, instead of relying on the topbar's z-index out-ranking it. */
+  const scopeRef = useRef(null)
+  useLayoutEffect(() => {
+    function publish() {
+      const bar = document.querySelector('.panel-accounts .topbar')
+      const h = bar ? bar.getBoundingClientRect().height : 0
+      scopeRef.current && scopeRef.current.style.setProperty('--sim-chrome-top', `${Math.round(h)}px`)
+    }
+    publish()
+    window.addEventListener('resize', publish)
+    return () => window.removeEventListener('resize', publish)
+  }, [])
+
+  /* The SIM History overlay no longer covers the sidebar rail (simScope.css), so a
+     nav click can land while it is open. Close every open modal on route change,
+     otherwise the overlay survives the navigation and dims the new page. */
+  useEffect(() => {
+    setBrandHistoryOpen(false)
+    setImportOpen(false)
+    setFormOpen(false); setEditing(null)
+    setViewCard(null); setReplaceCard(null); setHistoryCard(null)
+    setDeleteCard(null)
+  }, [location.pathname])
 
   function openAdd() { setEditing(null); setFormKey((k) => k + 1); setFormOpen(true) }
   function openEdit(c) { setEditing(c); setFormKey((k) => k + 1); setFormOpen(true) }
@@ -96,7 +124,7 @@ function SectionInner() {
   }
 
   return (
-    <div className="sim-scope">
+    <div className="sim-scope" ref={scopeRef}>
       <div className="sim-actions" style={{ marginBottom: 16, justifyContent: 'flex-end' }}>
         {!isOwner && <button className="sim-btn" onClick={() => setBrandHistoryOpen(true)}>
           {simName === 'Nokia' ? 'Nokia History' : simName === 'Android' ? 'Android History' : 'SIM History'}
@@ -140,7 +168,12 @@ function SectionInner() {
       <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard) }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null) } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
       <SimHistoryModal card={historyCard} open={!!historyCard} onClose={() => setHistoryCard(null)} />
-      <SimBrandHistoryModal open={brandHistoryOpen} initialBrand={simName} onClose={() => setBrandHistoryOpen(false)} />
+      <SimBrandHistoryModal
+        open={brandHistoryOpen}
+        initialBrand={simName}
+        onClose={() => setBrandHistoryOpen(false)}
+        onGoToLocker={() => { setBrandHistoryOpen(false); navigate('/accounts/sim/cards') }}
+      />
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); sim.refresh() }} />
       <DeleteConfirmModal card={deleteCard} deleting={deleting} onClose={() => { if (!deleting) setDeleteCard(null) }} onConfirm={() => deleteCard && doDelete(deleteCard)} />
     </div>

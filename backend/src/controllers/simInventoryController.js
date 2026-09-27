@@ -10,7 +10,7 @@ import {
 export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', 'Damaged', 'Inactive'];
 
 const alwaysPresentFields = [
-  'sim_number', 'sim_type', 'provider', 'status', 'location',
+  'sim_name', 'sim_number', 'sim_type', 'provider', 'status', 'location',
   'mobile_id', 'device', 'imei', 'assigned_to', 'team',
   'assignment_date', 'issue_date', 'expiry_date', 'notes',
 ];
@@ -38,12 +38,23 @@ function computeExpiry(expiryDate, today = new Date()) {
   return { days_left: days, derived_status: 'Expired' };
 }
 
+/* Only the INVENTORY_STATUSES vocabulary may leave this function. computeExpiry
+   speaks the sim_cards language ('Active' / 'Expiring Soon'), which is not valid
+   for a stock row, so a spare SIM with no expiry date must stay 'Available'
+   instead of being downgraded to 'Inactive' or labelled 'Active'. */
 function finalStatus(item, derived) {
   const base = (item.status || 'Available').trim();
-  if (['Lost', 'Damaged', 'Inactive'].includes(base)) return base;
-  if (base === 'Assigned') return 'Assigned';
-  if (base === 'Expired' || derived.derived_status === 'Expired') return 'Expired';
-  return base === 'Available' ? derived.derived_status : base;
+  if (INVENTORY_STATUSES.includes(base)) {
+    if (['Lost', 'Damaged', 'Inactive'].includes(base)) return base;
+    if (base === 'Assigned') return 'Assigned';
+    if (base === 'Expired' || derived.derived_status === 'Expired') return 'Expired';
+    return 'Available';
+  }
+  /* A row still carrying the sim_cards vocabulary ('Active' / 'Expiring Soon')
+     from the old status bug. Infer the truth from whether a phone is recorded,
+     so the Locker stays correct even if the boot-time repair could not run. */
+  if (String(item.mobile_id || '').trim()) return 'Assigned';
+  return derived.derived_status === 'Expired' ? 'Expired' : 'Available';
 }
 
 export const addInventoryItem = async (req, res) => {
@@ -72,7 +83,7 @@ export const listInventoryItems = async (req, res) => {
     const withMeta = items.map((it) => {
       const derived = computeExpiry(it.expiry_date, now);
       const status = finalStatus(it, derived);
-      return { ...it, days_left: derived.days_left, derived_status: status };
+      return { ...it, status, days_left: derived.days_left, derived_status: status };
     });
     return res.json(withMeta);
   } catch (error) {
@@ -147,9 +158,23 @@ export const updateStatus = async (req, res) => {
     if (!status || !INVENTORY_STATUSES.includes(status)) {
       return res.status(400).json({ message: 'Invalid status' });
     }
-    const item = await updateInventoryItem(req.params.id, { status });
+    /* Moving a SIM out of 'Assigned' releases it back to the locker, so the
+       phone it was sitting on has to be cleared as well. Otherwise a released
+       SIM would still display a Mobile ID while counting as unassigned.
+       `assigned_to` is deliberately left alone: it holds the SIM's owner name,
+       which belongs to the SIM itself and survives a release. */
+    const updates = { status };
+    if (status !== 'Assigned') {
+      Object.assign(updates, {
+        mobile_id: null,
+        device: null,
+        imei: null,
+        assignment_date: null,
+      });
+    }
+    const item = await updateInventoryItem(req.params.id, updates);
     const derived = computeExpiry(item.expiry_date);
-    return res.json({ message: 'Status updated', item: { ...item, ...derived } });
+    return res.json({ message: 'Status updated', item: { ...item, status, ...derived } });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
