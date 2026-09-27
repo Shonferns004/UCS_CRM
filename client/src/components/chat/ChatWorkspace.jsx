@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { toast } from '../Toast'
 import { Avatar } from '../ui'
@@ -26,6 +27,24 @@ import './chat.css'
 export default function ChatWorkspace() {
   const { user } = useUcs()
   const me = useMemo(() => resolveChatIdentity(user), [user])
+  const navigate = useNavigate()
+
+  // Below 768px the two-column grid collapses to a single pane, so the back
+  // control has to mean "show the conversation list again". At wider widths the
+  // list is already visible next to the thread and going "back" has to mean
+  // leaving Community for the page the user came from. Tracked as state rather
+  // than read once, so rotating or resizing the window switches the behaviour
+  // live instead of leaving a stale target.
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const onChange = (e) => setNarrow(e.matches)
+    mq.addEventListener('change', onChange)
+    setNarrow(mq.matches)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   const [conversations, setConversations] = useState([])
   const [listStatus, setListStatus] = useState('loading')
@@ -301,8 +320,9 @@ export default function ChatWorkspace() {
                 <button
                   type="button"
                   className="chat-iconbtn chat-backbtn"
-                  onClick={() => setView('list')}
-                  aria-label="Back to conversations"
+                  onClick={() => (narrow ? setView('list') : navigate(-1))}
+                  aria-label={narrow ? 'Back to conversations' : 'Go back'}
+                  title={narrow ? 'Back to conversations' : 'Go back'}
                 >
                   <BackIcon />
                 </button>

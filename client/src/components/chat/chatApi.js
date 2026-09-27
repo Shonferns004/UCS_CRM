@@ -26,10 +26,32 @@ import { api } from '../../api/auth'
 import { onDbChange, getSocket } from '../../lib/socket'
 import { mockChatApi } from './chatMock'
 
-// The chat backend is not mounted yet. Until it is, the screens run against an
-// in-memory mock so every state in designed.md §6 is reachable for review.
-// Set VITE_CHAT_MOCK=false in client/.env to talk to the real routes.
-export const CHAT_MOCK = import.meta.env.VITE_CHAT_MOCK !== 'false'
+// The chat backend is NOT mounted on every environment, and a wrongly-guessed
+// default here is silent and expensive: with the old `!== 'false'` test, an
+// ABSENT VITE_CHAT_MOCK evaluated to true, so any build that simply forgot to
+// set it shipped chatMock.js fixtures to production — real users saw invented
+// people like "Priya Nair" posting invented replies.
+//
+// So the default fails safe: real routes unless mock is explicitly requested.
+// Opt in with VITE_CHAT_MOCK=true (client/.env.development.local, or your shell).
+// Note this cannot be verified by grepping the bundle, because the mock module
+// is statically imported and survives minification either way — the flag only
+// decides at runtime. Verify it in the browser or via the API instead.
+export const CHAT_MOCK = import.meta.env.VITE_CHAT_MOCK === 'true'
+
+// Loud, early, and impossible to miss. Mock fixtures reaching production is not
+// something to discover from a support ticket, and it cannot be caught by
+// grepping the bundle, so say so in the console the moment it happens.
+if (CHAT_MOCK && typeof window !== 'undefined' && window.location?.hostname) {
+  const host = window.location.hostname
+  const local = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')
+  if (!local) {
+    console.error(
+      `[chat] CHAT MOCK IS ENABLED on ${host}. Community is showing invented data, not the database. ` +
+        `Unset VITE_CHAT_MOCK (or set it to false) and rebuild.`
+    )
+  }
+}
 
 export const CHAT_PAGE_SIZE = 50
 
