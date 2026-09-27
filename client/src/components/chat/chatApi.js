@@ -24,34 +24,24 @@
 
 import { api } from '../../api/auth'
 import { onDbChange, getSocket } from '../../lib/socket'
-import { mockChatApi } from './chatMock'
 
-// The chat backend is NOT mounted on every environment, and a wrongly-guessed
-// default here is silent and expensive: with the old `!== 'false'` test, an
-// ABSENT VITE_CHAT_MOCK evaluated to true, so any build that simply forgot to
-// set it shipped chatMock.js fixtures to production — real users saw invented
-// people like "Priya Nair" posting invented replies.
+// There is no mock data source any more, and that is deliberate.
 //
-// So the default fails safe: real routes unless mock is explicitly requested.
-// Opt in with VITE_CHAT_MOCK=true (client/.env.development.local, or your shell).
-// Note this cannot be verified by grepping the bundle, because the mock module
-// is statically imported and survives minification either way — the flag only
-// decides at runtime. Verify it in the browser or via the API instead.
-export const CHAT_MOCK = import.meta.env.VITE_CHAT_MOCK === 'true'
-
-// Loud, early, and impossible to miss. Mock fixtures reaching production is not
-// something to discover from a support ticket, and it cannot be caught by
-// grepping the bundle, so say so in the console the moment it happens.
-if (CHAT_MOCK && typeof window !== 'undefined' && window.location?.hostname) {
-  const host = window.location.hostname
-  const local = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')
-  if (!local) {
-    console.error(
-      `[chat] CHAT MOCK IS ENABLED on ${host}. Community is showing invented data, not the database. ` +
-        `Unset VITE_CHAT_MOCK (or set it to false) and rebuild.`
-    )
-  }
-}
+// The in-memory chat mock was a temporary scaffold for reviewing UI states
+// before the backend existed. It shipped to production twice: first because the
+// flag was read as `!== 'false'`, so an absent variable meant ON, and then
+// because a "clean" verification grepped the bundle for a string the mock never
+// contained. Real users saw an invented person, "Priya Nair", posting invented
+// replies in Community.
+//
+// Removing the file rather than defaulting the flag off is the actual fix. A
+// flag that can point at fixtures is a liability that recurs; there is nothing
+// left to switch on, so there is nothing to get wrong.
+//
+// If Community ever needs fixtures again, generate them outside src (scratch
+// branch, Storybook, a test helper) and do not import them from the shipped
+// path. The deploy workflow fails the build if the mock file or any reference
+// to it reappears under src, so keep this comment free of that filename too.
 
 export const CHAT_PAGE_SIZE = 50
 
@@ -212,26 +202,18 @@ function rejoinRoomsHttp() {
   }
 }
 
-const impl = CHAT_MOCK ? mockChatApi : http
-
 export const chatApi = {
-  listConversations: (me) => impl.listConversations(me),
-  getUnreadCount: (me) => impl.getUnreadCount(me),
-  getPeople: (me) => impl.getPeople(me),
-  createDirect: (me, userId) => impl.createDirect(me, userId),
-  getMessages: (me, convoId, opts) => impl.getMessages(me, convoId, opts),
-  sendMessage: (me, convoId, payload) => impl.sendMessage(me, convoId, payload),
-  markRead: (me, convoId, messageId) => impl.markRead(me, convoId, messageId),
-  searchMessages: (me, convoId, q, opts) => impl.searchMessages(me, convoId, q, opts),
-  editMessage: (me, messageId, body) => impl.editMessage(me, messageId, body),
-  deleteMessage: (me, messageId) => impl.deleteMessage(me, messageId),
-  subscribe: (handler) => (CHAT_MOCK ? mockChatApi.__subscribe(handler) : subscribeHttp(handler)),
-  sendTyping: (convoId, typing) => {
-    if (CHAT_MOCK) return
-    sendTypingHttp(convoId, typing)
-  },
-  rejoinRooms: () => {
-    if (CHAT_MOCK) return
-    rejoinRoomsHttp()
-  },
+  listConversations: (me) => http.listConversations(me),
+  getUnreadCount: (me) => http.getUnreadCount(me),
+  getPeople: (me) => http.getPeople(me),
+  createDirect: (me, userId) => http.createDirect(me, userId),
+  getMessages: (me, convoId, opts) => http.getMessages(me, convoId, opts),
+  sendMessage: (me, convoId, payload) => http.sendMessage(me, convoId, payload),
+  markRead: (me, convoId, messageId) => http.markRead(me, convoId, messageId),
+  searchMessages: (me, convoId, q, opts) => http.searchMessages(me, convoId, q, opts),
+  editMessage: (me, messageId, body) => http.editMessage(me, messageId, body),
+  deleteMessage: (me, messageId) => http.deleteMessage(me, messageId),
+  subscribe: (handler) => subscribeHttp(handler),
+  sendTyping: (convoId, typing) => sendTypingHttp(convoId, typing),
+  rejoinRooms: () => rejoinRoomsHttp(),
 }

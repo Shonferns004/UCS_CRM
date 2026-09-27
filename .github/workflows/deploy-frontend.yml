@@ -21,43 +21,44 @@ jobs:
           cache-dependency-path: 'client/package-lock.json'
 
       # Build and verification live in ONE step on purpose. A step's `env:` block
-      # is scoped to that step only, so a separate verify step would read an
-      # empty VITE_CHAT_MOCK and fail every deploy. That is not hypothetical - it
-      # is what an earlier split of these two steps did.
-      - name: Build and verify chat data source
+      # is scoped to that step only, so a separate verify step would read
+      # variables that are not set there and fail every deploy.
+      - name: Build and verify no chat mock is present
         env:
           VITE_API_URL: https://api.beingsevak.org/api
           VITE_SOCKET_URL: https://api.beingsevak.org
-          # MUST be set here. chatApi enables the mock when this is exactly
-          # 'true', so 'false' means real routes. An absent variable also means
-          # real routes now, but being explicit keeps it visible in the log.
-          VITE_CHAT_MOCK: 'false'
           VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
           VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
         run: |
           cd client
+
+          # The in-memory chat mock is gone for good. It reached production
+          # twice - once because VITE_CHAT_MOCK was read as `!== 'false'` so an
+          # absent variable meant ON, and once because a "clean" check grepped
+          # the bundle for a string the mock never contained. Fail loudly if
+          # anything tries to bring it back.
+          if [ -f src/components/chat/chatMock.js ]; then
+            echo "::error::src/components/chat/chatMock.js exists - the mock is removed for good"
+            exit 1
+          fi
+          if grep -rqE "chatMock|CHAT_MOCK|VITE_CHAT_MOCK" src 2>/dev/null; then
+            echo "::error::a source file still references the chat mock"
+            grep -rnE "chatMock|CHAT_MOCK|VITE_CHAT_MOCK" src | head -20
+            exit 1
+          fi
+
           npm ci
           npm run build
 
-          if [ "${VITE_CHAT_MOCK}" != "false" ]; then
-            echo "::error::VITE_CHAT_MOCK must be 'false' for a production build"
+          # Sound now, and only now: with the module deleted, its fixture text
+          # cannot reach the bundle unless something imports it again. The same
+          # grep was meaningless before the deletion precisely because the mock
+          # was statically imported and present either way.
+          if grep -rq "Priya Nair" dist/assets 2>/dev/null; then
+            echo "::error::chat mock fixtures found in dist - refusing to deploy"
             exit 1
           fi
-          # The guard lives inside `if (CHAT_MOCK)`, so when the flag folds to
-          # false the minifier deletes the string along with the branch. Its
-          # presence in dist therefore proves the mock is ON. Verified in both
-          # directions: VITE_CHAT_MOCK=true keeps it, =false drops it.
-          #
-          # Do not replace this with a grep for the mock fixture data
-          # ("Priya Nair", "u-acc"). chatMock.js is statically imported and
-          # survives minification either way, so those greps match even with the
-          # mock off - which is exactly how mock mode stayed on in production
-          # while an earlier "it looks clean" check kept reporting success.
-          if grep -rq "CHAT MOCK IS ENABLED" dist/assets 2>/dev/null; then
-            echo "::error::chat mock is enabled in this build - Community would serve invented data"
-            exit 1
-          fi
-          echo "chat mock is off: Community will read the real database"
+          echo "no chat mock in src or dist: Community reads the real database"
 
       - name: Clear old entry point (keep hashed assets for open tabs)
         uses: appleboy/ssh-action@v1
