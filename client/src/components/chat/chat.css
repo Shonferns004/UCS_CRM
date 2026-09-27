@@ -31,12 +31,6 @@
   --chat-font: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
-/* --------------------------------------------------------------------------
-   Screen 10 / §5 — mobile single-pane toggle
-   -------------------------------------------------------------------------- */
-.chat-workspace[data-view='list'] .chat-thread,
-.chat-workspace[data-view='thread'] .chat-rail { display: none; }
-
 /* ==========================================================================
    Layout contract — designed.md §5
    ========================================================================== */
@@ -940,3 +934,116 @@
 /* Never allow horizontal page scrolling from chat content. */
 .chat-scope, .chat-scope * { min-width: 0; }
 .chat-workspace, .chat-scope { overflow-x: hidden; }
+
+/* ==========================================================================
+   Floating community circle
+
+   Lives outside .chat-scope (it is mounted by PanelWrapper), so the .chat-*
+   tokens above are not in scope here and every colour is literal. z-index
+   sits below the 2600+ drawers and the 9000 overlays on purpose: the circle
+   should never cover an open drawer or a modal.
+   ========================================================================== */
+.chat-fab {
+  --chat-fab-size: 56px;
+  --chat-fab-margin: 20px;
+  position: fixed;
+  right: var(--chat-fab-margin);
+  bottom: var(--chat-fab-margin);
+  width: var(--chat-fab-size);
+  height: var(--chat-fab-size);
+  border-radius: 50%;
+  background: var(--chat-fab-bg, #2563eb);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  cursor: pointer;
+  /* Without this a touch drag scrolls the page instead of moving the circle. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 2500;
+  transition: transform .16s ease, box-shadow .16s ease, left .16s ease, top .16s ease;
+}
+
+.chat-fab-icon { display: flex; align-items: center; justify-content: center; }
+
+/* Once dragged the position comes from inline left/top. Clearing the CSS
+   right/bottom keeps the box from being over-constrained, where which side
+   wins is a resolution detail rather than something to rely on. */
+.chat-fab.is-placed { right: auto; bottom: auto; }
+
+.chat-fab:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, .35);
+  outline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .chat-fab:hover { transform: scale(1.06); box-shadow: 0 8px 24px rgba(0, 0, 0, .26); }
+}
+
+.chat-fab:active { transform: scale(.96); }
+
+.chat-fab-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  border: 2px solid #fff;
+  pointer-events: none;
+}
+
+.chat-fab-x {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #6b7280;
+  color: #fff;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.chat-fab.x-open .chat-fab-x { display: flex; }
+
+/* Keep the sage panels on-theme instead of dropping a blue circle into them. */
+.panel-hr, .panel-recruiter, .panel-ngo-admin { --chat-fab-bg: var(--sage); }
+.panel-dev { --chat-fab-bg: var(--primary); }
+
+/* Last so it wins over :active/:hover on equal specificity. */
+.chat-fab.is-dragging {
+  transition: none;
+  cursor: grabbing;
+  transform: scale(1.06);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .32);
+  z-index: 2501;
+}
+
+@media (max-width: 767px) {
+  .chat-fab { --chat-fab-size: 52px; --chat-fab-margin: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-fab,
+  .chat-fab:hover,
+  .chat-fab:active,
+  .chat-fab.is-dragging { transition: none; transform: none; }
+}
