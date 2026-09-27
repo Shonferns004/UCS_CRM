@@ -443,7 +443,7 @@ export default function NgoAdminPanel() {
                         <button
                           onClick={() => setMeetingTeams(meetingTeams.length ? [] : [...teamsList])}
                           style={{ border: 'none', background: 'none', color: '#7c3aed', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
-                        >{meetingTeams.length ? 'Clear' : 'Select all'}</button>
+                        >{meetingTeams.length ? 'Clear' : 'Select all teams'}</button>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {teamsList.map(t => (
@@ -454,7 +454,9 @@ export default function NgoAdminPanel() {
                         ))}
                       </div>
                       <div style={{ marginTop: 6, fontSize: 10, color: meetingTeams.length ? '#7c3aed' : 'var(--ink-soft)', fontWeight: 600 }}>
-                        {meetingTeams.length ? `Only ${meetingTeams.join(', ')} will be paused.` : 'No teams selected → applies to all teams (company-wide).'}
+                        {meetingTeams.length
+                          ? `Only ${meetingTeams.join(', ')} will be paused. FROs with no team assigned always get it too.`
+                          : 'No teams selected → applies to all teams (company-wide).'}
                       </div>
                     </div>
                   )}

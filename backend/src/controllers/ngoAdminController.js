@@ -28,6 +28,7 @@ import { notifyWorker } from '../services/fcmService.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { buildWorkAsByOp } from '../utils/workAs.js';
+import { effectiveIdleSeconds, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
 // excluded from all dashboard stats by default; pass { includeTest: true }
@@ -4846,7 +4847,10 @@ export const getTLDashboard = async (req, res) => {
     //    current call state. An FRO is present while they hold an open CRM login
     //    session (logged_out_at NULL), a recently-written live row, or an open
     //    panel socket (socket presence replaced timer heartbeats).
-    const LIVE_FRESH_MS = 3 * 60 * 1000;
+    // Single source of truth for the liveness window (was a local duplicate of
+    // the same 3 minutes; two constants that must stay equal is how the read
+    // paths drifted apart in the first place).
+    const LIVE_FRESH_MS = IDLE_LIVE_FRESH_MS;
     const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
     const { data: liveStatus } = await db.from('fro_live_status').select(liveCols).in('worker_id', workerIds);
     // Operator presence must not depend on the viewing NGO's scope: when an FRO
@@ -5302,13 +5306,12 @@ export const getTLDashboard = async (req, res) => {
       // own live_status row is stale / they have no own auth_session).
       const acting = workAsByOp.get(String(w.id));
       const workAsLabel = acting ? null : workAsName;
-      const idleStreakFor = (row) => row?.idle_since && row.updated_at && (now - new Date(row.updated_at)) <= LIVE_FRESH_MS
+      // Streak portion only — drives the "Idle Xm" pill. The freshness gate is
+      // the shared IDLE_LIVE_FRESH_MS, so a dead panel's abandoned streak can
+      // never inflate the pill on this screen but not on the others.
+      const idleStreakFor = (row) => row?.idle_since && row.updated_at && (now - new Date(row.updated_at)) <= IDLE_LIVE_FRESH_MS
         ? Math.max(0, Math.floor((now - new Date(row.idle_since).getTime()) / 1000))
         : 0;
-      // Effective idle today: committed counter PLUS the still-running streak.
-      // The FRO panel only commits elapsed idle when a streak ends, so the raw
-      // counter reads 0 mid-streak (blank IDLE HR column while the "Idle Xm"
-      // pill correctly shows the streak). Same streak source as idleMinutes.
       const idleStreakSeconds = idleStreakFor(ls);
       // Every row renders ITS OWN committed counter and streak — nothing is
       // inherited from a work-as covered row.
@@ -5323,7 +5326,12 @@ export const getTLDashboard = async (req, res) => {
       // whenever another covered row became fresh. One person's login was
       // resetting someone else's IDLE HR. Attribution is storage-layer
       // bookkeeping, not a display concern — each row owns its number.
-      const effectiveIdleSeconds = (ls.today_idle_seconds || 0) + idleStreakSeconds;
+      //
+      // The total now comes from the shared effectiveIdleSeconds() rather than
+      // being re-derived here: this screen is the one place that used to keep
+      // its own copy of the rule, which is how IDLE HR could disagree with the
+      // super-admin list for the same FRO at the same moment.
+      const rowIdleSeconds = effectiveIdleSeconds(ls);
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -5398,7 +5406,7 @@ export const getTLDashboard = async (req, res) => {
         status,
         work_as_operator_name: workAsLabel,
         idleMinutes: Math.floor(idleStreakSeconds / 60),
-        today_idle_seconds: effectiveIdleSeconds,
+        today_idle_seconds: rowIdleSeconds,
         is_paused: acting ? !!acting.is_paused : !!ls.is_paused,
         paused_by: acting ? (acting.paused_by || null) : (ls.paused_by || null),
         overdue_calls: (overdueByWorker[String(w.id)] || {}).calls || 0,

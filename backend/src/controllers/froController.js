@@ -4245,9 +4245,15 @@ export const bookOpenIdleStreak = async (workerId) => {
     const elapsed = Math.max(0, Math.floor((endMs - new Date(live.idle_since).getTime()) / 1000));
     if (elapsed <= 0) return 0;
     const next = elapsed + Number(live.today_idle_seconds || 0);
+    // updated_at is deliberately NOT touched. The sweeper is explicit about
+    // this: that column is how every read path tells a live panel from a dead
+    // one, and a booking made during a work-as handover happens precisely when
+    // the departing panel has stopped heartbeating. Stamping `now` here made a
+    // dead row look live for a further 3 minutes, so its abandoned idle_since
+    // kept accruing on every read that honours a fresh streak.
     const { error } = await db
       .from('fro_live_status')
-      .update({ today_idle_seconds: next, idle_since: null, updated_at: new Date().toISOString() })
+      .update({ today_idle_seconds: next, idle_since: null })
       .eq('worker_id', workerId);
     if (error) throw error;
     return elapsed;
