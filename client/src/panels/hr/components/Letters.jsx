@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useHR, apiGet } from '../store';
+import { api } from '../../../api/auth';
+import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Dropdown } from './ui';
 import { FileTxt, WhatsApp } from '../icons';
 import html2canvas from 'html2canvas';
@@ -113,6 +115,242 @@ function numberToWordsIndian(num) {
   if (hundred) parts.push(`${ONES[hundred]} Hundred`);
   if (rest) parts.push(twoDigitWords(rest));
   return parts.join(' ');
+}
+
+function parseYmd(s) {
+  if (!s) return null;
+  const raw = String(s).trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const [dd, mm, yyyy] = raw.split('/');
+    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const t = raw.includes('T') ? raw : `${raw}T00:00:00`;
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function fmtDate(s, fallback = '______________') {
+  const d = parseYmd(s);
+  return d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : fallback;
+}
+
+// Total experience between two dates. Counts whole months from the calendar,
+// then the leftover days. Rendered as "X Months and Y Days" under a year, and
+// as "X Years and Y Months" once a full year is reached.
+function calcExperience(fromStr, toStr) {
+  const a = parseYmd(fromStr);
+  const b = parseYmd(toStr) || new Date();
+  if (!a || !b || b < a) return null;
+  let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) months -= 1;
+  if (months < 0) months = 0;
+  const years = Math.floor(months / 12);
+  const remMonths = months % 12;
+  const days = Math.round((b - a) / 86400000);
+  // Days left over after the last completed whole month (e.g. 16 May -> 30 Sep
+  // is 4 whole months, then 14 more days).
+  const anniversary = new Date(a.getFullYear(), a.getMonth() + months, a.getDate());
+  const remDays = Math.max(0, Math.min(30, Math.round((b - anniversary) / 86400000)));
+  const text = years > 0
+    ? `${years} (${years === 1 ? 'Year' : 'Years'})${remMonths ? ` and ${remMonths} (${remMonths === 1 ? 'Month' : 'Months'})` : ''}`
+    : months > 0
+      ? `${months} (${months === 1 ? 'Month' : 'Months'})${remDays ? ` and ${remDays} (${remDays === 1 ? 'Day' : 'Days'})` : ''}`
+      : `${days} (${days === 1 ? 'Day' : 'Days'})`;
+  return { months, years, remMonths, remDays, days, text };
+}
+
+// Table rows stating the tenure as readable text and as a plain month count.
+function experienceRows(fromStr, toStr, firstRow) {
+  const exp = calcExperience(fromStr, toStr);
+  const expText = exp ? exp.text : '{{total_experience}}';
+  const expMonths = exp ? exp.months : '{{total_experience_months}}';
+  return {
+    exp,
+    expText,
+    expMonths,
+    rows: [
+      ...(firstRow || []),
+      ['Total Experience', `<strong>${esc(expText)}</strong>`],
+      ['Total Experience in Months', `<strong>${esc(expMonths)}</strong> (${exp ? exp.months === 1 ? 'Month' : 'Months' : 'Months'})`],
+    ],
+  };
+}
+
+const REF_CODES = { 'Offer letter': 'OFR', 'Relieving letter': 'REL', 'Experience letter': 'EXP', 'Joining letter': 'JNG' };
+
+function makeRefNo(ngoKey, type, dateStr) {
+  const d = parseYmd(dateStr) || new Date();
+  const fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  const ymd = `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${d.getFullYear()}`;
+  return `${ngoKey}/HR/${fy}-${String(fy + 1).slice(-2)}/${REF_CODES[type] || 'LTR'}/${ymd}`;
+}
+
+function signOffBlock(ngo, hrNameText, signatoryLabel) {
+  return `<div style="margin-top:14px;text-align:left">
+<p style="margin:0 0 2px 0">Yours sincerely,</p>
+<p style="margin:0 0 2px 0">For <strong>${ngo.name}</strong>,</p>
+<p style="margin:10px 0 0 0"><strong>${esc(hrNameText)}</strong><br />${esc(signatoryLabel)}<br /><br />_______________________<br /><span style="font-size:0.9em">(Signature &amp; Organization Seal)</span></p>
+</div>`;
+}
+
+function particularsTable(rows) {
+  return `<table style="width:100%;border-collapse:collapse;border:1px solid #9aa7b5;margin:8px 0 10px 0">
+${rows.map(([k, v]) => `<tr>
+<td style="border:1px solid #9aa7b5;padding:5px 8px;width:34%;background:#f2f6fa;font-weight:700;text-align:left">${k}</td>
+<td style="border:1px solid #9aa7b5;padding:5px 8px;text-align:left">${v}</td>
+</tr>`).join('\n')}
+</table>`;
+}
+
+function numberedTerms(items) {
+  return `<ol style="margin:0 0 8px 0;padding-left:24px;text-align:justify">
+${items.map(t => `<li style="margin-bottom:5px">${t}</li>`).join('\n')}
+</ol>`;
+}
+
+// Gross monthly figure with the annual CTC derived from it (x12). Falls back to
+// the bracketed mail-merge placeholders when no figure has been entered.
+function remunerationFigures(monthlyInput) {
+  const monthly = Math.max(0, Math.floor(Number(monthlyInput) || 0));
+  const annual = monthly * 12;
+  return {
+    monthlyText: monthly > 0 ? `₹${monthly.toLocaleString('en-IN')}` : '₹[XX,XXX]',
+    annualText: annual > 0 ? `₹${annual.toLocaleString('en-IN')}` : '₹[X,XX,XXX]',
+  };
+}
+
+function buildOfferLetterHTML(w, dateText, joiningDateText, hrNameText, designation, ngoKey, refNo, remarks, ctcMonthly) {
+  const ngo = getNgo(ngoKey);
+  const r = designation || deptLabel(w.role || w.department) || 'Team Member';
+  const d = deptLabel(w.dept || w.department) || 'General';
+  const name = titleCase(w.name);
+  const address = [w.address, w.city, w.state, w.pincode].filter(Boolean).join(', ');
+  const { monthlyText, annualText } = remunerationFigures(ctcMonthly);
+  const particulars = particularsTable([
+    ['Name of Volunteer', `<strong>${esc(name)}</strong>`],
+    ['Designation Offered', `<strong>${esc(r)}</strong>`],
+    ['Department', esc(d)],
+    ['Date of Joining', `<strong>${esc(joiningDateText)}</strong>`],
+    ['Place of Work', esc(ngo.address)],
+    ['Reporting To', 'Team Leader / Reporting Manager of the department'],
+    ['Type of Engagement', 'Volunteer engagement (honorary, in the spirit of seva and social service)'],
+    ['Initial Engagement Period', '2 (two) months from the date of joining, extendable by mutual consent'],
+    ['Probation / Review Period', '1 (one) month from the date of joining'],
+    ['Working Hours', '10:00 a.m. to 7:00 p.m., Monday to Saturday (subject to roster and operational requirement)'],
+    ['Dress Code', 'Formals (Monday to Friday), Casuals (Saturday)'],
+    ['Gross Monthly Remuneration', `<strong>${esc(monthlyText)}</strong> per month`],
+    ['Annual CTC (approx.)', `<strong>${esc(annualText)}</strong> per annum`],
+  ]);
+  const terms = numberedTerms([
+    `Your date of joining is <strong>${esc(joiningDateText)}</strong>. Please report at the office at 10:00 a.m. on the said date along with the documents listed in the joining checklist.`,
+    `You will be assigned the duties and responsibilities of <strong>${esc(r)}</strong> in the <strong>${esc(d)}</strong> department, and any other duties reasonably assigned to you by your Team Leader or the Management from time to time.`,
+    `The engagement is on a <strong>voluntary / honorary basis</strong> undertaken in the spirit of seva and social service. It does not create a contract of employment, and no guaranteed salary, wages, provident fund, bonus, or other statutory employment benefit is applicable, unless separately notified in writing.`,
+    `During the initial <strong>training period</strong>, no leave shall be granted. Any absence without prior intimation and approval will be treated as unauthorised absence and will attract disciplinary action.`,
+    `You are required to maintain punctuality, complete your daily attendance and task reporting, and keep your assigned CRM / records updated accurately.`,
+    `You must maintain professional conduct and keep all beneficiary data, Trust information, and internal records strictly confidential.`,
+    `Any breach of the code of conduct, confidentiality undertaking, or policy of ${esc(ngo.name)} may result in disciplinary action, including suspension or immediate termination of your engagement.`,
+    `Original documents submitted by you will be held securely by the organization purely for verification and administrative purposes, and will be returned as per policy upon separation, subject to clearance of all dues and formalities.`,
+    `Either party may terminate this engagement by giving <strong>seven (7) days'</strong> written notice, or immediately in the event of misconduct, without prejudice to the organization's rights.`,
+    `You confirm that you are joining voluntarily, with no obligation on the part of ${esc(ngo.name)} to provide continuing engagement beyond the initial period.`,
+  ]);
+  const acceptance = `<div style="margin-top:16px;border:1px solid #0B73C4;border-radius:6px;padding:12px 14px;text-align:left">
+<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">Acceptance of Offer</div>
+<p style="margin:0 0 8px 0">I, <strong>${esc(name)}</strong>, hereby accept the above offer of volunteer engagement with <strong>${esc(ngo.name)}</strong> on the terms and conditions stated above, and confirm that I have read and understood them in full.</p>
+<table style="width:100%;border-collapse:collapse">
+<tr><td style="padding:3px 0;width:55%"><strong>Signature:</strong> _______________________</td><td style="padding:3px 0"><strong>Place:</strong> ______________</td></tr>
+<tr><td style="padding:3px 0"><strong>Date:</strong> ____ / ____ / ________</td><td style="padding:3px 0"><strong>Parent / Guardian:</strong> ______________</td></tr>
+</table>
+</div>
+${remarks ? `<p style="margin:10px 0 0 0"><strong>Note:</strong> ${esc(remarks)}</p>` : ''}`;
+  const titleBlock = `<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px 0">OFFER LETTER</div>
+<div style="text-align:right;font-size:0.88em;margin:0 0 8px 0"><strong>Ref. No.:</strong> ${esc(refNo)}</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0"><strong>Date:</strong> ${esc(dateText)}</td></tr></table>
+<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+<tr><td style="padding:0 0 2px 0">To,</td></tr>
+<tr><td style="padding:0 0 2px 0"><strong>${esc(name)}</strong></td></tr>
+${address ? `<tr><td style="padding:0 0 2px 0">${esc(address)}</td></tr>` : ''}
+</table>
+<div style="font-weight:700;color:#082F5A;margin:0 0 6px 0">Subject: Offer of volunteer engagement as ${esc(r)}</div>
+<p style="margin:0 0 6px 0">Respected ${esc(name)},</p>
+<p style="margin:0 0 6px 0">Following our discussions / interview, we are pleased to extend to you an offer of volunteer engagement with <strong>${esc(ngo.name)}</strong>. The particulars of the offer are set out below.</p>
+${particulars}
+<div style="font-weight:700;color:#082F5A;margin:4px 0 4px 0">Remuneration</div>
+<p style="margin:0 0 6px 0">Your gross monthly remuneration will be <strong>${esc(monthlyText)}</strong> per month, equivalent to an annual CTC of approximately <strong>${esc(annualText)}</strong> per annum.</p>
+<p style="margin:0 0 6px 0">The applicable salary structure, deductions, statutory contributions, and other components will be governed by the organization's policies and applicable laws.</p>
+<p style="margin:0 0 6px 0">A detailed salary structure may be provided separately by the HR / Accounts Department.</p>
+<div style="font-weight:700;color:#082F5A;margin:0 0 6px 0">Terms &amp; Conditions</div>
+${terms}
+${acceptance}`;
+  if (HAS_LH(ngoKey)) {
+    return buildLetterheadLayout(ngoKey, `<div style="padding:10px 0 24px;text-align:justify;font-size:15.5px;line-height:1.45">${titleBlock}${signOffBlock(ngo, hrNameText, 'Human Resources / Authorized Signatory')}</div>`);
+  }
+  return `${plainShell(ngoKey, ngo, titleBlock + signOffBlock(ngo, hrNameText, 'Human Resources / Authorized Signatory'), 15)}`;
+}
+
+function buildRelievingLetterHTML(w, dateText, hrNameText, designation, ngoKey, refNo, remarks) {
+  const ngo = getNgo(ngoKey);
+  const r = designation || deptLabel(w.role || w.department) || 'Team Member';
+  const d = deptLabel(w.dept || w.department) || 'General';
+  const name = titleCase(w.name);
+  const jd = w.date_of_joining || w.created_at || '';
+  const joiningDateText = fmtDate(jd, '{{joining_date}}');
+  const { expText, expMonths, rows: expRowList } = experienceRows(jd, dateText, [
+    ['Name', `<strong>${esc(name)}</strong>`],
+    ['Designation', `<strong>${esc(r)}</strong>`],
+    ['Department', esc(d)],
+    ['Date of Joining', `<strong>${esc(joiningDateText)}</strong>`],
+    ['Date of Relieving', `<strong>${esc(dateText)}</strong>`],
+    ['Volunteer ID', esc((w.login_id || w.employee_id || w.id || '').toString())],
+  ]);
+  const particulars = particularsTable(expRowList);
+  const remarksBlock = `<div style="margin:10px 0 0 0;border:1px solid #9aa7b5;border-radius:6px;padding:10px 12px;text-align:left">
+<div style="font-weight:700;color:#082F5A;margin-bottom:4px">Remarks on Separation</div>
+<div style="font-size:0.94em">${remarks
+    ? esc(remarks)
+    : 'As per records available with the Human Resources department, the volunteer has no pending monetary dues, outstanding advances, unreturned advances or organisation property, and all original documents and identity items have been accounted for.'}</div>
+</div>`;
+  const inner = `<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px 0">RELIEVING LETTER</div>
+<div style="text-align:right;font-size:0.88em;margin:0 0 8px 0"><strong>Ref. No.:</strong> ${esc(refNo)}</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0"><strong>Date:</strong> ${esc(dateText)}</td></tr></table>
+<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+<tr><td style="padding:0 0 2px 0">To,</td></tr>
+<tr><td style="padding:0 0 2px 0"><strong>${esc(name)}</strong></td></tr>
+</table>
+<div style="font-weight:700;color:#082F5A;margin:0 0 6px 0">Subject: Relieving from the services of ${esc(ngo.name)}</div>
+<p style="margin:0 0 6px 0">Respected ${esc(name)},</p>
+<p style="margin:0 0 6px 0">This is to certify that you were engaged with <strong>${esc(ngo.name)}</strong> in the capacity of <strong>${esc(r)}</strong> in the <strong>${esc(d)}</strong> department from <strong>${esc(joiningDateText)}</strong> to <strong>${esc(dateText)}</strong> &mdash; a total experience of <strong>${esc(expText)}</strong> (${esc(expMonths)}).</p>
+${particulars}
+<p style="margin:0 0 6px 0">Your duties, responsibilities, assigned tasks, files, records, and pending work have been duly handed over to the person nominated by the Management, and you have been <strong>relieved of all duties and responsibilities</strong> with effect from the close of working hours on <strong>${esc(dateText)}</strong>.</p>
+${remarksBlock}
+<p style="margin:10px 0 6px 0">All organisation property, identity cards, official documents, and any other assets in your possession must be returned to the Human Resources department on or before the date mentioned above.</p>
+<p style="margin:0 0 6px 0">We request you to collect your original documents, this relieving letter, and your experience letter from the Human Resources department on confirmation of your identity. Kindly acknowledge receipt of this letter.</p>
+<p style="margin:0 0 6px 0">The organization thanks you for your sincere services and contribution towards the social cause. We wish you all the very best in your future professional endeavours.</p>
+<p style="margin:0 0 6px 0">For any clarification regarding this letter, please contact the Human Resources department.</p>
+${signOffBlock(ngo, hrNameText, 'Human Resources / Authorized Signatory')}
+<div style="margin-top:10px;border:1px solid #0B73C4;border-radius:6px;padding:10px 12px;text-align:left;font-size:0.94em">
+<div style="font-weight:700;color:#082F5A;margin-bottom:4px">Acknowledgement by the Volunteer</div>
+<div>I acknowledge that I have received this relieving letter from <strong>${esc(ngo.name)}</strong> and that all my dues and property have been settled as stated above.</div>
+<div style="margin-top:6px"><strong>Signature:</strong> _______________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ________</div>
+</div>`;
+  if (HAS_LH(ngoKey)) {
+    return buildLetterheadLayout(ngoKey, `<div style="padding:10px 0 24px;text-align:justify;font-size:15.5px;line-height:1.45">${inner}</div>`);
+  }
+  return plainShell(ngoKey, ngo, inner, 15);
+}
+
+function plainShell(ngoKey, ngo, inner, fontSize = 15) {
+  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:${fontSize}px;line-height:1.4;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:24px 44px 0;position:relative;z-index:1">
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
+<div style="flex:1;text-align:center"><div style="font-size:20px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
+</div>
+<div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
+${inner}
+<div style="margin-top:16px;padding-top:6px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:0.9em;color:#6b7280"><strong>Regd. Address:</strong> ${ngo.address}</div></div>
+</div>
+</div>`;
 }
 
 function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
@@ -508,40 +746,43 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
   );
 }
 
-function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation, ngoKey) {
+function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation, ngoKey, refNo, remarks) {
   const ngo = getNgo(ngoKey);
   const r = designation || 'Team Member';
-  if (HAS_LH(ngoKey)) {
-    const inner = `<div style="padding:10px 0 24px;text-align:justify">
-<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">EXPERIENCE LETTER</div>
-<div style="margin-bottom:6px"><strong>TO WHOM IT MAY CONCERN</strong></div>
-<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>${ngo.name}</strong> from <strong>${joiningDate}</strong> to <strong>${lastWorkingDate}</strong> as a <strong>${r}</strong>.</p>
+  const d = deptLabel(w.dept || w.department) || 'General';
+  const { expText, expMonths, rows: expRowList } = experienceRows(w.date_of_joining || w.created_at || '', lastWorkingDate, [
+    ['Name', `<strong>${esc(w.name)}</strong>`],
+    ['Designation', `<strong>${esc(r)}</strong>`],
+    ['Department', esc(d)],
+    ['Date of Joining', `<strong>${esc(joiningDate)}</strong>`],
+    ['Date of Relieving / Last Working Date', `<strong>${esc(lastWorkingDate)}</strong>`],
+  ]);
+  const expRows = particularsTable(expRowList);
+  const remarksBlock = remarks
+    ? `<p style="margin:10px 0 0 0"><strong>Remark:</strong> ${esc(remarks)}</p>`
+    : '';
+  const bodyCore = `<div style="margin-bottom:6px"><strong>Ref. No.:</strong> ${esc(refNo || '____________')}</div>
+<div style="margin-bottom:6px"><strong>Date:</strong> ${esc(lastWorkingDate)}</div>
+<div style="margin:0 0 6px 0"><strong>TO WHOM IT MAY CONCERN</strong></div>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${esc(titleCase(w.name))}</strong> was engaged with <strong>${ngo.name}</strong> from <strong>${esc(joiningDate)}</strong> to <strong>${esc(lastWorkingDate)}</strong> in the capacity of <strong>${esc(r)}</strong> (<strong>${esc(d)}</strong> Department) &mdash; a <strong>total experience of ${esc(expText)}</strong> (${esc(expMonths)}).</p>
+${expRows}
 <p style="margin:0 0 6px 0">During the tenure with our organization, they performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. They consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
-<p style="margin:0 0 6px 0">Throughout the period of employment, they maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
+<p style="margin:0 0 6px 0">Throughout the period of engagement, they maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
 <p style="margin:0 0 6px 0">We appreciate the contributions made to ${ngo.name} and thank them for their services. We wish them every success in their future professional endeavors.</p>
 <p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
-<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Contact No.: +91 8879035035<br />Email: being.sevak@gmail.com</p><p style="margin:8px 0 0 0"><strong>Company Seal &amp; Signature</strong><br /><strong>${ngo.name}</strong></p></div>
+${remarksBlock}`;
+  const sig = `<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Contact No.: +91 8879035035<br />Email: being.sevak@gmail.com</p><p style="margin:8px 0 0 0"><strong>Company Seal &amp; Signature</strong><br /><strong>${ngo.name}</strong></p></div>`;
+  if (HAS_LH(ngoKey)) {
+    const inner = `<div style="padding:10px 0 24px;text-align:justify;font-size:15.5px;line-height:1.45">
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px 0">EXPERIENCE LETTER</div>
+${bodyCore}
+${sig}
 </div>`;
     return buildLetterheadLayout(ngoKey, inner);
   }
-  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
-<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
-</div>
-<div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">EXPERIENCE LETTER</div>
-<div style="margin-bottom:6px"><strong>TO WHOM IT MAY CONCERN</strong></div>
-<div style="text-align:justify">
-<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>${ngo.name}</strong> from <strong>${joiningDate}</strong> to <strong>${lastWorkingDate}</strong> as a <strong>${r}</strong>.</p>
-<p style="margin:0 0 6px 0">During the tenure with our organization, they performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. They consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
-<p style="margin:0 0 6px 0">Throughout the period of employment, they maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
-<p style="margin:0 0 6px 0">We appreciate the contributions made to ${ngo.name} and thank them for their services. We wish them every success in their future professional endeavors.</p>
-<p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
-</div>
-<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Contact No.: +91 8879035035<br />Email: being.sevak@gmail.com</p><p style="margin:8px 0 0 0"><strong>Company Seal &amp; Signature</strong><br /><strong>${ngo.name}</strong></p></div>
-<div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
-</div>`;
+  return plainShell(ngoKey, ngo, `<div style="text-align:center;font-size:17px;font-weight:700;color:#082F5A;letter-spacing:1px;margin:0 0 8px 0;text-transform:uppercase">EXPERIENCE LETTER</div>
+${bodyCore}
+${sig}`, 15);
 }
 
 function buildWarningLetterHTML(w, dateText, joiningDate, subjectText, ngoKey) {
@@ -643,10 +884,7 @@ function build(type, w, joiningDate = '', designation = '', ngoKey = 'BSCT') {
   const r = deptLabel(w.role || w.department) || 'Team Member';
   const d = deptLabel(w.dept || w.department) || 'General';
   const body = {
-    'Offer letter': `To,\n${titleCase(w.name)}\n\n<strong>Designation: ${designation || r}</strong>\n\nDear ${titleCase(w.name)},\n\nWe are pleased to offer you the role of ${designation || r} in the ${d} department of ${ngo.name}. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on <strong>${joiningDate}</strong> for a period of <strong>2 months</strong>, extendable by mutual consent.\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the ${ngo.name} family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${titleCase(w.name)}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
-    'Warning letter': ``,
-    'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
   }[type];
   return { today, body };
 }
@@ -744,6 +982,7 @@ ${watermark}
 
 export default function Letters() {
   const { fetchWorkers } = useHR();
+  const { isSalaryUnlocked, promptUnlock } = useSalaryPrivacy();
   const [workers, setWorkers] = useState([]);
   const [ngo, setNgo] = useState('BSCT');
   const [name, setName] = useState('');
@@ -752,6 +991,10 @@ export default function Letters() {
   const [hrName, setHrName] = useState('');
   const [subject, setSubject] = useState('');
   const [bsd2Amount, setBsd2Amount] = useState(6000);
+  const [remarks, setRemarks] = useState('');
+  const [ctcMonthly, setCtcMonthly] = useState('');
+  const [ctcTouched, setCtcTouched] = useState(false);
+  const [salaryMap, setSalaryMap] = useState({});
   const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
   const [showDownload, setShowDownload] = useState(false);
@@ -771,6 +1014,30 @@ export default function Letters() {
     fetchWorkers().then(data => { if (!cancelled) setWorkers(data); }).catch((err) => { console.error('API error:', err.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  // Salary comes from the live payroll record (salary_history -> current_salary
+  // via /salary/workers-summary), which sits behind the salary access code, so
+  // it is only pulled once that has been unlocked.
+  const loadSalaryFromPayroll = () => {
+    api('/salary/workers-summary', { _prefix: 'ucs' })
+      .then(rows => {
+        const map = {};
+        for (const r of (Array.isArray(rows) ? rows : [])) map[r.id] = r;
+        setSalaryMap(map);
+      })
+      .catch((err) => { console.error('Salary fetch error:', err.message); });
+  };
+
+  const openSalaryPicker = () => promptUnlock(loadSalaryFromPayroll);
+
+  // Auto-fill the CTC box from payroll until HR overrides it by typing.
+  useEffect(() => {
+    if (ctcTouched) return;
+    const w = workers.find(x => x.name === name);
+    if (!w) return;
+    const rec = salaryMap[w.id];
+    setCtcMonthly(rec && rec.current_salary ? String(Math.floor(Number(rec.current_salary) || 0)) : '');
+  }, [workers, name, salaryMap, ctcTouched]);
 
   const capturePdf = async (bodyText, letterType, singlePage = false) => {
     const el = pdfRef.current;
@@ -839,12 +1106,23 @@ export default function Letters() {
       const hrNameText = hrName || '{{hr_name}}';
       body = buildJoiningLetterHTML(w, dateText, hrNameText, subject, ngo);
       today = dateText;
+    } else if (type === 'Offer letter') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const hrNameText = hrName || '{{hr_name}}';
+      const joiningDateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date_of_joining}}';
+      body = buildOfferLetterHTML(w, dateText, joiningDateText, hrNameText, subject, ngo, makeRefNo(ngo, type, letterDate), remarks, ctcMonthly);
+      today = dateText;
+    } else if (type === 'Relieving letter') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const hrNameText = hrName || '{{hr_name}}';
+      body = buildRelievingLetterHTML(w, dateText, hrNameText, subject, ngo, makeRefNo(ngo, type, letterDate), remarks);
+      today = dateText;
     } else if (type === 'Experience letter') {
       const jd = w.date_of_joining || w.created_at || '';
       const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
       const lastWorkingDate = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{last_working_date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject, subject, ngo);
+      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject, subject, ngo, makeRefNo(ngo, type, letterDate), remarks);
       today = lastWorkingDate;
     } else if (type === 'Warning letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
@@ -922,13 +1200,13 @@ export default function Letters() {
 
   useEffect(() => {
     if (showDownload) setShowDownload(false);
-  }, [name, type, letterDate, hrName, subject, docRows, bsd2Amount]);
+  }, [name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly]);
 
   useEffect(() => {
     if (!workers.length) return;
     const t = setTimeout(generate, 400);
     return () => clearTimeout(t);
-  }, [ngo, name, type, letterDate, hrName, subject, docRows, bsd2Amount, workers]);
+  }, [ngo, name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly, workers]);
 
   const updateDocRow = (i, patch) => setDocRows(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addDocRow = () => setDocRows(rows => [...rows, { sr: rows.length + 1, doc: '', original: false, returned: false, remarks: '' }]);
@@ -967,7 +1245,8 @@ export default function Letters() {
           <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
             <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
           </label>
-          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Last Working Date
+          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>
+            {type === 'Offer letter' ? 'Joining / Letter Date' : type === 'Joining letter' ? 'Joining Date' : 'Last Working Date'}
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>HR name
@@ -976,6 +1255,26 @@ export default function Letters() {
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Designation
             <Dropdown value={subject} onChange={e => { if (e.target.value === '__add_role__') { const r = prompt('Enter role name:'); if (r && r.trim()) { setExtraRoles(p => [...p, r.trim()]); setSubject(r.trim()); } } else { setSubject(e.target.value); } }} options={[...[...new Set([...workers.map(w => w.role || w.department || 'Team Member'), ...extraRoles])].sort().map(v => ({ value: v, label: deptLabel(v) })), { value: '__add_role__', label: '+ Add Role' }]} renderOption={o => o.value === '__add_role__' ? <span style={{color:'#dc2626',fontWeight:600}}>+ Add Role</span> : o.label} />
           </label>
+          {type === 'Offer letter' && (
+          <label className="field" style={{ flex: '0 0 220px', minWidth: 0 }}>Gross Monthly (₹)
+            <span style={{ display: 'flex', gap: 6 }}>
+              <input type="number" min="0" step="500" value={ctcMonthly} placeholder="₹[XX,XXX]"
+                onChange={e=>{ setCtcMonthly(e.target.value); setCtcTouched(true); }}
+                style={{flex:1,minWidth:0,padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
+              <button type="button" onClick={openSalaryPicker} title="Pull the current salary from Payroll"
+                style={{flexShrink:0,padding:'9px 10px',fontSize:12,fontWeight:600,borderRadius:'var(--radius-sm)',border:'1px solid var(--line)',background:isSalaryUnlocked?'#e8f5e9':'#fff',color:'var(--ink)',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
+                {isSalaryUnlocked ? 'Payroll ✓' : 'Payroll'}
+              </button>
+            </span>
+          </label>
+          )}
+          {['Offer letter', 'Relieving letter', 'Experience letter'].includes(type) && (
+          <label className="field" style={{ flex: '1 1 260px', minWidth: 0 }}>Remarks (optional)
+            <input type="text" value={remarks} onChange={e=>setRemarks(e.target.value)}
+              placeholder={type === 'Relieving letter' ? 'e.g. No pending dues; ID card returned' : 'e.g. Note printed below the letter'}
+              style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
+          </label>
+          )}
           <label className="field btn-field"><span>&nbsp;</span>{showDownload && (
             <span style={{ display: 'inline-flex', gap: 8 }}>
               <button className="btn btn-primary" onClick={downloadPdf} title="Download PDF" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><FileTxt size={18}/></button>
