@@ -27,6 +27,7 @@ import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { notifyWorker } from '../services/fcmService.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
+import { buildWorkAsByOp } from '../utils/workAs.js';
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
 // excluded from all dashboard stats by default; pass { includeTest: true }
@@ -4873,13 +4874,11 @@ export const getTLDashboard = async (req, res) => {
     // presence (online/idle/on_call mirroring the covered row's call state)
     // while the covered FRO counts offline. Covers case where the operator has
     // no own live_status/auth_session (e.g. acting via admin/work-as setup).
-    const workAsByOp = new Map();
-    for (const s of allLive) {
-      if (s.work_as_operator_id && isLiveFresh(s)) {
-        const op = String(s.work_as_operator_id);
-        if (!workAsByOp.has(op)) workAsByOp.set(op, s);
-      }
-    }
+    //
+    // Operators routinely cover SEVERAL FROs at once, so "which row represents
+    // this operator" needs a total order — see buildWorkAsByOp for why
+    // first-seen-wins made the operator's row change underneath them.
+    const workAsByOp = buildWorkAsByOp(allLive, isLiveFresh);
     const isOperatorActive = (wid) => workAsByOp.has(String(wid));
 
     // Login presence: auth_sessions rows recorded on every UCS CRM login and
@@ -5310,19 +5309,21 @@ export const getTLDashboard = async (req, res) => {
       // The FRO panel only commits elapsed idle when a streak ends, so the raw
       // counter reads 0 mid-streak (blank IDLE HR column while the "Idle Xm"
       // pill correctly shows the streak). Same streak source as idleMinutes.
-      const idleStreakSeconds = acting
-        ? idleStreakFor(acting)
-        : (!isWorkAs(ls) ? idleStreakFor(ls) : 0);
-      // Work-as attribution: live counters accrue on the covered FRO's row (the
-      // acting operator's heartbeat writes there). That committed idle belongs to
-      // the OPERATOR, who carries it via the acting row — so the covered FRO
-      // (offline, absent) accrues nothing, and the acting operator's IDLE HR uses
-      // the covered row's committed total instead of their own stale row.
-      const effectiveIdleSeconds = acting
-        ? (acting.today_idle_seconds || 0) + idleStreakSeconds
-        : isWorkAs(ls)
-          ? 0
-          : (ls.today_idle_seconds || 0) + idleStreakSeconds;
+      const idleStreakSeconds = idleStreakFor(ls);
+      // Every row renders ITS OWN committed counter and streak — nothing is
+      // inherited from a work-as covered row.
+      //
+      // It used to be: acting ? coveredRow's total : isWorkAs(ls) ? 0 : own.
+      // work_as_operator_id is only cleared by a normal heartbeat from the
+      // covered FRO, so the flag outlives the coverage indefinitely (14 of 17
+      // live rows had no matching work_as_sessions row at all). While such a
+      // stale row was fresh, the "acting" branch handed its operator the COVERED
+      // FRO's counter: a FRO who had just logged in (counter 0) silently
+      // rendered whoever they covered at 0 idle, and the number jumped again
+      // whenever another covered row became fresh. One person's login was
+      // resetting someone else's IDLE HR. Attribution is storage-layer
+      // bookkeeping, not a display concern — each row owns its number.
+      const effectiveIdleSeconds = (ls.today_idle_seconds || 0) + idleStreakSeconds;
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an

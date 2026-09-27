@@ -9,6 +9,7 @@ import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
 import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } from '../models/workAsSessionModel.js';
 import { bookOpenIdleStreak } from './froController.js';
+import { resolveOperatorIdentity } from '../utils/workAs.js';
 
 dotenv.config();
 
@@ -470,15 +471,22 @@ export const impersonateFRO = async (req, res) => {
     // "Who are you?" step: the operator optionally identifies which FRO worker
     // they are so credit goes to the correct person. When imposter_worker_id is
     // provided, validate it and use it as the imposter identity in the JWT.
-    let imposterId = req.user.id;
-    let imposterName = req.user.name || '';
+    // A CHAINED switch (this operator is already impersonating someone) must
+    // resolve the ORIGINAL operator, never the identity they are currently
+    // painting. See resolveOperatorIdentity for why reading req.user.id/name
+    // here was wrong.
+    // Both are reassigned by the "Acting FRO worker" picker below, so they must
+    // be let — not const — or that path throws at runtime.
+    const identity = resolveOperatorIdentity(req.user);
+    let imposterId = identity.imposterId;
+    let imposterName = identity.imposterName;
     // Resolve the operator's display name. New worker tokens carry it, but older
     // sessions / admin accounts may not — fall back to a DB lookup.
-    if (!imposterName && req.user.id != null) {
-      const opWorker = await getWorkerById(String(req.user.id));
+    if (!imposterName && imposterId != null) {
+      const opWorker = await getWorkerById(String(imposterId));
       if (opWorker?.name) imposterName = opWorker.name;
       else {
-        const opUser = await getUserById(req.user.id);
+        const opUser = await getUserById(imposterId);
         if (opUser?.name) imposterName = opUser.name;
       }
     }
@@ -588,11 +596,15 @@ export const impersonateFRO = async (req, res) => {
       }
 
       // Switching targets frees this operator's previous work-as sessions first.
-      await releaseOperatorSessions(req.user.id);
+      // imposterId, not req.user.id: on a chained switch req.user.id is the FRO
+      // being covered, so releasing against it wiped the COVERED FRO's sessions
+      // and left the real operator's sessions running — which is how stale
+      // work_as_sessions rows outlived their coverage.
+      await releaseOperatorSessions(imposterId);
       const claim = await claimStations({
         targetWorkerId: target.id,
         pairs: wantedPairs,
-        operatorUserId: req.user.id,
+        operatorUserId: imposterId,
         operatorName: imposterName,
       });
       if (claim.conflict?.length > 0) {
@@ -604,7 +616,7 @@ export const impersonateFRO = async (req, res) => {
       actStations = claim.ok;
     } else {
       // Unrestricted switch still supersedes any earlier scoped session.
-      await releaseOperatorSessions(req.user.id);
+      await releaseOperatorSessions(imposterId);
     }
 
     const tokenPayload = {
