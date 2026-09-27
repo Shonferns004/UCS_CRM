@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { toast } from '../Toast'
 import { Avatar } from '../ui'
 import { chatApi, isAuthError } from './chatApi'
 import { resolveChatIdentity } from './chatIdentity'
-import { useTypingIn, useUnreadCount } from './useChatRealtime'
+import { useTypingIn, useUnreadCount, announceUnreadChanged } from './useChatRealtime'
 import ConversationList from './ConversationList'
 import MessageThread from './MessageThread'
 import ChatComposer from './ChatComposer'
@@ -26,6 +27,24 @@ import './chat.css'
 export default function ChatWorkspace() {
   const { user } = useUcs()
   const me = useMemo(() => resolveChatIdentity(user), [user])
+  const navigate = useNavigate()
+
+  // Below 768px the two-column grid collapses to a single pane, so the back
+  // control has to mean "show the conversation list again". At wider widths the
+  // list is already visible next to the thread and going "back" has to mean
+  // leaving Community for the page the user came from. Tracked as state rather
+  // than read once, so rotating or resizing the window switches the behaviour
+  // live instead of leaving a stale target.
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const onChange = (e) => setNarrow(e.matches)
+    mq.addEventListener('change', onChange)
+    setNarrow(mq.matches)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   const [conversations, setConversations] = useState([])
   const [listStatus, setListStatus] = useState('loading')
@@ -144,14 +163,47 @@ export default function ChatWorkspace() {
     setUnreadKey((k) => k + 1)
   }, [])
 
-  const handleMarkRead = useCallback(
-    (convoId, messageId) => {
+  const handleMarkRead = useCallback(    async (convoId, messageId) => {
       if (!convoId || !messageId) return
-      chatApi.markRead(me, convoId, messageId).catch(() => {})
-      refreshUnread?.()
+      // Wait for the server to actually move the read cursor BEFORE re-reading
+      // the totals. Refreshing in parallel races the POST and can come back
+      // with the count the user just cleared, which is what left the badge
+      // showing a stale number.
+      try {
+        await chatApi.markRead(me, convoId, messageId)
+      } catch {
+        // A failed cursor write is not worth interrupting the read view over;
+        // the next message, focus or mount will retry it.
+      }
+      setUnreadKey((k) => k + 1)
+      // Nudge every other copy of the total (the sidebar badge), not just ours.
+      announceUnreadChanged()
     },
-    [me, refreshUnread]
+    [me]
   )
+
+  // ---- back ----------------------------------------------------------------
+  // "Back" has to mean the obvious thing per layout, and navigate(-1) on its own
+  // did not: on a wide layout it followed browser history, so opening Community
+  // from the sidebar and pressing back threw the user out to the Dashboard
+  // instead of back to the conversation list they were just reading.
+  const goBack = useCallback(() => {
+    if (narrow) {
+      // Phone: the list is a separate pane, so just reveal it again. Keep the
+      // selection so re-opening the room is instant.
+      setView('list')
+      return
+    }
+    if (activeId) {
+      // Desktop: the rail is already on screen, so close the thread and show
+      // the "Select a conversation" placeholder rather than leaving Community.
+      setActiveId(null)
+      setView('list')
+      return
+    }
+    // Nothing left to step back to inside the app, so honour history.
+    navigate(-1)
+  }, [narrow, activeId, navigate])
 
   // ---- sending ------------------------------------------------------------
   const send = useCallback(
@@ -301,8 +353,9 @@ export default function ChatWorkspace() {
                 <button
                   type="button"
                   className="chat-iconbtn chat-backbtn"
-                  onClick={() => setView('list')}
-                  aria-label="Back to conversations"
+                  onClick={goBack}
+                  aria-label={narrow ? 'Back to conversations' : 'Close conversation'}
+                  title={narrow ? 'Back to conversations' : 'Close conversation'}
                 >
                   <BackIcon />
                 </button>
