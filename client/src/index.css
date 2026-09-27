@@ -2982,3 +2982,55 @@
   .panel-accounts .rx-drawer-meta { grid-template-columns:1fr; }
   .panel-accounts .rx-header { margin-bottom:12px; }
 }
+
+/* ==========================================================================
+   Community chat on the window-scrolling panels
+
+   Super Admin already gives chat a fixed shell and hands scrolling to
+   `.chat-workspace`, so its thread scrolls inside the page. HR, recruiter and
+   ngo-admin scroll the WINDOW instead, so opening chat made the entire panel
+   scroll just to reach the bottom of a conversation.
+
+   These three get the same shape as Super Admin - but only while the chat
+   route is mounted. That scoping is the entire point. 52d8600a applied the
+   fixed shell to all three panels unconditionally and every page taller than
+   the viewport became unreachable, because nothing inside those panels
+   scrolls except the window itself. Scoped to `is-chat-route`, the other
+   pages keep the window scroll they depend on and only chat changes shape.
+
+   `min-height: 0` on `.app` is not optional: these panels carry
+   `min-height: 100vh` from their base rules, and leaving it in place makes the
+   shell taller than `100dvh` on any browser whose dynamic viewport is
+   smaller - which reintroduces the unreachable overflow all over again.
+
+   No chat-side change is needed. `.chat-page` already obeys a definite host
+   (`height:100%`, `min-height:0`), so `.chat-workspace` becomes the scroller.
+   ========================================================================== */
+.panel-hr.is-chat-route .app,
+.panel-recruiter.is-chat-route .app,
+.panel-ngo-admin.is-chat-route .app {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel-hr.is-chat-route .main,
+.panel-recruiter.is-chat-route .main,
+.panel-ngo-admin.is-chat-route .main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.panel-hr.is-chat-route .content-body,
+.panel-recruiter.is-chat-route .content-body,
+.panel-ngo-admin.is-chat-route .content-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+}
