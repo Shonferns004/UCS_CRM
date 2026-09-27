@@ -857,7 +857,13 @@ export default function Letters() {
           const statDate = letterDate || new Date().toLocaleDateString('en-CA');
           const stats = await apiGet(`/ngo-admin/fro-daily-stats?date=${statDate}`);
           const row = (Array.isArray(stats) ? stats : []).find(s => String(s.fro_id) === String(w.id));
-          if (row) idleSeconds = Number(row.idle_seconds) || 0;
+          if (row) {
+            // 0 is a real reading (worked the whole day); only a missing row or
+            // a null/absent column means "unknown". Coalescing to 0 for an
+            // absent row would print "0 min idle" on a warning letter, and
+            // leaving null is what made these letters show a blank.
+            idleSeconds = Number.isFinite(Number(row.idle_seconds)) ? Number(row.idle_seconds) : 0;
+          }
         } catch (_e) { idleSeconds = null; }
       }
       body = isFro

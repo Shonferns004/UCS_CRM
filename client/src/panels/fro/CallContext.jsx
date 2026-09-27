@@ -713,6 +713,11 @@ export function CallProvider({ children, userId, operatorId }) {
 
   const startCall = useCallback((donor) => {
     if (onBreak) toggleBreak()
+    // A new call owns a fresh paused window. endCall clears this too, but the
+    // disposition modal can end a call from an unmount cleanup, and the reset
+    // effect only runs after commit — clearing here as well means no ordering
+    // can leak the previous call's paused time into this call's duration.
+    callPausedMsRef.current = 0
     setActiveCall({
       donorId: donor.id || donor.donorId,
       donorName: donor.donor_name || donor.donorName,
@@ -737,6 +742,15 @@ export function CallProvider({ children, userId, operatorId }) {
       // Meeting/paused time is excluded: only talk time outside those windows counts.
       const paused = callPausedMsRef.current + (meetingStartRef.current ? nowClock - meetingStartRef.current : 0) + (pauseStartRef.current ? nowClock - pauseStartRef.current : 0)
       const duration = Math.max(0, Math.floor((nowClock - call.startTime - paused) / 1000))
+      // Clear the accumulator synchronously, right here in the event handler.
+      // It used to be cleared only by the `else` branch of the [activeCall]
+      // effect, which runs AFTER this render commits — and startCall never
+      // cleared it either. So the next call subtracted every previous call's
+      // paused time from its own elapsed, `duration` went to 0, and the
+      // `if (duration > 0)` guard below silently dropped the increment. That is
+      // why today_calls/today_talk_seconds were 0 in all 594 fro_daily_stats
+      // rows while skipped and idle were recorded normally.
+      callPausedMsRef.current = 0
       if (duration > 0) {
         commitTodayStats({
           calls: todayStatsRef.current.calls + 1,

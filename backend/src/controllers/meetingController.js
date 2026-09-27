@@ -50,6 +50,24 @@ const serialize = (meeting) => {
   };
 };
 
+// Decide whether a team-scoped meeting covers this caller.
+//
+// A caller with NO team must not be filtered out. `workers.team` is nullable
+// and 39 of 72 active workers have it NULL/empty, so the previous
+// `if (!callerTeam || ...) return inactive` silently excluded more than half
+// the field from EVERY team-scoped meeting: the admin ticked all five UFS
+// teams, the meeting was created, and those FROs never received the start
+// event (their MeetingGate stayed closed and their counters kept running
+// through the meeting). There is no team to scope them out of, so an
+// unassigned caller is treated as covered.
+export function meetingCoversCaller(meetingTeams, callerTeam) {
+  const teams = Array.isArray(meetingTeams) ? meetingTeams : [];
+  if (teams.length === 0) return true;              // global meeting
+  const team = callerTeam ? String(callerTeam).trim().toUpperCase() : '';
+  if (!team) return true;                            // unassigned -> covered
+  return teams.some((t) => String(t ?? '').trim().toUpperCase() === team);
+}
+
 export const getMeetingStatus = async (req, res) => {
   try {
     const { data, error } = await db
@@ -64,12 +82,8 @@ export const getMeetingStatus = async (req, res) => {
     // FRO / worker / team_lead: only return the meeting if it covers their team.
     // An empty teams array means global (all teams).
     if (meeting && FRO_ROLES.has(String(req.user?.role || '').trim().toLowerCase())) {
-      const teams = meeting.teams || [];
-      if (teams.length > 0) {
-        const callerTeam = await getCallerTeam(req.user.id);
-        if (!callerTeam || !teams.includes(callerTeam)) {
-          return res.json({ active: false });
-        }
+      if (!meetingCoversCaller(meeting.teams, await getCallerTeam(req.user.id))) {
+        return res.json({ active: false });
       }
     }
 
