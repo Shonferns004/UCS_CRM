@@ -20,13 +20,17 @@ jobs:
           cache: npm
           cache-dependency-path: 'client/package-lock.json'
 
-      - name: Build
+      # Build and verification live in ONE step on purpose. A step's `env:` block
+      # is scoped to that step only, so a separate verify step would read an
+      # empty VITE_CHAT_MOCK and fail every deploy. That is not hypothetical - it
+      # is what an earlier split of these two steps did.
+      - name: Build and verify chat data source
         env:
           VITE_API_URL: https://api.beingsevak.org/api
           VITE_SOCKET_URL: https://api.beingsevak.org
-          # MUST be set here. chatApi reads VITE_CHAT_MOCK !== 'false', so an
-          # absent variable means mock mode ON, and production silently serves
-          # chatMock.js fixtures ("Priya Nair") instead of the real database.
+          # MUST be set here. chatApi enables the mock when this is exactly
+          # 'true', so 'false' means real routes. An absent variable also means
+          # real routes now, but being explicit keeps it visible in the log.
           VITE_CHAT_MOCK: 'false'
           VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
           VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
@@ -35,16 +39,13 @@ jobs:
           npm ci
           npm run build
 
-      - name: Verify chat data source
-        run: |
-          cd client
           if [ "${VITE_CHAT_MOCK}" != "false" ]; then
-            echo "::error::VITE_CHAT_MOCK must be 'false' for a production build (got '${VITE_CHAT_MOCK}')"
+            echo "::error::VITE_CHAT_MOCK must be 'false' for a production build"
             exit 1
           fi
           # The guard lives inside `if (CHAT_MOCK)`, so when the flag folds to
-          # false the minifier deletes the string with the branch. Its presence
-          # in dist therefore proves the mock is ON. Verified in both
+          # false the minifier deletes the string along with the branch. Its
+          # presence in dist therefore proves the mock is ON. Verified in both
           # directions: VITE_CHAT_MOCK=true keeps it, =false drops it.
           #
           # Do not replace this with a grep for the mock fixture data
