@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
 import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
 import { Component } from 'react'
@@ -16,6 +16,8 @@ import DevPanel from './panels/dev-panel/DevPanel'
 import SimCardPanel from './panels/sim-card/SimCardPanel'
 import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
+import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
+import ChatFabHost from './components/chat/ChatFabHost'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -61,10 +63,24 @@ function ProtectedRoute({ role, children }) {
 }
 
 function PanelWrapper({ roleKey }) {
+  const location = useLocation()
   const mapping = ROLE_PANELS[roleKey]
   if (!mapping) return <AccessDenied />
   const Panel = mapping.panel
-  return <div className={mapping.cls}><Panel /><NoticesBar /></div>
+  // Derived rather than stored on ROLE_PANELS so a changed base path can never
+  // leave the circle pointing at a route that no longer exists.
+  const base = ROLE_PATHS[roleKey]
+  const chatPath = base ? `${base}/chat` : null
+  const onChatRoute = !!chatPath && location.pathname === chatPath
+  return (
+    <ChatUnreadProvider>
+      <div className={onChatRoute ? `${mapping.cls} is-chat-route` : mapping.cls}>
+        <Panel />
+        <NoticesBar />
+        {chatPath && <ChatFabHost chatPath={chatPath} />}
+      </div>
+    </ChatUnreadProvider>
+  )
 }
 
 function AccessDenied() {
