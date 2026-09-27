@@ -100,6 +100,7 @@ import { ensureFroLiveStatusSchema } from './bootstrap/ensureFroLiveStatusSchema
 import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureChatSchema } from './bootstrap/ensureChatSchema.js';
+import { ensureSimInventorySchema } from './bootstrap/ensureSimInventorySchema.js';
 import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
@@ -936,6 +937,7 @@ if (!process.env.VERCEL) {
     await ensureOperatorSchema().catch(e => console.error('ensureOperatorSchema failed:', e?.message || e));
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     await ensureChatSchema().catch(e => console.error('ensureChatSchema failed:', e?.message || e));
+    await ensureSimInventorySchema().catch(e => console.error('ensureSimInventorySchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
