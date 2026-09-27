@@ -6,6 +6,9 @@ on:
     branches: [master]
     paths:
       - 'client/**'
+      # The panel-scroll guard lives outside client/ but gates this deploy, so a
+      # change to it must re-run the check rather than ship unchecked.
+      - 'backend/scripts/check-panel-scroll.mjs'
 
 jobs:
   deploy:
@@ -19,6 +22,11 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: 'client/package-lock.json'
+
+      # Source-only check, so it needs none of the build-time env below and can
+      # live in its own step without the per-step env scoping trap.
+      - name: Verify panel scroll model
+        run: node backend/scripts/check-panel-scroll.mjs
 
       # Build and verification live in ONE step on purpose. A step's `env:` block
       # is scoped to that step only, so a separate verify step would read
