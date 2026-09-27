@@ -52,10 +52,10 @@ const css = readFileSync(cssPath, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 /** Panels whose content region scrolls the WINDOW, not a nested box. */
 const WINDOW_SCROLLERS = ['panel-hr', 'panel-recruiter', 'panel-ngo-admin']
 
-/** Body text of every rule whose selector mentions `${panel} .app`. */
-function appRuleBodies(panel) {
+/** Body text of every rule whose selector mentions `${panel} .${leaf}`. */
+function appRuleBodies(panel, leaf = 'app') {
   const bodies = []
-  // Match `... <panel> .app ... { ... }`, including inside selector lists, so a
+  // Match `... <panel> .<leaf> ... { ... }`, including inside selector lists, so a
   // shared rule like `.panel-accounts .app, .panel-ngo-admin .app { ... }` is
   // seen for every panel it covers.
   const ruleRe = /([^{}]+)\{([^{}]*)\}/g
@@ -63,21 +63,26 @@ function appRuleBodies(panel) {
   while ((m = ruleRe.exec(css)) !== null) {
     const [, selector, body] = m
     const selectors = selector.split(',').map((s) => s.trim())
-    if (!selectors.some((s) => new RegExp(`\\.${panel}\\s+\\.app\\s*$`).test(s))) continue
+    if (!selectors.some((s) => new RegExp(`\\.${panel}\\s+\\.${leaf}\\s*$`).test(s))) continue
     bodies.push({ selector: selectors.join(', '), body })
   }
   return bodies
 }
 
-/** True if the body sets overflow:hidden (clipping) or a definite height. */
+/** True if the body sets overflow:hidden (clipping). */
 function clips(body) {
   return /(^|[\s;{])overflow\s*:\s*hidden/.test(body)
 }
 
-/** A definite height, as opposed to min-height which still grows with content. */
+/**
+ * A definite height, as opposed to min-height (which still grows with content)
+ * or `height:auto` (which explicitly does not constrain anything).
+ */
 function hasDefiniteHeight(body) {
-  const stripped = body.replace(/min-height\s*:/g, '')
-  return /(^|[\s;{])height\s*:/.test(stripped)
+  const stripped = body
+    .replace(/min-height\s*:[^;}]*/g, '')
+    .replace(/(^|[\s;{])height\s*:\s*auto\b/g, '$1height:auto-ignored')
+  return /(^|[\s;{])height\s*:(?!auto-ignored)/.test(stripped)
 }
 
 /** Selectors under `panel` that declare overflow-y:auto, for review context. */
@@ -92,26 +97,31 @@ function innerScrollerSelectors(panel) {
 const failures = []
 const notes = []
 
+/**
+ * The chain that has to stay un-clipped. `.app` is the reported failure, but a
+ * definite height on `.main` or a clipping `.content-body` produces the same
+ * unreachable overflow one level in, so all three are checked.
+ */
+const CHAIN = ['app', 'main', 'content-body']
+
 for (const panel of WINDOW_SCROLLERS) {
-  const rules = appRuleBodies(panel)
-  if (!rules.length) {
-    notes.push(`${panel}: no .app rule - inherits the default, nothing to clip`)
-    continue
-  }
+  const comps = innerScrollerSelectors(panel)
+  let flagged = 0
 
-  const offenders = rules.filter((r) => clips(r.body) && hasDefiniteHeight(r.body))
+  for (const leaf of CHAIN) {
+    const rules = appRuleBodies(panel, leaf)
+    if (!rules.length) continue
 
-  if (offenders.length) {
-    for (const o of offenders) {
-      const comps = innerScrollerSelectors(panel)
+    for (const o of rules.filter((r) => clips(r.body) && hasDefiniteHeight(r.body))) {
+      flagged++
       failures.push(
-        `${panel}: .app is a clipping fixed shell\n` +
+        `${panel}: .${leaf} is a clipping fixed shell\n` +
           `    rule: ${o.selector} { ${o.body.trim()} }\n` +
           `    why:  ${panel} scrolls the WINDOW - its content region is not a nested\n` +
-          `          scroller. A definite height plus overflow:hidden therefore clips every\n` +
-          `          page taller than the viewport, and the overflow cannot be reached:\n` +
-          `          the panel looks unscrollable and has no scrollbar to drag.\n` +
-          `    fix:  min-height:100vh, and do not set overflow on .app.` +
+          `          scroller. A definite height plus overflow:hidden on the shell clips\n` +
+          `          every page taller than the viewport, and the overflow cannot be\n` +
+          `          reached: the panel looks unscrollable and has no scrollbar to drag.\n` +
+          `    fix:  min-height:100vh, and do not set overflow on .${leaf}.` +
           (comps.length
             ? `\n    note: ${panel} does declare overflow-y:auto on ${comps.join(' ')} - those are\n` +
               `          sidebar/drawer/card components, not the content region. If a real\n` +
@@ -120,8 +130,12 @@ for (const panel of WINDOW_SCROLLERS) {
             : '')
       )
     }
-  } else {
-    const bodies = rules.map((r) => r.body.trim()).join(' | ')
+  }
+
+  if (!flagged) {
+    const bodies = appRuleBodies(panel)
+      .map((r) => r.body.trim())
+      .join(' | ')
     notes.push(`${panel}: ok - window scrolls (${bodies})`)
   }
 }
