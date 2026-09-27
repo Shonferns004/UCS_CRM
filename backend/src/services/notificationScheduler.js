@@ -16,6 +16,7 @@ import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
 import { checkAndResetFroIdleDaily } from './froIdleResetService.js';
+import { sweepAbandonedFroIdleStreaks } from './froIdleStreakSweeper.js';
 import { makeNonOverlap } from '../utils/noOverlap.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
@@ -36,6 +37,7 @@ const runReportNoOverlap = makeNonOverlap('missed-schedule report', autoReportMi
 const runReturnNoOverlap = makeNonOverlap('auto-return transfers', autoReturnTransfers);
 const runIncentiveNoOverlap = makeNonOverlap('special incentive refresh', runSpecialIncentiveRefresh);
 const runIdleResetNoOverlap = makeNonOverlap('fro idle reset', checkAndResetFroIdleDaily);
+const runIdleSweepNoOverlap = makeNonOverlap('fro idle streak sweep', sweepAbandonedFroIdleStreaks);
 
 function getDateString(date) {
   const y = date.getFullYear();
@@ -460,6 +462,14 @@ function start() {
   // after a deploy, so the currently inflated counts are reset immediately).
   cronJobs.push(cron.schedule('55 */5 * * * *', () => runIdleResetNoOverlap()));
   console.log('Scheduled: 5-min IST-day idle reset for all FROs');
+
+  // Books idle streaks whose panel stopped heartbeating (closed/crashed/throttled
+  // tab) instead of letting them read as 0 forever. Runs every minute, offset
+  // from the other jobs' :55 mark, so a stale streak is committed within ~1 min
+  // of the read gate dropping it and the day's totals stay correct.
+  cronJobs.push(cron.schedule('20 * * * * *', () => runIdleSweepNoOverlap()));
+  console.log('Scheduled: 1-min sweep of abandoned FRO idle streaks');
+
   console.log('Scheduled: 5-min check for expired lead transfers');
 
   // Email imports and Razorpay synchronization are manual-only. Do not schedule
