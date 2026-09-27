@@ -3,6 +3,7 @@ import { toast } from '../../../components/Toast';
 import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandSimHistory } from './api';
 import { Icon } from './components';
 import { useSim } from './store';
+import { AssignSimModal } from './SimInventory';
 import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder, full, required }) {
@@ -788,8 +789,8 @@ function isAuthFailure(err) {
 // number changed, and when" across every card of a brand in one request, with
 // the entries bucketed by month. Deliberately separate from the per-card
 // Change History inside the edit form, which is left untouched.
-export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All' }) {
-  const { cards: simCards } = useSim();
+export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All', onGoToLocker }) {
+  const { cards: simCards, inventory, refreshInventory, assignInventoryItem } = useSim();
   // Sanitised at init, not in an effect: an effect runs after the first paint,
   // which would briefly title the modal with an unrecognised brand.
   const [brand, setBrand] = useState(() => (SIM_BRAND_FILTERS.includes(initialBrand) ? initialBrand : 'All'));
@@ -797,10 +798,23 @@ export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All' }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // The Locker block is a second job for this modal: hand a spare SIM to a phone
+  // without leaving the history view. It reuses the same store data as the SIM
+  // Locker page, so a SIM assigned here vanishes from the list straight away.
+  const [lockerAssign, setLockerAssign] = useState(null);
 
   useEffect(() => {
     if (open) setBrand(SIM_BRAND_FILTERS.includes(initialBrand) ? initialBrand : 'All');
   }, [open, initialBrand]);
+
+  // The Locker list is only needed while the modal is open, so it is pulled once
+  // on open. The dep list is deliberately just `open`: refreshInventory is a new
+  // function on every store render and setInventory always stores a fresh array,
+  // so depending on it here would refetch the locker in a loop.
+  useEffect(() => {
+    if (!open) return;
+    refreshInventory(); /* eslint-disable-next-line */
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -847,9 +861,14 @@ export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All' }) {
   const activePeriod = periodChips.find((p) => p.value === range) || periodChips[0];
   const sinceText = activePeriod.from ? ` · since ${formatDate(activePeriod.from)}` : '';
   const cardsTouched = new Set(entries.map((e) => e.mobile_id)).size;
+  // Mirrors the Locker page: a SIM counts as a spare when no phone is recorded
+  // against it, which is the same field the assign endpoint writes.
+  const lockerSpares = (inventory || []).filter(
+    (i) => String(i.mobile_id || '').trim() === '' && i.status !== 'Lost' && i.status !== 'Damaged' && i.status !== 'Expired'
+  );
 
   return (
-    <div className="modal-overlay sim-edit-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay sim-edit-overlay sim-bh-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal sim-hist-modal sim-bh-modal">
         <div className="se-head">
           <div className="se-head-main">
@@ -865,6 +884,45 @@ export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All' }) {
         </div>
 
         <div className="modal-body se-body">
+          <section className="se-sec locker-sec">
+            <div className="se-sec-head">
+              <span className="se-sec-ic"><Icon name="inventory" size={14} /></span>
+              <div className="se-sec-txt">
+                <h4>SIM Locker</h4>
+                <p>Spare SIMs you hold that are not in any phone yet</p>
+              </div>
+              <span className="se-sec-count">{lockerSpares.length} spare</span>
+            </div>
+            <div className="se-sec-body">
+              {lockerSpares.length === 0 ? (
+                <div className="locker-inline-empty">
+                  No spare SIMs right now. Add them from the SIM Locker page.
+                </div>
+              ) : (
+                <div className="locker-inline-list">
+                  {lockerSpares.map((item) => (
+                    <div className="locker-inline-row" key={item.id}>
+                      <div className="li-main">
+                        <span className="li-name">{item.sim_name || item.sim_number || '—'}</span>
+                        <span className="li-meta">
+                          {item.sim_number || '—'}
+                          {item.provider ? ` · ${item.provider}` : ''}
+                          {item.assigned_to ? ` · ${item.assigned_to}` : ''}
+                        </span>
+                      </div>
+                      <button className="mini-btn primary" onClick={() => setLockerAssign(item)}>Assign</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {onGoToLocker && (
+                <div className="locker-inline-foot">
+                  <button className="sim-btn ghost" onClick={onGoToLocker}>Open SIM Locker</button>
+                </div>
+              )}
+            </div>
+          </section>
+
           <section className="se-sec">
             <div className="se-sec-head">
               <span className="se-sec-ic"><Icon name="mobile" size={14} /></span>
@@ -990,6 +1048,13 @@ export function SimBrandHistoryModal({ open, onClose, initialBrand = 'All' }) {
           </div>
         </div>
       </div>
+
+      <AssignSimModal
+        open={!!lockerAssign}
+        item={lockerAssign}
+        onClose={() => setLockerAssign(null)}
+        onSaved={assignInventoryItem}
+      />
     </div>
   );
 }
