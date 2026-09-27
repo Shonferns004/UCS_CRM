@@ -1486,12 +1486,18 @@ export const getSuperAdminAlerts = async (req, res) => {
         const iwMap = {};
         for (const w of iw || []) iwMap[w.id] = w.name;
 
+        // The threshold is workHoursSeconds * 0.5, NOT a flat 4h. The title used
+        // to hardcode ">4h today", which only coincided with the real number at
+        // the default 8h day and misreported it for any other configured day.
+        const thresholdHours = (workHoursSeconds * 0.5) / 3600;
+        const thresholdLabel = `${Number.isInteger(thresholdHours) ? thresholdHours : thresholdHours.toFixed(1)}h`;
+
         alerts.push({
           id: 'fro-high-idle',
           severity: 'warning',
           category: 'fro',
-          title: `${highIdle.length} FRO(s) with excessive idle time (>4h today)`,
-          description: `FROs spending over 50% of working hours idle despite being active — possible productivity issue.`,
+          title: `${highIdle.length} FRO(s) with excessive idle time (>${thresholdLabel} today)`,
+          description: `FROs spending over 50% of working hours (${thresholdLabel}) idle despite being active — possible productivity issue.`,
           count: highIdle.length,
           actionPanel: 'fro',
           actionLabel: 'View FRO Performance',
