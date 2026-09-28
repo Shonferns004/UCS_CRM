@@ -244,3 +244,34 @@ export function DeleteConfirmModal({ card, deleting, onClose, onConfirm }) {
     </div>
   );
 }
+
+/* In-app replacement for window.confirm(), used by the SIM tables' delete and
+   release actions. A native confirm() freezes the page on a modal OS dialog the
+   panel's styling cannot touch, is suppressed outright in kiosk/webview and
+   sandboxed-iframe embeds (so the button appears to do nothing), and renders no
+   toast once the request resolves. `variant` is 'danger' for deletes and
+   'primary' for reversible actions such as a release; the blue accent marks the
+   safer consequence. */
+export function ConfirmDialog({
+  open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel',
+  variant = 'danger', busy = false, busyLabel = 'Working...', onConfirm, onCancel,
+}) {
+  if (!open) return null;
+  return (
+    <div className="modal-overlay dc-overlay" onClick={busy ? undefined : onCancel}>
+      <div className={`dc-modal ${variant === 'danger' ? '' : 'is-primary'}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
+        <div className="dc-icon">
+          <Icon name={variant === 'danger' ? 'trash' : 'check'} size={22} />
+        </div>
+        <div className="dc-title">{title}</div>
+        <div className="dc-desc">{message}</div>
+        <div className="dc-foot">
+          <button className="dc-btn cancel" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
+          <button className={`dc-btn ${variant === 'danger' ? 'delete' : 'confirm'}`} onClick={onConfirm} disabled={busy} autoFocus>
+            {busy ? busyLabel : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

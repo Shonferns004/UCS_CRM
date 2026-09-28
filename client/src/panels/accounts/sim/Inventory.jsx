@@ -5,6 +5,7 @@ import { Icon } from './components';
 import { effectiveStatus, dayClass, daysLeft, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES } from './helpers';
 import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from '../../../components/Toast';
+import { ConfirmDialog } from './ImportModal';
 
 const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
 const EXPIRY_FILTERS = ['All', 'Expired', 'Within 5 Days', 'Within 28 Days', 'More than 28 Days'];
@@ -260,15 +261,29 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
     } catch (e) { toast(e.message || 'Failed', 'error'); }
   }
 
-  async function doBulkDelete() {
+  // Pending bulk delete awaiting confirmation, replacing window.confirm():
+  // { ids, busy }
+  const [pending, setPending] = useState(null);
+
+  const doBulkDelete = () => {
     const ids = Object.keys(selected).filter((k) => selected[k]);
     if (!ids.length) return;
-    if (!window.confirm(`Delete ${ids.length} selected SIM card(s)? This cannot be undone.`)) return;
+    setPending({ ids });
+  };
+
+  async function runPendingDelete() {
+    if (!pending || pending.busy) return;
+    setPending((p) => ({ ...p, busy: true }));
     try {
-      await bulkDelete(ids);
-      toast(`${ids.length} SIM card(s) deleted`, 'success');
-      setSelected({}); refresh();
-    } catch (e) { toast(e.message || 'Failed', 'error'); }
+      await bulkDelete(pending.ids);
+      toast(`${pending.ids.length} SIM card(s) deleted`, 'success');
+      setSelected({});
+      setPending(null);
+      refresh();
+    } catch (e) {
+      toast(e.message || 'Failed to delete SIM cards', 'error');
+      setPending((p) => ({ ...p, busy: false }));
+    }
   }
 
   const handleDelete = (c) => {
@@ -470,6 +485,17 @@ if (simName === 'Android' && waName !== 'All') {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pending}
+        busy={!!pending?.busy}
+        title="Delete SIM Cards?"
+        message={<>Are you sure you want to delete <strong>{pending?.ids.length || 0} selected SIM card(s)</strong>? This action cannot be undone.</>}
+        confirmLabel="Delete"
+        busyLabel="Deleting..."
+        onConfirm={runPendingDelete}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }
