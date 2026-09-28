@@ -1,5 +1,8 @@
 import db from '../config/db.js';
-import { getShiftWindowMs, liveIdleSeconds, idlePeriodStartMs, istDateStr } from '../utils/froIdle.js';
+import {
+  getShiftWindowMs, liveIdleSeconds, idlePeriodStartMs, istDateStr,
+  withinShift, dispositionDueMs,
+} from '../utils/froIdle.js';
 
 // Committing idle when an FRO session ENDS (manual sign-out or the shift-end
 // auto-logout sweep).
@@ -15,6 +18,76 @@ import { getShiftWindowMs, liveIdleSeconds, idlePeriodStartMs, istDateStr } from
 // capMs optionally clamps the open period to a known shift end, so the
 // auto-logout sweep (which fires shift-end + grace) cannot credit idle for the
 // grace minutes after the officer had already gone home.
+
+// Stamping idle the moment the disposition window lapses.
+//
+// today_idle_seconds only ever holds COMMITTED time, and the running stretch
+// lives in idle_since — which is only written by a status push. There is no
+// heartbeat, so an FRO who lets the window lapse and then leaves the app
+// untouched keeps a row with a lapsed deadline and idle_since = NULL. Reads
+// recover the stretch from the deadline, so the number on screen is right, but
+// the STORED total stays at whatever it was (often 0). Anything reading the
+// stored column — the NGO-admin board, fro_daily_stats, the monthly salary
+// total — then disagrees with the strip by however long the officer sat there.
+//
+// This closes that gap by writing the stamp at the moment the deadline passes,
+// so the row's own arithmetic matches the derived one. It is deliberately
+// idempotent and never double counts: idle_since is set to the deadline, which
+// is exactly where idlePeriodStartMs already begins counting, so a later commit
+// banks the identical span.
+export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
+  const id = String(workerId);
+  if (!id) return false;
+
+  let row = null;
+  try {
+    const { rows } = await db._pool.query(
+      `SELECT today_idle_seconds, idle_since, disposition_due_at, is_paused, status
+         FROM fro_live_status
+        WHERE worker_id = $1
+        LIMIT 1`,
+      [id]
+    );
+    row = rows && rows[0] ? rows[0] : null;
+  } catch (e) {
+    console.warn('[froIdleCommit] live row read failed:', e?.message || String(e));
+    return false;
+  }
+  if (!row) return false;
+
+  // Already stamped — a real open period, so nothing to reconcile.
+  if (row.idle_since) return false;
+  // Admin-held rows are not the FRO sitting idle.
+  if (row.is_paused || row.status === 'meeting') return false;
+
+  const due = dispositionDueMs(row);
+  if (!Number.isFinite(due) || nowMs < due) return false;
+  // A deadline from a previous IST day is stale, not an open period today.
+  if (istDateStr(new Date(due)) !== istDateStr(new Date(nowMs))) return false;
+
+  try {
+    const shift = await getShiftWindowMs(id, nowMs);
+    if (!withinShift(shift, nowMs)) return false;
+  } catch (_) {
+    return false;
+  }
+
+  try {
+    await db._pool.query(
+      `UPDATE fro_live_status
+          SET idle_since = disposition_due_at,
+              status = 'idle',
+              updated_at = now()
+        WHERE worker_id = $1
+          AND idle_since IS NULL`,
+      [id]
+    );
+    return true;
+  } catch (e) {
+    console.warn('[froIdleCommit] idle stamp failed:', e?.message || String(e));
+    return false;
+  }
+}
 
 export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = null) {
   const id = String(workerId);

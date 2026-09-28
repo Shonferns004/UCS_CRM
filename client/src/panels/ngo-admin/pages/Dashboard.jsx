@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, not
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
+import { formatDuration } from '../../../utils/formatDuration';
 
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
@@ -1426,7 +1427,7 @@ export default function Dashboard() {
     const headers1 = [
       'Telecaller', 'Login ID', 'Period', 'Total Calls', 'Connected', 'Leads Done',
       ...EXPORT_STATUS_ORDER.map(k => EXPORT_STATUS_LABELS[k]),
-      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Idle (Hrs)', 'Live Status'
+      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Idle', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
       p.fro_name, p.fro_login_id || '', periodLabel,
@@ -1435,8 +1436,9 @@ export default function Dashboard() {
       ...EXPORT_STATUS_ORDER.map(k => c.statuses[k] || 0),
       c.nonConnected, c.interested, c.received, p.overdue_calls || 0, p.overdue_followups || 0,
       p.logout_today || 0,
-      // Today's idle (committed + any period still running) in hours.
-      Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100,
+      // Today's idle (committed + any period still running), in the same
+      // "59m" / "1h 5m" form the panel and the FRO strip show.
+      formatDuration(p.today_idle_seconds),
       p.status || 'offline'
     ]);
     const t1 = calcRows1.reduce((a, { p, c }) => ({
@@ -1448,7 +1450,7 @@ export default function Dashboard() {
       leadsDone: a.leadsDone + (c.statuses.lead_done || 0),
       statuses: EXPORT_STATUS_ORDER.map((k, i) => a.statuses[i] + (c.statuses[k] || 0)),
     }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, logoutsToday: 0, idleSec: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0) });
-    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, Math.round((t1.idleSec / 3600) * 100) / 100, '']);
+    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, formatDuration(t1.idleSec), '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
@@ -2541,11 +2543,21 @@ export default function Dashboard() {
             </div>
           );
         }
-        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], offline: ['offline'] };
-        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.meeting.includes(p.status) ? 'meeting' : 'offline';
+        // Idle is its own bucket, not a flavour of offline. An FRO sitting on a
+        // lapsed disposition timer is still present and still in the field — the
+        // backend sends status: 'idle' for exactly that case (idle_since set, not
+        // paused, not in a meeting). statusOf used to funnel anything that was not
+        // online/meeting into 'offline', so those FROs were counted as Offline and
+        // left out of "All" entirely, which is how an idle FRO became invisible.
+        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], idle: ['idle'], offline: ['offline'] };
+        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online'
+          : statusBuckets.meeting.includes(p.status) ? 'meeting'
+            : statusBuckets.idle.includes(p.status) ? 'idle'
+              : 'offline';
         const bucketRows = {
           online: perfRows.filter(p => statusOf(p) === 'online'),
           meeting: perfRows.filter(p => statusOf(p) === 'meeting'),
+          idle: perfRows.filter(p => statusOf(p) === 'idle'),
           offline: perfRows.filter(p => statusOf(p) === 'offline'),
         };
         const viewRows = perfStatusFilter === 'all'
@@ -2554,6 +2566,7 @@ export default function Dashboard() {
         const bucketCounts = {
           all: perfRows.filter(p => statusOf(p) !== 'offline').length,
           online: bucketRows.online.length,
+          idle: bucketRows.idle.length,
           meeting: bucketRows.meeting.length,
           offline: bucketRows.offline.length,
         };
@@ -2562,10 +2575,18 @@ export default function Dashboard() {
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
         const METRICS = [
-          // Today's idle (committed + any period still running), in hours. The
+          // Today's idle (committed + any period still running). The
           // disposition timer is the only thing that produces it, so this is
           // the headline number for "is this FRO actually working".
-          { key: 'idle', param: 'IDLE', full: 'Idle (Hrs)', val: (p) => Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100, pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true },
+          //
+          // Rendered with the same formatDuration() the FRO strip uses. It used
+          // to be a bare hours decimal, so 59 idle minutes displayed as "0.99"
+          // here and "59m" on the FRO's own strip — the same number read as two
+          // different figures on two screens.
+          // val stays NUMERIC: the column sort compares it with </>, so a
+          // formatted string here would sort alphabetically ("10m" < "59m").
+          // display renders the cell, and metricCell already prefers it.
+          { key: 'idle', param: 'IDLE', full: 'Idle', val: (p) => p.today_idle_seconds || 0, display: (v) => formatDuration(v), pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true },
           { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
           { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
           { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
@@ -2644,6 +2665,7 @@ export default function Dashboard() {
         const statusFilters = [
           { key: 'all', label: 'All', color: '#334155' },
           { key: 'online', label: 'Online', color: '#16a34a' },
+          { key: 'idle', label: 'Idle', color: '#2F80D9' },
           { key: 'meeting', label: 'Meeting', color: '#7c3aed' },
           { key: 'offline', label: 'Offline', color: '#94a3b8' },
         ];
