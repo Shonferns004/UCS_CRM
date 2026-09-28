@@ -24,11 +24,10 @@ import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget,
 import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
-import { notifyWorker } from '../services/fcmService.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
+import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { buildWorkAsByOp } from '../utils/workAs.js';
-import { effectiveIdleSeconds, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
 // excluded from all dashboard stats by default; pass { includeTest: true }
@@ -60,7 +59,7 @@ export async function getFroWorkersByNgo(ngoId, { includeTest = false } = {}) {
 }
 
 // Stations per NGO with live activity: a station is "active" when its assigned FRO
-// has a fresh (<= 2 min old) live status of online / idle / on_call / break.
+// has a fresh (<= 2 min old) live status of online / on_call / break.
 async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) {
   const result = { per_ngo: {}, summary: { total: 0, active: 0 } };
   if (!ngoIds || ngoIds.length === 0) return result;
@@ -94,7 +93,7 @@ async function getStationActivityByNgo(ngoIds, ngoIdToName, now, activeDateStr) 
         .from('fro_live_status')
         .select('worker_id, status, updated_at')
         .in('worker_id', assignedFroIds)
-        .in('status', ['online', 'idle', 'on_call', 'break']);
+        .in('status', ['online', 'on_call', 'break']);
       for (const r of liveRows || []) {
         if (r.updated_at && new Date(r.updated_at) >= liveCutoff) dailyActives.add(r.worker_id);
       }
@@ -1245,7 +1244,7 @@ export const getFroPerformance = async (req, res) => {
 };
 
 // Per-FRO activity for one IST day, from the fro_daily_stats snapshot written on
-// every heartbeat. Powers the Productivity Alerts (Idle) view for a past date and
+// every heartbeat. Powers the Productivity Alerts view for a past date and
 // includes that day's rank (verified collection that day vs the per-day target).
 export const getFroDailyStats = async (req, res) => {
   try {
@@ -1277,14 +1276,34 @@ export const getFroDailyStats = async (req, res) => {
 
     const { data: rows } = await db
       .from('fro_daily_stats')
-      .select('worker_id, stat_date, idle_seconds, calls, talk_seconds, break_seconds')
+      .select('worker_id, stat_date, calls, talk_seconds, idle_seconds')
       .eq('stat_date', statDate)
       .in('worker_id', workerIds);
     const statById = {};
     for (const r of rows || []) statById[r.worker_id] = r;
 
+    // Today is still accruing, so the saved snapshot lags the open idle period.
+    // Add it back for the selected day or the panel shows 0m for an FRO who is
+    // sitting idle right now.
+    const liveIdleById = {};
+    if (statDate === istDateStr(new Date())) {
+      try {
+        const { data: liveRows } = await db
+          .from('fro_live_status')
+          .select('worker_id, idle_since, today_idle_seconds')
+          .in('worker_id', workerIds);
+        const nowMs = Date.now();
+        for (const ls of liveRows || []) {
+          const shift = { startMs: -Infinity, endMs: Infinity };
+          liveIdleById[ls.worker_id] = liveIdleSeconds(ls, shift, nowMs);
+        }
+      } catch (_) {
+        // fro_live_status may be unreadable — the saved snapshot still stands.
+      }
+    }
+
     // Only FROs who actually punched in on this day should surface in the
-    // Productivity Alerts (idle) list, so carry the punch-in flag through.
+    // Productivity Alerts list, so carry the punch-in flag through.
     const punchedInSet = new Set();
     {
       const { data: att } = await db
@@ -1335,10 +1354,9 @@ export const getFroDailyStats = async (req, res) => {
     return res.json(froWorkers.map(w => ({
       fro_id: w.id,
       fro_name: w.name || w.login_id || 'Unknown',
-      idle_seconds: statById[w.id]?.idle_seconds || 0,
       calls: statById[w.id]?.calls || 0,
       talk_seconds: statById[w.id]?.talk_seconds || 0,
-      break_seconds: statById[w.id]?.break_seconds || 0,
+      idle_seconds: liveIdleById[w.id] ?? statById[w.id]?.idle_seconds ?? 0,
       rank: rankMap[w.id] || null,
       punched_in: punchedInSet.has(w.id),
       date: statDate,
@@ -4811,13 +4829,13 @@ export const getTLDashboard = async (req, res) => {
     }
 
     if (ngoIds.length === 0) return res.json({ 
-      kpis: { total_fros: 0, calling: 0, idle: 0, meeting: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0, suspenses: 0 },
+      kpis: { total_fros: 0, calling: 0, meeting: 0, idle: 0, offline: 0, total_calls: 0, connected: 0, interested: 0, received_amount: 0, followups_due: 0, target_pct: 0, unclassified: 0, suspenses: 0 },
+      idle_alerts: [],
       collections_per_ngo: [],
       funnel: [],
       hourly: [],
       top_performers: [],
       bottom_performers: [],
-      idle_alerts: [],
       stations_per_ngo: {},
       stations_summary: { total: 0, active: 0 },
     });
@@ -4871,11 +4889,11 @@ export const getTLDashboard = async (req, res) => {
       (s.work_as_operator_id && isWorkerOnline(s.work_as_operator_id));
     const liveRowByWorker = new Map((liveStatus || []).map(s => [String(s.worker_id), s]));
     // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
-    // NOT present, so it never counts as calling/idle/online (it counts offline).
+    // NOT present, so it never counts as calling/online (it counts offline).
     const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
     // Work-as operator presence: a fresh covered row means the OPERATOR is the
     // one physically working that panel right now. The operator carries the
-    // presence (online/idle/on_call mirroring the covered row's call state)
+    // presence (online/on_call mirroring the covered row's call state)
     // while the covered FRO counts offline. Covers case where the operator has
     // no own live_status/auth_session (e.g. acting via admin/work-as setup).
     //
@@ -4927,9 +4945,8 @@ export const getTLDashboard = async (req, res) => {
 
     const livePresent = (s) => isLiveFresh(s) && !isWorkAs(s) && isPresent(s.worker_id);
     const callingRows = (liveStatus || []).filter(s => s.status === 'on_call' && livePresent(s));
-    const idleRows = (liveStatus || []).filter(s => s.status === 'idle' && livePresent(s));
     // Meeting mode: FROs pushed status 'meeting' during a company-wide meeting.
-    // They remain present but never count as calling/idle/online/offline.
+    // They remain present but never count as calling/online/offline.
     const meetingRows = (liveStatus || []).filter(s => s.status === 'meeting' && livePresent(s));
     // Operators working covered FRO panels carry that panel's call state too —
     // an operator mid-call on a covered station counts as calling.
@@ -4937,15 +4954,15 @@ export const getTLDashboard = async (req, res) => {
       const row = workAsByOp.get(String(w.id));
       return row && row.status === 'on_call' && !callingRows.some(s => String(s.worker_id) === String(w.id));
     });
-    const opIdle = froWorkers.filter(w => {
-      const row = workAsByOp.get(String(w.id));
-      return row && row.status === 'idle' && !idleRows.some(s => String(s.worker_id) === String(w.id));
-    });
     const calling = callingRows.length + opCalling.length;
-    const idle = idleRows.length + opIdle.length;
     const meeting = meetingRows.length;
+    // Idle: the disposition timer lapsed and they haven't pressed Resume. An open
+    // idle_since is the authoritative signal — the row may still say 'online'
+    // until the FRO's next heartbeat.
+    const idleRows = (liveStatus || []).filter(s => s.idle_since && livePresent(s) && !s.is_paused);
+    const idle = idleRows.length;
     // FROs whose panel is being operated by another worker (work-as) are treated
-    // as absent today: the covering operator carries the online/calling/idle state.
+    // as absent today: the covering operator carries the online/calling state.
     const workAsCoveredIds = new Set(allLive.filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
     const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
     // Online requires freshness (recent row write or open panel socket) on
@@ -4957,13 +4974,12 @@ export const getTLDashboard = async (req, res) => {
           const liveHere = isOperatorActive(w.id) || (isPresent(w.id) && !!lrow && isLiveFresh(lrow));
           return !coveredOnly(String(w.id)) && liveHere
             && !callingRows.some(s => String(s.worker_id) === String(w.id))
-            && !idleRows.some(s => String(s.worker_id) === String(w.id))
             && !meetingRows.some(s => String(s.worker_id) === String(w.id))
-            && !opCalling.some(o => String(o.id) === String(w.id))
-            && !opIdle.some(o => String(o.id) === String(w.id));
+            && !idleRows.some(s => String(s.worker_id) === String(w.id))
+            && !opCalling.some(o => String(o.id) === String(w.id));
         }).length
-      : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s)).length;
-    const offline = Math.max(0, froWorkers.length - calling - idle - meeting - online);
+      : (liveStatus || []).filter(s => s.status === 'online' && isLiveFresh(s) && !isWorkAs(s) && !s.idle_since).length;
+    const offline = Math.max(0, froWorkers.length - calling - meeting - idle - online);
 
     // 2. Call analytics for the selected range
     let callLogsQuery = db
@@ -5141,7 +5157,7 @@ export const getTLDashboard = async (req, res) => {
       if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
     }
 
-    // Live status map for status/idle (use liveStatus from earlier)
+    // Live status map for status (use liveStatus from earlier)
     const liveStatusMap = {};
     for (const ls of liveStatus || []) {
       liveStatusMap[ls.worker_id] = ls;
@@ -5275,6 +5291,17 @@ export const getTLDashboard = async (req, res) => {
       }
     }
 
+    // Per-FRO shift windows so each row's idle total is clamped to that FRO's
+    // own working hours, not to an open-ended range. Built once for the board.
+    const shiftMap = {};
+    await Promise.all(froWorkers.map(async (w) => {
+      try {
+        shiftMap[String(w.id)] = await getShiftWindowMs(w.id, now.getTime());
+      } catch (_) {
+        // Leave the fallback open-ended for this FRO.
+      }
+    }));
+
     const performance = froWorkers.map(w => {
       const bs = batchStats;
       const coll = bs.monthCollection[w.id] || 0;
@@ -5283,7 +5310,7 @@ export const getTLDashboard = async (req, res) => {
       const conversion = wa.total > 0 ? Math.round((wa.connected / wa.total) * 1000) / 10 : 0;
       const target = (targets || []).find(t => t.fro_worker_id === w.id);
       const targetAmt = target ? parseFloat(target.target_amount) : 0;
-      const achievedAmt = target ? parseFloat(target.achieved_target || 0) : coll;
+      const achievedAmt = target ? parseFloat(target.achieved_target) : coll;
       const targetPct = targetAmt > 0 ? Math.round((achievedAmt / targetAmt) * 100) : 0;
 
       const ls = liveStatusMap[w.id] || {};
@@ -5291,12 +5318,6 @@ export const getTLDashboard = async (req, res) => {
       const lsFresh = (ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS) ||
         isWorkerOnline(w.id) ||
         (ls.work_as_operator_id && isWorkerOnline(ls.work_as_operator_id));
-      // A stale written row must not read as LIVE idle: lsFresh also accepts an
-      // open socket, which would bless an old idle_since from a duplicate tab
-      // forever. Idle state must be actively maintained — a genuinely idle panel
-      // re-writes updated_at every 60s via its idle heartbeat — so this gates the
-      // idle status pill and streak (online/on_call keep the socket grace).
-      const rowFresh = !!(ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS);
       // Work-as: the row's heartbeat belongs to another operator (abc) covering
       // this FRO. The listed FRO (cbd) is not present — show offline, but let the
       // UI annotate "abc work as cbd" via work_as_operator_name.
@@ -5306,13 +5327,13 @@ export const getTLDashboard = async (req, res) => {
       // own live_status row is stale / they have no own auth_session).
       const acting = workAsByOp.get(String(w.id));
       const workAsLabel = acting ? null : workAsName;
-      // Streak portion only — drives the "Idle Xm" pill. The freshness gate is
-      // the shared IDLE_LIVE_FRESH_MS, so a dead panel's abandoned streak can
-      // never inflate the pill on this screen but not on the others.
-      const idleStreakFor = (row) => row?.idle_since && row.updated_at && (now - new Date(row.updated_at)) <= IDLE_LIVE_FRESH_MS
-        ? Math.max(0, Math.floor((now - new Date(row.idle_since).getTime()) / 1000))
-        : 0;
-      const idleStreakSeconds = idleStreakFor(ls);
+      // Streak portion only — drives the "Idle Xm" pill. Derived from the
+      // server's own disposition deadline rather than from heartbeat freshness,
+      // so a FRO whose monitor is off or whose tab was closed still shows the
+      // time they have been sitting idle, and a period left over from a previous
+      // IST day reads as 0.
+      const ownShift = shiftMap[String(w.id)] || null;
+      const idleStreakSeconds = openIdleSeconds(ls, ownShift, now.getTime());
       // Every row renders ITS OWN committed counter and streak — nothing is
       // inherited from a work-as covered row.
       //
@@ -5330,8 +5351,10 @@ export const getTLDashboard = async (req, res) => {
       // The total now comes from the shared effectiveIdleSeconds() rather than
       // being re-derived here: this screen is the one place that used to keep
       // its own copy of the rule, which is how IDLE HR could disagree with the
-      // super-admin list for the same FRO at the same moment.
-      const rowIdleSeconds = effectiveIdleSeconds(ls);
+      // super-admin list for the same FRO at the same moment. The shift is
+      // passed so idle accrued outside this FRO's own working hours is not
+      // displayed as working-time idle.
+      const rowIdleSeconds = effectiveIdleSeconds(ls, ownShift, now.getTime());
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -5341,21 +5364,14 @@ export const getTLDashboard = async (req, res) => {
       // the presence.
       let status = 'offline';
       if (acting) {
-        if (acting.status === 'on_call') {
-          status = 'on_call';
-        } else if (acting.status === 'idle') {
-          status = 'idle';
-        } else {
-          status = 'online';
-        }
+        status = acting.status === 'on_call' ? 'on_call'
+          : (acting.idle_since ? 'idle' : (acting.status || 'online'));
       } else if (isPresent(w.id) && !isWorkAs(ls) && lsFresh) {
-        if (ls.status === 'on_call' && lsFresh) {
-          status = 'on_call';
-        } else if (ls.status === 'idle' && rowFresh) {
-          status = 'idle';
-        } else {
-          status = 'online';
-        }
+        // A paused or meeting row keeps its own status — the admin/meeting is
+        // holding the FRO, so it must not read as idle on the admin board.
+        if (ls.idle_since && !ls.is_paused && ls.status !== 'meeting') status = 'idle';
+        else if (ls.is_paused) status = 'meeting';
+        else status = ls.status === 'on_call' && lsFresh ? 'on_call' : 'online';
       }
       const lc = logoutCounts[String(w.id)] || { today: 0, total: 0 };
 
@@ -5431,60 +5447,6 @@ export const getTLDashboard = async (req, res) => {
     const topByConv = [...performance].filter(p => p.data_total > 0).sort((a, b) => b.conversion_pct - a.conversion_pct).slice(0, 10);
     const bottomByTarget = [...performance].filter(p => p.target_amount > 0).sort((a, b) => a.target_pct - b.target_pct).slice(0, 10);
 
-    // 8. Legacy stale-heartbeat alerts (15 min without a status update)
-    const { data: idleFros } = await db
-      .from('fro_live_status')
-      .select('worker_id, status, updated_at, idle_since, today_talk_seconds, today_idle_seconds, work_as_operator_id')
-      .in('worker_id', workerIds)
-      .in('status', ['online', 'idle']);
-    
-    // Rows being worked-as are excluded: the listed FRO is covered, not idle.
-    const idleAlerts = (idleFros || [])
-      .filter(f => {
-        if (f.work_as_operator_id) return false;
-        const lastUpdate = new Date(f.updated_at);
-        return (now - lastUpdate) > 15 * 60 * 1000;
-      })
-      .map(f => {
-        const fro = froWorkers.find(w => w.id === f.worker_id);
-        const idleMinutes = Math.floor((now - new Date(f.updated_at)) / 60000);
-        return {
-          fro_id: f.worker_id,
-          fro_name: fro?.name || 'Unknown',
-          idle_minutes: idleMinutes,
-          last_activity: f.updated_at,
-          status: f.status,
-        };
-      });
-
-    // 8b. Combined activity alerts (6 min without mouse movement or calls,
-    // from the FRO panel detector,
-    //     driven by idle_since on fro_live_status). These power the NGO
-    //     admin dashboard idle badge, banner Notify buttons, and hourly
-    //     productivity-alert Notify buttons.
-    const callIdleAlerts = (idleFros || [])
-      .filter(f => {
-        if (f.work_as_operator_id) return false;
-        const lsFresh = (f.updated_at && (now - new Date(f.updated_at)) <= LIVE_FRESH_MS) ||
-          isWorkerOnline(f.worker_id);
-        const hasIdleSince = f.idle_since != null;
-        // Detector: status idle + idle_since set + panel live (fresh row or
-        // open socket)
-        return f.status === 'idle' && hasIdleSince && lsFresh;
-      })
-      .map(f => {
-        const fro = froWorkers.find(w => w.id === f.worker_id);
-        const idleMinutes = Math.floor((now - new Date(f.idle_since)) / 60000);
-        return {
-          fro_id: f.worker_id,
-          fro_name: fro?.name || 'Unknown',
-          idle_minutes: idleMinutes,
-          last_activity: f.updated_at,
-          status: f.status,
-        };
-      })
-      .sort((a, b) => b.idle_minutes - a.idle_minutes || a.fro_name.localeCompare(b.fro_name));
-
     // 9. Stations activity (total + currently active, respects the NGO filter)
     const tlNgoIdToName = {};
     for (const a of access) tlNgoIdToName[a.ngo_id] = a.ngo_name;
@@ -5508,8 +5470,8 @@ export const getTLDashboard = async (req, res) => {
       kpis: {
         total_fros: froWorkers.length,
         calling,
-        idle,
         meeting,
+        idle,
         online,
         offline,
         logouts_today: Object.values(logoutCounts).reduce((s, c) => s + c.today, 0),
@@ -5544,9 +5506,20 @@ export const getTLDashboard = async (req, res) => {
       bottom_performers: {
         target: bottomByTarget,
       },
-      idle_alerts: callIdleAlerts,
       stations_per_ngo: stationActivity.per_ngo,
       stations_summary: stationActivity.summary,
+      // FROs sitting idle right now, worst first — drives the banner so a TL can
+      // chase them. Only open idle_since counts; a stale row from a closed tab
+      // has already been cleared by its last heartbeat.
+      idle_alerts: performance
+        .filter(p => p.status === 'idle' && !p.is_paused)
+        .map(p => ({
+          fro_id: p.fro_id,
+          fro_name: p.fro_name,
+          idle_minutes: p.idleMinutes || 0,
+          idle_seconds: p.today_idle_seconds || 0,
+        }))
+        .sort((a, b) => b.idle_minutes - a.idle_minutes),
     };
     if (requestGeneration === tlCacheGeneration) cacheSet(tlCacheKey, tlPayload);
     return res.json(tlPayload);
@@ -5893,119 +5866,47 @@ export const updateFollowupDate = async (req, res) => {
   }
 };
 
-// Idle Alerts
-export const getIdleAlerts = async (req, res) => {
-  try {
-    const access = await getUserNgoAccess(req.user.id, req.user.role);
-    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
-
-    if (ngoIds.length === 0 && req.user.ngo_id) {
-      ngoIds.push(req.user.ngo_id);
-    }
-
-    const { ngo_id: filterNgoId } = req.query;
-    if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
-      if (idx !== -1) ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
-    }
-
-    if (ngoIds.length === 0) return res.json([]);
-
-    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
-    const seen = new Set();
-    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
-    const workerIds = froWorkers.map(w => w.id);
-    if (workerIds.length === 0) return res.json([]);
-
-    const now = new Date();
-    const { data: liveStatus } = await db
-      .from('fro_live_status')
-      .select('worker_id, status, updated_at, idle_since, work_as_operator_id')
-      .in('worker_id', workerIds)
-      .in('status', ['online', 'idle']);
-
-    // New call-idle detector: status='idle' + idle_since set + fresh heartbeat.
-    // Old fallback: status='idle' + heartbeat stale > 15 min (detector offline).
-    const fifteenMinAgo = new Date(now.getTime() - 15 * 60 * 1000);
-
-    const idleAlerts = (liveStatus || [])
-      .filter(f => {
-        if (f.work_as_operator_id) return false;
-        const isFresh = f.updated_at && new Date(f.updated_at) >= fifteenMinAgo;
-        const hasIdleSince = f.idle_since != null;
-        const fromNewDetector = f.status === 'idle' && hasIdleSince && isFresh;
-        const fromOldFallback = f.status === 'idle' && !isFresh;
-        return fromNewDetector || fromOldFallback;
-      })
-      .map(f => {
-        const fro = froWorkers.find(w => w.id === f.worker_id);
-        const idleMinutes = f.idle_since
-          ? Math.floor((now - new Date(f.idle_since)) / 60000)
-          : Math.floor((now - new Date(f.updated_at)) / 60000);
-        return {
-          fro_id: f.worker_id,
-          fro_name: fro?.name || 'Unknown',
-          idle_minutes: idleMinutes,
-          last_activity: f.updated_at,
-          status: f.status,
-        };
-      })
-      .sort((a, b) => b.idle_minutes - a.idle_minutes || a.fro_name.localeCompare(b.fro_name));
-
-    return res.json(idleAlerts);
-  } catch (error) {
-    console.error('getIdleAlerts error:', error.message);
-    return res.status(500).json({ message: error.message });
-  }
-};
-
-/** POST /ngo-admin/notify-fro
- *  Trigger an idle_alert notification for a specific FRO.
- *  Guards: worker must belong to one of the admin's NGOs, must be active (not is_test),
- *          and must not already be marked idle from a prior alert that hasn't been resolved.
- *  Always writes a notification_log row (drives FRO web bell + realtime broadcast),
- *  and best-effort FCM push when a mobile token exists.
- */
+// Nudge an FRO who is sitting idle. Bell + realtime + FCM so it lands on the
+// phone too — the whole point is they are away from the desk.
 export const notifyFroHandler = async (req, res) => {
   try {
     const { workerId } = req.body;
-    if (!workerId) {
-      return res.status(400).json({ message: 'workerId is required' });
-    }
-
-    // Guard: worker must belong to an accessible NGO for this admin
-    const adminNgoIds = await getUserNgoIds(req.user);
+    if (!workerId) return res.status(400).json({ message: 'workerId is required' });
     const { data: worker } = await db
       .from('workers')
-      .select('id, name, login_id, is_active, ngo_id')
+      .select('id, name, ngo_id')
       .eq('id', workerId)
-      .single();
-    if (!worker) return res.status(404).json({ message: 'Worker not found' });
-
-    // Test workers must never be visible in NGO admin panel
-    if (worker.is_test === true) {
-      return res.status(403).json({ message: 'Cannot notify test worker' });
-    }
-
-    // Guard: worker must be allocated to at least one of the admin's NGOs
-    const workerNgoOk = adminNgoIds.some(
-      (ngoId) => String(worker.ngo_id) === String(ngoId)
-    );
-    if (!workerNgoOk) {
+      .maybeSingle();
+    if (!worker) return res.status(404).json({ message: 'FRO not found' });
+    // Scope to the admin's NGO(s) — an ngo_admin must not be able to push alerts
+    // to FROs outside their own NGO just by guessing a worker UUID.
+    const adminNgoIds = await getUserNgoIds(req.user);
+    if (!adminNgoIds.some((ngoId) => String(worker.ngo_id) === String(ngoId))) {
       return res.status(403).json({ message: 'Worker not in your NGO(s)' });
     }
 
-    // Guard: must be active (not marked inactive)
-    if (worker.is_active === false) {
-      return res.status(403).json({ message: 'Cannot notify inactive worker' });
+    const name = worker.name || 'Telecaller';
+    try {
+      const { notifyWorker } = await import('../services/fcmService.js');
+      await notifyWorker(
+        workerId,
+        'You are idle',
+        `${name}, your disposition timer ran out. Please resume your work.`,
+        'idle_alert',
+        String(workerId)
+      );
+    } catch (pushErr) {
+      // Push is best-effort — the socket notification below is the guaranteed path.
+      console.warn('idle alert push failed:', pushErr.message);
     }
-
-    // Always write a notification_log entry (drives FRO bell + realtime broadcast)
-    await notifyWorker(workerId, 'You are marked idle', 'Your FRO has had no mouse movement or call activity for over 5 minutes. Please resume calling.', 'idle_alert');
-
-    return res.json({ message: 'Notification sent', sent: 1 });
+    emitRealtime(`worker:${workerId}`, 'notification', {
+      type: 'idle_alert',
+      title: 'You are idle',
+      body: 'Your disposition timer ran out. Please resume your work.',
+      created_at: new Date().toISOString(),
+    });
+    return res.json({ message: `Idle alert sent to ${name}` });
   } catch (error) {
-    console.error('notifyFroHandler error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -6024,7 +5925,6 @@ const setFroPaused = async (workerId, paused, by = null) => {
     is_paused: !!paused,
     paused_at: paused ? nowIso : null,
     paused_by: paused ? by : null,
-    idle_since: null,
     updated_at: nowIso,
   };
 
@@ -6041,9 +5941,6 @@ const setFroPaused = async (workerId, paused, by = null) => {
     status: 'offline',
     today_calls: 0,
     today_talk_seconds: 0,
-    today_skipped: 0,
-    today_idle_seconds: 0,
-    today_break_seconds: 0,
     ...patch,
   });
   if (insErr) throw insErr;

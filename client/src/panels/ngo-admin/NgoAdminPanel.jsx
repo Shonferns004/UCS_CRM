@@ -426,7 +426,7 @@ export default function NgoAdminPanel() {
                 <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 288, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14, zIndex: 300 }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>Start team meeting</div>
                   <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
-                    A blocking popup appears for the selected teams' FROs and their live counters (idle, calls, breaks) pause.
+                    A blocking popup appears for the selected teams' FROs and their live counters (calls, breaks) pause.
                   </div>
                   <input
                     type="text"

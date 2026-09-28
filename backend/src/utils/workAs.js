@@ -9,7 +9,7 @@
 // operator is in `imposter_id` / `imposter_name`. Reading `id`/`name` on a
 // chained switch therefore stamped the previous target onto the new target's row
 // as its "operator", which made a covered FRO render as an acting operator in the
-// NGO dashboard and handed them the covered row's IDLE HR column.
+// NGO dashboard and handed them the covered row's live counters.
 export function resolveOperatorIdentity(user) {
   const chained = !!(user?.impersonation && user?.imposter_id);
   return {
