@@ -288,12 +288,12 @@ ${acceptance}`;
   return `${plainShell(ngoKey, ngo, titleBlock + signOffBlock(ngo, hrNameText, 'Human Resources / Authorized Signatory'), 15)}`;
 }
 
-function buildRelievingLetterHTML(w, dateText, hrNameText, designation, ngoKey, refNo, remarks) {
+function buildRelievingLetterHTML(w, dateText, hrNameText, designation, ngoKey, refNo, remarks, joiningDateInput) {
   const ngo = getNgo(ngoKey);
   const r = designation || deptLabel(w.role || w.department) || 'Team Member';
   const d = deptLabel(w.dept || w.department) || 'General';
   const name = titleCase(w.name);
-  const jd = w.date_of_joining || w.created_at || '';
+  const jd = joiningDateInput || w.date_of_joining || w.created_at || '';
   const joiningDateText = fmtDate(jd, '{{joining_date}}');
   const { expText, expMonths, rows: expRowList } = experienceRows(jd, dateText, [
     ['Name', `<strong>${esc(name)}</strong>`],
@@ -746,15 +746,18 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
   );
 }
 
-function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation, ngoKey, refNo, remarks) {
+function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation, ngoKey, refNo, remarks, joiningDateInput) {
   const ngo = getNgo(ngoKey);
   const r = designation || 'Team Member';
   const d = deptLabel(w.dept || w.department) || 'General';
-  const { expText, expMonths, rows: expRowList } = experienceRows(w.date_of_joining || w.created_at || '', lastWorkingDate, [
+  // A manual joining date overrides the volunteer's record everywhere on the
+  // letter — the printed row, the sentence and the tenure calculation.
+  const effJd = joiningDateInput ? fmtDate(joiningDateInput, joiningDate) : joiningDate;
+  const { expText, expMonths, rows: expRowList } = experienceRows(joiningDateInput || w.date_of_joining || w.created_at || '', lastWorkingDate, [
     ['Name', `<strong>${esc(w.name)}</strong>`],
     ['Designation', `<strong>${esc(r)}</strong>`],
     ['Department', esc(d)],
-    ['Date of Joining', `<strong>${esc(joiningDate)}</strong>`],
+    ['Date of Joining', `<strong>${esc(effJd)}</strong>`],
     ['Date of Relieving / Last Working Date', `<strong>${esc(lastWorkingDate)}</strong>`],
   ]);
   const expRows = particularsTable(expRowList);
@@ -764,7 +767,7 @@ function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, 
   const bodyCore = `<div style="margin-bottom:6px"><strong>Ref. No.:</strong> ${esc(refNo || '____________')}</div>
 <div style="margin-bottom:6px"><strong>Date:</strong> ${esc(lastWorkingDate)}</div>
 <div style="margin:0 0 6px 0"><strong>TO WHOM IT MAY CONCERN</strong></div>
-<p style="margin:0 0 6px 0">This is to certify that <strong>${esc(titleCase(w.name))}</strong> was engaged with <strong>${ngo.name}</strong> from <strong>${esc(joiningDate)}</strong> to <strong>${esc(lastWorkingDate)}</strong> in the capacity of <strong>${esc(r)}</strong> (<strong>${esc(d)}</strong> Department) &mdash; a <strong>total experience of ${esc(expText)}</strong> (${esc(expMonths)}).</p>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${esc(titleCase(w.name))}</strong> was engaged with <strong>${ngo.name}</strong> from <strong>${esc(effJd)}</strong> to <strong>${esc(lastWorkingDate)}</strong> in the capacity of <strong>${esc(r)}</strong> (<strong>${esc(d)}</strong> Department) &mdash; a <strong>total experience of ${esc(expText)}</strong> (${esc(expMonths)}).</p>
 ${expRows}
 <p style="margin:0 0 6px 0">During the tenure with our organization, they performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. They consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
 <p style="margin:0 0 6px 0">Throughout the period of engagement, they maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
@@ -984,6 +987,7 @@ export default function Letters() {
   const [bsd2Amount, setBsd2Amount] = useState(6000);
   const [remarks, setRemarks] = useState('');
   const [ctcMonthly, setCtcMonthly] = useState('');
+  const [joiningDateInput, setJoiningDateInput] = useState('');
   const [ctcTouched, setCtcTouched] = useState(false);
   const [salaryMap, setSalaryMap] = useState({});
   const [extraRoles, setExtraRoles] = useState([]);
@@ -1106,14 +1110,14 @@ export default function Letters() {
     } else if (type === 'Relieving letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildRelievingLetterHTML(w, dateText, hrNameText, subject, ngo, makeRefNo(ngo, type, letterDate), remarks);
+      body = buildRelievingLetterHTML(w, dateText, hrNameText, subject, ngo, makeRefNo(ngo, type, letterDate), remarks, joiningDateInput);
       today = dateText;
     } else if (type === 'Experience letter') {
       const jd = w.date_of_joining || w.created_at || '';
       const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
       const lastWorkingDate = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{last_working_date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject, subject, ngo, makeRefNo(ngo, type, letterDate), remarks);
+      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject, subject, ngo, makeRefNo(ngo, type, letterDate), remarks, joiningDateInput);
       today = lastWorkingDate;
     } else if (type === 'Warning letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
@@ -1191,13 +1195,13 @@ export default function Letters() {
 
   useEffect(() => {
     if (showDownload) setShowDownload(false);
-  }, [name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly]);
+  }, [name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly, joiningDateInput]);
 
   useEffect(() => {
     if (!workers.length) return;
     const t = setTimeout(generate, 400);
     return () => clearTimeout(t);
-  }, [ngo, name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly, workers]);
+  }, [ngo, name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly, joiningDateInput, workers]);
 
   const updateDocRow = (i, patch) => setDocRows(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addDocRow = () => setDocRows(rows => [...rows, { sr: rows.length + 1, doc: '', original: false, returned: false, remarks: '' }]);
@@ -1240,6 +1244,13 @@ export default function Letters() {
             {type === 'Offer letter' ? 'Joining / Letter Date' : type === 'Joining letter' ? 'Joining Date' : 'Last Working Date'}
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
+          {(type === 'Experience letter' || type === 'Relieving letter') && (
+          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Joining Date
+            <input type="date" value={joiningDateInput} onChange={e=>setJoiningDateInput(e.target.value)}
+              title="Leave empty to use the volunteer's record"
+              style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
+          </label>
+          )}
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>HR name
             <Dropdown value={hrName} onChange={e=>setHrName(e.target.value)} options={[{value:'',label:'Select HR...'}, ...[...workers.filter(w => (w.dept||w.department||'').toLowerCase().includes('hr') || (w.dept||w.department||'').toLowerCase().includes('admin')).map(w => ({value: w.name, label: w.name})), {value:'deepak karkera', label:'deepak karkera'}].map(o => o).filter((o, i, arr) => arr.findIndex(x => x.value === o.value) === i)]} />
           </label>
