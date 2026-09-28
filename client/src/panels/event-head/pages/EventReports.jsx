@@ -95,6 +95,56 @@ const fmtTime = (t) => {
 const isImage = (u) => /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(String(u || ''))
 const safe = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
+const BANNER_FALLBACK = {
+  width: '100%', height: 130,
+  background: 'linear-gradient(135deg,#2036bd,#0ea5e9)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  color: '#fff', fontSize: 14, fontWeight: 700,
+}
+
+/* Every banner/media <img> in this file used onError={e => e.currentTarget.style.display='none'}.
+   For the report header that left a black bar: the wrapper is background:#0f172a and the
+   gradient fallback only rendered when there was no URL at all, so a URL that failed to
+   load produced an empty void with no indication anything was wrong. A failed load now
+   falls back to the same branded block used for "no banner". */
+function ReportBanner({ src, alt }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [src])
+  if (!src || failed) return <div style={BANNER_FALLBACK}>EVENT BANNER</div>
+  return (
+    <img
+      src={src}
+      alt={alt || 'banner'}
+      onError={() => setFailed(true)}
+      style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }}
+    />
+  )
+}
+
+function SafeImg({ src, alt, height, radius = 8 }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [src])
+  if (!src || failed) {
+    return (
+      <div style={{
+        width: '100%', height, borderRadius: radius, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', fontSize: 10, color: '#9ca3af', textAlign: 'center',
+        background: '#f3f4f6', border: '1px dashed #d1d5db', padding: 4,
+      }}>
+        No image
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt || ''}
+      onError={() => setFailed(true)}
+      style={{ width: '100%', height, objectFit: 'cover', display: 'block', borderRadius: radius }}
+    />
+  )
+}
+
 function Section({ title, children, right }) {
   return (
     <div style={{ margin: '20px 0', borderTop: '2px solid #e5e7eb', paddingTop: 14 }}>
@@ -166,7 +216,7 @@ function MonthInActionLayout({ n, theme, monthLabel, yearLabel }) {
       <div style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${theme.colorLight}`, borderRadius: big ? 12 : 10, overflow: 'hidden', background: '#fff' }}>
         <div style={{ position: 'relative', width: '100%', height: big ? 180 : 130, background: '#f1f5f9', overflow: 'hidden' }}>
           {e.banner ? (
-            <img src={e.banner} alt={e.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={x => { x.currentTarget.style.display = 'none' }} />
+            <SafeImg src={e.banner} alt={e.name} height="100%" radius={0} />
           ) : (
             <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
           )}
@@ -292,7 +342,7 @@ function GlimpsesLayout({ n, theme, monthLabel, yearLabel }) {
       <div style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${theme.colorLight}`, borderRadius: big ? 12 : 10, overflow: 'hidden', background: '#fff', height: '100%' }}>
         <div style={{ position: 'relative', width: '100%', height: big ? 190 : (wide ? 150 : 130), background: '#f1f5f9', overflow: 'hidden', flexShrink: 0 }}>
           {e.banner ? (
-            <img src={e.banner} alt={e.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={x => { x.currentTarget.style.display = 'none' }} />
+            <SafeImg src={e.banner} alt={e.name} height="100%" radius={0} />
           ) : (
             <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
           )}
@@ -635,7 +685,7 @@ export default function EventReports() {
   ]
   const allCols = [
     { key: 'name', label: 'Event' },
-    { key: 'banner_thumb', label: 'Banner', render: r => r.banner ? <img src={r.banner} alt="" style={{ width: 48, height: 32, objectFit: 'cover', borderRadius: 4, border: '1px solid #e5e7eb' }} /> : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span> },
+    { key: 'banner_thumb', label: 'Banner', render: r => r.banner ? <SafeImg src={r.banner} alt="" height={32} radius={4} /> : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span> },
     { key: 'ngo_name', label: 'NGO' },
     { key: 'sector_name', label: 'Sector' },
     { key: 'activity_name', label: 'Activity' },
@@ -661,9 +711,7 @@ export default function EventReports() {
 
   const printHeader = (title, subtitle) => (
     <div className="eh-print-brand">
-      <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: 0.5, color: '#2036bd' }}>UCS CRM</div>
-      <div style={{ fontSize: 11, color: '#6b7280' }}>Universal Citizen Services · Event Reports</div>
-      <div style={{ marginTop: 6, fontSize: 20, fontWeight: 800, color: '#1a1a2e' }}>{title}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1a2e' }}>{title}</div>
       {subtitle && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{subtitle}</div>}
     </div>
   )
@@ -676,9 +724,9 @@ export default function EventReports() {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+      <div className="eh-reports-bar no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <h3 style={{ fontSize: 16 }}>Event Reports <span style={{ fontWeight: 500, fontSize: 12, color: '#6b7280' }}>({filteredEvents.length} shown · {events.filter(e => e.status === 'Submitted').length} submitted)</span></h3>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="eh-reports-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setAllData(null) }} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
             <option value="Submitted">Submitted only</option>
             <option value="Completed">Completed only</option>
@@ -819,7 +867,7 @@ export default function EventReports() {
                       {/* Optional letterhead band */}
                       {bannerSrc && (
                         <div style={{ height: 84, background: '#f1f5f9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `3px solid ${headerBg}` }}>
-                          <img src={bannerSrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                          <SafeImg src={bannerSrc} alt="" height={84} radius={0} />
                         </div>
                       )}
 
@@ -837,7 +885,7 @@ export default function EventReports() {
                               }}>
                                 <div style={{ position: 'relative', width: '100%', height: 140, background: '#f1f5f9', overflow: 'hidden' }}>
                                   {ev.banner ? (
-                                    <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                                    <SafeImg src={ev.banner} alt={ev.name} height="100%" radius={0} />
                                   ) : (
                                     <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
                                   )}
@@ -874,7 +922,7 @@ export default function EventReports() {
                               }}>
                                 <div style={{ position: 'relative', width: '100%', height: 150, background: '#f1f5f9', overflow: 'hidden' }}>
                                   {ev.banner ? (
-                                    <img src={ev.banner} alt={ev.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                                    <SafeImg src={ev.banner} alt={ev.name} height="100%" radius={0} />
                                   ) : (
                                     <div style={{ width: '100%', height: '100%', background: `linear-gradient(140deg, ${theme.color}, ${theme.colorDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, textAlign: 'center', padding: 8 }}>EVENT BANNER</div>
                                   )}
@@ -938,8 +986,7 @@ export default function EventReports() {
               {/* REPORT HEADER */}
               <div className="eh-report-body" style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{ position: 'relative', background: '#0f172a' }}>
-                  {ev.banner && <img src={ev.banner} alt="banner" style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />}
-                  {!ev.banner && <div style={{ width: '100%', height: 130, background: 'linear-gradient(135deg,#2036bd,#0ea5e9)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700 }}>EVENT BANNER</div>}
+                  <ReportBanner src={ev.banner} alt={ev.name} />
                 </div>
                 <div style={{ padding: 18, display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
                   <div style={{ flex: '1 1 260px' }}>
@@ -980,7 +1027,7 @@ export default function EventReports() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px,1fr))', gap: 10, marginBottom: 12 }}>
                       {(reportData.media || []).filter(m => isImage(m.url)).map((m, i) => (
                         <a key={i} href={m.url} target="_blank" rel="noreferrer" title={m.title || m.name} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e5e7eb', display: 'block' }}>
-                          <img src={m.url} alt={m.title || m.name || 'media'} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                          <SafeImg src={m.url} alt={m.title || m.name || 'media'} height={90} />
                         </a>
                       ))}
                     </div>
@@ -1007,20 +1054,51 @@ export default function EventReports() {
         </div>
       )}
 
-      {!reportData && !allData && !loading && !allLoading && <div className="card"><div className="card-pad" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>Select an event and click Generate Report, or click All Events Summary.</div></div>}
+      {!reportData && !allData && !loading && !allLoading && <div className="card no-print"><div className="card-pad" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>Select an event and click Generate Report, or click All Events Summary.</div></div>}
 
       <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          .eh-print-root, .eh-print-root * { visibility: visible !important; }
-          .eh-print-root { position: absolute; left: 0; top: 0; width: 100%; }
-          .card-head { display: none !important; }
-          .eh-print-brand { border-bottom: 3px solid #2036bd; padding-bottom: 10px; margin-bottom: 16px; }
-          .eh-print-footer { margin-top: 20px; border-top: 1px solid #d1d5db; padding-top: 8px; text-align: right; color: #6b7280; font-size: 10px; }
-        }
+        @page { margin: 10mm; }
         @media screen {
           .eh-print-brand { border-bottom: 3px solid #2036bd; padding-bottom: 10px; margin-bottom: 16px; }
           .eh-print-footer { margin-top: 20px; border-top: 1px solid #d1d5db; padding-top: 8px; text-align: right; color: #6b7280; font-size: 10px; }
+        }
+        @media print {
+          html, body { background:#fff !important; }
+
+          /* Chrome is removed with display, not visibility. The old rule used
+             'body * { visibility:hidden }', which still lays every box out, so
+             the shell's own height produced pages of blank output around the
+             report and the report landed on top of them. */
+          .panel-event-head .sidebar,
+          .panel-event-head .sidebar-overlay,
+          .panel-event-head .topbar,
+          .panel-event-head .user-menu,
+          .panel-event-head .card-head,
+          .no-print { display:none !important; }
+
+          /* The shell is a fixed-height flex column whose content-body is a
+             nested scroller; both clip printed output, so the chain is
+             un-bounded here and the report flows as one document. */
+          .panel-event-head .app,
+          .panel-event-head .main,
+          .panel-event-head .content-body {
+            display:block !important; height:auto !important; max-height:none !important;
+            min-height:0 !important; overflow:visible !important; flex:none !important;
+          }
+          .panel-event-head .content-body { padding:0 !important; }
+          .panel-event-head .card { border:none !important; box-shadow:none !important; }
+          .eh-print-root { position:static !important; width:auto !important; }
+
+          /* The status pills and the banner header are colour blocks on a white
+             page. Browsers drop backgrounds by default, so they printed
+             white-on-white; this forces them to keep their fill. */
+          * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+
+          .eh-print-root thead { display:table-header-group; }
+          .eh-print-root tr { page-break-inside:avoid; break-inside:avoid; }
+          .eh-report-body, .eh-print-brand, .eh-print-footer {
+            page-break-inside:avoid; break-inside:avoid;
+          }
         }
       `}</style>
     </>

@@ -193,3 +193,20 @@
 /* Highlight & selection */
 .fc .fc-highlight { background: var(--fc-highlight-color); }
 .fc .fc-daygrid-day.fc-day-today { background: var(--fc-today-bg-color); }
+
+/* Phones: a 7-column month view leaves each day cell ~48px wide, so the type
+   scales down rather than the view changing (switching to list view is already
+   exposed by the toolbar). Long titles keep truncating via .eh-pill-title. */
+@media (max-width: 620px) {
+  .fc { font-size: 12px; }
+  .fc .fc-toolbar { flex-wrap: wrap; row-gap: 8px; justify-content: center; }
+  .fc .fc-toolbar-title { font-size: 15px; }
+  .fc .fc-button { font-size: 12px; padding: 0.3em 0.55em; }
+  .fc .fc-col-header-cell-cushion { font-size: 9px; letter-spacing: 0; padding: 6px 1px; }
+  .fc .fc-daygrid-day-number { font-size: 11px; padding: 3px 5px; }
+  .fc .fc-timegrid-slot { height: 1.9em; }
+  .eh-pill { padding: 2px 3px; gap: 1px; }
+  .eh-pill-row1 { font-size: 9.5px; gap: 2px; }
+  .eh-tag { font-size: 8px; padding: 0 4px; }
+  .eh-pill-ngos { gap: 2px; }
+}
