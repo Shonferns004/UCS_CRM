@@ -28,6 +28,17 @@ UPDATE sim_inventory SET status = 'Expired'
   WHERE status = 'Inactive' AND expiry_date IS NOT NULL AND expiry_date < CURRENT_DATE;
 `;
 
+// SIMs are valid for 28 days from the day they are issued, so a SIM issued on
+// 21-09-2026 expires on 19-10-2026. Rows that carry an issue date but were
+// saved before the expiry became automatic are backfilled here, once, so the
+// Locker and the expiring report do not disagree with the Add form.
+const BACKFILL_EXPIRY_SQL = `
+UPDATE sim_inventory
+   SET expiry_date = (issue_date::date + 28)
+ WHERE issue_date IS NOT NULL
+   AND expiry_date IS NULL;
+`;
+
 export async function ensureSimInventorySchema() {
   try {
     await db._pool.query(ENSURE_COLUMNS_SQL);
@@ -40,5 +51,11 @@ export async function ensureSimInventorySchema() {
     console.log('sim_inventory legacy statuses normalised');
   } catch (e) {
     console.warn('[sim inventory schema] skip status repair:', e?.message || String(e));
+  }
+  try {
+    await db._pool.query(BACKFILL_EXPIRY_SQL);
+    console.log('sim_inventory expiry dates backfilled');
+  } catch (e) {
+    console.warn('[sim inventory schema] skip expiry backfill:', e?.message || String(e));
   }
 }
