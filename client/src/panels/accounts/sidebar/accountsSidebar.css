@@ -1,0 +1,526 @@
+/* ==========================================================================
+   Accounts sidebar redesign
+   --------------------------------------------------------------------------
+   Scoped to .panel-accounts on purpose. index.css defines the sidebar as one
+   long shared selector list (.panel-event-head .sidebar, .panel-accounts
+   .sidebar, .panel-ngo-admin .sidebar, .panel-fro .sidebar), so changing the
+   width or item styling there would restyle three other panels. Every rule
+   below carries at least one more class than the rule it overrides, so this
+   file wins on specificity and does not depend on being imported after
+   index.css.
+   ========================================================================== */
+
+.panel-accounts {
+  --sidebar-width-expanded: 232px;
+  --sidebar-width-collapsed: 68px;
+  --sidebar-background: #ffffff;
+  --sidebar-border: #e5e7eb;
+  --sidebar-text: #374151;
+  --sidebar-text-muted: #6b7280;
+  --sidebar-icon: #4b5563;
+  --sidebar-radius: 8px;
+  --sidebar-item-height: 40px;
+  --sidebar-transition: 220ms ease-in-out;
+  --sidebar-popover-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+  --sidebar-header-height: 64px;
+}
+
+/* Surface + border follow the panel theme so the rail matches the paper the
+   rest of the panel is themed to, rather than sitting on a hardcoded white. */
+.panel-accounts .app > .sidebar {
+  width: var(--sidebar-width-expanded);
+  background: var(--card-bg);
+  border-right: 1px solid var(--line);
+  color: var(--ink);
+  padding: 0;
+  /* The shared rule makes the whole sidebar an overflow-y:auto box, which would
+     clip the collapse control where it straddles the right edge. Scrolling moves
+     to the nav instead, which also keeps the header and the collapse control
+     pinned instead of scrolling away with the content. */
+  overflow: visible;
+  z-index: 40;
+  transition: width var(--sidebar-transition);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.panel-accounts .app > .sidebar .sb-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--sidebar-header-height);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.panel-accounts .app > .sidebar .sb-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--sage);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.panel-accounts .app > .sidebar .sb-brand {
+  min-width: 0;
+  flex: 1;
+}
+.panel-accounts .app > .sidebar .sb-brand h1 {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-accounts .app > .sidebar .sb-brand span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Both header controls are icon-only and collapse to a square. */
+.panel-accounts .app > .sidebar .sb-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.panel-accounts .app > .sidebar .sb-icon-btn:hover { background: color-mix(in srgb, var(--ink) 6%, var(--card-bg)); color: var(--ink); }
+
+/* The collapse control straddles the sidebar's right edge, per the reference.
+   It is the one thing allowed to sit over the content, so it needs a ring to
+   stay readable against whatever it overlaps. */
+.panel-accounts .app > .sidebar .sb-collapse {
+  position: absolute;
+  top: 22px;
+  right: -13px;
+  width: 26px;
+  height: 26px;
+  z-index: 2;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  color: var(--ink-soft);
+}
+.panel-accounts .app > .sidebar .sb-collapse:hover { color: var(--ink); }
+
+/* ── Navigation ─────────────────────────────────────────────────────────── */
+
+.panel-accounts .app > .sidebar .sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 20px;
+  gap: 2px;
+  /* min-height:0 is what lets this shrink inside the 100vh column and scroll,
+     instead of growing the sidebar past the viewport. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.panel-accounts .app > .sidebar .sb-section {
+  margin: 14px 0 6px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.panel-accounts .app > .sidebar .sb-section:first-child { margin-top: 2px; }
+
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--sidebar-item-height);
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--sidebar-radius);
+  background: transparent;
+  color: var(--sidebar-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Only the background and text colour animate. Width and padding are left
+     alone so nothing reflows mid-transition. */
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item .ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--sidebar-icon);
+  transition: color 140ms ease;
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item .ico svg { display: block; }
+
+/* Label + trailing content share one box so the chevron can be pushed to the
+   far edge with margin-left:auto while the label truncates instead. */
+.panel-accounts .app > .sidebar .sidebar-nav .sb-item-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.panel-accounts .app > .sidebar .sidebar-nav .sb-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hover must not win over active, so the active background is declared after
+   and both are given the same specificity. */
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item:hover {
+  background: #f5f5f5;
+  background: color-mix(in srgb, var(--ink) 4%, var(--card-bg));
+  color: var(--ink);
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.active,
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item[aria-current='page'] {
+  background: #f1f1f1;
+  background: color-mix(in srgb, var(--ink) 7%, var(--card-bg));
+  color: var(--ink);
+  font-weight: 500;
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.active .ico,
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item[aria-current='page'] .ico {
+  color: var(--ink);
+}
+
+/* Group headers are nav items that own children. They read as a section, so
+   they get a quieter resting state and only tint when a child is the page. */
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group { display: flex; flex-direction: column; }
+
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-header {
+  margin-top: 6px;
+  font-weight: 500;
+  color: var(--sidebar-text);
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-header .ico { color: var(--sidebar-icon); }
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-header:hover { background: transparent; color: var(--ink); }
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-header.active {
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-header.active .ico { color: var(--ink); }
+
+.panel-accounts .app > .sidebar .sidebar-nav .snav-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink-soft);
+  opacity: 0.7;
+  transition: transform var(--sidebar-transition), opacity 140ms ease;
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-chevron.open { transform: rotate(90deg); opacity: 1; }
+
+/* Nested items get a vertical guide so the hierarchy reads without relying on
+   indentation alone. The guide is on the item, not the container, so a
+   collapsed group takes it with it. */
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+  margin-left: 18px;
+  padding-left: 8px;
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-items::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--line);
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-group-items.collapsed { display: none; }
+
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.snav-sub {
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--sidebar-text-muted);
+}
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.snav-sub .ico { width: 16px; height: 16px; color: var(--ink-soft); }
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.snav-sub.active,
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.snav-sub[aria-current='page'] { color: var(--ink); }
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.snav-sub.active .ico,
+.panel-accounts .app > .sidebar .sidebar-nav .snav-item.snav-sub[aria-current='page'] .ico { color: var(--ink); }
+
+/* Unread pill is positioned by chat.css with margin-left:auto inside
+   .sb-item-body, which is the flex box it now sits in. The rail override below
+   re-pins it to the icon's corner. */
+
+/* ── Collapsed rail ─────────────────────────────────────────────────────── */
+
+/* The state class rides on the sidebar, not on .app. Everything the rail needs
+   (width, label visibility, badge pinning) is a descendant of the sidebar, so
+   keeping it there leaves .app and .main completely untouched. */
+.panel-accounts .sidebar.nav-collapsed { width: var(--sidebar-width-collapsed); }
+
+/* Labels fade rather than vanish outright, so the rail does not appear to
+   pop. The rail is display-driven, so nothing is left clickable behind a
+   hidden label. */
+.panel-accounts .app > .sidebar .sb-brand,
+.panel-accounts .app > .sidebar .sb-item-label,
+.panel-accounts .app > .sidebar .sb-section,
+.panel-accounts .app > .sidebar .snav-chevron,
+.panel-accounts .app > .sidebar .snav-group-items {
+  opacity: 1;
+  transition: opacity 160ms ease;
+}
+.panel-accounts .sidebar.nav-collapsed .sb-brand,
+.panel-accounts .sidebar.nav-collapsed .sb-item-label,
+.panel-accounts .sidebar.nav-collapsed .sb-section,
+.panel-accounts .sidebar.nav-collapsed .snav-chevron,
+.panel-accounts .sidebar.nav-collapsed .snav-group-items {
+  opacity: 0;
+  pointer-events: none;
+}
+.panel-accounts .sidebar.nav-collapsed .snav-group-items { display: none; }
+.panel-accounts .sidebar.nav-collapsed .sidebar-nav { padding: 12px 8px 20px; }
+.panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item {
+  justify-content: center;
+  padding: 0;
+  gap: 0;
+}
+.panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item .ico { width: 20px; height: 20px; }
+.panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-group-header { margin-top: 6px; }
+
+/* The header stacks in the rail. The collapse control straddles the right edge,
+   so a three-dot sitting on that same row would be underneath it; stacking the
+   two icon controls vertically keeps both clickable. */
+.panel-accounts .sidebar.nav-collapsed .sb-header {
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 0 12px;
+}
+.panel-accounts .sidebar.nav-collapsed .sb-mark { width: 26px; height: 26px; font-size: 10px; border-radius: 7px; }
+.panel-accounts .sidebar.nav-collapsed .sb-icon-btn { width: 22px; height: 22px; }
+
+/* Section spacing would otherwise double up in the rail, where the headings
+   themselves are gone. */
+.panel-accounts .sidebar.nav-collapsed .sb-section { margin: 0; height: 0; padding: 0; }
+.panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item { position: relative; }
+.panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item .chat-nav-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  margin-left: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9px;
+}
+
+/* ── Floating submenu popover ───────────────────────────────────────────── */
+
+/* Portalled into the .panel-accounts root rather than document.body: the panel
+   is where the theme variables live, and the portal target must inherit them
+   or the popover renders with default colours. The sidebar itself is
+   overflow:visible with the nav scrolling inside it, so the sidebar box would
+   still clip a popover wider than the rail. z-index is above the accounts
+   topbar (1001) so a submenu opened from the rail is not covered by it. */
+.ac-submenu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 150px;
+  max-width: 180px;
+  padding: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: var(--sidebar-popover-shadow);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.ac-submenu.ready { opacity: 1; transform: translateX(0); }
+
+.ac-submenu .ac-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ac-submenu .ac-submenu-item:hover {
+  background: #f5f5f5;
+  background: color-mix(in srgb, var(--ink) 4%, var(--card-bg));
+}
+.ac-submenu .ac-submenu-item.active,
+.ac-submenu .ac-submenu-item[aria-current='page'] {
+  background: #f1f1f1;
+  background: color-mix(in srgb, var(--ink) 7%, var(--card-bg));
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ── Account menu (three-dot) ───────────────────────────────────────────── */
+
+.ac-account-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: var(--sidebar-popover-shadow);
+}
+.ac-account-menu .ac-account-head {
+  padding: 8px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ac-account-menu .ac-account-head strong { font-size: 13px; font-weight: 600; color: var(--ink); }
+.ac-account-menu .ac-account-head span { font-size: 11px; color: var(--ink-soft); }
+.ac-account-menu .ac-account-sep { height: 1px; background: var(--line); margin: 4px 0; }
+.ac-account-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ac-account-menu button:hover { background: var(--bg); }
+
+/* ── Focus ──────────────────────────────────────────────────────────────── */
+
+.panel-accounts .app > .sidebar :focus-visible,
+.ac-submenu :focus-visible,
+.ac-account-menu :focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ── Mobile: drawer, not rail ───────────────────────────────────────────── */
+
+@media (max-width:820px) {
+  /* The rail is never forced into a narrow viewport; the drawer keeps full
+     width and the labels with it. */
+  .panel-accounts .sidebar.nav-collapsed,
+  .panel-accounts .sidebar { width: var(--sidebar-width-expanded); }
+
+  .panel-accounts .sidebar.nav-collapsed .sb-brand,
+  .panel-accounts .sidebar.nav-collapsed .sb-item-label,
+  .panel-accounts .sidebar.nav-collapsed .sb-section,
+  .panel-accounts .sidebar.nav-collapsed .snav-chevron { opacity: 1; pointer-events: auto; }
+  .panel-accounts .sidebar.nav-collapsed .sb-header {
+    flex-direction: row;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .panel-accounts .sidebar.nav-collapsed .sb-mark { width: 34px; height: 34px; font-size: 12px; border-radius: 9px; }
+  .panel-accounts .sidebar.nav-collapsed .sb-icon-btn { width: 28px; height: 28px; }
+  .panel-accounts .sidebar.nav-collapsed .sidebar-nav { padding: 12px 16px 20px; }
+  .panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item { justify-content: flex-start; padding: 0 10px; gap: 10px; }
+  .panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item .ico { width: 18px; height: 18px; }
+  .panel-accounts .sidebar.nav-collapsed .sb-section { margin: 14px 0 6px; height: auto; padding: 0 8px; }
+  .panel-accounts .sidebar.nav-collapsed .sidebar-nav .snav-item .chat-nav-badge { position: static; min-width: 20px; height: 20px; padding: 0 6px; font-size: 11px; }
+
+  /* The collapse control is meaningless on a drawer and would sit on top of the
+     content behind it. */
+  .panel-accounts .app > .sidebar .sb-collapse { display: none; }
+
+  /* Groups stay inline-expanded on mobile: the rail is gone, so there is no
+     popover to fall back to and a collapsed group would hide its own children
+     behind a second tap for no reason. */
+  .panel-accounts .app > .sidebar .sidebar-nav .snav-group-items { display: flex; }
+  .panel-accounts .app > .sidebar .sidebar-nav .snav-group-items.collapsed { display: none; }
+  .panel-accounts .app > .sidebar .sidebar-nav .snav-chevron { opacity: 1; }
+
+  /* The backdrop and the cleared .main offset are fixed in index.css, next to
+     the shared mobile rules they override. Only the drawer stacking order
+     belongs here, to sit above the backdrop and the fixed topbar. */
+  .panel-accounts .app > .sidebar { z-index: 1100; }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-accounts .app > .sidebar,
+  .panel-accounts .app > .sidebar .sb-brand,
+  .panel-accounts .app > .sidebar .sb-item-label,
+  .panel-accounts .app > .sidebar .sb-section,
+  .panel-accounts .app > .sidebar .snav-chevron,
+  .panel-accounts .app > .sidebar .snav-group-items,
+  .panel-accounts .app > .sidebar .sidebar-nav .snav-item,
+  .panel-accounts .app > .sidebar .sb-icon-btn,
+  .ac-submenu,
+  .panel-accounts .sidebar-overlay {
+    transition: none !important;
+  }
+}
