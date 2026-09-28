@@ -51,6 +51,12 @@ function PanelInner() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  /* SimFormModal seeds its state from `card` in a useState initialiser, which
+     only runs on mount. This panel keeps the modal mounted at all times (it
+     renders null when closed), so without a changing key the form would open
+     pre-filled with the previous entry and Edit would open blank. Bumping the
+     key remounts it per open - the same trick SimSection.jsx uses. */
+  const [formKey, setFormKey] = useState(0);
   const [viewCard, setViewCard] = useState(null);
   const [replaceCard, setReplaceCard] = useState(null);
 
@@ -59,8 +65,8 @@ function PanelInner() {
   const meta = PAGE_META[location.pathname] || PAGE_META['/sim/dashboard'];
   const initials = (user?.name || user?.login_id || 'U').toString().split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-  function openAdd() { setEditing(null); setFormOpen(true); }
-  function openEdit(c) { setEditing(c); setFormOpen(true); }
+  function openAdd() { setEditing(null); setFormKey((k) => k + 1); setFormOpen(true); }
+  function openEdit(c) { setEditing(c); setFormKey((k) => k + 1); setFormOpen(true); }
 
   async function doDelete(c) {
     try { await deleteSimCard(c.id); sim.refresh(); toast('SIM card deleted', 'success'); }
@@ -133,7 +139,7 @@ function PanelInner() {
         </div>
       </div>
 
-      <SimFormModal open={formOpen} card={editing} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={handleSaved} />
+      <SimFormModal key={formKey} open={formOpen} card={editing} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={handleSaved} />
       <SimViewModal card={viewCard} open={!!viewCard} onClose={() => setViewCard(null)} onEdit={() => { if (viewCard) openEdit(viewCard); }} onReplace={() => { if (viewCard) { setReplaceCard(viewCard); setViewCard(null); } }} />
       <ReplaceModal card={replaceCard} open={!!replaceCard} onClose={() => setReplaceCard(null)} onDone={() => sim.refresh()} />
     </div>

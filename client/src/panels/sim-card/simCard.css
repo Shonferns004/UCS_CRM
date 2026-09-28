@@ -303,3 +303,44 @@
   .sim-nav a { justify-content: center; padding: 10px; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---------- Confirmation dialog (replaces window.confirm) ----------
+   Mirrors the .dc-* block in accounts/sim/simScope.css so both SIM sections
+   show the same delete prompt. The base .modal-overlay is position:fixed
+   inset:0, so only the presentation is overridden here. */
+.dc-overlay {
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; overflow-y: auto; background: rgba(15, 23, 42, .5);
+}
+.dc-modal {
+  background: #fff; border-radius: 17px; width: 100%; max-width: 400px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .25);
+  padding: 32px 28px 24px; text-align: center; margin: auto;
+}
+.dc-icon {
+  width: 50px; height: 50px; border-radius: 50%; margin: 0 auto 18px;
+  background: #fee2e2; color: #dc2626;
+  display: flex; align-items: center; justify-content: center;
+}
+.dc-title { font-size: 19px; font-weight: 700; color: #0f172a; margin-bottom: 12px; }
+.dc-desc { font-size: 14px; line-height: 1.55; color: #64748b; margin-bottom: 26px; }
+.dc-desc strong { color: #0f172a; font-weight: 600; }
+.dc-foot { display: flex; gap: 10px; }
+.dc-btn {
+  flex: 1; height: 42px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s; font-family: inherit;
+}
+.dc-btn:disabled { opacity: .6; cursor: not-allowed; }
+.dc-btn.cancel { background: #fff; border-color: #e2e8f0; color: #334155; }
+.dc-btn.cancel:hover:not(:disabled) { background: #f1f5f9; }
+.dc-btn.delete { background: #dc2626; color: #fff; }
+.dc-btn.delete:hover:not(:disabled) { background: #b91c1c; }
+.dc-btn.confirm { background: var(--sim-blue); color: #fff; }
+.dc-btn.confirm:hover:not(:disabled) { background: var(--sim-blue-dark); }
+/* Non-destructive prompts (e.g. a bulk status change) get the blue accent
+   instead of the red delete one, so the colour still signals the consequence. */
+.dc-modal.is-primary .dc-icon { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
+
+@media (max-width: 480px) {
+  .dc-modal { padding: 28px 20px 20px; }
+}

@@ -4,6 +4,7 @@ import { Icon } from './components';
 import { effectiveStatus, dayClass, dayLabel, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, SIM_SLOTS, daysLeft } from './helpers';
 import { addSimCard, updateSimCard, deleteSimCard } from './api';
 import { toast } from '../../../components/Toast';
+import { ConfirmDialog } from './ImportModal';
 
 function simSlots(c) {
   const out = [];
@@ -259,14 +260,22 @@ export default function MobileId() {
 
   const clearFilters = () => { setSearch(''); setTeam('All'); setSimStatus('All'); setDevice('All'); setPage(1); };
 
-  async function handleDelete(row) {
-    if (!window.confirm(`Delete Mobile ID ${row.mobile_id || ''}? This cannot be undone.`)) return;
+  // Pending delete awaiting confirmation, replacing window.confirm(): { row, busy }
+  const [pending, setPending] = useState(null);
+
+  const handleDelete = (row) => setPending({ row });
+
+  async function runPendingDelete() {
+    if (!pending || pending.busy) return;
+    setPending((p) => ({ ...p, busy: true }));
     try {
-      await deleteSimCard(row.id);
+      await deleteSimCard(pending.row.id);
       toast('Mobile ID deleted', 'success');
+      setPending(null);
       refresh();
     } catch (e) {
       toast(e.message || 'Delete failed', 'error');
+      setPending((p) => ({ ...p, busy: false }));
     }
   }
 
@@ -408,6 +417,17 @@ export default function MobileId() {
 
       <MobileIdModal open={modalOpen} row={modalRow} onClose={() => { setModalOpen(false); setModalRow(null); }} onSaved={refresh} />
       <MobileIdViewModal row={viewRow} onClose={() => setViewRow(null)} />
+
+      <ConfirmDialog
+        open={!!pending}
+        busy={!!pending?.busy}
+        title="Delete Mobile ID?"
+        message={<>Are you sure you want to delete <strong>&ldquo;{pending?.row?.mobile_id || 'this Mobile ID'}&rdquo;</strong>? This action cannot be undone.</>}
+        confirmLabel="Delete"
+        busyLabel="Deleting..."
+        onConfirm={runPendingDelete}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }
