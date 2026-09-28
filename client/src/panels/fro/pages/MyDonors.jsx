@@ -289,7 +289,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
   const savedListScrollRef = useRef(0);
-  const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
+  const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView, adoptTimer } = useCall();
 
   useEffect(() => {
     let cancelled = false;
@@ -865,13 +865,17 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     setDonationSaving(true);
     setMessage(null);
     try {
-      await addDonorLog(donor.id, {
+      // Adopt the server's timer answer straight away. The next heartbeat would
+      // carry the same deadline, but waiting for it leaves the 4-minute clock
+      // stale for up to 30s right after the FRO's first action of the day.
+      const saved = await addDonorLog(donor.id, {
         action: 'donation',
         amount_collected: Number(donationAmt),
         transaction_datetime: new Date(donationDt).toISOString(),
         notes: `Donation recorded (${donor.donor_type})`,
         ngo_id: donor.ngo_id,
       });
+      if (saved?.timer) adoptTimer(saved.timer);
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
@@ -1182,7 +1186,10 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       suppressRealtimeUntilRef.current = Date.now() + 10000;
       if (debounceReloadRef.current) { clearTimeout(debounceReloadRef.current); debounceReloadRef.current = null; }
 
-      await addDonorLog(donor.id, logData);
+      const saved = await addDonorLog(donor.id, logData);
+      // Same as the donation path: take the server's deadline now rather than
+      // letting the countdown show stale seconds until the next heartbeat.
+      if (saved?.timer) adoptTimer(saved.timer);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       // Same-day suppression (backend-authoritative): a donor with ANY
