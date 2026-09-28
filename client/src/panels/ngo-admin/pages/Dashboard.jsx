@@ -2082,18 +2082,18 @@ export default function Dashboard() {
 
         const subHeader = (m) => (
           <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: m.narrow ? '7px 1px' : '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            style={{ background: '#fff', padding: m.narrow ? '6px 0' : '6px 2px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{m.param}{sortIcon(m.key)}</span>
           </th>
         );
         const stickyTh = (children, left) => (
           <th rowSpan={2} onClick={() => setSort('name')} title="FRO Name — click to sort"
-            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 168, maxWidth: 190 }}>
+            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px 6px', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', maxWidth: 190 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{children}{sortIcon('name')}</span>
           </th>
         );
         const groupTh = (label, color, bg, span) => (
-          <th colSpan={span} style={{ background: bg, color, padding: '7px 6px', fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
+          <th colSpan={span} style={{ background: bg, color, padding: '6px 4px', fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
         );
 
         const metricCell = (p, m) => {
@@ -2107,18 +2107,18 @@ export default function Dashboard() {
           // performance board. A zero is a real result and is shown like one.
           if (m.pill) {
             return (
-              <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              <td key={m.key} style={{ padding: m.narrow ? '5px 0' : '5px 1px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
                 <span
                   onClick={click}
                   title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: m.narrow ? 18 : 22, padding: m.narrow ? '1px 4px' : '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: m.narrow ? 18 : 22, padding: m.narrow ? '1px 3px' : '1px 4px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
                   {m.display ? m.display(v) : v}
                 </span>
               </td>
             );
           }
           return (
-            <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+            <td key={m.key} style={{ padding: m.narrow ? '5px 0' : '5px 1px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
               <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span>
             </td>
           );
@@ -2213,10 +2213,15 @@ export default function Dashboard() {
 
             {/* Performance table */}
             <div className="perf-scroll" style={{ margin: '16px 12px 0', overflow: 'auto', maxHeight: 620, borderRadius: 12, border: '1px solid #eef2f6' }}>
+              {/* width:max-content so every column is exactly as wide as its own
+                  widest cell instead of the table stretching to the panel and
+                  handing the slack to the columns. minWidth stays as the
+                  small-screen floor that forces a horizontal scroll rather than
+                  squashing the columns into each other. */}
               {sortedRows.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
               ) : (
-                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1620, width: '100%' }}>
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1620, width: 'max-content' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
                     <tr>
                       {stickyTh('FRO Name', 0)}
@@ -2240,8 +2245,11 @@ export default function Dashboard() {
                       const highlighted = live || met || idl;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 8px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 168, maxWidth: 190 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', maxWidth: 174, overflow: 'hidden' }}>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 6px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', maxWidth: 190 }}>
+                            {/* maxWidth matches the header cell's cap (190 minus this
+                                cell's 6px padding each side) so the column is decided
+                                by its content and both cells agree on where to stop. */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', maxWidth: 178, overflow: 'hidden' }}>
                               {live && (
                                 <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
                               )}
