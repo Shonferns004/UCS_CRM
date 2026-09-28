@@ -4,6 +4,7 @@ import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
 import { getMyPerformance } from '../api/donors';
+import { formatDuration } from '../../../utils/formatDuration';
 
 function SectionTitle({ label, pct }) {
   return (
@@ -13,13 +14,6 @@ function SectionTitle({ label, pct }) {
       <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, color: 'var(--line)' }}>{pct}</span>
     </div>
   );
-}
-
-function formatDuration(seconds) {
-  const total = Math.max(0, Number(seconds) || 0);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 function Arrow({ good }) {
