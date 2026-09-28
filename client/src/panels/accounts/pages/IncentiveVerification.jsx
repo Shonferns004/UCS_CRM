@@ -124,7 +124,7 @@ export default function IncentiveVerification() {
         <span style={{ fontSize: 24 }}>🏆</span>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--ink)' }}>Incentive Verification</h2>
-          <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Verify & claim the Sir ka Incentive prize — upload the FRO + cash photo as payout proof</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Verify & claim the NGO wise Incentive prize — upload the FRO + cash photo as payout proof</div>
         </div>
       </div>
 
