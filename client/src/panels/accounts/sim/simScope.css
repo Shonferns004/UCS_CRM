@@ -1059,6 +1059,12 @@
 .panel-accounts .sim-scope .dc-btn.cancel:hover:not(:disabled) { background: #f1f5f9; }
 .panel-accounts .sim-scope .dc-btn.delete { background: #dc2626; color: #fff; }
 .panel-accounts .sim-scope .dc-btn.delete:hover:not(:disabled) { background: #b91c1c; }
+/* Non-destructive prompts (e.g. releasing a SIM back to the locker) get the
+   blue accent instead of the red delete one, so colour still signals the
+   consequence. Used by ConfirmDialog. */
+.panel-accounts .sim-scope .dc-btn.confirm { background: var(--sim-blue); color: #fff; }
+.panel-accounts .sim-scope .dc-btn.confirm:hover:not(:disabled) { background: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .dc-modal.is-primary .dc-icon { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
 
 .panel-accounts .sim-scope .kebab { position: relative; }
 .panel-accounts .sim-scope .kebab .mini-btn { margin: 0; }
