@@ -2543,11 +2543,21 @@ export default function Dashboard() {
             </div>
           );
         }
-        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], offline: ['offline'] };
-        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.meeting.includes(p.status) ? 'meeting' : 'offline';
+        // Idle is its own bucket, not a flavour of offline. An FRO sitting on a
+        // lapsed disposition timer is still present and still in the field — the
+        // backend sends status: 'idle' for exactly that case (idle_since set, not
+        // paused, not in a meeting). statusOf used to funnel anything that was not
+        // online/meeting into 'offline', so those FROs were counted as Offline and
+        // left out of "All" entirely, which is how an idle FRO became invisible.
+        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], idle: ['idle'], offline: ['offline'] };
+        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online'
+          : statusBuckets.meeting.includes(p.status) ? 'meeting'
+            : statusBuckets.idle.includes(p.status) ? 'idle'
+              : 'offline';
         const bucketRows = {
           online: perfRows.filter(p => statusOf(p) === 'online'),
           meeting: perfRows.filter(p => statusOf(p) === 'meeting'),
+          idle: perfRows.filter(p => statusOf(p) === 'idle'),
           offline: perfRows.filter(p => statusOf(p) === 'offline'),
         };
         const viewRows = perfStatusFilter === 'all'
@@ -2556,6 +2566,7 @@ export default function Dashboard() {
         const bucketCounts = {
           all: perfRows.filter(p => statusOf(p) !== 'offline').length,
           online: bucketRows.online.length,
+          idle: bucketRows.idle.length,
           meeting: bucketRows.meeting.length,
           offline: bucketRows.offline.length,
         };
@@ -2654,6 +2665,7 @@ export default function Dashboard() {
         const statusFilters = [
           { key: 'all', label: 'All', color: '#334155' },
           { key: 'online', label: 'Online', color: '#16a34a' },
+          { key: 'idle', label: 'Idle', color: '#2F80D9' },
           { key: 'meeting', label: 'Meeting', color: '#7c3aed' },
           { key: 'offline', label: 'Offline', color: '#94a3b8' },
         ];
