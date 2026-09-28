@@ -865,13 +865,13 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState(() => toIstDate());
   const [selectedFroId, setSelectedFroId] = useState('');
   const [accessibleNgos, setAccessibleNgos] = useState([]);
+  // High / Low Performance read the org-wide leaderboard directly rather than the
+  // Telecaller board's rows: these panels rank every FRO across all accessible
+  // NGOs and gate on punch-in, which the NGO-filtered board does not do.
   const [weakPerformers, setWeakPerformers] = useState([]);
   const [weakLoading, setWeakLoading] = useState(false);
   const [highPerfSearch, setHighPerfSearch] = useState('');
   const [lowPerfSearch, setLowPerfSearch] = useState('');
-  // Low Performance scope: 'present' (default) lists only FROs marked present for
-  // the selected period, 'all' lists every FRO on the NGO roster below target.
-  const [lowScope, setLowScope] = useState('present');
   const [froSearch, setFroSearch] = useState('');
   const [perfStatusFilter, setPerfStatusFilter] = useState('all');
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
@@ -1031,28 +1031,29 @@ export default function Dashboard() {
     const ngoParam = selectedNgoId !== 'all' ? `&ngo_id=${selectedNgoId}` : '';
     apiGet(`/ngo-admin/fro-performance?from=${activeRange.from}&to=${activeRange.to}${ngoParam}`)
       .then(data => { if (!cancelled) setWeakPerformers(data); })
-      .catch(() => { if (!cancelled) setWeakPerformers([]); })
+      // Logged, not swallowed: a silent empty array renders as "nobody hit target"
+      // on both panels, which reads as a real result rather than a failed load.
+      .catch((e) => { console.error('fro-performance load failed:', e?.message || e); if (!cancelled) setWeakPerformers([]); })
       .finally(() => { if (!cancelled) setWeakLoading(false); });
     return () => { cancelled = true };
   }, [selectedNgoId, activeRange]);
 
-  // Top performers = same global-filtered dataset, best score first
+  // High performers: at or above 100% of the period target, and only those who
+  // actually punched in, best score first.
   const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.punched_in === true && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
-  // Low performers. `lowAll` is the full below-target set and `lowPresent` the
-  // default view. Present keeps the historical `monthly_target > 0` gate so the
-  // default list is unchanged; Show All drops it, because a FRO with no target
-  // has periodTarget 0, so performance_pct reads 0 and they belong at the bottom
-  // of the list rather than vanishing from it. Present rows sort ahead of absent
-  // ones so the FROs who came in and underperformed are not buried under
-  // everyone who never arrived.
+  // Low performers: every FRO on the roster below 100% of the period target.
+  //
+  // This panel used to carry a Present / Show All toggle that defaulted to
+  // Present, which hid anyone not marked present or with no monthly target. The
+  // toggle is gone, so the panel lists the full below-target set unconditionally
+  // — keeping the old default would hide rows behind a control that no longer
+  // exists. Present rows still sort ahead of absent ones so the FROs who came
+  // in and underperformed are not buried under everyone who never arrived.
   const lowAll = useMemo(() => weakPerformers
     .filter(p => p.performance_pct < 100)
     .sort((a, b) => (Number(b.punched_in) - Number(a.punched_in)) || (a.performance_pct - b.performance_pct)), [weakPerformers]);
-  const lowPresent = useMemo(() => lowAll.filter(p => p.punched_in === true && Number(p.monthly_target) > 0), [lowAll]);
-  // Rows the Show All toggle pulls in, and the ones no panel shows at all: High
-  // Performance keeps its own punch-in gate, so an absent FRO already at 100% of
-  // target lands in neither panel. Surfaced in the footer so it stays visible.
-  const lowHiddenCount = lowAll.length - lowPresent.length;
+  // Absent FROs at or above target land in neither panel, so they are surfaced
+  // in the footer to keep the two halves of the roster accounted for.
   const lowAboveTargetAbsent = useMemo(() => weakPerformers.filter(p => p.punched_in !== true && p.performance_pct >= 100).length, [weakPerformers]);
 
   // NGO filter pills from the admin's accessible NGOs
@@ -1075,8 +1076,8 @@ export default function Dashboard() {
   const meetingActive = !!meeting;
 
   // Full roster (search-independent) — every FRO competes, online or not, so the
-  // numbering matches the FRO My Leads strip. High Performance stays
-  // punch-in gated; Low Performance is gated by the Present / Show All toggle.
+  // numbering matches the FRO My Leads strip. High Performance stays punch-in
+  // gated; Low Performance lists the whole below-target set.
   const topPresent = topPerformers;
 
   // Independent per-panel search (High / Low)
@@ -1084,10 +1085,9 @@ export default function Dashboard() {
     () => topPresent.filter(p => (p.fro_name || '').toLowerCase().includes(highPerfSearch.trim().toLowerCase())),
     [topPresent, highPerfSearch]
   );
-  const lowScopeRows = lowScope === 'all' ? lowAll : lowPresent;
   const lowRows = useMemo(
-    () => lowScopeRows.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
-    [lowScopeRows, lowPerfSearch]
+    () => lowAll.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
+    [lowAll, lowPerfSearch]
   );
 
   // FRO × hour groups for the hourly performance table — active
@@ -1140,10 +1140,28 @@ export default function Dashboard() {
     };
   }, [hourlyGroups]);
 
-  // Telecaller performance rows (search-filtered) + tab totals for the redesign
+  // Telecaller performance rows (search-filtered) + tab totals for the redesign.
+  // The COLLECTION figures arrive on each row from /ngo-admin/tl-dashboard. An
+  // earlier version joined /ngo-admin/fro-performance onto these rows by fro_id in
+  // the browser; that rendered the whole block as ₹0 whenever that second request
+  // failed, so the backend now sends the same leaderboard figures on the row.
+  //
+  // Hidden from this board at the admin's request, by fro_id so a rename or a
+  // similar spelling does not silently bring the row back. Both are long-tenured
+  // FROs carrying real collections (Priyank Shah ₹1.2L, Anjana Vyas ₹41K) but no
+  // monthly target, so every target-derived column on them read ₹0 / blank. They
+  // are still in the High / Low panels and in their own My Leads strip. The
+  // underlying rows are untouched in the database — this is a display exclusion
+  // only, so clear the ids here once their targets are set and they come back.
+  const HIDDEN_TELECALLER_IDS = useMemo(() => new Set([
+    '0b6af56d-512c-4ffc-a671-a27ad7c7bfe0', // Priyank Shah
+    '766fc6ea-9102-45d9-9475-812287d1bbd7', // Anjana Vyas
+  ]), []);
+
   const perfRows = useMemo(() => (tlData?.performance || []).filter(p =>
-    !froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase())
-  ), [tlData, froSearch]);
+    !HIDDEN_TELECALLER_IDS.has(p.fro_id)
+    && (!froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase()))
+  ), [tlData, froSearch, HIDDEN_TELECALLER_IDS]);
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
@@ -1379,8 +1397,12 @@ export default function Dashboard() {
     };
 
     const periodLabel = PERIOD_LABELS[dashPeriod] || 'Range';
+    // Same HIDDEN_TELECALLER_IDS filter as the board, so the XLSX matches what is
+    // on screen. Filtering only the table would have exported two FROs the admin
+    // cannot see in the report they are looking at.
     const filteredPerformance = tlData.performance.filter(p =>
-      !froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())
+      !HIDDEN_TELECALLER_IDS.has(p.fro_id)
+      && (!froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase()))
     );
 
     const HDR = {
@@ -1669,7 +1691,7 @@ export default function Dashboard() {
         )}
         <select value={selectedFroId} onChange={(e) => setSelectedFroId(e.target.value)} style={{ padding: '8px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', background: '#fff' }}>
           <option value="">All Telecallers</option>
-          {(tlData?.performance || []).map(p => (
+          {(tlData?.performance || []).filter(p => !HIDDEN_TELECALLER_IDS.has(p.fro_id)).map(p => (
             <option key={p.fro_id} value={p.fro_id}>{p.fro_name}</option>
           ))}
         </select>
@@ -1982,6 +2004,340 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Section 6: Telecaller Performance. Moved above High / Low Performance so
+          the full roster and every target read before the two gated subsets of it. */}
+      {(() => {
+        if (!tlData) {
+          return (
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span className="weak-spin" style={{ width: 16, height: 16, border: '2px solid #dbeafe', borderTopColor: '#2F80D9', borderRadius: '50%', display: 'inline-block', flexShrink: 0 }} />
+              <div>
+                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
+                <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Loading live performance data…</div>
+              </div>
+            </div>
+          );
+        }
+        // Idle is its own bucket, not a flavour of offline. An FRO sitting on a
+        // lapsed disposition timer is still present and still in the field — the
+        // backend sends status: 'idle' for exactly that case (idle_since set, not
+        // paused, not in a meeting). statusOf used to funnel anything that was not
+        // online/meeting into 'offline', so those FROs were counted as Offline and
+        // left out of "All" entirely, which is how an idle FRO became invisible.
+        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], idle: ['idle'], offline: ['offline'] };
+        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online'
+          : statusBuckets.meeting.includes(p.status) ? 'meeting'
+            : statusBuckets.idle.includes(p.status) ? 'idle'
+              : 'offline';
+        const bucketRows = {
+          online: perfRows.filter(p => statusOf(p) === 'online'),
+          meeting: perfRows.filter(p => statusOf(p) === 'meeting'),
+          idle: perfRows.filter(p => statusOf(p) === 'idle'),
+          offline: perfRows.filter(p => statusOf(p) === 'offline'),
+        };
+        const viewRows = perfStatusFilter === 'all'
+          ? perfRows.filter(p => statusOf(p) !== 'offline')
+          : bucketRows[perfStatusFilter] || [];
+        const bucketCounts = {
+          all: perfRows.filter(p => statusOf(p) !== 'offline').length,
+          online: bucketRows.online.length,
+          idle: bucketRows.idle.length,
+          meeting: bucketRows.meeting.length,
+          offline: bucketRows.offline.length,
+        };
+        const ncOf = (p) => p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
+        const statusesOf = (p) => p.connectedStatuses_range || {};
+        const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
+
+        const METRIC_DEFS = {
+          // ── Collection ──
+          // These five come off each tl-dashboard row, which computes them from
+          // the same leaderboard the High/Low Performance panels read, so the
+          // board and those cards cannot disagree for a given FRO. A new hire's
+          // monthly target is derived from their salary for their first three
+          // months (target_source: 'auto') and is never stored in
+          // fro_monthly_targets, which is why the board asks the backend for
+          // these rather than deriving them again here.
+          // Collected and Today are rupee figures, so they are not `narrow` and
+          // always render (a zero target still reads as ₹0, not blank).
+          monthly: { key: 'monthly', param: 'MONTHLY', full: 'Monthly Target', val: (p) => p.monthly_target || 0, display: fmt },
+          collected: { key: 'collected', param: 'COLLECTED', full: 'Collected', val: (p) => p.collected_amount || 0, display: fmt, pill: true, color: '#166534', bg: '#f0fdf4' },
+          remaining: { key: 'remaining', param: 'REMAINING', full: 'Remaining Target', val: (p) => p.remaining_target || 0, display: fmt, pill: true, color: '#b45309', bg: '#FFF8E7' },
+          ptgt: { key: 'ptgt', param: 'P TGT', full: 'Period Target', val: (p) => p.period_target || 0, display: fmt },
+          today: { key: 'today', param: 'TODAY', full: 'Collected Today', val: (p) => p.period_today || 0, display: fmt, pill: true, color: '#166534', bg: '#f0fdf4' },
+
+          // Today's idle (committed + any period still running). The
+          // disposition timer is the only thing that produces it, so this is
+          // the headline number for "is this FRO actually working".
+          //
+          // Rendered with the same formatDuration() the FRO strip uses. It used
+          // to be a bare hours decimal, so 59 idle minutes displayed as "0.99"
+          // here and "59m" on the FRO's own strip — the same number read as two
+          // different figures on two screens.
+          // val stays NUMERIC: the column sort compares it with </>, so a
+          // formatted string here would sort alphabetically ("10m" < "59m").
+          // display renders the cell, and metricCell already prefers it.
+          idle: { key: 'idle', param: 'IDLE', full: 'Idle', val: (p) => p.today_idle_seconds || 0, display: (v) => formatDuration(v), pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true },
+          nc: { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
+          conn: { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
+          ld: { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
+          fu: { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', narrow: true, filterType: 'connected', status: 'scheduled' },
+          odf: { key: 'odf', param: 'O/D', full: 'Follow-Up Overdue', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7', narrow: true, filterType: 'connected', status: 'overdue_followup' },
+          cb: { key: 'cb', param: 'CB', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, narrow: true, filterType: 'connected', status: 'callback' },
+          odc: { key: 'odc', param: 'O/D', full: 'Callback Overdue', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2', narrow: true, filterType: 'connected', status: 'overdue_callback' },
+          off: { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, narrow: true, filterType: 'connected', status: 'office_program_visit' },
+          ppay: { key: 'ppay', param: 'P', full: 'Promise To Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, narrow: true, filterType: 'connected', status: 'promise_pay_wa_email' },
+          ni: { key: 'ni', param: 'NI', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, narrow: true, filterType: 'connected', status: 'not_interested_np' },
+          dnd: { key: 'dnd', param: 'DND', full: 'Do Not Disturb', val: (p) => statusesOf(p).dnd || 0, pill: false, narrow: true, filterType: 'connected', status: 'dnd' },
+          lt: { key: 'lt', param: 'LOGOUT', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff', narrow: true },
+        };
+
+        // Column order is declared HERE and nowhere else. METRICS is derived from
+        // it, so the group header spans and the sub-header cells can no longer
+        // drift out of step with the body — the old hardcoded METRICS.slice(n, m)
+        // indices had to be recounted by hand every time a group changed, and a
+        // miscount silently shifted a header onto the wrong column.
+        const GROUPS = [
+          { label: 'COLLECTION', color: '#0f766e', bg: '#F0FDFA', keys: ['monthly', 'collected', 'remaining', 'ptgt', 'today'] },
+          { label: 'IDLE', color: '#475569', bg: '#F1F5F9', keys: ['idle'] },
+          { label: 'CALL ACTIVITY', color: '#be123c', bg: '#FFF1F3', keys: ['nc', 'conn', 'ld'] },
+          { label: 'FOLLOW-UP', color: '#1d4ed8', bg: '#EFF6FF', keys: ['fu', 'odf'] },
+          { label: 'CALLBACKS', color: '#dc2626', bg: '#FEF2F2', keys: ['cb', 'odc'] },
+          { label: 'FIELD', color: '#0e7490', bg: '#ECFEFF', keys: ['off', 'ppay'] },
+          { label: 'OTHER', color: '#047857', bg: '#ECFDF5', keys: ['ni', 'dnd'] },
+          { label: 'LOGOUT', color: '#6d28d9', bg: '#F4EEFF', keys: ['lt'] },
+        ];
+        const METRICS = GROUPS.flatMap(g => g.keys.map(k => METRIC_DEFS[k]));
+
+        const COLUMNS = [
+          { key: 'name', label: 'FRO Name', val: (p) => (p.fro_name || '').toLowerCase() },
+          ...METRICS.map(m => ({ key: m.key, label: m.full, val: m.val })),
+        ];
+        const ranked = (p) => perfRows.indexOf(p);
+        const sortedRows = [...viewRows].sort((a, b) => {
+          if (!perfSort.key) return 0;
+          const col = COLUMNS.find(c => c.key === perfSort.key);
+          if (!col) return 0;
+          const va = col.val(a); const vb = col.val(b);
+          if (va < vb) return -1 * perfSort.dir;
+          if (va > vb) return 1 * perfSort.dir;
+          return ranked(a) - ranked(b);
+        });
+        const setSort = (key) => setPerfSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: 1 });
+        const sortIcon = (key) => (
+          <span style={{ color: perfSort.key === key ? '#2F80D9' : '#cbd5e1', fontSize: '0.5625rem' }}>
+            {perfSort.key === key ? (perfSort.dir === 1 ? '▲' : '▼') : '↕'}
+          </span>
+        );
+
+        const subHeader = (m) => (
+          <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
+            style={{ background: '#fff', padding: m.narrow ? '7px 1px' : '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{m.param}{sortIcon(m.key)}</span>
+          </th>
+        );
+        const stickyTh = (children, left) => (
+          <th rowSpan={2} onClick={() => setSort('name')} title="FRO Name — click to sort"
+            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 168, maxWidth: 190 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{children}{sortIcon('name')}</span>
+          </th>
+        );
+        const groupTh = (label, color, bg, span) => (
+          <th colSpan={span} style={{ background: bg, color, padding: '7px 6px', fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
+        );
+
+        const metricCell = (p, m) => {
+          const v = m.val(p);
+          const click = m.filterType ? (e) => { e.stopPropagation(); if (v > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: m.filterType, status: m.status }); } : null;
+          const show = v > 0;
+          if (m.pill && show) {
+            return (
+              <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+                <span
+                  onClick={click}
+                  title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: m.narrow ? 18 : 22, padding: m.narrow ? '1px 4px' : '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                  {m.display ? m.display(v) : v}
+                </span>
+              </td>
+            );
+          }
+          return (
+            <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+              {show ? <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: '0.656rem' }}>{m.display ? m.display(v) : 0}</span>}
+            </td>
+          );
+        };
+
+        const statusFilters = [
+          { key: 'all', label: 'All', color: '#334155' },
+          { key: 'online', label: 'Online', color: '#16a34a' },
+          { key: 'idle', label: 'Idle', color: '#2F80D9' },
+          { key: 'meeting', label: 'Meeting', color: '#7c3aed' },
+          { key: 'offline', label: 'Offline', color: '#94a3b8' },
+        ];
+
+        const periodOptions = [
+          { value: 'today', label: 'Today' },
+          { value: 'yesterday', label: 'Yesterday' },
+          { value: 'weekly', label: 'This Week' },
+          { value: 'monthly', label: 'This Month' },
+          { value: 'custom', label: 'Custom Date' },
+        ];
+
+        return (
+          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16 }}>
+
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #eef2f6', display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 24, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{viewRows.length} FROs</span>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 400, color: '#64748B', marginTop: 4 }}>Live performance overview of all telecallers</div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="Search FRO name..."
+                  value={froSearch}
+                  onChange={e => setFroSearch(e.target.value)}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 180, background: '#f7fafc', color: '#17233C' }}
+                />
+                <select
+                  value={dashPeriod}
+                  onChange={e => setDashPeriod(e.target.value)}
+                  title="Date filter"
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C', cursor: 'pointer' }}
+                >
+                  {periodOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <button
+                  onClick={handleTelecallerExport}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: 'none', background: '#2F80D9', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  title="Export Telecaller Performance report (XLSX)"
+                >
+                  <Download width="14" height="14" />
+                  Export Full Report (XLSX)
+                </button>
+              </div>
+            </div>
+
+            {/* Status filter pills */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '18px 24px 0' }}>
+              {statusFilters.map(f => {
+                const active = perfStatusFilter === f.key;
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setPerfStatusFilter(f.key)}
+                    title={`Show ${f.label} FROs`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 999,
+                      border: `1.5px solid ${active ? f.color : '#e2e8f0'}`,
+                      background: active ? `${f.color}14` : '#fff',
+                      color: active ? f.color : '#64748B',
+                      fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      transition: 'all .18s ease', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {f.key !== 'all' && (
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: f.color, display: 'inline-block', flexShrink: 0 }} />
+                    )}
+                    <span>{f.label}</span>
+                    <span style={{
+                      minWidth: 18, height: 18, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                      background: active ? f.color : '#eef1f6', color: active ? '#fff' : '#64748B',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'all .18s ease',
+                    }}>{bucketCounts[f.key]}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Performance table */}
+            <div className="perf-scroll" style={{ margin: '16px 12px 0', overflow: 'auto', maxHeight: 620, borderRadius: 12, border: '1px solid #eef2f6' }}>
+              {sortedRows.length === 0 ? (
+                <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
+              ) : (
+                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1620, width: '100%' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
+                    <tr>
+                      {stickyTh('FRO Name', 0)}
+                      {GROUPS.map(g => groupTh(g.label, g.color, g.bg, g.keys.length))}
+                    </tr>
+                    <tr>
+                      {/* One sub-header per metric, in GROUPS order, so this
+                          cannot fall out of step with the group spans above or
+                          the body cells below. */}
+                      {GROUPS.flatMap(g => g.keys.map(k => subHeader(METRIC_DEFS[k])))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedRows.map((p) => {
+                      const live = p.status === 'online' || p.status === 'on_call';
+                      const met = p.status === 'meeting';
+                      // Idle means the disposition timer ran out and nobody has
+                      // resumed — surface it on the name cell, not just the
+                      // number, so a glance down the row catches it.
+                      const idl = p.status === 'idle';
+                      const highlighted = live || met || idl;
+                      return (
+                        <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 8px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 168, maxWidth: 190 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', maxWidth: 174, overflow: 'hidden' }}>
+                              {live && (
+                                <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
+                              )}
+                              {met && (
+                                <span title="In meeting · counters paused" style={{ width: 9, height: 9, borderRadius: '50%', background: '#7c3aed', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(124,58,237,.18)' }} />
+                              )}
+                              {idl && (
+                                <span title="Idle — disposition timer ran out, awaiting Resume" style={{ width: 9, height: 9, borderRadius: '50%', background: '#dc2626', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(220,38,38,.18)' }} />
+                              )}
+                              <span style={{ fontWeight: highlighted ? 700 : 600, color: idl ? '#b91c1c' : live ? '#15803d' : (met ? '#6d28d9' : '#17233C'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
+                              {idl && (
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
+                              )}
+                              {met && (
+                                // Icon only. The word "Meeting" cost more width
+                                // than the state was worth on a board this dense —
+                                // the purple dot beside it already says meeting at
+                                // a glance, and the tooltip names it.
+                                <span title="In meeting · counters paused" style={{ width: 18, height: 16, padding: '0 4px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Megaphone size={10} /></span>
+                              )}
+                              {p.work_as_operator_name && (
+                                <span title={`${p.work_as_operator_name} work as ${p.fro_name}`} style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', flexShrink: 0 }}><Zap size={9} /> {p.work_as_operator_name}</span>
+                              )}
+                            </div>
+                          </td>
+                          {METRICS.map(mx => metricCell(p, mx))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <style>{`
+              @keyframes pfPulseGreen {
+                0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
+                70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
+                100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+              }
+              .perf-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+              .perf-scroll::-webkit-scrollbar { width: 0; height: 0; }
+              .perf-scroll::-webkit-scrollbar:horizontal { display: none; }
+              .perf-scroll::-webkit-scrollbar:vertical { display: none; }
+              .perf-table tbody tr:hover td { background: #f8fafc; }
+              .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
+            `}</style>
+          </div>
+        );
+      })()}
+
       {/* Target-paced High / Low performance panels */}
       <div className="performance-sections">
         {/* ── High Performance ── */}
@@ -2098,36 +2454,6 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-              <div
-                role="group"
-                aria-label="Low Performance scope"
-                style={{ display: 'inline-flex', alignItems: 'center', padding: 2, gap: 2, border: '1px solid #fecdd3', borderRadius: 9, background: '#fff5f5' }}
-              >
-                {[['present', 'Present'], ['all', 'Show All']].map(([value, label]) => {
-                  const active = lowScope === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setLowScope(value)}
-                      aria-pressed={active}
-                      title={value === 'present'
-                        ? 'Only FROs marked present for this period'
-                        : 'Every FRO below target, including absent and no-target'}
-                      style={{
-                        height: 28, padding: '0 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
-                        fontSize: 11, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap',
-                        background: active ? '#EF4444' : 'transparent',
-                        color: active ? '#ffffff' : '#991B1B',
-                        boxShadow: active ? '0 1px 2px rgba(15,23,42,0.12)' : 'none',
-                      }}
-                    >{label}</button>
-                  );
-                })}
-              </div>
-              {weakLoading
-                ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
-                : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
               <input
                 type="text"
                 placeholder="Search FRO name..."
@@ -2158,11 +2484,9 @@ export default function Dashboard() {
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Target size={16} /></div>
                   <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                    {lowRows.length === 0 && lowPerfSearch.trim()
+                    {lowPerfSearch.trim()
                       ? 'No FROs match your search.'
-                      : lowPresent.length === 0 && lowHiddenCount > 0
-                        ? `No present FROs with a target are below 100%. ${lowHiddenCount} below-target FRO${lowHiddenCount === 1 ? ' is' : 's are'} hidden in this view — switch to Show All.`
-                        : 'All FROs have reached the daily target.'}
+                      : 'All FROs have reached the daily target.'}
                   </div>
                 </div>
               </div>
@@ -2238,23 +2562,11 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Users size={14} /> Total Low Performers: {(lowScope === 'all' ? lowAll.length : lowPresent.length)} FROs
+                  <Users size={14} /> Total Low Performers: {lowAll.length} FROs
                 </div>
                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
                   These FROs are below 100% of their daily collection target.
                 </div>
-                {lowScope === 'present' && lowHiddenCount > 0 && (
-                  <div style={{ fontSize: 11, color: '#92400e', marginTop: 4, lineHeight: 1.4, fontWeight: 600 }}>
-                    {lowHiddenCount} more below target not shown here (not marked present, or no monthly target set) — use Show All to include {lowHiddenCount === 1 ? 'it' : 'them'}.
-                  </div>
-                )}
-                {lowScope === 'all' && (
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
-                    {lowHiddenCount === 0
-                      ? 'Every below-target FRO on this roster is present and has a monthly target.'
-                      : `Includes ${lowHiddenCount} FRO${lowHiddenCount === 1 ? '' : 's'} hidden in the Present view — not marked present, or no monthly target set.`}
-                  </div>
-                )}
                 {lowAboveTargetAbsent > 0 && (
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
                     {lowAboveTargetAbsent} absent FRO{lowAboveTargetAbsent === 1 ? '' : 's'} at or above target — above 100%, so not listed here.
@@ -2530,316 +2842,6 @@ export default function Dashboard() {
 
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
-      {/* Section 6: Telecaller Performance */}
-      {(() => {
-        if (!tlData) {
-          return (
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
-              <span className="weak-spin" style={{ width: 16, height: 16, border: '2px solid #dbeafe', borderTopColor: '#2F80D9', borderRadius: '50%', display: 'inline-block', flexShrink: 0 }} />
-              <div>
-                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
-                <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Loading live performance data…</div>
-              </div>
-            </div>
-          );
-        }
-        // Idle is its own bucket, not a flavour of offline. An FRO sitting on a
-        // lapsed disposition timer is still present and still in the field — the
-        // backend sends status: 'idle' for exactly that case (idle_since set, not
-        // paused, not in a meeting). statusOf used to funnel anything that was not
-        // online/meeting into 'offline', so those FROs were counted as Offline and
-        // left out of "All" entirely, which is how an idle FRO became invisible.
-        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], idle: ['idle'], offline: ['offline'] };
-        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online'
-          : statusBuckets.meeting.includes(p.status) ? 'meeting'
-            : statusBuckets.idle.includes(p.status) ? 'idle'
-              : 'offline';
-        const bucketRows = {
-          online: perfRows.filter(p => statusOf(p) === 'online'),
-          meeting: perfRows.filter(p => statusOf(p) === 'meeting'),
-          idle: perfRows.filter(p => statusOf(p) === 'idle'),
-          offline: perfRows.filter(p => statusOf(p) === 'offline'),
-        };
-        const viewRows = perfStatusFilter === 'all'
-          ? perfRows.filter(p => statusOf(p) !== 'offline')
-          : bucketRows[perfStatusFilter] || [];
-        const bucketCounts = {
-          all: perfRows.filter(p => statusOf(p) !== 'offline').length,
-          online: bucketRows.online.length,
-          idle: bucketRows.idle.length,
-          meeting: bucketRows.meeting.length,
-          offline: bucketRows.offline.length,
-        };
-        const ncOf = (p) => p.non_connected_range ?? Math.max(0, (p.calls_range || 0) - (p.connected_range || 0));
-        const statusesOf = (p) => p.connectedStatuses_range || {};
-        const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
-
-        const METRICS = [
-          // Today's idle (committed + any period still running). The
-          // disposition timer is the only thing that produces it, so this is
-          // the headline number for "is this FRO actually working".
-          //
-          // Rendered with the same formatDuration() the FRO strip uses. It used
-          // to be a bare hours decimal, so 59 idle minutes displayed as "0.99"
-          // here and "59m" on the FRO's own strip — the same number read as two
-          // different figures on two screens.
-          // val stays NUMERIC: the column sort compares it with </>, so a
-          // formatted string here would sort alphabetically ("10m" < "59m").
-          // display renders the cell, and metricCell already prefers it.
-          { key: 'idle', param: 'IDLE', full: 'Idle', val: (p) => p.today_idle_seconds || 0, display: (v) => formatDuration(v), pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true },
-          { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
-          { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
-          { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
-          { key: 'fu', param: 'FU', full: 'Follow-Up', val: (p) => statusesOf(p).scheduled || 0, pill: true, color: '#15803d', bg: '#ecfdf5', narrow: true, filterType: 'connected', status: 'scheduled' },
-          { key: 'odf', param: 'O/D', full: 'Follow-Up Overdue', val: (p) => p.overdue_followups || 0, pill: true, color: '#b45309', bg: '#fff8e7', narrow: true, filterType: 'connected', status: 'overdue_followup' },
-          { key: 'cb', param: 'CB', full: 'Callback', val: (p) => statusesOf(p).callback || 0, pill: false, narrow: true, filterType: 'connected', status: 'callback' },
-          { key: 'odc', param: 'O/D', full: 'Callback Overdue', val: (p) => p.overdue_calls || 0, pill: true, color: '#dc2626', bg: '#fef2f2', narrow: true, filterType: 'connected', status: 'overdue_callback' },
-          { key: 'off', param: 'VISIT', full: 'Office / Program Visit', val: (p) => statusesOf(p).office_program_visit || 0, pill: false, narrow: true, filterType: 'connected', status: 'office_program_visit' },
-          { key: 'ppay', param: 'P', full: 'Promise To Pay / WhatsApp / Email', val: (p) => statusesOf(p).promise_pay_wa_email || 0, pill: false, filterType: 'connected', status: 'promise_pay_wa_email' },
-          { key: 'ni', param: 'NI', full: 'Not Interested / Disconnect / No Pickup', val: (p) => statusesOf(p).not_interested_np || 0, pill: false, narrow: true, filterType: 'connected', status: 'not_interested_np' },
-          { key: 'dnd', param: 'DND', full: 'Do Not Disturb', val: (p) => statusesOf(p).dnd || 0, pill: false, filterType: 'connected', status: 'dnd' },
-          { key: 'recvd', param: 'RECVD AMT', full: 'Received Amount', val: (p) => p.receivedAmount_range || 0, pill: true, color: '#166534', bg: '#f0fdf4', display: (v) => fmt(v) },
-          { key: 'lt', param: 'LOGOUT', full: 'Logouts Today', val: (p) => p.logout_today || 0, pill: true, color: '#7c3aed', bg: '#f5f3ff', narrow: true },
-        ];
-
-        const COLUMNS = [
-          { key: 'name', label: 'FRO Name', val: (p) => (p.fro_name || '').toLowerCase() },
-          ...METRICS.map(m => ({ key: m.key, label: m.full, val: m.val })),
-        ];
-        const ranked = (p) => perfRows.indexOf(p);
-        const sortedRows = [...viewRows].sort((a, b) => {
-          if (!perfSort.key) return 0;
-          const col = COLUMNS.find(c => c.key === perfSort.key);
-          if (!col) return 0;
-          const va = col.val(a); const vb = col.val(b);
-          if (va < vb) return -1 * perfSort.dir;
-          if (va > vb) return 1 * perfSort.dir;
-          return ranked(a) - ranked(b);
-        });
-        const setSort = (key) => setPerfSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: 1 });
-        const sortIcon = (key) => (
-          <span style={{ color: perfSort.key === key ? '#2F80D9' : '#cbd5e1', fontSize: '0.5625rem' }}>
-            {perfSort.key === key ? (perfSort.dir === 1 ? '▲' : '▼') : '↕'}
-          </span>
-        );
-
-        const subHeader = (m) => (
-          <th key={m.key} title={m.full} onClick={() => setSort(m.key)}
-            style={{ background: '#fff', padding: m.narrow ? '7px 1px' : '7px 3px', textAlign: 'center', cursor: 'pointer', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: 'var(--ink-soft)', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{m.param}{sortIcon(m.key)}</span>
-          </th>
-        );
-        const stickyTh = (children, left) => (
-          <th rowSpan={2} onClick={() => setSort('name')} title="FRO Name — click to sort"
-            style={{ position: 'sticky', left, zIndex: 4, background: '#fff', padding: '8px', fontSize: '0.5625rem', textTransform: 'uppercase', letterSpacing: .3, color: '#17233C', fontWeight: 700, borderBottom: '1px solid #eef2f6', borderRight: '1px solid #eef2f6', cursor: 'pointer', width: 120, maxWidth: 140 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{children}{sortIcon('name')}</span>
-          </th>
-        );
-        const groupTh = (label, color, bg, span) => (
-          <th colSpan={span} style={{ background: bg, color, padding: '7px 6px', fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: .4, fontWeight: 700, textAlign: 'center', borderBottom: '1px solid #eef2f6', borderLeft: '1px solid #eef2f6', whiteSpace: 'nowrap' }}>{label}</th>
-        );
-
-        const metricCell = (p, m) => {
-          const v = m.val(p);
-          const click = m.filterType ? (e) => { e.stopPropagation(); if (v > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: m.filterType, status: m.status }); } : null;
-          const show = v > 0;
-          if (m.pill && show) {
-            return (
-              <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-                <span
-                  onClick={click}
-                  title={click ? `Click to view ${m.full.toLowerCase()}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: m.narrow ? 18 : 22, padding: m.narrow ? '1px 4px' : '1px 5px', borderRadius: 5, background: m.bg, color: m.color, fontSize: '0.656rem', fontWeight: 700, cursor: click ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
-                  {m.display ? m.display(v) : v}
-                </span>
-              </td>
-            );
-          }
-          return (
-            <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-              {show ? <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: '0.656rem' }}>{m.display ? m.display(v) : 0}</span>}
-            </td>
-          );
-        };
-
-        const statusFilters = [
-          { key: 'all', label: 'All', color: '#334155' },
-          { key: 'online', label: 'Online', color: '#16a34a' },
-          { key: 'idle', label: 'Idle', color: '#2F80D9' },
-          { key: 'meeting', label: 'Meeting', color: '#7c3aed' },
-          { key: 'offline', label: 'Offline', color: '#94a3b8' },
-        ];
-
-        const periodOptions = [
-          { value: 'today', label: 'Today' },
-          { value: 'yesterday', label: 'Yesterday' },
-          { value: 'weekly', label: 'This Week' },
-          { value: 'monthly', label: 'This Month' },
-          { value: 'custom', label: 'Custom Date' },
-        ];
-
-        return (
-          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(15,23,42,.04)', marginBottom: 16 }}>
-
-            {/* Header */}
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #eef2f6', display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <h3 style={{ fontSize: 24, fontWeight: 700, color: '#17233C', margin: 0 }}>Telecaller Performance</h3>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{viewRows.length} FROs</span>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 400, color: '#64748B', marginTop: 4 }}>Live performance overview of all telecallers</div>
-              </div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input
-                  type="text"
-                  placeholder="Search FRO name..."
-                  value={froSearch}
-                  onChange={e => setFroSearch(e.target.value)}
-                  style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 180, background: '#f7fafc', color: '#17233C' }}
-                />
-                <select
-                  value={dashPeriod}
-                  onChange={e => setDashPeriod(e.target.value)}
-                  title="Date filter"
-                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', outline: 'none', background: '#f7fafc', color: '#17233C', cursor: 'pointer' }}
-                >
-                  {periodOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <button
-                  onClick={handleTelecallerExport}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', border: 'none', background: '#2F80D9', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  title="Export Telecaller Performance report (XLSX)"
-                >
-                  <Download width="14" height="14" />
-                  Export Full Report (XLSX)
-                </button>
-              </div>
-            </div>
-
-            {/* Status filter pills */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '18px 24px 0' }}>
-              {statusFilters.map(f => {
-                const active = perfStatusFilter === f.key;
-                return (
-                  <button
-                    key={f.key}
-                    onClick={() => setPerfStatusFilter(f.key)}
-                    title={`Show ${f.label} FROs`}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 999,
-                      border: `1.5px solid ${active ? f.color : '#e2e8f0'}`,
-                      background: active ? `${f.color}14` : '#fff',
-                      color: active ? f.color : '#64748B',
-                      fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                      transition: 'all .18s ease', whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {f.key !== 'all' && (
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: f.color, display: 'inline-block', flexShrink: 0 }} />
-                    )}
-                    <span>{f.label}</span>
-                    <span style={{
-                      minWidth: 18, height: 18, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700,
-                      background: active ? f.color : '#eef1f6', color: active ? '#fff' : '#64748B',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'all .18s ease',
-                    }}>{bucketCounts[f.key]}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Performance table */}
-            <div className="perf-scroll" style={{ margin: '16px 12px 0', overflow: 'auto', maxHeight: 620, borderRadius: 12, border: '1px solid #eef2f6' }}>
-              {sortedRows.length === 0 ? (
-                <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No FROs match your search.</div>
-              ) : (
-                <table className="perf-table" style={{ borderCollapse: 'collapse', minWidth: 1180, width: '100%' }}>
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: '#fff' }}>
-                    <tr>
-                      {stickyTh('FRO Name', 0)}
-                      {groupTh('IDLE', '#475569', '#F1F5F9', 1)}
-                      {groupTh('CALL ACTIVITY', '#be123c', '#FFF1F3', 3)}
-                      {groupTh('FOLLOW-UP', '#1d4ed8', '#EFF6FF', 2)}
-                      {groupTh('CALLBACKS', '#dc2626', '#FEF2F2', 2)}
-                      {groupTh('FIELD', '#0e7490', '#ECFEFF', 2)}
-                      {groupTh('OTHER', '#047857', '#ECFDF5', 2)}
-                      {groupTh('RECEIPTS', '#b45309', '#FFF8E7', 1)}
-                      {groupTh('LOGOUT', '#6d28d9', '#F4EEFF', 1)}
-                    </tr>
-                    <tr>
-                      {/* One slice per group header above: IDLE(1), CALL
-                          ACTIVITY(3), FOLLOW-UP(2), CALLBACKS(2), FIELD(2),
-                          OTHER(2), RECEIPTS(1), LOGOUT(1) = 14. */}
-                      {METRICS.slice(0, 1).map(subHeader)}
-                      {METRICS.slice(1, 4).map(subHeader)}
-                      {METRICS.slice(4, 6).map(subHeader)}
-                      {METRICS.slice(6, 8).map(subHeader)}
-                      {METRICS.slice(8, 10).map(subHeader)}
-                      {METRICS.slice(10, 12).map(subHeader)}
-                      {METRICS.slice(12, 13).map(subHeader)}
-                      {METRICS.slice(13, 14).map(subHeader)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedRows.map((p) => {
-                      const live = p.status === 'online' || p.status === 'on_call';
-                      const met = p.status === 'meeting';
-                      // Idle means the disposition timer ran out and nobody has
-                      // resumed — surface it on the name cell, not just the
-                      // number, so a glance down the row catches it.
-                      const idl = p.status === 'idle';
-                      const highlighted = live || met || idl;
-                      return (
-                        <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 8px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 120, maxWidth: 140 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', maxWidth: 120, overflow: 'hidden' }}>
-                              {live && (
-                                <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
-                              )}
-                              {met && (
-                                <span title="In meeting · counters paused" style={{ width: 9, height: 9, borderRadius: '50%', background: '#7c3aed', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(124,58,237,.18)' }} />
-                              )}
-                              {idl && (
-                                <span title="Idle — disposition timer ran out, awaiting Resume" style={{ width: 9, height: 9, borderRadius: '50%', background: '#dc2626', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(220,38,38,.18)' }} />
-                              )}
-                              <span style={{ fontWeight: highlighted ? 700 : 600, color: idl ? '#b91c1c' : live ? '#15803d' : (met ? '#6d28d9' : '#17233C'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
-                              {idl && (
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
-                              )}
-                              {met && (
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Megaphone size={10} /> Meeting</span>
-                              )}
-                              {p.work_as_operator_name && (
-                                <span title={`${p.work_as_operator_name} work as ${p.fro_name}`} style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', flexShrink: 0 }}><Zap size={9} /> {p.work_as_operator_name}</span>
-                              )}
-                            </div>
-                          </td>
-                          {METRICS.map(mx => metricCell(p, mx))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <style>{`
-              @keyframes pfPulseGreen {
-                0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
-                70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
-                100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
-              }
-              .perf-scroll { scrollbar-width: none; -ms-overflow-style: none; }
-              .perf-scroll::-webkit-scrollbar { width: 0; height: 0; }
-              .perf-scroll::-webkit-scrollbar:horizontal { display: none; }
-              .perf-scroll::-webkit-scrollbar:vertical { display: none; }
-              .perf-table tbody tr:hover td { background: #f8fafc; }
-              .perf-table tbody tr:hover td.pf-stick { background: #f8fafc; }
-            `}</style>
-          </div>
-        );
-      })()}
 
       {/* Call Connectivity Widget removed */}
 
