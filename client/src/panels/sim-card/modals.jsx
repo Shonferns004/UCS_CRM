@@ -240,3 +240,40 @@ export function ReplaceModal({ card, open, onClose, onDone }) {
     </div>
   );
 }
+
+/* In-app replacement for window.confirm(). A native confirm() is the wrong
+   control here for three reasons: it freezes the page on a modal OS dialog the
+   SIM panel's styling cannot touch, it is suppressed outright in kiosk/webview
+   and sandboxed-iframe embeds (the button then appears to do nothing), and it
+   renders no toast once the request resolves. This gives the same yes/no gate
+   with a busy state and keeps the confirm styling consistent with the rest of
+   the panel. `variant` is 'danger' for deletes and 'primary' for reversible
+   actions such as a bulk status change. */
+export function ConfirmDialog({
+  open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel',
+  variant = 'danger', busy = false, onConfirm, onCancel,
+}) {
+  if (!open) return null;
+  // The shared <Icon> has no trash/check glyph, so the two paths are inlined
+  // here rather than falling through to its generic circle placeholder.
+  const glyph = variant === 'danger'
+    ? <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    : <polyline points="20 6 9 17 4 12" />;
+  return (
+    <div className="modal-overlay dc-overlay" onClick={busy ? undefined : onCancel}>
+      <div className={`dc-modal ${variant === 'danger' ? '' : 'is-primary'}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
+        <div className="dc-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{glyph}</svg>
+        </div>
+        <div className="dc-title">{title}</div>
+        <div className="dc-desc">{message}</div>
+        <div className="dc-foot">
+          <button className="dc-btn cancel" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
+          <button className={`dc-btn ${variant === 'danger' ? 'delete' : 'confirm'}`} onClick={onConfirm} disabled={busy} autoFocus>
+            {busy ? 'Working...' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
