@@ -133,6 +133,23 @@ class ApiService {
     return jsonDecode(str);
   }
 
+  /// The operator's own city/state, as set on the Operator Details screen
+  /// (state/city dropdowns saved against the day's assignment). Used to
+  /// pre-fill the city/state of beneficiaries they register or complete.
+  /// Returns nulls when the operator has not set an area yet.
+  static Future<({String city, String state})?> getOperatorArea() async {
+    try {
+      final body = await get('/operator/dashboard');
+      return (
+        city: (body['city'] ?? '').toString().trim(),
+        state: (body['state'] ?? '').toString().trim(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+
   static Future<bool> isLoggedIn() async {
     final token = await getToken();
     return token != null && token.isNotEmpty;
