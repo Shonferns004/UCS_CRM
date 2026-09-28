@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { getOfficeStart, getOfficeEnd } from './attendanceStatus.js';
+import { getSetting } from '../models/settingsModel.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -76,6 +77,118 @@ export async function getShiftWindowMs(workerId, nowMs = Date.now()) {
   if (!Number.isFinite(endMs) || endMs <= startMs) endMs = cfgEnd > startMs ? cfgEnd : startMs;
 
   return { startMs, endMs, hasAttendance };
+}
+
+const parseHhMm = (v, fallbackHour, fallbackMinute) => {
+  if (!v) return { hour: fallbackHour, minute: fallbackMinute };
+  const [hour, minute] = String(v).split(':').map(Number);
+  return { hour: hour || fallbackHour, minute: minute || 0 };
+};
+
+// Batched form of getShiftWindowMs.
+//
+// WHY THIS EXISTS. The NGO-admin dashboard builds a shift window for every FRO on
+// the board, and did it with Promise.all(froWorkers.map(getShiftWindowMs)). Each
+// single call issued up to FIVE queries: one attendance read, then getOfficeStart
+// and getOfficeEnd EACH independently re-fetched the same worker row with
+// select('*'), and each could fall through to a settings read. For a 50-FRO board
+// that is ~250 round-trips against a pool capped at 5 connections, every time a
+// browser tab polls (10s interval, one request per open tab). The queueing behind
+// a 5-connection pool is what made /ngo-admin/tl-dashboard take ~16s, and that
+// endpoint is the single largest CPU consumer on the host.
+//
+// This does the same arithmetic in JS from three queries total, and reads each
+// worker row exactly once. Same fallback order as the single-worker version:
+// punch_in_time wins when it is from today, otherwise the configured shift, and
+// office hours are only consulted when the worker has no shift of their own.
+//
+// Returns { [workerId]: { startMs, endMs, hasAttendance } }. A worker that fails
+// to resolve is simply absent from the map, which is what the previous
+// try/catch-in-the-loop produced too (it left that FRO on the open-ended
+// fallback), so callers keep the same "no entry" handling.
+export async function getShiftWindowsMs(workerIds, nowMs = Date.now()) {
+  const ids = [...new Set((workerIds || []).filter(Boolean))];
+  const out = {};
+  if (ids.length === 0) return out;
+
+  const day = istDateStr(new Date(nowMs));
+
+  // Latest punch per worker in one round trip.
+  const punches = {};
+  try {
+    const { data } = await db
+      .from('attendance')
+      .select('worker_id, punch_in_time, punch_out_time')
+      .in('worker_id', ids)
+      .not('punch_in_time', 'is', null)
+      .order('worker_id', { ascending: true })
+      .order('punch_in_time', { ascending: false });
+    // Ordered by worker then punch_in desc, so the first row per worker is the
+    // newest punch. Later rows for the same worker are older days and are ignored.
+    for (const r of data || []) {
+      if (!punches[r.worker_id]) punches[r.worker_id] = r;
+    }
+  } catch (_) {
+    // attendance unreadable — everyone falls back to the configured shift.
+  }
+
+  // Worker shift overrides, one row per worker (no select('*')).
+  const shiftRows = {};
+  try {
+    const { data } = await db
+      .from('workers')
+      .select('id, shift_start_time, shift_end_time')
+      .in('id', ids);
+    for (const r of data || []) shiftRows[r.id] = r;
+  } catch (_) {
+    // fall through to org-wide office hours
+  }
+
+  // Org defaults are global, so at most two reads and they usually resolve from
+  // the settings model's own cache.
+  const needDefaultStart = Object.values(shiftRows).some((w) => !w?.shift_start_time);
+  const needDefaultEnd = Object.values(shiftRows).some((w) => !w?.shift_end_time);
+  let defStart = { hour: 10, minute: 0 };
+  let defEnd = { hour: 19, minute: 0 };
+  try {
+    if (needDefaultStart) {
+      const v = await getSetting('office_start_time');
+      defStart = parseHhMm(v, 10, 0);
+    }
+    if (needDefaultEnd) {
+      const v = await getSetting('office_end_time');
+      defEnd = parseHhMm(v, 19, 0);
+    }
+  } catch (_) {
+    // keep the hardcoded defaults
+  }
+
+  for (const id of ids) {
+    const row = shiftRows[id];
+    const start = parseHhMm(row?.shift_start_time, defStart.hour, defStart.minute);
+    const end = parseHhMm(row?.shift_end_time, defEnd.hour, defEnd.minute);
+    const cfgStart = istTimeMs(day, start.hour, start.minute);
+    const cfgEnd = istTimeMs(day, end.hour, end.minute);
+
+    const p = punches[id];
+    const punchIn = toMs(p?.punch_in_time);
+    const punchOut = toMs(p?.punch_out_time);
+    const hasAttendance = Number.isFinite(punchIn);
+
+    let startMs = hasAttendance ? punchIn : cfgStart;
+    let endMs = Number.isFinite(punchOut) ? punchOut : cfgEnd;
+
+    // A row written for an earlier day must not anchor today's window.
+    if (hasAttendance && istDateStr(new Date(punchIn)) !== day) {
+      startMs = cfgStart;
+      endMs = Number.isFinite(punchOut) && istDateStr(new Date(punchOut)) === day ? punchOut : cfgEnd;
+    }
+    if (!Number.isFinite(endMs) || endMs <= startMs) endMs = cfgEnd > startMs ? cfgEnd : startMs;
+
+    out[id] = { startMs, endMs, hasAttendance };
+  }
+
+  return out;
 }
 
 /**

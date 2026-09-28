@@ -5,12 +5,14 @@
 // earlier (default 900 MB) but only on *sustained* usage, so a single heavy
 // job that briefly needs headroom is not restarted.
 //
-// On a sustained overrun it signals SIGTERM (which PM2's autorestart catches)
-// so memory can never climb into OOM territory again — the app restarts in a
-// couple of seconds instead.
+// On a sustained overrun it signals SIGTERM, which the supervisor (PM2 in
+// production, nodemon under `npm run dev`) turns into a restart, so memory can
+// never climb into OOM territory again — the app restarts in a couple of seconds
+// instead.
 //
 // Env knobs:
-//   MEM_WATCHDOG_MB        limit in MB (default 900, must be < max_memory_restart)
+//   MEM_WATCHDOG_MB        limit in MB (default 900, must be < max_memory_restart;
+//                          0 disables the watchdog entirely)
 //   MEM_WATCHDOG_INTERVAL_MS  poll interval (default 5000)
 //   MEM_WATCHDOG_GRACE_MS     how long RSS may stay over before restart (default 20000)
 
@@ -20,7 +22,13 @@ export function startMemoryWatchdog(options = {}) {
   const graceMs = Number(options.graceMs ?? process.env.MEM_WATCHDOG_GRACE_MS ?? 20000);
   const limitBytes = limitMb * 1024 * 1024;
 
-  if (!limitBytes || limitBytes <= 0) return undefined;
+  if (!limitBytes || limitBytes <= 0) {
+    // Logged here rather than after the early return so "no ceiling" is visible
+    // in the boot log. Silence would leave a future memory growth looking like an
+    // unexplained problem with no guard in place.
+    console.log('[memoryWatchdog] disabled (MEM_WATCHDOG_MB=0) — no RSS ceiling enforced');
+    return undefined;
+  }
   const MB = 1024 * 1024;
 
   let overSince = 0;
@@ -51,9 +59,14 @@ export function startMemoryWatchdog(options = {}) {
 
     if (now - overSince < graceMs) return;
     clearInterval(timer);
+    // Name the actual supervisor rather than assuming PM2. Under `npm run dev`
+    // the process is nodemon, which reports this as "app crashed - waiting for
+    // file changes" — a message that reads like an unexplained fault when it is
+    // the watchdog working as designed.
+    const under = process.env.PM2_HOME || process.env.pm_id ? 'PM2' : 'the process supervisor';
     console.error(
       `[memoryWatchdog] RSS stayed above ${limitMb} MB for ${Math.round((now - overSince) / 1000)}s` +
-        ` — signalling SIGTERM so PM2 restarts the backend.`
+        ` — sending SIGTERM so ${under} restarts the backend.`
     );
     process.kill(process.pid, 'SIGTERM');
   }, intervalMs);
