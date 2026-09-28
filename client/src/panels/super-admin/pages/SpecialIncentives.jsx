@@ -7,7 +7,7 @@ import {
   CalendarBlank, FileText,
 } from '@phosphor-icons/react'
 
-// ─── Tokens (Sir ka Incentive visual language) ────────────
+// ─── Tokens (NGO wise Incentive visual language) ────────────
 const C = {
   text: '#10213D',
   muted: '#6D7E95',
@@ -64,6 +64,35 @@ const fmtDate = (d) => {
   const dt = new Date(d)
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+const fmtTimeOnly = (d) => {
+  if (!d) return '—'
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+}
+// Never negative: a bad end_at pair must not render a negative duration.
+const fmtElapsed = (start, end) => {
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (!Number.isFinite(ms) || ms <= 0) return ''
+  const mins = Math.round(ms / 60000)
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (!h) return `${m}m`
+  return m ? `${h}h ${m}m` : `${h}h`
+}
+// "28 Sept 2026, 10:03 am → 7:00 pm · 8h 57m". Renders in browser-local time on
+// purpose: the modal builds start_at/end_at from local wall clock (todayAt →
+// toISOString), so local rendering round-trips. Do not add an IST offset here.
+const fmtSpan = (start, end) => {
+  if (!start) return '—'
+  const s = new Date(start)
+  if (Number.isNaN(s.getTime())) return '—'
+  const e = end ? new Date(end) : null
+  if (!e || Number.isNaN(e.getTime())) return `${fmtDate(start)} → —`
+  const right = s.toDateString() === e.toDateString() ? fmtTimeOnly(end) : fmtDate(end)
+  const dur = fmtElapsed(start, end)
+  return `${fmtDate(start)} → ${right}${dur ? ` · ${dur}` : ''}`
 }
 const pad2 = (n) => String(n).padStart(2, '0')
 const todayLocal = () => {
@@ -293,6 +322,10 @@ function HistoryRow({ inc, busyId, onEdit, onCancel, onArchive, onDelete, onSent
           </div>
           <div style={{ fontSize: 11, color: C.muted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {inc.ngo_name || 'All NGOs'} · {money(inc.target_amount)} target · {money(inc.incentive_amount)} reward
+          </div>
+          <div title={`${fmtDate(inc.start_at)} → ${fmtDate(inc.end_at)}`} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted, marginTop: 2 }}>
+            <ClockCounterClockwise size={11} weight="bold" style={{ flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtSpan(inc.start_at, inc.end_at)}</span>
           </div>
         </div>
         <StatusPill status={inc.status} />
