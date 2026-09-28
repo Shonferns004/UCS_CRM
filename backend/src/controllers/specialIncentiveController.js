@@ -66,7 +66,7 @@ export async function generateCongratsMessage({ winnerName, title, amount }) {
         content:
           'You write SUPER ENERGETIC, hype-filled congratulations (2-3 sentences) for FRO fundraising officers who won a collection incentive at a donation NGO. Mention the winner by name, the incentive and the prize. Loud, proud, electrifying — like a stadium celebration. Use at most one emoji. Plain text only, no quotes, no markdown.',
       },
-      { role: 'user', content: `Winner: ${winnerName || 'The winner'}\nIncentive: ${title || 'the special incentive'}\nPrize: ₹${Number(amount) || 0}` },
+      { role: 'user', content: `Winner: ${winnerName || 'The winner'}\nIncentive: ${title || 'the NGO wise incentive'}\nPrize: ₹${Number(amount) || 0}` },
     ],
     model: CONGRATS_MODEL,
     max_tokens: 160,

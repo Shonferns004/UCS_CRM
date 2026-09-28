@@ -452,7 +452,7 @@ function start() {
   // froDonorLogModel, so the poll is only a safety net. Each refresh runs a
   // window aggregation + per-worker upserts that broadcast realtime events.
   cronJobs.push(cron.schedule('50 */5 * * * *', () => runIncentiveNoOverlap()));
-  console.log('Scheduled: 5-min special incentive ("Sir ka Incentive") live tracking');
+  console.log('Scheduled: 5-min special incentive ("NGO wise Incentive") live tracking');
 
   console.log('Scheduled: 5-min check for expired lead transfers');
 

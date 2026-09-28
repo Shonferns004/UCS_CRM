@@ -71,7 +71,7 @@ const NAV_GROUPS = [
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg> },
       { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-      { id: 'incentives', path: '/accounts/incentives', label: 'Special Incentive',
+      { id: 'incentives', path: '/accounts/incentives', label: 'NGO wise Incentive',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
         match: (p) => p.startsWith('/accounts/incentives') },
     ],

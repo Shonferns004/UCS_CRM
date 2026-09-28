@@ -2,11 +2,11 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { Trophy, ChartBar } from '@phosphor-icons/react'
 
 const TABS = [
-  { to: 'sir', label: 'Special Incentive', Icon: Trophy },
+  { to: 'sir', label: 'NGO wise Incentive', Icon: Trophy },
   { to: 'lead', label: 'Lead Incentive', Icon: ChartBar },
 ]
 
-// Merged "Incentives" page: Sir ka Incentive + Lead Incentive as tabs.
+// Merged "Incentives" page: NGO wise Incentive + Lead Incentive as tabs.
 // Each tab keeps its own page, data logic and realtime behavior untouched.
 export default function IncentivesPage() {
   return (
