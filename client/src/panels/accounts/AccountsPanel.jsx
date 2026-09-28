@@ -366,11 +366,6 @@ export default function AccountsPanel() {
         isActive={navIsActive}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        account={{
-          name: userName,
-          onOpenSettings: () => setShowSettings(true),
-          onLogout: logout,
-        }}
       />
       <div className="main">
         <header className="topbar">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation } from 'react-router-dom'
-import { ChevronRight, MoreHorizontal, Settings, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import ChatNavBadge from '../../../components/chat/ChatNavBadge'
 import './accountsSidebar.css'
 
@@ -101,7 +101,7 @@ function useOpenGroups(groups, isActive) {
    sidebar and anchored to a trigger, so they share one implementation.
    `anchor` is the trigger element itself, captured at the moment it was
    activated, rather than a ref read during render. */
-function useAnchoredPopover({ open, anchor, onDismiss, placement = 'right' }) {
+function useAnchoredPopover({ open, anchor, onDismiss }) {
   const elRef = useRef(null)
   const [box, setBox] = useState(null)
 
@@ -127,35 +127,26 @@ function useAnchoredPopover({ open, anchor, onDismiss, placement = 'right' }) {
       const maxHeight = Math.min(natural, Math.max(vh - VIEWPORT_MARGIN * 2, 0))
       const height = Math.min(natural, maxHeight)
 
-      let left
+      /* Anchor to the rail's right edge rather than the trigger's, so the
+         popover sits at a consistent offset instead of tracking the icon. */
+      const rail = anchor.closest('.sidebar')
+      const railRight = rail ? rail.getBoundingClientRect().right : a.right
+      let left = railRight + POPOVER_GAP
+      const maxLeft = vw - natural - VIEWPORT_MARGIN
+      if (left > maxLeft) left = Math.max(VIEWPORT_MARGIN, maxLeft)
+
+      /* Centred on the trigger, then pushed clear of it, then clamped. When
+         neither side fits, the popover takes the roomier edge. */
+      const minTop = a.bottom + POPOVER_GAP
+      const maxTop = Math.max(VIEWPORT_MARGIN, vh - height - VIEWPORT_MARGIN)
       let top
-
-      if (placement === 'below') {
-        left = Math.max(VIEWPORT_MARGIN, Math.min(a.right, vw - natural - VIEWPORT_MARGIN))
-        const below = a.bottom + POPOVER_GAP
-        const fitsBelow = below + height <= vh - VIEWPORT_MARGIN
-        top = fitsBelow ? below : Math.max(VIEWPORT_MARGIN, a.top - POPOVER_GAP - height)
+      if (maxTop < Math.max(VIEWPORT_MARGIN, minTop)) {
+        const above = a.top - POPOVER_GAP - height
+        top = above >= VIEWPORT_MARGIN ? above : Math.min(maxTop, a.bottom + POPOVER_GAP)
       } else {
-        /* Anchor to the rail's right edge rather than the trigger's, so the
-           popover sits at a consistent offset instead of tracking the icon. */
-        const rail = anchor.closest('.sidebar')
-        const railRight = rail ? rail.getBoundingClientRect().right : a.right
-        left = railRight + POPOVER_GAP
-        const maxLeft = vw - natural - VIEWPORT_MARGIN
-        if (left > maxLeft) left = Math.max(VIEWPORT_MARGIN, maxLeft)
-
-        /* Centred on the trigger, then pushed clear of it, then clamped. When
-           neither side fits, the popover takes the roomier edge. */
-        const minTop = a.bottom + POPOVER_GAP
-        const maxTop = Math.max(VIEWPORT_MARGIN, vh - height - VIEWPORT_MARGIN)
-        if (maxTop < Math.max(VIEWPORT_MARGIN, minTop)) {
-          const above = a.top - POPOVER_GAP - height
-          top = above >= VIEWPORT_MARGIN ? above : Math.min(maxTop, a.bottom + POPOVER_GAP)
-        } else {
-          top = Math.min(Math.max(a.top + a.height / 2 - height / 2, minTop), maxTop)
-        }
-        if (top < VIEWPORT_MARGIN) top = VIEWPORT_MARGIN
+        top = Math.min(Math.max(a.top + a.height / 2 - height / 2, minTop), maxTop)
       }
+      if (top < VIEWPORT_MARGIN) top = VIEWPORT_MARGIN
 
       const next = { left: Math.round(left), top: Math.round(top), maxHeight, ready: true }
       setBox((prev) => (
@@ -195,7 +186,7 @@ function useAnchoredPopover({ open, anchor, onDismiss, placement = 'right' }) {
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open, anchor, placement])
+  }, [open, anchor])
 
   return [elRef, box]
 }
@@ -270,17 +261,14 @@ function NavigationItem({ item, isActive, pathname, rail, onClose, openGroups, o
   )
 }
 
-export default function AccountsSidebar({ sections, isActive, open, onClose, account }) {
+export default function AccountsSidebar({ sections, isActive, open, onClose }) {
   const { pathname } = useLocation()
   const sidebarRef = useRef(null)
-  const dotsRef = useRef(null)
   const popoverId = useId()
-  const accountMenuId = useId()
 
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSED_KEY))
   const [popoverGroup, setPopoverGroup] = useState(null)
   const [popoverAnchor, setPopoverAnchor] = useState(null)
-  const [accountOpen, setAccountOpen] = useState(false)
 
   const isMobile = useIsMobile()
   const rail = collapsed && !isMobile
@@ -296,19 +284,9 @@ export default function AccountsSidebar({ sections, isActive, open, onClose, acc
     anchor: popoverAnchor,
     onDismiss: dismissPopover,
   })
-  const [accountElRef, accountBox] = useAnchoredPopover({
-    open: accountOpen,
-    anchor: dotsRef.current,
-    onDismiss: useCallback(() => setAccountOpen(false), []),
-    placement: 'below',
-  })
 
-  /* A route change, or collapsing out of the rail, closes whatever is
-     floating. */
-  useEffect(() => {
-    dismissPopover()
-    setAccountOpen(false)
-  }, [pathname, dismissPopover])
+  /* A route change, or collapsing out of the rail, closes the open submenu. */
+  useEffect(() => { dismissPopover() }, [pathname, dismissPopover])
 
   useEffect(() => { if (!rail) dismissPopover() }, [rail, dismissPopover])
 
@@ -357,27 +335,15 @@ export default function AccountsSidebar({ sections, isActive, open, onClose, acc
             <span>Accounts Panel</span>
           </div>
           <button
-            ref={dotsRef}
             type="button"
-            className="sb-icon-btn"
-            aria-label="Account options"
-            aria-expanded={accountOpen}
-            aria-controls={accountMenuId}
-            onClick={() => setAccountOpen((v) => !v)}
+            className="sb-collapse"
+            aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!rail}
+            onClick={toggleCollapsed}
           >
-            <MoreHorizontal size={16} />
+            {rail ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
           </button>
         </div>
-
-        <button
-          type="button"
-          className="sb-collapse sb-icon-btn"
-          aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!rail}
-          onClick={toggleCollapsed}
-        >
-          {rail ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-        </button>
 
         <nav className="sidebar-nav" aria-label="Accounts navigation">
           {sections.map((section) => (
@@ -431,31 +397,6 @@ export default function AccountsSidebar({ sections, isActive, open, onClose, acc
             )
           })}
         </nav>,
-        portalTarget,
-      )}
-
-      {accountOpen && createPortal(
-        <div
-          ref={accountElRef}
-          id={accountMenuId}
-          className="ac-account-menu"
-          style={{ left: accountBox?.left ?? 0, top: accountBox?.top ?? 0 }}
-        >
-          <div className="ac-account-head">
-            <strong>{account.name}</strong>
-            <span>Accounts</span>
-          </div>
-          <div className="ac-account-sep" />
-          <button type="button" onClick={() => { setAccountOpen(false); account.onOpenSettings() }}>
-            <Settings size={15} />
-            Settings
-          </button>
-          <div className="ac-account-sep" />
-          <button type="button" onClick={() => { setAccountOpen(false); account.onLogout() }}>
-            <LogOut size={15} />
-            Sign out
-          </button>
-        </div>,
         portalTarget,
       )}
     </>
