@@ -22,6 +22,7 @@ import {
   getShiftWindowMs,
   withinShift,
   liveIdleSeconds,
+  effectiveIdleSeconds,
   openIdleSeconds,
   deadlinePassed,
   dispositionDueMs,
@@ -51,7 +52,7 @@ import {
   inRange,
 } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
-import { commitIdleOnExit } from '../services/froIdleCommit.js';
+import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
@@ -782,12 +783,18 @@ export const getDashboard = async (req, res) => {
 export const getMyPerformance = async (req, res) => {
   try {
     const workerId = req.user.id;
-    // Work-as: the token subject is the impersonated owner, but the strip paints
-    // the ACTING operator's own performance (their logs and leaderboard entry).
-    // Station scope and the live-status row stay on the owner: that is the
-    // queue being worked and the row the heartbeat actually writes to.
+    // The strip always paints the FRO whose panel this is. Under work-as that is
+    // the impersonated target — the token subject — because every part of the
+    // strip is about that FRO: their queue, their logs, their leaderboard entry,
+    // their live row. It used to paint the ACTING OPERATOR instead, which
+    // spliced an operator's leaderboard entry onto the target FRO's worked and
+    // idle hours. An operator is not on an FRO board at all, so that half of the
+    // line was always garbage — a rank with no matching calls and 0% performance
+    // — while the hours came from the real FRO's row, putting two different
+    // people on one line.
     const isWorkAs = !!(req.user.impersonation && req.user.imposter_id != null);
-    const identityWorkerId = isWorkAs ? req.user.imposter_id : req.user.id;
+    const actingOperatorId = isWorkAs ? req.user.imposter_id : null;
+    const identityWorkerId = workerId;
     const worker = await getWorkerBySession(req.user);
     const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const istOffset = 5.5 * 60 * 60 * 1000;
@@ -816,9 +823,10 @@ export const getMyPerformance = async (req, res) => {
 
     const teamConnected = {};
     const teamLogs = {};
-    const currentName = isWorkAs
-      ? (req.user.imposter_name || worker?.name || logs?.find(l => String(l.fro_worker_id) === String(identityWorkerId))?.workers?.name || null)
-      : (worker?.name || logs?.find(l => String(l.fro_worker_id) === String(workerId))?.workers?.name || null);
+    // Name the FRO being painted, never the operator driving the session.
+    const currentName = worker?.name
+      || logs?.find(l => String(l.fro_worker_id) === String(identityWorkerId))?.workers?.name
+      || null;
     for (const log of logs || []) {
       if (!log.fro_worker_id || log.workers?.is_test === true) continue;
       const id = String(log.fro_worker_id);
@@ -890,26 +898,51 @@ export const getMyPerformance = async (req, res) => {
       // auth_sessions may be absent until migration 125 — fall back to shift start.
     }
     const workedEndMs = Math.min(nowMs, officeEndMs);
-    // Worked attribution: live counters accrue on the COVERED FRO's row (the one
-    // the acting operator's heartbeat writes to). That time belongs to the acting
-    // operator — when the painted identity is NOT that operator (i.e. the covered
-    // owner themselves, absent from the field), they get 0 worked. An absent FRO
-    // must not accrue hours from coverage.
-    const coveredByOther = liveStatus?.work_as_operator_id != null
-      && String(liveStatus.work_as_operator_id) !== String(identityWorkerId);
+    // Worked attribution: live counters accrue on the covered FRO's row — the one
+    // the acting operator's heartbeat writes to — and the strip now paints that
+    // same FRO, so the hours line up with the counters that produced it. An FRO
+    // who is absent and merely being covered by someone else still gets 0 worked:
+    // they must not accrue hours from another person's shift.
+    // "Covered by someone else" has to be judged against the operator driving
+    // THIS session, not against the painted identity. The strip now paints the
+    // target FRO, but while that very operator is the one covering them the work
+    // really is being done and the hours must show. Comparing against
+    // identityWorkerId made every work-as strip look like it was covered by a
+    // stranger and zeroed worked and idle to nothing.
+    const coverOperatorId = liveStatus?.work_as_operator_id;
+    const coveredByOther = coverOperatorId != null
+      && String(coverOperatorId) !== String(actingOperatorId ?? identityWorkerId);
     const workedSeconds = coveredByOther
       ? 0
       : Math.max(0, Math.round((workedEndMs - loginAnchorMs) / 1000));
     const workedTarget = 8 * 3600;
 
     // Idle for the FRO's own strip: committed + any period still running,
-    // clamped to their shift. Counted on the covered FRO's row (where the
-    // counters live), and suppressed when someone else is covering it — an
-    // absent FRO must not be shown as idling on someone else's shift.
+    // clamped to their shift — the same effectiveIdleSeconds() the NGO-admin
+    // telecaller table uses for this worker, so the two surfaces cannot show
+    // different numbers for the same person at the same moment.
+    //
+    // The coveredByOther suppression that used to live here is gone on purpose.
+    // It zeroed the figure whenever a third party looked at a covered FRO, so
+    // the strip read 0 while the admin table read the real total for the very
+    // same row. That row is this FRO's own committed counter; the admin screen
+    // already settled the rule ("every row renders its own committed counter
+    // and streak, nothing is inherited from a work-as covered row"), so the
+    // strip follows it rather than keeping a second opinion.
     const idleShift = await getShiftWindowMs(workerId, nowMs);
-    const idleSeconds = coveredByOther
-      ? 0
-      : liveIdleSeconds(liveStatus || {}, idleShift, nowMs);
+    if (liveStatus && !liveStatus.idle_since
+      && !liveStatus.is_paused && liveStatus.status !== 'meeting') {
+      const dueNow = dispositionDueMs(liveStatus);
+      if (Number.isFinite(dueNow) && nowMs >= dueNow
+        && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))
+        && withinShift(idleShift, nowMs)) {
+        if (await stampLapsedIdle(workerId, nowMs)) {
+          liveStatus.idle_since = liveStatus.disposition_due_at;
+          liveStatus.status = 'idle';
+        }
+      }
+    }
+    const idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
 
     return res.json({
       worker: { id: identityWorkerId, name: currentName },
@@ -4813,6 +4846,19 @@ export const getMyLiveStatus = async (req, res) => {
     // or an expired deadline would flash the Resume overlay on every login.
     // Read the row as if that heartbeat had already cleaned it.
     row = withoutStaleIdle(row, shift, nowMs);
+    // The window lapsed but nothing ever pushed the stamp, so the row's stored
+    // total still disagrees with the stretch being derived from the deadline.
+    // Settle it now so this panel and every stored-column reader agree. Guarded
+    // locally first so the common cases cost no extra query.
+    if (!row?.idle_since && !row?.is_paused && row?.status !== 'meeting') {
+      const dueNow = dispositionDueMs(row);
+      if (Number.isFinite(dueNow) && nowMs >= dueNow
+        && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))
+        && withinShift(shift, nowMs)) {
+        const stamped = await stampLapsedIdle(req.user.id, nowMs);
+        if (stamped) row = { ...row, idle_since: row.disposition_due_at, status: 'idle' };
+      }
+    }
     // The clock is NOT armed here. Signing in is not work, so handing out a
     // 4-minute window on load meant the countdown started before the FRO had
     // done anything — and the overlay that fires when it expires locked them out

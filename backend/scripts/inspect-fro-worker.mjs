@@ -72,14 +72,15 @@ for (const w of workers) {
   console.log(`     inShift = ${withinShift(shift, nowMs)}`);
 
   const { rows: att } = await client.query(
-    `SELECT * FROM attendance WHERE worker_id = $1 AND punch_in >= $2::timestamptz - interval '2 days'
-      ORDER BY punch_in DESC LIMIT 6`,
+    `SELECT punch_in_time, punch_out_time FROM attendance
+      WHERE worker_id = $1 AND punch_in_time >= $2::timestamptz - interval '2 days'
+      ORDER BY punch_in_time DESC LIMIT 6`,
     [w.id, new Date(nowMs).toISOString()]
   );
   console.log('  -- recent attendance (this window is the thing that moves) --');
-  if (!att.length) console.log('     (no attendance rows in the last 2 days → configured office hours are used)');
+  if (!att.length) console.log('     (no attendance rows in the last 2 days -> configured office hours are used)');
   for (const a of att) {
-    console.log(`     punch_in=${a.punch_in || '-'}  punch_out=${a.punch_out || '-'}`);
+    console.log(`     punch_in_time=${a.punch_in_time || '-'}  punch_out_time=${a.punch_out_time || '-'}`);
   }
 
   const dueMs = dispositionDueMs(row);
