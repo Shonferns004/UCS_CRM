@@ -27,6 +27,18 @@ const ownNgoId = (req) => {
   return null;
 };
 
+// Static fallback for pickEventColumns, used only when the information_schema
+// query itself fails. Mirrors migration 071 plus the ALTERs in 072 and 115.
+// Without this the fallback branch below would throw a ReferenceError and 500
+// every event write.
+const EVENT_COLUMNS = new Set([
+  'name', 'category', 'activity_name', 'ngo_id', 'sector_id', 'activity_id',
+  'date', 'start_time', 'end_time', 'venue', 'gps_location', 'district', 'state',
+  'organizer', 'event_manager', 'coordinator', 'csr_partner', 'donor',
+  'funding_source', 'expected_beneficiaries', 'budget', 'description', 'notes',
+  'status', 'approval_status', 'priority', 'banner', 'created_by', 'volunteers',
+]);
+
 // Only pass through columns that actually exist on event_head_events. The live
 // DB is the source of truth (it may lag the codebase's full column set), so we
 // query real columns once per request and drop anything else. A static fallback
@@ -50,16 +62,17 @@ const pickEventColumns = async (obj) => {
 
 // Load NGO/Sector/Activity lookup maps once, shared by event views.
 const buildEventContextMaps = async () => {
-  const [ngos, sectors, activities] = await Promise.all([
+  const [ngos, sectors, activities, inactiveVolunteers] = await Promise.all([
     EventHead.getAllEventHeadNgos().catch(() => []),
     EventHead.getAllEventHeadSectors().catch(() => []),
     EventHead.getAllActivities().catch(() => []),
+    EventHead.getInactiveVolunteerKeys().catch(() => null),
   ]);
   const ngoMap = {}; for (const n of ngos) ngoMap[n.id] = n.name || n.code;
   const ngoCodeMap = {}; for (const n of ngos) ngoCodeMap[n.id] = (n.code || n.name || '').toLowerCase();
   const sectorMap = {}; for (const s of sectors) sectorMap[s.id] = s.name;
   const activityMap = {}; for (const a of activities) activityMap[a.id] = a.name;
-  return { ngoMap, ngoCodeMap, sectorMap, activityMap };
+  return { ngoMap, ngoCodeMap, sectorMap, activityMap, inactiveVolunteers };
 };
 
 // Load activities for a set of events from the join table (falling back to the
@@ -79,11 +92,49 @@ const loadActivitiesForEvents = async (events, activityMap) => {
   return map;
 };
 
+// Drop Voluntary entries for people the HR panel has marked inactive (absconded,
+// offboarded, resigned, ...), so a volunteer removed in HR stops showing on the
+// events they had been assigned to.
+//
+// Only "Volunteer" entries are considered — Management names come from the HR
+// employees file, not the workers table, so they are never touched. An entry is
+// only removed when it positively matches an inactive worker, by id when the
+// picker saved one and otherwise by normalised name. Names that match no worker
+// are left as they are.
+const pruneInactiveVolunteers = (volunteers, inactive) => {
+  if (!Array.isArray(volunteers) || !volunteers.length) return volunteers;
+  if (!inactive || (!inactive.ids?.size && !inactive.names?.size)) return volunteers;
+  const key = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return volunteers.filter((v) => {
+    if (!v || v.team === 'Management') return true;
+    if (v.id != null && inactive.ids.has(String(v.id))) return false;
+    if (v.name && inactive.names.has(key(v.name))) return false;
+    return true;
+  });
+};
+
+// Write the pruned volunteer list back so an event's stored selection stops
+// naming people who have since been marked inactive in HR. Silently skipped
+// when nothing changed, and never allowed to break the surrounding request.
+const persistVolunteerCleanup = async (event, ctx) => {
+  try {
+    if (!event || event.id == null) return;
+    const before = Array.isArray(event.volunteers) ? event.volunteers : [];
+    const after = pruneInactiveVolunteers(before, ctx.inactiveVolunteers);
+    if (after === before || after.length === before.length) return;
+    event.volunteers = after;
+    await EventHead.updateEventHeadEvent(event.id, { volunteers: after });
+  } catch (e) {
+    console.warn('volunteer cleanup skipped for event', event && event.id, '-', e.message || e);
+  }
+};
+
 const enrichEvent = (ev, ctx) => ({
   ...ev,
   ngo_name: ev.ngo_id ? ctx.ngoMap[ev.ngo_id] || null : null,
   sector_name: ev.sector_id ? ctx.sectorMap[ev.sector_id] || null : null,
   activity_name: ev.activity_id ? ctx.activityMap[ev.activity_id] || null : null,
+  volunteers: pruneInactiveVolunteers(ev.volunteers, ctx.inactiveVolunteers),
 });
 
 // Async enrichment that also attaches the activities[] array (multi-activity).
@@ -107,11 +158,16 @@ const resolveActivityIds = (body) => {
 
 // Validate the event's NGO ➜ Sector ➜ Activity relationship.
 // An activity belongs to exactly one sector, and either to one NGO or to "All NGOs".
+// A draft is explicitly allowed to be incomplete: only the event name and its NGO
+// are mandatory, so "Save Draft" can be pressed before the sector is chosen. The
+// client must opt in by sending status: 'Draft' — a normal create (no status sent)
+// still has to satisfy every requirement.
 const validateEventRelations = async (body) => {
+  const isDraft = body.status === 'Draft';
   const missing = [];
   if (!body.name) missing.push('event name');
   if (!body.ngo_id) missing.push('NGO');
-  if (!body.sector_id) missing.push('sector');
+  if (!isDraft && !body.sector_id) missing.push('sector');
   if (missing.length) return { error: { message: `Required fields missing: ${missing.join(', ')}` } };
 
   const activityIds = resolveActivityIds(body);
@@ -208,6 +264,9 @@ export const updateEventHeadEvent = async (req, res) => {
     const event = await EventHead.updateEventHeadEvent(req.params.id, updates);
     if (activityIds.length) await EventHead.setEventHeadActivities(event.id, activityIds);
     const ctx = await buildEventContextMaps();
+    // Persist the cleanup too, so the stored list self-heals instead of only
+    // being hidden on read. Best effort: a failure here must not fail the save.
+    await persistVolunteerCleanup(event, ctx);
     return res.json((await enrichEvents([event], ctx))[0]);
   } catch (error) {
     if (error.code === '23503') return res.status(400).json({ message: 'NGO, sector or activity reference does not exist' });
@@ -293,6 +352,7 @@ const NOT_HAPPENING = ['Cancelled', 'Postponed'];
 const ATTENTION_LABELS = {
   overdue: 'Approved but overdue — mark completed',
   approval: 'Pending approval',
+  draft: 'Draft — not submitted yet',
   info: 'Missing venue or start time',
 };
 
@@ -391,7 +451,9 @@ export const getEventHeadDashboardStats = async (req, res) => {
 
     const attention = [];
     for (const e of core) {
-      if (['Draft', 'Submitted'].includes(e.status)) {
+      if (e.status === 'Draft') {
+        attention.push({ ...e, attention_type: 'draft', attention_reason: ATTENTION_LABELS.draft });
+      } else if (e.status === 'Submitted') {
         attention.push({ ...e, attention_type: 'approval', attention_reason: ATTENTION_LABELS.approval });
       } else if (e.status === 'Approved' && e.date && e.date < todayStr) {
         attention.push({ ...e, attention_type: 'overdue', attention_reason: ATTENTION_LABELS.overdue });
@@ -399,7 +461,7 @@ export const getEventHeadDashboardStats = async (req, res) => {
         attention.push({ ...e, attention_type: 'info', attention_reason: ATTENTION_LABELS.info });
       }
     }
-    const attentionRank = { overdue: 0, info: 1, approval: 2 };
+    const attentionRank = { overdue: 0, info: 1, approval: 2, draft: 3 };
     attention.sort((a, b) => attentionRank[a.attention_type] - attentionRank[b.attention_type] || byDate(a, b));
 
     const kpis = {

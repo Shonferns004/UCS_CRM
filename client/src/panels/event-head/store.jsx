@@ -566,6 +566,13 @@ export const CHECKLIST_ITEMS = [
   'Photographer Assigned','Vendor Confirmed','Beneficiary List Ready','Donation Material Ready'
 ]
 
+// Physical material to tick off for the event, shown as its own group under the
+// General Checklist. Kept separate from CHECKLIST_ITEMS because these are things
+// to carry, not steps to complete.
+export const CHECKLIST_MATERIALS = [
+  'Table','Canopy','Banner','Sticker','Standee','Rasi (Woolen Blanket)','Measuring Tape','T-Shirt'
+]
+
 export const ASSET_TYPES = [
   'Tables','Chairs','Canopy','Stage','Sound System','Mic','Speakers','Projector',
   'Laptop','Printer','Banner','Standee','Backdrop','Generator','Extension Boards',

@@ -246,7 +246,7 @@ export default function CalendarGrid({
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginTop: 0 }}>
+    <div className="eh-week-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginTop: 0 }}>
       {DAYS.map(d => (
         <div
           key={d}
