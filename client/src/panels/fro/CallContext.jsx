@@ -40,6 +40,9 @@ export function CallProvider({ children, userId, operatorId }) {
   const [isIdle, setIsIdle] = useState(false)
   const [idleSecondsToday, setIdleSecondsToday] = useState(0)
   const [inShift, setInShift] = useState(true)
+  // Mirrored into a ref so the 1s countdown tick can read it without being
+  // torn down and rebuilt on every shift-boundary change.
+  const inShiftRef = useRef(true); inShiftRef.current = inShift
   const dispositionDueRef = useRef(null); dispositionDueRef.current = dispositionDueAt
   const isIdleRef = useRef(false); isIdleRef.current = isIdle
   // The server flipped us idle between heartbeats; push one so the row records
@@ -89,7 +92,10 @@ export function CallProvider({ children, userId, operatorId }) {
       setDispositionDueAt(s.disposition_due_at || null)
       dispositionDueRef.current = s.disposition_due_at || null
     }
-    if (typeof s.in_shift === 'boolean') setInShift(s.in_shift)
+    if (typeof s.in_shift === 'boolean') {
+      setInShift(s.in_shift)
+      inShiftRef.current = s.in_shift
+    }
     if (typeof s.today_idle_seconds === 'number') setIdleSecondsToday(s.today_idle_seconds)
     if (typeof s.is_idle === 'boolean') {
       setIsIdle(s.is_idle)
@@ -180,7 +186,12 @@ export function CallProvider({ children, userId, operatorId }) {
       setSecondsLeft(left)
       // Zero while paused or in a meeting is expected — the server holds the
       // deadline back for those, so never flip idle on it.
-      if (left === 0 && !pausedRef.current && !meetingActiveRef.current && !isIdleRef.current) {
+      //
+      // The in_shift guard matters as much as the others. A deadline from an
+      // earlier shift is always already past, so left is 0 on arrival; without
+      // this the panel declared itself idle off the clock, pushed a heartbeat
+      // saying so, and fought the server's own answer on every tick.
+      if (left === 0 && !pausedRef.current && !meetingActiveRef.current && !isIdleRef.current && inShiftRef.current) {
         setIsIdle(true)
         isIdleRef.current = true
         // Tell the server now instead of waiting for the next heartbeat, so

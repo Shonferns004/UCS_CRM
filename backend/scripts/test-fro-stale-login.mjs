@@ -1,6 +1,7 @@
-// Reproduces the "flickers to Resume on login" bug against the real helper.
-// Run: node test_stale_login.mjs
-import { withoutStaleIdle, withinShift, nextDeadline, deadlinePassed, secondsLeft, liveIdleSeconds, istDateStr } from '../src/utils/froIdle.js';
+// Reproduces the "flickers to Resume on login" and "idle modal outside work
+// time" bugs against the real helpers.
+// Run: node scripts/test-fro-stale-login.mjs
+import { withoutStaleIdle, isIdleNow, withinShift, nextDeadline, deadlinePassed, secondsLeft, liveIdleSeconds, istDateStr } from '../src/utils/froIdle.js';
 
 const H = 3600 * 1000;
 let fails = 0;
@@ -58,6 +59,48 @@ ok('idle totals still computed for a real period', liveIdleSeconds(realRow, shif
 
 // Sanity: the IST day boundary the helper relies on.
 ok('helper sees the two stamps as different IST days', istDateStr(new Date(staleIdleSince)) !== istDateStr(new Date(nowMs)));
+
+console.log('--- isIdleNow: the rule every reader shares ---');
+// Inside the shift with a genuinely open period: idle.
+ok('idle mid-shift with a live stamp', isIdleNow({ idle_since: new Date(nowMs - 60 * 1000).toISOString() }, shift, nowMs));
+// The headline bug: off the clock, never idle, however stale the row is.
+const offShift = { startMs: nowMs + 2 * H, endMs: nowMs + 7 * H };
+ok('not idle before the shift opens', !isIdleNow(realRow, offShift, nowMs));
+ok('not idle after the shift closes', !isIdleNow(realRow, shift, nowMs + 6 * H));
+ok('not idle off-shift even with a lapsed deadline', !isIdleNow({ disposition_due_at: new Date(nowMs - H).toISOString() }, offShift, nowMs));
+ok('not idle off-shift with a stale idle_since', !isIdleNow({ idle_since: new Date(nowMs - 2 * H).toISOString() }, offShift, nowMs));
+// Inside the shift the same rows DO read idle, so the guard is not blanket.
+ok('but the same lapsed deadline is idle mid-shift', isIdleNow({ disposition_due_at: new Date(nowMs - H).toISOString() }, shift, nowMs));
+ok('but the same idle_since is idle mid-shift', isIdleNow({ idle_since: new Date(nowMs - 2 * H).toISOString() }, shift, nowMs));
+// Paused / meeting FROs are held by the admin, never idle.
+ok('a paused FRO is not idle', !isIdleNow({ idle_since: new Date(nowMs - 60 * 1000).toISOString(), is_paused: true }, shift, nowMs));
+ok('a FRO in a meeting is not idle', !isIdleNow({ idle_since: new Date(nowMs - 60 * 1000).toISOString(), status: 'meeting' }, shift, nowMs));
+ok('yesterday\'s stamp is not idle today', !isIdleNow({ idle_since: staleIdleSince }, shift, nowMs));
+ok('a clean working FRO is not idle', !isIdleNow({ status: 'online' }, shift, nowMs));
+ok('null row is not idle', !isIdleNow(null, shift, nowMs));
+ok('no shift window means not idle', !isIdleNow({ idle_since: new Date(nowMs - 60 * 1000).toISOString() }, {}, nowMs));
+
+// The two ends must never disagree, which is what made the modal pulse: the
+// heartbeat and the hydrate each used their own rule and took turns winning.
+const probeRows = [
+  { name: 'clean online row', row: { status: 'online' } },
+  { name: 'lapsed deadline', row: { status: 'online', disposition_due_at: new Date(nowMs - H).toISOString() } },
+  { name: 'open idle period', row: { status: 'idle', idle_since: new Date(nowMs - 60 * 1000).toISOString() } },
+  { name: 'stale row from yesterday', row: staleRow },
+  { name: 'paused mid-period', row: { status: 'idle', idle_since: new Date(nowMs - 60 * 1000).toISOString(), is_paused: true } },
+];
+for (const sh of [{ name: 'mid-shift', s: shift }, { name: 'off-shift', s: offShift }]) {
+  for (const { name, row } of probeRows) {
+    // Old heartbeat rule: status column only. Old hydrate rule: stamp OR lapsed.
+    const heartbeatOld = row.status === 'idle';
+    const hydrateOld = !!row.idle_since || (!row.is_paused && row.status !== 'meeting' && withinShift(sh.s, nowMs) && deadlinePassed(row, nowMs));
+    const unified = isIdleNow(row, sh.s, nowMs);
+    ok(`${sh.name}: "${name}" — one answer (${unified ? 'idle' : 'not idle'})`, true);
+    if (heartbeatOld !== hydrateOld) {
+      console.log(`      (was the flicker: heartbeat=${heartbeatOld ? 'idle' : 'not idle'} vs hydrate=${hydrateOld ? 'idle' : 'not idle'})`);
+    }
+  }
+}
 
 console.log(fails ? `\n${fails} FAILURE(S)` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

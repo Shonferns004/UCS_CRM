@@ -29,6 +29,7 @@ import {
   secondsLeft,
   istDateStr,
   withoutStaleIdle,
+  isIdleNow,
 } from '../utils/froIdle.js';
 import {
   createDonorLog,
@@ -929,12 +930,8 @@ export const getMyPerformance = async (req, res) => {
       idle_minutes: Math.floor(idleSeconds / 60),
       // A lapsed deadline counts as idle even before the next heartbeat has
       // stamped idle_since, so the badge and the number can never disagree.
-      is_idle: !coveredByOther && (!!liveStatus?.idle_since || (
-        !liveStatus?.is_paused
-        && liveStatus?.status !== 'meeting'
-        && withinShift(idleShift, nowMs)
-        && deadlinePassed(liveStatus, nowMs)
-      )),
+      // Same helper the panel hydrates with, so the badge and the overlay agree.
+      is_idle: !coveredByOther && isIdleNow(liveStatus, idleShift, nowMs),
       today_collected: todayCollection[String(identityWorkerId)] || 0,
       monthly_collected: monthCollection[String(identityWorkerId)] || 0,
       daily_target: dailyTargetMap[String(identityWorkerId)] || 0,
@@ -4542,7 +4539,10 @@ export const updateLiveStatus = async (req, res) => {
       status: fresh?.status ?? status ?? null,
       disposition_due_at: fresh?.disposition_due_at ?? null,
       seconds_left: secondsLeft(fresh, Date.now()),
-      is_idle: fresh?.status === 'idle',
+      // Derived from the row, not from the status column. A client pushing
+      // 'online' while its own deadline has lapsed must still read back as idle,
+      // and outside the shift nothing reads idle at all.
+      is_idle: isIdleNow(fresh, shift, Date.now()),
       today_idle_seconds: liveIdleSeconds(fresh || {}, shift, Date.now()),
     });
   } catch (error) {
@@ -4798,7 +4798,6 @@ export const getMyLiveStatus = async (req, res) => {
     // window the next heartbeat will open so the clock starts at a full 4:00
     // instead of blank, and derive seconds_left from the same value.
     const due = row.disposition_due_at || nextDeadline(shift, nowMs);
-    const frozen = !!row.is_paused || row.status === 'meeting';
     const totalIdle = liveIdleSeconds(row, shift, nowMs);
     return res.json({
       ...row,
@@ -4808,7 +4807,7 @@ export const getMyLiveStatus = async (req, res) => {
       today_idle_seconds: totalIdle,
       idle_seconds_total: totalIdle,
       idle_minutes: Math.floor(totalIdle / 60),
-      is_idle: !!row.idle_since || (!frozen && withinShift(shift, nowMs) && deadlinePassed(row, nowMs)),
+      is_idle: isIdleNow(row, shift, nowMs),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
