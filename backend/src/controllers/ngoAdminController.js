@@ -25,7 +25,7 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
-import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
+import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowsMs, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { buildWorkAsByOp } from '../utils/workAs.js';
 
@@ -133,6 +133,21 @@ async function getUserNgoIds(user) {
   return [];
 }
 
+// Hard ceiling on cached tl-dashboard payloads.
+//
+// The previous guard swept expired entries only when the map exceeded 300, and
+// only deleted entries older than 120s. If the map held 301 entries that were all
+// fresh — which is exactly what happens when several admins each poll with their
+// own key (key = user x ngo x from x to x fro_id, and a custom date range or a
+// single-FRO filter multiplies keys) — the sweep deleted nothing and the map kept
+// growing. Each value is a whole dashboard payload with a `performance` row per
+// FRO, so this was an unbounded leak on a 2 GB host.
+//
+// Eviction is now unconditional on size: oldest-inserted first, because Map
+// preserves insertion order and the first key is always the least recently
+// written. Entries written by cacheSet are re-inserted, so a hot key keeps its
+// recency naturally.
+const TL_CACHE_MAX = 60;
 const _rCache = new Map();
 let tlCacheGeneration = 0;
 const cacheGet = (key, ttlMs) => {
@@ -142,9 +157,14 @@ const cacheGet = (key, ttlMs) => {
   return undefined;
 };
 const cacheSet = (key, v) => {
-  if (_rCache.size > 300) {
-    const now = Date.now();
-    for (const [k, e] of _rCache) if (now - e.t > 120000) _rCache.delete(k);
+  if (_rCache.size >= TL_CACHE_MAX) {
+    // Drop the oldest 25% in one pass rather than one entry per write: a burst
+    // of writes should not pay a loop iteration each.
+    let toDrop = Math.max(1, Math.floor(TL_CACHE_MAX * 0.25));
+    for (const k of _rCache.keys()) {
+      _rCache.delete(k);
+      if (--toDrop <= 0) break;
+    }
   }
   _rCache.set(key, { v, t: Date.now() });
 };
@@ -5308,18 +5328,34 @@ export const getTLDashboard = async (req, res) => {
 
     // Per-FRO shift windows so each row's idle total is clamped to that FRO's
     // own working hours, not to an open-ended range. Built once for the board.
-    const shiftMap = {};
-    await Promise.all(froWorkers.map(async (w) => {
-      try {
-        shiftMap[String(w.id)] = await getShiftWindowMs(w.id, now.getTime());
-      } catch (_) {
-        // Leave the fallback open-ended for this FRO.
-      }
-    }));
+    // Batched: the per-FRO getShiftWindowMs version cost ~5 queries each (two of
+    // them re-fetching the same worker row), which on a 50-FRO board was ~250
+    // round-trips through a 5-connection pool on every poll. This is 3 queries
+    // for the whole board. A worker missing from the map keeps the open-ended
+    // fallback, exactly as the old per-FRO try/catch produced.
+    const shiftMap = await getShiftWindowsMs(froWorkers.map((w) => w.id), now.getTime());
+
+    // Collection/target figures for the Telecaller Performance board, from the
+    // SAME leaderboard that backs /ngo-admin/fro-performance and the High/Low
+    // Performance cards. Resolved here rather than in the browser joining two
+    // endpoints on fro_id: that join silently produced an all-zero COLLECTION
+    // block whenever the second fetch failed (its .catch() swallowed the error),
+    // and a column that is quietly wrong is worse than one that is absent.
+    // buildFroLeaderboard returns every FRO globally; we index it and pick out
+    // this board's workers.
+    const targetByFro = new Map();
+    try {
+      const lbRows = await buildFroLeaderboard({ startDay: rangeFromDay, endDay: rangeToDay });
+      for (const r of lbRows || []) targetByFro.set(String(r.id), r);
+    } catch (e) {
+      // Non-fatal: the board still renders, only the target columns stay 0.
+      console.error('getTLDashboard leaderboard failed:', e?.message || String(e));
+    }
 
     const performance = froWorkers.map(w => {
       const bs = batchStats;
       const coll = bs.monthCollection[w.id] || 0;
+      const lb = targetByFro.get(String(w.id)) || null;
       const leads = (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0);
       const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
       const conversion = wa.total > 0 ? Math.round((wa.connected / wa.total) * 1000) / 10 : 0;
@@ -5453,6 +5489,18 @@ export const getTLDashboard = async (req, res) => {
         collection_amount: coll,
         collection_amount_today: bs.todayCollection[w.id] || 0,
         collection_amount_week: bs.weekCollection[w.id] || 0,
+        // COLLECTION block for the board. Non-colliding names on purpose:
+        // collection_amount / today_collection above already exist here with a
+        // different basis, and reusing those keys would make the board's
+        // "Collected" disagree with the High/Low card for the same FRO.
+        monthly_target: lb?.monthly_target ?? 0,
+        collected_amount: lb?.collection_amount ?? 0,
+        remaining_target: lb?.remaining_target ?? 0,
+        period_target: lb?.period_target ?? 0,
+        period_today: lb?.today_collection ?? 0,
+        // 'auto' = derived from salary (new hire, first 3 months), 'manual' = the
+        // stored fro_monthly_targets row, 'not_set' = neither.
+        target_source: lb?.target_source ?? 'not_set',
         lead_done_count: leads,
       };
     });

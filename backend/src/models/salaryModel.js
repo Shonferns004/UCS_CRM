@@ -75,6 +75,27 @@ export const getActiveSalaryByWorker = async (workerId) => {
   return data && data.length > 0 ? data[0] : null;
 };
 
+// Batch form of getActiveSalaryByWorker: one query for a whole roster instead of
+// N. Rows come back ordered by from_month desc, so the first row seen for a
+// worker is the same one the per-worker .limit(1) would have returned (latest
+// from_month among the open-ended ones). Returns a Map keyed by worker_id.
+export const getActiveSalaryByWorkers = async (workerIds) => {
+  const map = new Map();
+  const ids = (workerIds || []).filter(Boolean);
+  if (ids.length === 0) return map;
+  const { data, error } = await db
+    .from('salary_history')
+    .select('worker_id, salary, from_month')
+    .in('worker_id', ids)
+    .is('to_month', null)
+    .order('from_month', { ascending: false });
+  if (error) throw error;
+  for (const row of data || []) {
+    if (!map.has(row.worker_id)) map.set(row.worker_id, row);
+  }
+  return map;
+};
+
 export const getSalaryById = async (id) => {
   const { data, error } = await db
     .from('salary_history')

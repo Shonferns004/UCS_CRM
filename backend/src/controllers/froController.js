@@ -4,6 +4,7 @@ import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
+import { monthsSinceJoining, calculateAutoTarget, autoTargetMonthLabel } from '../services/froAutoTarget.js';
 import {
   batchCreateAssignments,
   findAssignmentById,
@@ -24,6 +25,7 @@ import {
   liveIdleSeconds,
   effectiveIdleSeconds,
   openIdleSeconds,
+  idlePeriodStartMs,
   deadlinePassed,
   dispositionDueMs,
   nextDeadline,
@@ -451,12 +453,9 @@ function getMonthRange(dateStr) {
   };
 }
 
-function calculateAutoTarget(salary, monthsEmployed) {
-  if (monthsEmployed <= 0) return salary * 1;
-  if (monthsEmployed === 1) return salary * 2.5;
-  if (monthsEmployed === 2) return salary * 3;
-  return null;
-}
+// calculateAutoTarget / monthsSinceJoining now live in services/froAutoTarget.js
+// so the FRO's own strip and the leaderboard derive a new hire's target the same
+// way. They used to be defined only here, which is why the board showed 0.
 
 const STATUS_PRIORITY = [
   'pending',
@@ -536,9 +535,7 @@ export const getDashboard = async (req, res) => {
 
     const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
 
-    const joinedAt = new Date(worker.created_at);
-    const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
-    const monthsEmployed = monthDiff + (now.getDate() >= joinedAt.getDate() ? 0 : -1);
+    const monthsEmployed = monthsSinceJoining(worker.created_at, now);
 
     let target;
     let targetSource;
@@ -546,7 +543,7 @@ export const getDashboard = async (req, res) => {
     const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
     if (autoTarget !== null) {
       target = autoTarget;
-      targetSource = monthsEmployed <= 0 ? 'month1' : monthsEmployed === 1 ? 'month2' : 'month3';
+      targetSource = autoTargetMonthLabel(monthsEmployed);
     } else {
       target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
       targetSource = manualTarget ? 'manual' : 'not_set';
@@ -3267,9 +3264,7 @@ export const getMyTarget = async (req, res) => {
     const monthStart = new Date(Date.UTC(istNowT.getUTCFullYear(), istNowT.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
     const monthEnd = new Date(Date.UTC(istNowT.getUTCFullYear(), istNowT.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
 
-    const joinedAt = new Date(worker.created_at);
-    const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
-    const monthsEmployed = monthDiff + (now.getDate() >= joinedAt.getDate() ? 0 : -1);
+    const monthsEmployed = monthsSinceJoining(worker.created_at, now);
 
     let target;
     let targetSource;
@@ -4768,6 +4763,88 @@ export const logoutAllFros = async (req, res) => {
     return res.json({
       message: userIds.length > 0 ? `${userIds.length} FRO session(s) logged out` : 'No open FRO sessions to log out',
       loggedOut: userIds.length,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Clear Idle Time (super-admin) ─────────────────────────────────────
+//
+// The escape hatch for a bad disposition day: the 4-minute timer misfires, or
+// the office loses connectivity long enough for every panel to stop beating, and
+// the whole team shows as Idle with a salary deduction accruing. One click ends
+// the still-running idle period for everyone on shift and hands each FRO a full
+// fresh window.
+//
+// DELIBERATELY does not zero today_idle_seconds. The old button did, and it was
+// two bugs in one:
+//  - fro_daily_stats.idle_seconds is written with GREATEST(...), so it only ever
+//    rises. Zeroing the live row could not lower the day's saved total — it just
+//    made this panel disagree with the daily/monthly report it reads from.
+//  - Idle that has already been banked is real, and it is what salary is
+//    computed from. The problem this button solves is idle that is still
+//    COUNTING, not idle that has already happened.
+//
+// So: committed totals are preserved, the open period is cleared. The window is
+// only re-armed for FROs actually inside their shift — arming one for someone
+// off-shift leaves a lapsed deadline waiting for their next login, which is the
+// "signed in and instantly idle" bug this whole change set was fixing.
+export const resetAllFroIdle = async (req, res) => {
+  try {
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
+    const { data: rows, error: readErr } = await db
+      .from('fro_live_status')
+      .select('*')
+      .not('worker_id', 'is', null)
+      .in('status', ['online', 'on_call', 'idle']);
+    if (readErr) throw readErr;
+
+    const cleared = [];
+    for (const row of rows || []) {
+      // Paused/meeting FROs are the admin's, not idle timers' — never touch them.
+      if (row.is_paused || row.status === 'meeting') continue;
+      const shift = await getShiftWindowMs(row.worker_id, nowMs);
+      if (!withinShift(shift, nowMs)) continue;
+      // Nothing open means nothing to clear. idlePeriodStartMs (not a bare
+      // idle_since check) because a lapsed deadline counts as an open period even
+      // with no stamp — that is the powered-off-monitor case, and it is exactly
+      // the state that must not be left accruing.
+      if (!Number.isFinite(idlePeriodStartMs(row, nowMs))) continue;
+
+      const due = nextDeadline(shift, nowMs);
+      const { error } = await db
+        .from('fro_live_status')
+        .update({
+          idle_since: null,
+          disposition_due_at: due,
+          status: row.status === 'idle' ? 'online' : row.status,
+          updated_at: nowIso,
+        })
+        .eq('worker_id', row.worker_id);
+      if (error) throw error;
+      cleared.push(row.worker_id);
+    }
+
+    // No bespoke socket event: every fro_live_status write already goes out as
+    // db:change, which is what the super-admin board listens to (the same path
+    // pause/resume use), so other open dashboards refresh on their own. FRO
+    // panels are deliberately not signalled — fro:resume is wired to the admin
+    // pause overlay and an idle clear must never lift a pause. The FROs
+    // themselves converge on their own next heartbeat, which sees a null
+    // idle_since and a live deadline and stops idling them.
+
+    return res.json({
+      message: cleared.length > 0
+        ? `Cleared idle for ${cleared.length} FRO(s)`
+        : 'No FRO had idle time running',
+      cleared: cleared.length,
+      workerIds: cleared,
+      // Committed idle is left intact, so say so rather than let the admin think
+      // today's numbers went to zero.
+      preserved_committed_idle: true,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
