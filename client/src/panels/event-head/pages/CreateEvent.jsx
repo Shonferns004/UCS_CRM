@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, uploadEventBanner, CHECKLIST_ITEMS, createChecklistItem } from '../store'
+import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
 import { PageHeader } from '../components/ui'
 import VoluntaryPicker from '../components/VoluntaryPicker'
+import ActivitySelect from '../components/ActivitySelect'
+import { DistrictSelect, StateSelect } from '../../../components/LocationSelect'
+import { stateForDistrict, districtsOfState as districtsOf } from '../../../utils/indiaLocations'
 import usePasteImage from '../../../utils/usePasteImage'
 
 export default function CreateEvent() {
@@ -14,14 +17,23 @@ export default function CreateEvent() {
   const [form, setForm] = useState({
     name:'', category:'', ngo_id: searchParams.get('ngo_id') || '', sector_id: searchParams.get('sector_id') || '', activityName:'',
     date:'', start_time:'', end_time:'', venue:'', priority:'Medium', banner:'',
-    gps_location:'', district:'', state:'', organizer:'', event_manager:'', coordinator:'',
+    district:'', state:'', organizer:'', event_manager:'', coordinator:'',
   })
   const [saving, setSaving] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [error, setError] = useState('')
+  const [errorField, setErrorField] = useState('')
   const [volunteers, setVolunteers] = useState([])
-  const [checklist, setChecklist] = useState(CHECKLIST_ITEMS.map(label => ({ label, status: false, notes: '' })))
+  const [checklist, setChecklist] = useState([
+    ...CHECKLIST_ITEMS.map(label => ({ key: `setup:${label}`, group: 'Setup', label, status: false, notes: '' })),
+    ...CHECKLIST_MATERIALS.map(label => ({ key: `material:${label}`, group: 'Material', label, status: false, notes: '' })),
+  ])
   const [bannerUploading, setBannerUploading] = useState(false)
   const [bannerError, setBannerError] = useState('')
+  const [bannerLocalUrl, setBannerLocalUrl] = useState('')
+  const [bannerLoadError, setBannerLoadError] = useState(false)
+  const [bannerMeta, setBannerMeta] = useState(null)
+  const [bannerDropActive, setBannerDropActive] = useState(false)
   const [bannerType, setBannerType] = useState('banner')
   const [addingSector, setAddingSector] = useState(false)
   const [newSectorName, setNewSectorName] = useState('')
@@ -34,24 +46,81 @@ export default function CreateEvent() {
   const [aiDismissed, setAiDismissed] = useState({})
   const [aiRan, setAiRan] = useState(false)
   const bannerFileRef = useRef(null)
+  const localUrlRef = useRef('')
   const onBannerPaste = usePasteImage(({ file }) => { if (file) uploadBanner(file) })
+
+  // Server-side multer limit is 50MB. Checked here too so an oversized file is
+  // rejected immediately with a clear message instead of failing mid-upload.
+  const BANNER_MAX_BYTES = 50 * 1024 * 1024
+  const BANNER_WARN_BYTES = 5 * 1024 * 1024
+  const formatBytes = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+
+  // Drop the local preview object URL, if one is held.
+  const releaseLocalUrl = () => {
+    if (localUrlRef.current) { URL.revokeObjectURL(localUrlRef.current); localUrlRef.current = '' }
+  }
+
+  const clearBanner = () => {
+    releaseLocalUrl()
+    setBannerLocalUrl('')
+    setBannerMeta(null)
+    setBannerLoadError(false)
+    setBannerError('')
+    setForm(prev => ({ ...prev, banner: '' }))
+    if (bannerFileRef.current) bannerFileRef.current.value = ''
+  }
 
   const uploadBanner = (file) => {
     if (!file || bannerUploading) return
+
+    if (!String(file.type || '').startsWith('image/')) {
+      setBannerError(`"${file.name}" is not an image. Please choose a JPG, PNG or WebP file.`)
+      if (bannerFileRef.current) bannerFileRef.current.value = ''
+      return
+    }
+    if (file.size > BANNER_MAX_BYTES) {
+      setBannerError(`That image is ${formatBytes(file.size)} — the limit is ${formatBytes(BANNER_MAX_BYTES)}. Please compress it or pick a smaller one.`)
+      if (bannerFileRef.current) bannerFileRef.current.value = ''
+      return
+    }
+
     setBannerUploading(true)
     setBannerError('')
+    setBannerLoadError(false)
+    setBannerMeta({ name: file.name, size: file.size, slow: file.size > BANNER_WARN_BYTES })
+
+    // Show the chosen image straight away from a local object URL, so the user
+    // sees their picture while the upload is still running instead of staring at
+    // an empty box. Swapped for the stored URL once the upload succeeds.
+    releaseLocalUrl()
+    const localUrl = URL.createObjectURL(file)
+    localUrlRef.current = localUrl
+    setBannerLocalUrl(localUrl)
+
     const fd = new FormData()
     fd.append('file', file, file.name)
     uploadEventBanner(fd)
       .then(res => {
         const url = (res && res.url) || ''
-        if (!url) { setBannerError('Upload succeeded but no URL was returned.'); return }
+        if (!url) { setBannerError('Upload finished but the server sent no image URL. Please try again.'); return }
+        releaseLocalUrl()
+        setBannerLocalUrl('')
         setForm(prev => ({ ...prev, banner: url }))
         if (bannerFileRef.current) bannerFileRef.current.value = ''
       })
-      .catch(err => setBannerError(err.message || 'Banner upload failed'))
+      .catch(err => {
+        releaseLocalUrl()
+        setBannerLocalUrl('')
+        setBannerError(err.message || 'Banner upload failed')
+        if (bannerFileRef.current) bannerFileRef.current.value = ''
+      })
       .finally(() => setBannerUploading(false))
   }
+
+  // Release the object URL if the form is closed mid-upload.
+  useEffect(() => () => {
+    if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current)
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -68,8 +137,20 @@ export default function CreateEvent() {
   const ngoId = form.ngo_id ? String(form.ngo_id) : ''
   const sectorId = form.sector_id ? String(form.sector_id) : ''
 
-  // Fields that support AI spelling suggestions (free-text; dropdowns excluded).
-  const SPELL_FIELDS = ['name', 'activityName', 'category', 'venue', 'district', 'state', 'organizer', 'event_manager', 'coordinator']
+  // Fields that support AI spelling suggestions (free-text only). District and
+  // State are picked from fixed lists, so they can never be misspelled and are
+  // left out to avoid spending a GROQ call on them.
+  const SPELL_FIELDS = ['name', 'activityName', 'category', 'venue', 'organizer', 'event_manager', 'coordinator']
+
+  // An activity picked from the dropdown is an existing, correctly spelled name.
+  // Running the spell-checker over it is a wasted call, and worse, accepting a
+  // "correction" would turn a valid name into a brand new duplicate activity —
+  // so an activity is only checked while it is a name that does not exist yet.
+  const isExistingActivity = (name) => {
+    const t = String(name || '').trim().toLowerCase()
+    if (!t) return false
+    return allActivities.some(a => String(a.name || '').trim().toLowerCase() === t)
+  }
 
   const applySuggestion = (key, value) => {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -94,6 +175,7 @@ export default function CreateEvent() {
     const fields = SPELL_FIELDS
       .map(key => ({ key, value: String(form[key] || '').trim() }))
       .filter(f => f.value)
+      .filter(f => (f.key === 'activityName' ? !isExistingActivity(f.value) : true))
 
     if (!fields.length) { setAiSuggestions({}); setAiUnavailable(false); return }
     const timer = setTimeout(() => {
@@ -116,7 +198,7 @@ export default function CreateEvent() {
       return () => { cancelled = true }
     }, 900)
     return () => clearTimeout(timer)
-  }, [form.name, form.activityName, form.category, form.venue, form.district, form.state, form.organizer, form.event_manager, form.coordinator])
+  }, [allActivities, form.name, form.activityName, form.category, form.venue, form.organizer, form.event_manager, form.coordinator])
 
   const relevantSectors = useMemo(() => {
     const ids = new Set()
@@ -133,6 +215,8 @@ export default function CreateEvent() {
 
   const handleChange = (e) => {
     const { name, value } = e.target
+    // Clear the red outline as soon as the user starts fixing that field.
+    if (errorField && name === errorField) clearError()
     setForm(prev => {
       const next = { ...prev, [name]: value }
       if (name === 'ngo_id') { next.sector_id = ''; next.activityName = '' }
@@ -141,8 +225,51 @@ export default function CreateEvent() {
     })
   }
 
-  // Resolve the manually-typed activity: use an existing one for this NGO+sector,
+  // District and State are chosen from fixed lists, so keep the pair
+  // consistent instead of letting a district sit under the wrong state.
+  // Picking a district fills in its state when the name is unique to one state
+  // (Bilaspur / Hamirpur / Pratapgarh exist in two, so those need a manual pick).
+  const pickDistrict = (district) => {
+    if (errorField === 'district') clearError()
+    setForm(prev => {
+      const next = { ...prev, district }
+      if (district) {
+        const state = stateForDistrict(district)
+        if (state) next.state = state
+        else if (prev.state && !districtsOf(prev.state).includes(district)) next.state = ''
+      }
+      return next
+    })
+  }
+
+  const pickState = (state) => {
+    if (errorField === 'state') clearError()
+    setForm(prev => {
+      const next = { ...prev, state }
+      // A district from another state would be wrong, so drop it.
+      if (state && prev.district && !districtsOf(state).includes(prev.district)) next.district = ''
+      return next
+    })
+  }
+
+  // Picking an existing activity fills in its sector too, because the server
+  // rejects an event whose activity belongs to a different sector. A name that
+  // does not exist yet is just set as typed — resolveActivity() creates it on
+  // save, and only then does it need a sector.
+  const pickActivity = (name, activity) => {
+    if (errorField === 'activityName') clearError()
+    setForm(prev => {
+      const next = { ...prev, activityName: name }
+      if (activity && activity.sector_id != null) next.sector_id = String(activity.sector_id)
+      return next
+    })
+  }
+
+  // Resolve the activity name: use an existing one for this NGO+sector,
   // otherwise create it on the fly. Returns the activity id, or null.
+  // A newly created activity is added to allActivities straight away so it shows
+  // in the dropdown without needing a page reload; on the next visit it is
+  // loaded from the database like any other.
   const resolveActivity = async () => {
     const name = String(form.activityName || '').trim()
     if (!name) return null
@@ -154,7 +281,11 @@ export default function CreateEvent() {
     if (match) return match.id
     try {
       const created = await createActivity({ ngo_id: form.ngo_id, sector_id: Number(form.sector_id), name, status: 'Active' })
-      return created ? created.id : null
+      if (created) {
+        setAllActivities(prev => (prev.some(a => String(a.id) === String(created.id)) ? prev : [created, ...prev]))
+        return created.id
+      }
+      return null
     } catch (err) {
       // Duplicate (409) — try to find it again, else surface the error.
       const found = allActivities.find(a =>
@@ -190,30 +321,80 @@ export default function CreateEvent() {
     } finally { setSectorSaving(false) }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault(); setSaving(true); setError('')
-    if (!form.name.trim()) { setError('Please enter an Event Name'); setSaving(false); return }
-    if (!form.ngo_id) { setError('Please choose an NGO'); setSaving(false); return }
-    if (!form.sector_id) { setError('Please choose a Sector'); setSaving(false); return }
-    if (!form.date) { setError('Please choose an Event Date — it is required so the event shows on the Calendar'); setSaving(false); return }
-    if (!form.banner) { setError('A Banner or Photo is required — please upload one before creating the event'); setSaving(false); return }
+  // Field anchors, so a failed save can point at the exact input and bring it
+  // into view. The form is long enough that a notice alone is easy to miss when
+  // you are already down at the submit buttons.
+  const fieldRefs = useRef({})
+  const registerField = (key) => (el) => { if (el) fieldRefs.current[key] = el }
+
+  useEffect(() => {
+    if (!error || !errorField) return
+    const el = fieldRefs.current[errorField]
+    if (!el) return
+    const t = setTimeout(() => {
+      try {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        if (typeof el.focus === 'function') el.focus({ preventScroll: true })
+      } catch { /* older browsers ignore smooth scrolling */ }
+    }, 60)
+    return () => clearTimeout(t)
+  }, [error, errorField])
+
+  // The notice is a nudge, not a blocker: it clears itself after 4 seconds so it
+  // never sits on top of the form. Pressing the button again re-reports it.
+  useEffect(() => {
+    if (!error) return
+    const t = setTimeout(() => { setError(''); setErrorField('') }, 4000)
+    return () => clearTimeout(t)
+  }, [error])
+
+  const fail = (message, field = '') => { setError(message); setErrorField(field) }
+  const clearError = () => { setError(''); setErrorField('') }
+
+  // Red outline on the input that failed, plus the reason right underneath it.
+  const fieldStyle = (key) => (errorField === key
+    ? { borderColor: 'var(--eh-danger,#e53e5b)', boxShadow: '0 0 0 3px var(--eh-danger-soft,#fdecef)' }
+    : undefined)
+  const fieldError = (key) => (errorField === key
+    ? <div style={{ marginTop: 5, fontSize: 12, fontWeight: 600, color: 'var(--eh-danger,#e53e5b)' }}>{error}</div>
+    : null)
+
+  // Save path shared by the two actions.
+  //   draft = false → "Create Event": every required field present, then back to
+  //                  the Events list exactly as before.
+  //   draft = true  → "Save Draft": only the name and NGO are required, the row is
+  //                  stored with status 'Draft' and we open the Event Detail screen
+  //                  so the rest can be filled in later.
+  // status is sent only for drafts, so a normal create keeps the server default.
+  const persist = async (draft) => {
+    clearError()
+    setSaving(true)
+    if (draft) setSavingDraft(true)
     try {
+      if (!form.name.trim()) { fail('Please enter an Event Name', 'name'); return }
+      if (!form.ngo_id) { fail('Please choose an NGO', 'ngo_id'); return }
+      if (!draft) {
+        if (!form.sector_id) { fail('Please choose a Sector', 'sector_id'); return }
+        if (!form.date) { fail('Please choose an Event Date — it is required so the event shows on the Calendar', 'date'); return }
+      }
       const typedActivity = String(form.activityName || '').trim()
-      const activity_id = typedActivity ? await resolveActivity() : null
-      if (typedActivity && !activity_id) { setError('Could not resolve the Activity. Please pick an existing sector and try again.'); setSaving(false); return }
+      // The activity can only be resolved once a sector is picked, so a draft
+      // saved without one keeps the typed text in activity_name instead.
+      const activity_id = (typedActivity && form.sector_id) ? await resolveActivity() : null
+      if (typedActivity && form.sector_id && !activity_id) { fail('Could not resolve the Activity. Please pick an existing sector and try again.', 'sector_id'); return }
       const payload = {
         name: form.name,
         category: form.category || null,
         ngo_id: form.ngo_id,
-        sector_id: Number(form.sector_id),
+        sector_id: form.sector_id ? Number(form.sector_id) : null,
         activity_id: activity_id ? Number(activity_id) : null,
+        activity_name: activity_id ? null : (typedActivity || null),
         date: form.date || null,
         start_time: form.start_time || null,
         end_time: form.end_time || null,
         venue: form.venue || null,
         priority: form.priority || 'Medium',
         banner: form.banner || null,
-        gps_location: form.gps_location || null,
         district: form.district || null,
         state: form.state || null,
         organizer: form.organizer || null,
@@ -221,16 +402,24 @@ export default function CreateEvent() {
         coordinator: form.coordinator || null,
         volunteers: volunteers && volunteers.length ? volunteers : null,
       }
+      if (draft) payload.status = 'Draft'
       const created = await createEvent(payload)
       if (created && created.id != null) {
         await Promise.allSettled(checklist.map(item => createChecklistItem(created.id, { label: item.label, status: !!item.status, notes: item.notes || '' }).catch(e => console.error('Seed checklist item failed:', e))))
       }
+      if (draft) {
+        if (created && created.id != null) { navigate('/event-head/events/' + created.id); return }
+        navigate('/event-head/events?created=1')
+        return
+      }
       const params = new URLSearchParams({ ngo_id: form.ngo_id, created: 1 })
       if (form.sector_id) params.set('sector_id', form.sector_id)
       navigate('/event-head/events?' + params.toString())
-    } catch (err) { setError(err.message || 'Failed to create event'); console.error('Create event error:', err) }
-    finally { setSaving(false) }
+    } catch (err) { fail(err.message || (draft ? 'Failed to save draft' : 'Failed to create event')); console.error(draft ? 'Save draft error:' : 'Create event error:', err) }
+    finally { setSaving(false); setSavingDraft(false) }
   }
+
+  const handleSubmit = (e) => { e.preventDefault(); persist(false) }
 
   const section = (t) => <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--eh-primary)', margin: '20px 0 12px' }}>{t}</div>
 
@@ -258,8 +447,29 @@ export default function CreateEvent() {
         actions={<button className="eh-btn" onClick={() => navigate('/event-head/events')}>Cancel</button>}
       />
 
+      {/* Fixed so it stays on screen no matter how far down the long form the
+          user has scrolled — it used to sit above the fold, so pressing Create
+          Event appeared to do nothing. Sits outside <form> and .eh-section so no
+          ancestor overflow can clip it. */}
+      {error && (
+        <div role="alert" style={{
+          position: 'fixed', left: '50%', bottom: '22px', transform: 'translateX(-50%)',
+          zIndex: 2600, display: 'flex', alignItems: 'center', gap: 10,
+          maxWidth: 'min(560px, calc(100vw - 32px))', padding: '12px 14px',
+          borderRadius: 14, background: 'var(--eh-surface-2,#fff)',
+          border: '1px solid var(--eh-danger,#e53e5b)',
+          boxShadow: '0 14px 40px rgba(15,17,40,.22)',
+        }}>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--eh-danger,#e53e5b)', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink,#0f1128)', minWidth: 0 }}>{error}</span>
+          <button type="button" onClick={clearError} aria-label="Dismiss" style={{
+            marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer',
+            color: 'var(--eh-ink-soft,#6a6f8f)', fontSize: 14, lineHeight: 1, padding: 4,
+          }}>✕</button>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} noValidate>
-        {error && <div style={{ margin: '14px 0', padding: '12px 16px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13, fontWeight: 500 }}>{error}</div>}
 
         {/* ═══ AI SPELL SUGGESTIONS PANEL ═══ */}
         {(Object.keys(aiSuggestions).length > 0 || aiChecking || aiUnavailable) && (
@@ -321,14 +531,15 @@ export default function CreateEvent() {
             {section('Program')}
             <div className="form-row">
               <div className="field"><label>NGO *</label>
-                <select name="ngo_id" value={form.ngo_id} onChange={handleChange}>
+                <select name="ngo_id" value={form.ngo_id} onChange={handleChange} ref={registerField('ngo_id')} style={fieldStyle('ngo_id')}>
                   <option value="">Select NGO</option>
                   {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                 </select>
+                {fieldError('ngo_id')}
               </div>
               <div className="field"><label>Sector *</label>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <select name="sector_id" value={form.sector_id} onChange={handleChange} disabled={!ngoId} style={{ flex: 1 }}>
+                  <select name="sector_id" value={form.sector_id} onChange={handleChange} disabled={!ngoId} ref={registerField('sector_id')} style={{ flex: 1, ...fieldStyle('sector_id') }}>
                     <option value="">{ngoId ? 'Select sector' : 'Select NGO first'}</option>
                     {relevantSectors.map(s => <option key={s.id ?? s.sector_id} value={s.id ?? s.sector_id}>{s.name}</option>)}
                   </select>
@@ -342,14 +553,19 @@ export default function CreateEvent() {
               </div>
                 )}
                 {sectorNote && <div style={{ marginTop: 6, fontSize: 12, color: sectorNoteError ? '#b91c1c' : '#16a34a' }}>{sectorNote}</div>}
+                {fieldError('sector_id')}
               </div>
             </div>
             <div className="form-row">
               <div className="field"><label>Activity</label>
-                <input name="activityName" value={form.activityName || ''} onChange={handleChange} list="act-list" placeholder="Type the activity name (optional)" />
-                <datalist id="act-list">
-                  {allActivities.filter(a => String(a.sector_id) === String(form.sector_id)).map(a => <option key={a.id} value={a.name} />)}
-                </datalist>
+                <ActivitySelect
+                  value={form.activityName || ''}
+                  onChange={pickActivity}
+                  activities={allActivities}
+                  sectors={sectors}
+                  ngoId={ngoId}
+                  selectedSectorId={form.sector_id}
+                />
                 {inlineSuggestion('activityName')}
               </div>
               <div className="field"><label>Category</label>
@@ -361,8 +577,8 @@ export default function CreateEvent() {
 
             {section('Event Details')}
             <div className="form-row">
-              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required />{inlineSuggestion('name')}</div>
-              <div className="field"><label>Event Date *</label><input type="date" name="date" value={form.date} onChange={handleChange} required /></div>
+              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required ref={registerField('name')} style={fieldStyle('name')} />{fieldError('name')}{inlineSuggestion('name')}</div>
+              <div className="field"><label>Event Date *</label><input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />{fieldError('date')}</div>
             </div>
             <div className="form-row">
               <div className="field"><label>Start Time</label><input type="time" name="start_time" value={form.start_time} onChange={handleChange} /></div>
@@ -377,15 +593,22 @@ export default function CreateEvent() {
 
             {section('Location & Team')}
             <div className="form-row">
-              <div className="field"><label>GPS Location</label><input name="gps_location" value={form.gps_location} onChange={handleChange} placeholder="Lat, Lng" /></div>
-              <div className="field"><label>District</label><input name="district" value={form.district} onChange={handleChange} />{inlineSuggestion('district')}</div>
+              <div className="field">
+                <label>District</label>
+                <DistrictSelect value={form.district} onChange={v => pickDistrict(v)} ariaLabel="District" />
+                {inlineSuggestion('district')}
+              </div>
+              <div className="field">
+                <label>State</label>
+                <StateSelect value={form.state} onChange={v => pickState(v)} ariaLabel="State" />
+                {inlineSuggestion('state')}
+              </div>
             </div>
             <div className="form-row">
-              <div className="field"><label>State</label><input name="state" value={form.state} onChange={handleChange} />{inlineSuggestion('state')}</div>
               <div className="field"><label>Organizer</label><input name="organizer" value={form.organizer} onChange={handleChange} />{inlineSuggestion('organizer')}</div>
+              <div className="field"><label>Event Manager</label><input name="event_manager" value={form.event_manager} onChange={handleChange} />{inlineSuggestion('event_manager')}</div>
             </div>
             <div className="form-row">
-              <div className="field"><label>Event Manager</label><input name="event_manager" value={form.event_manager} onChange={handleChange} />{inlineSuggestion('event_manager')}</div>
               <div className="field"><label>Coordinator</label><input name="coordinator" value={form.coordinator} onChange={handleChange} />{inlineSuggestion('coordinator')}</div>
             </div>
 
@@ -393,39 +616,59 @@ export default function CreateEvent() {
             <VoluntaryPicker ngoId={form.ngo_id} value={volunteers} onChange={setVolunteers} />
 
             {section('General Checklist')}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {checklist.map((item, idx) => (
-                <div key={item.label} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                  background: 'var(--eh-surface-2,#fff)', border: '1px solid var(--eh-line,#e8e6f2)', borderRadius: 11,
-                  opacity: item.status ? 0.7 : 1, flexWrap: 'wrap'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={!!item.status}
-                    onChange={() => setChecklist(checklist.map((c, i) => i === idx ? { ...c, status: !c.status } : c))}
-                    style={{ width: 18, height: 18, accentColor: 'var(--eh-success,#16a34a)', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, textDecoration: item.status ? 'line-through' : 'none', color: item.status ? 'var(--eh-ink-soft,#6a6f8f)' : 'var(--eh-ink,#0f1128)' }}>
-                      {item.label}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                { group: 'Setup', title: 'Setup & Coordination', hint: 'Steps to complete before the event' },
+                { group: 'Material', title: 'Materials', hint: 'Tick the material you are carrying' },
+              ].map(sectionDef => {
+                const rows = checklist.filter(c => c.group === sectionDef.group)
+                if (!rows.length) return null
+                const doneCount = rows.filter(c => c.status).length
+                return (
+                  <div key={sectionDef.group}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--eh-ink,#0f1128)' }}>{sectionDef.title}</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft,#6a6f8f)' }}>
+                        {sectionDef.hint} · {doneCount}/{rows.length} done
+                      </span>
                     </div>
-                    <input
-                      value={item.notes || ''}
-                      onChange={e => setChecklist(checklist.map((c, i) => i === idx ? { ...c, notes: e.target.value } : c))}
-                      placeholder={item.status ? 'Note saved (uncheck to edit)…' : 'Add note…'}
-                      disabled={!!item.status}
-                      style={{
-                        marginTop: 6, width: '100%', maxWidth: 460, padding: '6px 10px',
-                        fontSize: 12, border: '1px solid var(--eh-line,#e8e6f2)', borderRadius: 8,
-                        background: item.status ? 'rgba(0,0,0,.03)' : '#fff', fontFamily: 'inherit'
-                      }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {rows.map(item => (
+                        <div key={item.key} style={{
+                          display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                          background: 'var(--eh-surface-2,#fff)', border: '1px solid var(--eh-line,#e8e6f2)', borderRadius: 11,
+                          opacity: item.status ? 0.7 : 1, flexWrap: 'wrap'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={!!item.status}
+                            onChange={() => setChecklist(checklist.map(c => c.key === item.key ? { ...c, status: !c.status } : c))}
+                            style={{ width: 18, height: 18, accentColor: 'var(--eh-success,#16a34a)', flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, textDecoration: item.status ? 'line-through' : 'none', color: item.status ? 'var(--eh-ink-soft,#6a6f8f)' : 'var(--eh-ink,#0f1128)' }}>
+                              {item.label}
+                            </div>
+                            <input
+                              value={item.notes || ''}
+                              onChange={e => setChecklist(checklist.map(c => c.key === item.key ? { ...c, notes: e.target.value } : c))}
+                              placeholder={item.status ? 'Note saved (uncheck to edit)…' : 'Add note…'}
+                              disabled={!!item.status}
+                              style={{
+                                marginTop: 6, width: '100%', maxWidth: 460, padding: '6px 10px',
+                                fontSize: 12, border: '1px solid var(--eh-line,#e8e6f2)', borderRadius: 8,
+                                background: item.status ? 'rgba(0,0,0,.03)' : '#fff', fontFamily: 'inherit'
+                              }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               <div style={{ fontSize: 12, color: 'var(--eh-ink-soft,#6a6f8f)' }}>Tick items already arranged — they will be saved to this event's checklist when you create it.</div>
             </div>
 
-            {section('Banner *')}
+            {section('Banner')}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
               {['banner', 'photo'].map(t => (
                 <button
@@ -444,32 +687,102 @@ export default function CreateEvent() {
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button type="button" className="eh-btn" disabled={bannerUploading} onClick={() => bannerFileRef.current?.click()} onPaste={onBannerPaste} style={{ position: 'relative' }}>
-                {bannerUploading ? 'Uploading…' : form.banner ? `Change ${bannerType}` : `Upload ${bannerType} image`}
-              </button>
-              <input ref={bannerFileRef} type="file" hidden accept="image/*" onChange={e => uploadBanner(e.target.files[0] || null)} />
-              {form.banner && (
-                <button
-                  type="button"
-                  className="eh-btn"
-                  disabled={bannerUploading}
-                  onClick={() => { setForm(prev => ({ ...prev, banner: '' })); if (bannerFileRef.current) bannerFileRef.current.value = '' }}
-                >
-                  Remove
-                </button>
+            <div
+              tabIndex={0}
+              onPaste={onBannerPaste}
+              onDragOver={e => { e.preventDefault(); if (!bannerUploading) setBannerDropActive(true) }}
+              onDragLeave={() => setBannerDropActive(false)}
+              onDrop={e => {
+                e.preventDefault()
+                setBannerDropActive(false)
+                const f = e.dataTransfer?.files?.[0]
+                if (f) uploadBanner(f)
+              }}
+              style={{
+                marginTop: 10, padding: 14, borderRadius: 12, textAlign: 'center',
+                border: `2px dashed ${bannerDropActive ? 'var(--eh-primary,#2036bd)' : 'var(--eh-line,#e8e6f2)'}`,
+                background: bannerDropActive ? 'var(--eh-primary-soft,#e8ecfb)' : 'var(--eh-surface-1,#f6f7f9)',
+                transition: 'background .15s, border-color .15s',
+              }}
+            >
+              {/* Local object URL while uploading, then the stored URL. */}
+              {(bannerLocalUrl || form.banner) && (
+                <div style={{ position: 'relative', marginBottom: bannerLoadError ? 0 : 12 }}>
+                  {bannerLoadError ? (
+                    // A broken URL used to be hidden silently, which just looked
+                    // like the upload never worked. Say so, and keep the value so
+                    // the event is not left with an invisible banner.
+                    <div style={{
+                      padding: '18px 12px', borderRadius: 10, fontSize: 12.5, textAlign: 'left',
+                      background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412',
+                    }}>
+                      <b>The image could not be displayed.</b> It may still be attached to the event, but it
+                      could not be loaded from storage. Replace it, or remove it and upload again.
+                      {form.banner && (
+                        <div style={{ marginTop: 6, fontSize: 11, wordBreak: 'break-all', opacity: .8 }}>{form.banner}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <img
+                      src={bannerLocalUrl || form.banner}
+                      alt={`${bannerType} preview`}
+                      onError={() => setBannerLoadError(true)}
+                      style={{
+                        width: '100%', maxHeight: 300, objectFit: 'contain', objectPosition: 'center top',
+                        borderRadius: 10, display: 'block', background: '#fff',
+                        border: '1px solid var(--eh-line,#e8e6f2)',
+                        opacity: bannerUploading ? .55 : 1,
+                      }}
+                    />
+                  )}
+                  {bannerUploading && (
+                    <div style={{
+                      position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', gap: 4,
+                      background: 'rgba(255,255,255,.72)', borderRadius: 10, fontSize: 12.5, fontWeight: 600,
+                      color: 'var(--eh-ink,#0f1128)',
+                    }}>
+                      <span>Uploading…</span>
+                      {bannerMeta && <span style={{ fontWeight: 400, color: 'var(--eh-ink-soft,#6a6f8f)' }}>{bannerMeta.name} · {formatBytes(bannerMeta.size)}</span>}
+                    </div>
+                  )}
+                </div>
               )}
-              <span style={{ fontSize: 12, color: 'var(--eh-ink-soft, #6b7280)' }}>Required — upload a Banner or a Photo (or paste with Ctrl+V).</span>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button type="button" className="eh-btn" disabled={bannerUploading} onClick={() => bannerFileRef.current?.click()}>
+                  {bannerUploading ? 'Uploading…' : (form.banner ? 'Replace image' : 'Choose image')}
+                </button>
+                <input
+                  ref={bannerFileRef}
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  onChange={e => { uploadBanner(e.target.files[0] || null) }}
+                />
+                {(form.banner || bannerLocalUrl) && (
+                  <button type="button" className="eh-btn" disabled={bannerUploading} onClick={clearBanner}>Remove</button>
+                )}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--eh-ink-soft,#6a6f8f)' }}>
+                Drag an image here, paste with Ctrl+V, or use the button. JPG, PNG or WebP up to 50 MB.
+                {bannerMeta?.slow && bannerUploading ? ' This is a large file, so it may take a while.' : ''}
+              </div>
             </div>
-            {bannerError && <div style={{ marginTop: 8, fontSize: 12.5, color: '#b91c1c' }}>{bannerError}</div>}
-            {form.banner && (
-              <div style={{ position: 'relative', marginTop: 10, padding: 8, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card-bg)' }}>
-                <img src={form.banner} alt={`${bannerType} preview`} style={{ width: '100%', maxHeight: 260, objectFit: 'contain', objectPosition: 'center top', borderRadius: 8, display: 'block', background: 'var(--eh-surface-1,#f6f7f9)' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+            {bannerError && (
+              <div style={{ marginTop: 8, fontSize: 12.5, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 9, padding: '8px 10px' }}>
+                {bannerError}
               </div>
             )}
 
-            <div className="eh-toolbar" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
-              <button type="submit" className="eh-btn eh-btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create Event'}</button>
+            <div className="eh-toolbar" style={{ marginTop: 24, justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ marginRight: 'auto', fontSize: 12, color: 'var(--eh-ink-soft,#6a6f8f)' }}>
+                Not finished yet? <b style={{ color: 'var(--eh-ink,#0f1128)' }}>Save Draft</b> keeps everything you have typed and opens the event so you can complete it later.
+              </span>
+              <button type="button" className="eh-btn" disabled={saving || savingDraft} onClick={() => persist(true)}>
+                {savingDraft ? 'Saving draft…' : 'Save Draft'}
+              </button>
+              <button type="submit" className="eh-btn eh-btn-primary" disabled={saving || savingDraft}>{saving ? 'Creating…' : 'Create Event'}</button>
             </div>
           </div>
         </div>
