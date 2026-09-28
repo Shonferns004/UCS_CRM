@@ -1,5 +1,7 @@
 import db from '../config/db.js';
 import { getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
+import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
+import { monthsSinceJoining, calculateAutoTarget } from './froAutoTarget.js';
 
 // Single source of truth for the FRO leaderboard. Both the admin High/Low panels
 // (getFroPerformance) and the FRO My-Leads strip (getMyPerformance) rank through
@@ -46,7 +48,7 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
 
   const { data: froRows } = await db
     .from('workers')
-    .select('id, name, is_test, is_active')
+    .select('id, name, is_test, is_active, created_at')
     .eq('department', 'FRO');
   const roster = (froRows || []).filter(w => w.is_active !== false && w.is_test !== true && w.id);
   if (roster.length === 0) return [];
@@ -81,6 +83,23 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
     }
   }
 
+  // A new FRO's target is not in fro_monthly_targets. It is derived from their
+  // current salary for their first three months, and the derived value OVERRIDES
+  // any stored row — that is exactly what getMyPerformance does for the FRO's own
+  // strip. Reading only the table here left the Telecaller board, the High/Low
+  // cards and the leaderboard at 0 for every new hire while their own strip showed
+  // the right number. Salary is fetched in one batch; the N per-worker salary
+  // lookups this replaces made the leaderboard endpoint noticeably slow.
+  const salaryByWorker = await getActiveSalaryByWorkers(ids);
+  const autoTargetByWorker = {};
+  const refDate = new Date();
+  for (const w of roster) {
+    const monthsEmployed = monthsSinceJoining(w.created_at, refDate);
+    const salaryRow = salaryByWorker.get(w.id);
+    const auto = calculateAutoTarget(salaryRow ? Number(salaryRow.salary || 0) : 0, monthsEmployed);
+    if (auto !== null) autoTargetByWorker[w.id] = auto;
+  }
+
   const { data: attRows } = await db
     .from('attendance')
     .select('worker_id, date, status')
@@ -101,7 +120,10 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
     const id = w.id;
     const monthCollection = monthColl[id] || 0;
     const target = targetMap[id];
-    const monthlyTarget = target?.target_amount || 0;
+    // Auto wins over the stored row for months 0-2 (same precedence as the FRO's
+    // own strip); from month 3 on it is the stored target only.
+    const autoTarget = autoTargetByWorker[id];
+    const monthlyTarget = autoTarget != null ? autoTarget : (target?.target_amount || 0);
     const achievedTarget = (target?.achieved_target != null && Number(target.achieved_target) > 0)
       ? Number(target.achieved_target)
       : monthCollection;
@@ -125,6 +147,10 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
       period_collection: periodCollection,
       period_target: periodTarget,
       monthly_target: monthlyTarget,
+      // 'auto' = derived from salary in the first three months, 'manual' = the
+      // stored row, 'not_set' = neither. Surfaced so a blank-looking target can be
+      // told apart from one that is genuinely 0.
+      target_source: autoTarget != null ? 'auto' : (target ? 'manual' : 'not_set'),
       achieved_target: achievedTarget,
       working_days: workingDays,
       worked_days: workedDays,

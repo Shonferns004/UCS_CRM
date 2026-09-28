@@ -106,6 +106,15 @@ export const addSalary = async (req, res) => {
     if (to_month != null && !/^\d{4}-\d{2}-01$/.test(to_month)) {
       return res.status(400).json({ message: 'to_month must be in YYYY-MM-01 format' });
     }
+    // An end month before the start month is an impossible range, and the salary
+    // helpers treat a row with to_month set as CLOSED. Storing one silently makes
+    // the worker look like they have no active salary, which zeroes their
+    // auto-derived target (and any incentive that reads it) with no visible error.
+    // from_month == to_month is fine: the range is inclusive, so that is a
+    // single-month salary.
+    if (to_month != null && to_month < from_month) {
+      return res.status(400).json({ message: 'to_month cannot be earlier than from_month' });
+    }
     const existing = await getSalariesByWorker(worker_id);
     const newMonth = from_month.slice(0, 7);
     for (const s of existing) {
@@ -148,6 +157,17 @@ export const editSalary = async (req, res) => {
     if (from_month !== undefined) updates.from_month = from_month;
     if (to_month !== undefined) updates.to_month = to_month;
     if (extra_amount !== undefined) updates.extra_amount = extra_amount;
+    // Validate the range that would RESULT from this edit, not just each field on
+    // its own: moving from_month alone can invert an already-correct row.
+    const current = await getSalaryById(req.params.id);
+    if (!current) {
+      return res.status(404).json({ message: 'Salary record not found' });
+    }
+    const nextFrom = updates.from_month ?? current.from_month;
+    const nextTo = updates.to_month !== undefined ? updates.to_month : current.to_month;
+    if (nextTo != null && String(nextTo) < String(nextFrom)) {
+      return res.status(400).json({ message: 'to_month cannot be earlier than from_month' });
+    }
     const record = await updateSalary(req.params.id, updates);
     return res.json({ message: 'Salary updated', record });
   } catch (error) {
