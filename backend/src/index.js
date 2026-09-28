@@ -88,6 +88,7 @@ import metropadRouter from './metropad/router.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { startMemoryWatchdog } from './services/memoryWatchdog.js';
 import { authenticate } from './middleware/authMiddleware.js';
+import { localDbAccess, ensureLocalDbAccess, registerLocalDbAccessCleanup } from './middleware/localDbAccess.js';
 import { ensureEventHeadSchema } from './bootstrap/ensureEventHeadSchema.js';
 import { ensureTicketSchema } from './bootstrap/ensureTicketSchema.js';
 import { ensureLoanDeductionSchema } from './bootstrap/ensureLoanDeductionSchema.js';
@@ -170,6 +171,12 @@ app.get(['/health', '/api/health'], async (req, res) => {
     });
   }
 });
+
+// Mounted after /aws and /health on purpose: those stay reachable as a
+// diagnostic when database access is the thing that is broken. The actual
+// authorize/revoke work is memoized inside, so running per request is cheap —
+// see middleware/localDbAccess.js.
+app.use('/api', localDbAccess);
 
 app.get(['/api/shon', '/api/test-shon'], (req, res) => {
   res.json({ message: 'hello how are you shon' });
@@ -920,6 +927,9 @@ async function checkLeavesTable() {
 if (!process.env.VERCEL) {
   const server = app.listen(PORT, '0.0.0.0', async () => {
     _log(`Server running on port ${PORT}`);
+    // Opened before the first query so the very first connection succeeds
+    // instead of failing and only recovering on the first HTTP request.
+    await ensureLocalDbAccess();
     await db.testConnection();
     checkLeavesTable();
     await ensureEventHeadSchema().catch(e => console.error('ensureEventHeadSchema failed:', e?.message || e));
@@ -945,6 +955,9 @@ if (!process.env.VERCEL) {
     // Hard ceiling on resident memory: restart (via PM2) if RSS stays over
     // MEM_WATCHDOG_MB (default 900) for 20s, so the 2 GB box can never OOM.
     startMemoryWatchdog();
+    // Removes the local-dev security group rule on SIGINT/SIGTERM/SIGUSR2, so a
+    // stopped server never leaves the database reachable from this machine.
+    registerLocalDbAccessCleanup();
   });
   const { initRealtime } = await import('./socket.js');
   initRealtime(server);

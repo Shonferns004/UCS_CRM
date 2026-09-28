@@ -10,7 +10,7 @@
     "start": "nodemon src/index.js",
     "dev": "nodemon src/index.js",
     "vercel-build": "echo 'Build complete'",
-    "test": "node --test src/aadhaar/aadhaar.test.js"
+    "test": "node --test \"src/**/*.test.js\""
   },
   "dependencies": {
     "@aws-sdk/client-backup": "^3.1113.0",
