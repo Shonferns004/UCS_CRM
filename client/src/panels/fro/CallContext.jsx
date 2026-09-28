@@ -30,11 +30,10 @@ export function CallProvider({ children, userId, operatorId }) {
   const [liveStatus, setLiveStatus] = useState('online')
 
   // ── Disposition timer ────────────────────────────────────────
-  // The FRO gets 4 minutes from login to record a disposition, and 4 more
-  // after every one they record. When it runs out they are idle until they
-  // press Resume — it keeps running with no call in progress, and it only
-  // ticks inside their shift. All of that is decided on the server; these
-  // values are its answers, mirrored so the chip and popup can render.
+  // The FRO gets 4 minutes from their first action of the day, and 4 more after
+  // every disposition. When it runs out they are idle until they record
+  // something or press Resume. All of that is decided on the server; these
+  // values are its answers, mirrored so the chip and banner can render.
   const [dispositionDueAt, setDispositionDueAt] = useState(null)
   const [secondsLeft, setSecondsLeft] = useState(null)
   const [isIdle, setIsIdle] = useState(false)
@@ -45,6 +44,16 @@ export function CallProvider({ children, userId, operatorId }) {
   const inShiftRef = useRef(true); inShiftRef.current = inShift
   const dispositionDueRef = useRef(null); dispositionDueRef.current = dispositionDueAt
   const isIdleRef = useRef(false); isIdleRef.current = isIdle
+  // The server's own answer, "you have N seconds left", plus the local monotonic
+  // reading taken when that answer arrived. The countdown is N minus locally
+  // elapsed time. It is deliberately NOT deadline-minus-Date.now(): plenty of
+  // field laptops have a wrong system clock, and comparing a server timestamp
+  // against a skewed local one pinned the display at 0:00 and made a freshly
+  // reset 4-minute window look like it had not reset at all. performance.now()
+  // only ever measures elapsed time on this machine, so a wrong clock cannot
+  // affect it.
+  const serverSecondsRef = useRef(null)
+
   // The server flipped us idle between heartbeats; push one so the row records
   // the transition (and idle_since) without waiting for the next scheduled beat.
   const idleNotifiedRef = useRef(false)
@@ -89,8 +98,26 @@ export function CallProvider({ children, userId, operatorId }) {
   const adoptTimer = useCallback((s) => {
     if (!s) return
     if (s.disposition_due_at !== undefined) {
-      setDispositionDueAt(s.disposition_due_at || null)
-      dispositionDueRef.current = s.disposition_due_at || null
+      const next = s.disposition_due_at || null
+      setDispositionDueAt(next)
+      dispositionDueRef.current = next
+      // No deadline on the row means the window is not armed at all.
+      if (!next) {
+        serverSecondsRef.current = null
+        setSecondsLeft(null)
+      }
+    }
+    // seconds_left is the server's own remaining time, computed on the server's
+    // clock. It is the number of record: the local machine's clock is never
+    // involved, so a laptop with the wrong date/time still shows a correct
+    // 4:00 after a reset instead of a stuck 0:00.
+    if (typeof s.seconds_left === 'number') {
+      serverSecondsRef.current = { seconds: s.seconds_left, at: performance.now() }
+      setSecondsLeft(s.seconds_left)
+    } else if (s.seconds_left === null) {
+      // Explicitly "not armed" — never leave a stale countdown on screen.
+      serverSecondsRef.current = null
+      setSecondsLeft(null)
     }
     if (typeof s.in_shift === 'boolean') {
       setInShift(s.in_shift)
@@ -172,17 +199,20 @@ export function CallProvider({ children, userId, operatorId }) {
   }, [meetingActive, syncAllStats])
 
   // ---------- Countdown ----------
-  // Derived from the absolute deadline, never a decrementing counter, so a
-  // backgrounded tab, a sleep, or a slow tick cannot drift.
+  // Counts the server's "seconds left" down locally. The only thing read from
+  // this machine is elapsed time via performance.now(), never the wall clock, so
+  // a laptop whose date/time is wrong cannot pin the display at 0:00 or make a
+  // fresh window look unreset. Every heartbeat re-syncs the number, so drift
+  // from a throttled tab or a sleeping laptop is corrected within one beat.
   useEffect(() => {
-    if (!dispositionDueAt) {
+    if (dispositionDueAt == null) {
       setSecondsLeft(null)
       return undefined
     }
     const tick = () => {
-      const due = new Date(dispositionDueAt).getTime()
-      if (!Number.isFinite(due)) { setSecondsLeft(null); return }
-      const left = Math.max(0, Math.round((due - Date.now()) / 1000))
+      const seed = serverSecondsRef.current
+      if (!seed) return
+      const left = Math.max(0, Math.round(seed.seconds - (performance.now() - seed.at) / 1000))
       setSecondsLeft(left)
       // Zero while paused or in a meeting is expected — the server holds the
       // deadline back for those, so never flip idle on it.
