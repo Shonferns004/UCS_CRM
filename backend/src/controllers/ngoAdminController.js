@@ -1136,24 +1136,35 @@ export const getFroPerformance = async (req, res) => {
       endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
     const includesToday = startDate <= todayEnd && endDate >= todayStart;
-    const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // Every day boundary below is an IST calendar day. `attendance.date` is
+    // written in IST (attendanceController / selfiePunch use istDateStr), so
+    // deriving these from the process's local zone made every lookup miss
+    // between 00:00 and 05:30 IST on a UTC host: the local calendar was still
+    // on the previous day, nothing matched `date = <today>`, and the whole
+    // High/Low board came back empty. `from`/`to` already arrive as IST days
+    // (Dashboard.jsx toIstDate) and are used verbatim; only the fallbacks are
+    // computed here, and they are computed in IST.
+    const todayStr = istDateStr(now);
+    const monthDayStr = todayStr.slice(0, 7);
+    const monthStartDay = `${monthDayStr}-01`;
+    const monthEndDay = `${monthDayStr}-${String(new Date(Number(monthDayStr.slice(0, 4)), Number(monthDayStr.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
+    const rangeStartDay = from || (isTodayRange ? todayStr : monthStartDay);
+    const rangeEndDay = to || (isTodayRange ? todayStr : monthEndDay);
 
     const workerIds = froWorkers.map(w => w.id);
     // Collection stats are always paced against the current calendar month
     // (matching the monthly target / working-day calculation below), regardless
     // of the selected from/to period.
-    const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const monthStartDate = new Date(`${monthStartDay}T00:00:00`);
+    const monthEndDate = new Date(`${monthEndDay}T23:59:59.999`);
     const batchStats = await getBatchCollectionStats(workerIds, monthStartDate.toISOString(), monthEndDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
     // Shared leaderboard: rank + period performance come from one service so the
     // admin High/Low tables and the FRO My-Leads strip always agree.
-    const rangeStartDay = localDateStr(startDate);
-    const rangeEndDay = localDateStr(endDate);
     const leaderboard = await buildFroLeaderboard({ startDay: rangeStartDay, endDay: rangeEndDay });
     const lbById = new Map(leaderboard.map(p => [String(p.id), p]));
 
-    const todayStr = localDateStr(now);
     const isSingleDay = isTodayRange || (!!from && !!to && from === to);
     const attendanceMap = {};
     const punchedInSet = new Set();
@@ -1163,11 +1174,15 @@ export const getFroPerformance = async (req, res) => {
         const { data: att } = await db.from('attendance').select('worker_id, status, punch_in_time').eq('date', dayStr).in('worker_id', workerIds);
         for (const a of att || []) {
           attendanceMap[a.worker_id] = a.status === 'present' || a.status === 'late' ? 100 : a.status === 'absent' ? 0 : null;
-          if ((a.status === 'present' || a.status === 'late') && a.punch_in_time) punchedInSet.add(a.worker_id);
+          // Status alone decides presence. Requiring punch_in_time as well hid
+          // anyone marked present by a supervisor or an attendance correction
+          // that never stamped a punch — they read 100% attendance yet fell out
+          // of the High/Low board entirely.
+          if (a.status === 'present' || a.status === 'late') punchedInSet.add(a.worker_id);
         }
       } else {
-        const startStr = localDateStr(startDate);
-        const endStr = localDateStr(endDate);
+        const startStr = rangeStartDay;
+        const endStr = rangeEndDay;
         const { data: att } = await db.from('attendance').select('worker_id, status, punch_in_time').gte('date', startStr).lte('date', endStr).in('worker_id', workerIds);
         const counts = {};
         for (const a of att || []) {
@@ -1175,7 +1190,7 @@ export const getFroPerformance = async (req, res) => {
           counts[a.worker_id].total++;
           if (a.status === 'present' || a.status === 'late') {
             counts[a.worker_id].present++;
-            if (a.punch_in_time) punchedInSet.add(a.worker_id);
+            punchedInSet.add(a.worker_id);
           }
         }
         for (const [wid, c] of Object.entries(counts)) {
