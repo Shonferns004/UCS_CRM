@@ -28,7 +28,7 @@ const getSiAudio = (src) => {
   }
   return siAudioCache[src] || null;
 };
-// NGO-specific intro sound when the "Sir ka Incentive" popup appears:
+// NGO-specific intro sound when the "NGO wise Incentive" popup appears:
 // BSCT -> being, MANN -> mann, ASHRAY -> ashray, everything else / all-NGO -> ngo.
 const ngoAudioFor = (ngoName) => {
   const name = String(ngoName || '').toUpperCase();
@@ -206,7 +206,7 @@ export function WinnerBanner({ inc }) {
   return null;
 }
 
-// ─── SIR KA INCENTIVE live modal (reference-image implementation) ───
+// ─── NGO WISE INCENTIVE live modal (reference-image implementation) ───
 // Data + behavior preserved: same inc payload, shared nowMs countdown,
 // realtime leaderboard, existing close action. Presentation only.
 const SI_MODAL_CSS = `
@@ -367,7 +367,7 @@ function PopupModal({ inc, you, onClose, nowMs }) {
         <div className="incentive-header">
           <span className="si-live-badge">
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFFFFF', display: 'inline-block', flexShrink: 0 }} />
-            SIR KA INCENTIVE · {ended ? 'ENDED' : 'LIVE'}
+            NGO WISE INCENTIVE · {ended ? 'ENDED' : 'LIVE'}
           </span>
           {inc.ngo_name && <span className="si-ngo-badge">{inc.ngo_name}</span>}
           <button ref={closeRef} type="button" onClick={onClose} aria-label="Close incentive" className="si-close">✕</button>
@@ -375,7 +375,7 @@ function PopupModal({ inc, you, onClose, nowMs }) {
 
         {/* Hero: title · message · deadline · cup · % */}
         <div className="incentive-hero">
-          <h2 id="incentive-title" className="si-title">{inc.title || 'Special Incentive'}</h2>
+          <h2 id="incentive-title" className="si-title">{inc.title || 'NGO wise Incentive'}</h2>
           {inc.message ? <p className="si-desc">{inc.message}</p> : null}
           <div className="si-deadline">
             📅 {fmtDeadline(inc.end_at)}
@@ -663,7 +663,7 @@ export function useSpecialIncentive() {
       try { if (navigator.vibrate) navigator.vibrate(300); } catch { /* ignore */ }
       playNgoAudio(popupInc.ngo_name);
       requestNotifPermission().then(() => {
-        showDesktopNotification('Sir ka Incentive LIVE 🎯', popupInc.title || 'New special incentive is live — go collect!');
+        showDesktopNotification('NGO wise Incentive LIVE 🎯', popupInc.title || 'New NGO wise incentive is live — go collect!');
       }).catch(() => {});
     }
   }, [popupInc]);
@@ -721,7 +721,7 @@ export function useSpecialIncentive() {
   };
 }
 
-// Compact "Sir ka Incentive" card for the FRO sidebar. Renders below the nav,
+// Compact "NGO wise Incentive" card for the FRO sidebar. Renders below the nav,
 // themed by the running incentive's NGO colour. The cat rides the fill edge and
 // the whole card opens the shared popup modal on click.
 export function SidebarIncentive({ si }) {
@@ -730,7 +730,7 @@ export function SidebarIncentive({ si }) {
   if (!incentives || incentives.length === 0) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto', padding: '12px 8px 0' }}>
-      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: 'var(--ink-soft)', padding: '0 6px' }}>Special Incentives</div>
+      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: 'var(--ink-soft)', padding: '0 6px' }}>NGO wise Incentives</div>
       {incentives.map((inc) => {
         const target = Number(inc?.target_amount) || 0;
         const collected = Number(inc?.mine?.collected_amount) || 0;
@@ -740,7 +740,7 @@ export function SidebarIncentive({ si }) {
           <div
             key={inc.id}
             onClick={() => { playNgoAudio(inc.ngo_name); setOpenId(inc.id); }}
-            title={inc.title || 'Special Incentive'}
+            title={inc.title || 'NGO wise Incentive'}
             style={{ borderRadius: 14, border: `1.5px solid ${color}cc`, background: `linear-gradient(165deg,#ffffff,#fff,${color}14)`, boxShadow: `0 8px 20px ${color}2e`, cursor: 'pointer', padding: '9px 11px 10px', transition: 'transform .12s ease, boxShadow .12s ease' }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 12px 24px ${color}4a`; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = `0 8px 20px ${color}2e`; }}
