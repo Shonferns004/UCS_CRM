@@ -1218,6 +1218,43 @@
 }
 .panel-ngo-admin .sidebar { position:fixed; top:0; height:100vh; }
 .panel-ngo-admin .main { margin-left:200px; }
+
+/* ── NGO ADMIN COLLAPSIBLE SIDEBAR (desktop icon rail) ──
+   Unlike the flex panels, this sidebar is position:fixed and the content is
+   offset with a hardcoded margin-left, so collapsing needs both moved together
+   or the board slides under the rail.
+
+   Every rule below is gated to min-width:821px on purpose. The <=820px block
+   further down turns the sidebar into a drawer and resets .main to
+   margin-left:0; a rail rule sitting outside that gate would out-specify the
+   reset and leave a 56px hole up the side of a phone.
+
+   The .app.nav-collapsed prefix is also what makes these win — one class more
+   than the base .sidebar/.main rules — so source order does not matter. */
+.panel-ngo-admin .sidebar { transition: width .2s ease; }
+.panel-ngo-admin .main { transition: margin-left .2s ease; }
+
+@media (min-width:821px) {
+  .panel-ngo-admin .app.nav-collapsed .sidebar { width:56px; padding:14px 0; overflow-x:hidden; }
+  .panel-ngo-admin .app.nav-collapsed .main { margin-left:56px; }
+
+  /* Wordmark drops to the mark alone, centred. */
+  .panel-ngo-admin .app.nav-collapsed .sidebar-brand { padding:0 0 14px; justify-content:center; }
+  .panel-ngo-admin .app.nav-collapsed .sidebar-brand-text { display:none; }
+
+  /* Icons centre in the rail. The label is hidden by CSS rather than
+     conditionally rendered, so the two layouts cannot fall out of step, and the
+     NavLink title carries the name on hover. */
+  .panel-ngo-admin .app.nav-collapsed .snav-item { justify-content:center; padding:10px 0; position:relative; }
+  .panel-ngo-admin .app.nav-collapsed .snav-label { display:none; }
+
+  /* The unread pill sits at margin-left:auto, which in a 56px rail shoves the
+     icon off-centre and squeezes it. Pin it to the icon's top-right instead. */
+  .panel-ngo-admin .app.nav-collapsed .snav-item .chat-nav-badge { margin-left:0; position:absolute; top:2px; right:2px; min-width:16px; height:16px; padding:0 4px; font-size:9px; }
+}
+
+.panel-ngo-admin .nav-collapse-toggle { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:1px solid var(--line); background:var(--card-bg); border-radius:8px; cursor:pointer; color:var(--ink-soft); flex-shrink:0; transition:background .12s, color .12s; }
+.panel-ngo-admin .nav-collapse-toggle:hover { background:var(--bg); color:var(--ink); }
 .panel-accounts .topbar, .panel-ngo-admin .topbar, .panel-fro .topbar { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:1001; }
 .panel-accounts .topbar .eyebrow, .panel-ngo-admin .topbar .eyebrow, .panel-fro .topbar .eyebrow { font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.5px; }
 .panel-accounts .topbar h2, .panel-ngo-admin .topbar h2, .panel-fro .topbar h2 { font-size:18px; font-weight:600; margin-top:1px; }
