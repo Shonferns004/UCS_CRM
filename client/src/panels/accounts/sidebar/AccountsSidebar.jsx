@@ -200,8 +200,10 @@ function useAnchoredPopover({ open, anchor, onDismiss, placement = 'right' }) {
   return [elRef, box]
 }
 
-function NavigationItem({ item, isActive, rail, onClose, openGroups, onToggleGroup, onOpenPopover, popoverGroupId, popoverId }) {
-  const active = isActive(item)
+function NavigationItem({ item, isActive, pathname, rail, onClose, openGroups, onToggleGroup, onOpenPopover, popoverGroupId, popoverId }) {
+  const active = item.items
+    ? groupIsActive(item, pathname, isActive)
+    : isActive(item, pathname)
 
   if (item.items) {
     const groupOpen = !!openGroups[item.id]
@@ -235,6 +237,7 @@ function NavigationItem({ item, isActive, rail, onClose, openGroups, onToggleGro
                 item={child}
                 sub
                 isActive={isActive}
+                pathname={pathname}
                 onClose={onClose}
                 openGroups={openGroups}
                 onToggleGroup={onToggleGroup}
@@ -385,6 +388,7 @@ export default function AccountsSidebar({ sections, isActive, open, onClose, acc
                   key={item.id}
                   item={item}
                   isActive={isActive}
+                  pathname={pathname}
                   rail={rail}
                   onClose={onClose}
                   openGroups={openGroups}
