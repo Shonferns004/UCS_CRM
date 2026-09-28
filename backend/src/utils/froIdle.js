@@ -205,14 +205,14 @@ export function dispositionDueMs(row) {
 }
 
 /**
- * Drop idle state left over from before the current shift, without writing to
- * the database.
+ * Drop idle state left over from a previous day, without writing to the
+ * database.
  *
  * A row carries two kinds of stale value, and both make a worker look idle the
  * moment they sign in:
  *
  *  - an `idle_since` stamped on a previous IST day, and
- *  - a `disposition_due_at` older than this shift's start, which is always in
+ *  - a `disposition_due_at` stamped on a previous IST day, which is always in
  *    the past by the time they log back in.
  *
  * The heartbeat already discarded both, but only when it ran. The login
@@ -220,15 +220,27 @@ export function dispositionDueMs(row) {
  * and the panel flashed the Resume overlay until the first heartbeat corrected
  * it. Readers must apply the same rule, so the logic lives here once.
  *
+ * `shift` is no longer part of the test on purpose — see the note on
+ * `staleDeadline` below. It stays in the signature so existing callers do not
+ * have to change.
+ *
  * Returns a new object; the caller decides whether to persist.
  */
 export function withoutStaleIdle(row, shift, nowMs = Date.now()) {
   if (!row) return row;
-  const shiftStartMs = Number.isFinite(shift?.startMs) ? shift.startMs : NaN;
   const staleIdle = Number.isFinite(toMs(row.idle_since))
     && istDateStr(new Date(toMs(row.idle_since))) !== istDateStr(new Date(nowMs));
   const dueMs = toMs(row?.disposition_due_at);
-  const staleDeadline = Number.isFinite(dueMs) && Number.isFinite(shiftStartMs) && dueMs < shiftStartMs;
+  // "Stale" means a leftover from a previous day, full stop. It must NOT mean
+  // "older than the shift start we just resolved": the shift window is read from
+  // attendance with a configured-office-hours fallback, so it legitimately moves
+  // between calls (a missing or late punch-in row changes it). Comparing the
+  // deadline against that moving start used to null a window that was merely
+  // EXPIRED, and the FRO's very next action then quietly re-armed a fresh 4
+  // minutes — the "the timer reset itself to 4:00" report. Expiry is a question
+  // about the clock, not about which window we happened to resolve this time.
+  const staleDeadline = Number.isFinite(dueMs)
+    && istDateStr(new Date(dueMs)) !== istDateStr(new Date(nowMs));
   if (!staleIdle && !staleDeadline) return row;
   return {
     ...row,

@@ -2971,8 +2971,18 @@ export const createDonorLogHandler = async (req, res) => {
       // silently kept the old (already expired) deadline, so the FRO kept seeing
       // 0:00 and pressing Resume did not appear to reset anything.
       const isDisposition = action === 'disposition';
-      // Unarmed and the FRO just did something: open their window now.
-      const arming = !liveRow?.disposition_due_at;
+      // "Unarmed and the FRO just did something" is NOT the same thing as "first
+      // action of the day", and conflating them is what made the timer appear to
+      // reset itself. The deadline is also cleared by withoutStaleIdle and by
+      // commitIdleOnExit, so a mid-day FRO whose window had expired (or been
+      // cleaned up) would be handed a brand-new 4 minutes by any unrelated
+      // action — a call note, a lead update — which reads exactly like the clock
+      // rewinding. Only open a window when they have genuinely recorded no work
+      // today; after that, the window is reset by a disposition or by Resume, and
+      // an expired one keeps reading idle until then.
+      const workedToday = Number(liveRow?.today_calls || 0) > 0
+        || Number(liveRow?.today_talk_seconds || 0) > 0;
+      const arming = !liveRow?.disposition_due_at && !workedToday;
       if (isDisposition || arming) {
         const due = nextDeadline(shift, nowMs);
         const frozen = !!liveRow?.is_paused || liveRow?.status === 'meeting';
