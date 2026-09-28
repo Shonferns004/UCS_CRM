@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy } from 'lucide-react'
 import { useUcs } from '../../store'
@@ -249,8 +250,14 @@ function DispositionTimer() {
   // Fraction of the window still remaining, for the bar underneath.
   const remaining = armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW)) : 1;
 
-  return (
-    <div>
+  // Portalled to document.body on purpose. Rendered inline it sat at z-index 70,
+  // so the detailed donor/lead page (z-index 1400) and the donation modal (2000)
+  // covered it completely — the clock vanished exactly where the FRO spends
+  // their time. Portalled, it escapes those stacking contexts and sits above
+  // every page overlay, but still below the two full-screen holds (meeting
+  // 99999 / admin pause) which are meant to block the whole app.
+  return createPortal(
+    <>
       {/* Keyframes live here rather than in the broadcast block: this widget is
           on screen permanently, the broadcast is not. */}
       <style>{'@keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.35); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
@@ -263,7 +270,7 @@ function DispositionTimer() {
           // half its own height so the widget straddles that line.
           top: '58%',
           transform: 'translateY(-50%)',
-          zIndex: 70,
+          zIndex: 99997,
           width: 130,
           padding: '10px 12px',
           borderRadius: 14,
@@ -288,7 +295,8 @@ function DispositionTimer() {
           <div style={{ height: '100%', width: `${remaining * 100}%`, background: color, transition: 'width .95s linear' }} />
         </div>
       </div>
-    </div>
+    </>,
+    document.body,
   );
 }
 
@@ -316,7 +324,10 @@ function IdleGate() {
     }
   };
   if (!isIdle) return null;
-  return (
+  // Portalled for the same reason as the clock: inline, a page overlay such as
+  // the detailed donor view would bury the banner and the FRO would not even
+  // know they were idle.
+  return createPortal(
     // Anchored to the bottom, auto width, no backdrop: it reports idle without
     // taking the app away from the FRO.
     <div
@@ -364,7 +375,8 @@ function IdleGate() {
       {error && (
         <div role="alert" style={{ position: 'absolute', left: 14, bottom: -20, fontSize: 11.5, fontWeight: 600, color: '#DC2626' }}>{error}</div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
