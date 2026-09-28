@@ -194,6 +194,102 @@ function PauseGate() {
   );
 }
 
+// Disposition countdown. Sits in the top bar so it is visible on every FRO
+// page, not just the one where work happens. It counts down to the deadline the
+// server set and turns red as the window closes. Hidden outside the shift and
+// while an admin pause or a company meeting is holding the clock.
+function DispositionChip() {
+  const { secondsLeft, isIdle, inShift, paused, status } = useCall();
+  if (paused || status === 'meeting' || !inShift) return null;
+  if (isIdle) return null;
+  if (secondsLeft == null) return null;
+  const urgent = secondsLeft <= 60;
+  const warn = secondsLeft <= 120;
+  const cfg = urgent
+    ? { bg: '#FEE2E2', border: '#FCA5A5', color: '#B91C1C', label: 'Disposition now' }
+    : warn
+      ? { bg: '#FEF3C7', border: '#FCD34D', color: '#B45309', label: 'Disposition due' }
+      : { bg: '#EFF6FF', border: '#BFDBFE', color: '#1D4ED8', label: 'Disposition' };
+  return (
+    <div
+      title="Time left to record a disposition. Every disposition resets this to 4:00; if it runs out you are marked idle until you resume."
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999,
+        background: cfg.bg, border: `1px solid ${cfg.border}`,
+        ...(urgent ? { boxShadow: '0 0 0 0 rgba(220,38,38,.4)', animation: 'froIdlePulse 1.4s infinite' } : {}),
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={cfg.color} strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+      </svg>
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: .4 }}>{cfg.label}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 800, color: cfg.color, fontVariantNumeric: 'tabular-nums' }}>
+        {fmtCountdown(secondsLeft)}
+      </span>
+    </div>
+  );
+}
+
+function fmtCountdown(total) {
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// The disposition window ran out. Blocking overlay with the single action that
+// lifts it — Resume, which commits the idle time so far into today and starts a
+// fresh 4-minute window. Deliberately not dismissable: idle only stops here.
+function IdleGate() {
+  const { isIdle, resumeIdle, idleSecondsToday, fmt } = useCall();
+  const [resuming, setResuming] = useState(false);
+  const [error, setError] = useState(null);
+  const onResume = async () => {
+    if (resuming) return;
+    setResuming(true);
+    setError(null);
+    try {
+      await resumeIdle();
+    } catch (e) {
+      setError(e?.message || 'Resume failed. Please try again.');
+    } finally {
+      setResuming(false);
+    }
+  };
+  if (!isIdle) return null;
+  return (
+    <div role="alertdialog" aria-modal="true" aria-label="You are idle"
+      style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(15,23,42,.82)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: 'min(420px, 100%)', borderRadius: 18, background: '#fff', boxShadow: '0 24px 60px rgba(0,0,0,.45)', padding: 24, textAlign: 'center' }}>
+        <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#FEE2E2', color: '#DC2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+        </span>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#17233C' }}>You are idle</div>
+        <div style={{ fontSize: 13, color: '#64748B', marginTop: 6, lineHeight: 1.6 }}>
+          Your 4-minute disposition timer ran out. Idle time keeps adding up until you resume.
+        </div>
+        {idleSecondsToday > 0 && (
+          <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12.5, fontWeight: 600, color: '#991B1B', lineHeight: 1.55 }}>
+            Idle today: {fmt(idleSecondsToday)}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onResume}
+          disabled={resuming}
+          aria-label="Resume work"
+          style={{ marginTop: 14, width: '100%', padding: '12px 14px', borderRadius: 12, border: 'none', background: '#16A34A', color: '#fff', fontSize: 15, fontWeight: 800, fontFamily: 'inherit', cursor: resuming ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          {resuming ? 'Resuming…' : 'Resume Work'}
+        </button>
+        {error && (
+          <div role="alert" style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: '#DC2626' }}>{error}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Live status pill for the top bar — mirrors the backend fro_live_status value.
 // Rendered inside <CallProvider> so useCall() is available.
 function FroStatusPill() {
@@ -201,12 +297,12 @@ function FroStatusPill() {
   const key = status === 'offline' ? 'offline' : status === 'idle' ? 'idle' : 'active';
   const cfg = {
     active: { label: 'Active', bg: '#e7f3ec', border: '#bce5cd', color: '#15803d', dot: '#16a34a' },
-    idle: { label: 'Idle', bg: '#fffbeb', border: '#fde68a', color: '#b45309', dot: '#f59e0b' },
+    idle: { label: 'Idle', bg: '#FEE2E2', border: '#FCA5A5', color: '#B91C1C', dot: '#DC2626' },
     offline: { label: 'Offline', bg: '#f3f4f6', border: '#e5e7eb', color: '#6b7280', dot: '#9ca3af' },
   }[key];
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: cfg.bg, border: `1px solid ${cfg.border}`, marginTop: 10 }}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.dot, display: 'inline-block', ...(key === 'active' ? { boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' } : {}) }} />
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.dot, display: 'inline-block', ...(key === 'active' ? { boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' } : key === 'idle' ? { boxShadow: '0 0 0 0 rgba(220,38,38,.45)', animation: 'froIdlePulse 1.4s infinite' } : {}) }} />
       <span style={{ fontSize: 10.5, fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: .4 }}>{cfg.label}</span>
     </div>
   );
@@ -675,17 +771,6 @@ export default function FROPanel() {
               toast(`${n.title}: ${n.body}`, 'info');
             }
           });
-        allNotifs
-          .filter(n => n.type === 'idle_alert' && !n.read_at)
-          .slice(0, 20)
-          .forEach(n => {
-            if (!seenNotifIds.current.has(n.id)) {
-              seenNotifIds.current.add(n.id);
-              localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
-              showDesktopNotification(n.title, n.body);
-              toast(`${n.title}: ${n.body}`, 'error');
-            }
-          });
         setAllVerified(verified);
         setVerifiedItems(verifiedSlice);
         setVerifiedCount(verified.length);
@@ -725,6 +810,15 @@ useEffect(() => onFroAction((action) => {
   useEffect(() => onFroForceLogout(() => {
     logout()
   }), [logout]);
+  // Manual sign-out. The server banks any idle still running (so the day and
+  // monthly totals keep it) before closing the session, so no confirm dialog is
+  // needed about losing time — the confirm is only to avoid accidental clicks.
+  const handleLogout = useCallback(() => {
+    setShowMenu(false)
+    if (window.confirm('Log out of the FRO panel? Any idle time still running will be recorded up to now.')) {
+      logout()
+    }
+  }, [logout])
   useEffect(() => {
     if (!froBroadcast) return;
     const minimize = setTimeout(() => setFroBroadcastMin(true), 30000);
@@ -738,13 +832,6 @@ useEffect(() => onFroAction((action) => {
     onInsert: (row) => {
       if (row?.type === 'suspense_alert') {
         ringSuspenseAlert(row);
-      }
-      // NGO admin clicked "Notify" — surface instantly (deduped via seenNotifIds)
-      if (row?.type === 'idle_alert' && row?.id && !seenNotifIds.current.has(row.id)) {
-        seenNotifIds.current.add(row.id);
-        localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
-        showDesktopNotification(row.title, row.body);
-        toast(`${row.title}: ${row.body}`, 'error');
       }
       loadNotifications();
     },
@@ -866,6 +953,7 @@ useEffect(() => onFroAction((action) => {
   return (
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
+    <IdleGate />
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
       <div className="main">
@@ -883,6 +971,7 @@ useEffect(() => onFroAction((action) => {
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
             <FroStatusPill />
+            <DispositionChip />
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
@@ -943,8 +1032,13 @@ useEffect(() => onFroAction((action) => {
                   </div>
                   <div className="user-menu-divider" />
                   <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 1.65 1.65 0 0 1-1.82.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 1-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 1.82-.33H7a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0 .33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     Settings
+                  </div>
+                  <div className="user-menu-divider" />
+                  <div className="user-menu-item" onClick={handleLogout} style={{cursor:'pointer', color:'#b91c1c'}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Log Out
                   </div>
                   </div>
               )}
@@ -1215,7 +1309,7 @@ useEffect(() => onFroAction((action) => {
       <NoticePopup />
       {froBroadcast && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
-          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } } @keyframes froActivePulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }'}</style>
+          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } } @keyframes froActivePulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } } @keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.4); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
           <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
             <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
             <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>

@@ -569,41 +569,32 @@ function buildWarningLetterHTML(w, dateText, joiningDate, subjectText, ngoKey) {
 </div>`;
 }
 
-function formatIdle(sec) {
-  if (sec == null) return null;
-  const m = Math.max(0, Math.round(sec / 60));
-  if (m === 0) return '0 minutes';
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  if (h === 0) return `${rem} minute${rem === 1 ? '' : 's'}`;
-  if (rem === 0) return `${h} hour${h === 1 ? '' : 's'}`;
-  return `${h} hour${h === 1 ? '' : 's'} ${rem} minute${rem === 1 ? '' : 's'}`;
-}
-
 function buildFROWarningLetterHTML(w, dateText, ngoKey, idleSeconds) {
   const ngo = getNgo(ngoKey);
   const d = deptLabel(w.dept || w.department) || 'FRO';
   const employeeId = (w.login_id || w.employee_id || w.employee_no || '').toString() || '____________________';
-  const idleText = formatIdle(idleSeconds);
-  const idleRow = idleText != null ? `<tr><td style="padding:3px 0"><strong>Idle Time Recorded:</strong> ${idleText}</td></tr>` : '';
-  const idleClause = idleText != null
-    ? `<p style="margin:0 0 8px 0">As per the system records, your idle time on the date of this warning was recorded as <strong>${idleText}</strong>.</p>`
-    : '';
+  // Prefer the day's own figure fetched from the daily-stats endpoint; fall back
+  // to anything already on the worker record. null means genuinely unknown, so
+  // print the merge placeholder rather than a misleading zero.
+  const secs = Number.isFinite(Number(idleSeconds)) ? Number(idleSeconds)
+    : w.idle_seconds != null ? Number(w.idle_seconds)
+    : w.idle_hours != null ? Number(w.idle_hours) * 3600
+    : null;
+  const idleText = Number.isFinite(secs) ? (secs / 3600).toFixed(2) : '{{idle_hours}}';
   const content = `<table style="width:100%;border-collapse:collapse;margin:0 0 10px 0">
 <tr><td style="padding:3px 0"><strong>Date:</strong> ${dateText}</td></tr>
 <tr><td style="padding:3px 0"><strong>Employee Name:</strong> ${w.name}</td></tr>
 <tr><td style="padding:3px 0"><strong>Employee ID:</strong> ${employeeId}</td></tr>
 <tr><td style="padding:3px 0"><strong>Department:</strong> ${d}</td></tr>
-${idleRow}
+<tr><td style="padding:3px 0"><strong>Idle Time (Working Hours):strong> ${idleText}</td></tr>
 </table>
-<div style="font-weight:700;color:#082F5A;margin:0 0 8px 0">Subject: Warning Regarding Excessive Idle Time During Working Hours</div>
+<div style="font-weight:700;color:#082F5A;margin:0 0 8px 0">Subject: Warning Regarding Poor Working Performance</div>
 <p style="margin:0 0 8px 0">Dear ${titleCase(w.name)},</p>
-<p style="margin:0 0 8px 0">This is to formally warn you regarding the excessive idle time recorded during your working hours.</p>
-${idleClause}
+<p style="margin:0 0 8px 0">This is to formally warn you regarding the poor performance recorded during your working hours.</p>
+<p style="margin:0 0 8px 0">Every FRO is expected to record a disposition for the work in hand within four (4) minutes. When that window lapses without a recorded disposition, the system marks the FRO as idle and continues to record the idle time for as long as it remains unaddressed. Idle time recorded in this manner is treated as non-productive working time.</p>
 <p style="margin:0 0 8px 0">You are required to remain productive throughout the office working hours and actively perform your assigned duties, including CRM activities, calling, follow-ups, data updating and other work assigned by your Team Leader/Management.</p>
-<p style="margin:0 0 8px 0">You are hereby instructed to immediately reduce your idle time and ensure that your working hours are utilized productively.</p>
-<p style="margin:0 0 8px 0">Please note that if your total idle/non-working time accumulates to more than 8 hours (equivalent to one full working day), the company may treat such accumulated non-working time as one full day of absence/non-working time and make the corresponding salary adjustment, in accordance with the company's attendance/payroll policy and applicable law.</p>
-<p style="margin:0 0 8px 0">This warning is being issued to give you an opportunity to correct your work pattern immediately. Continued excessive idle time may result in further disciplinary action.</p>
+<p style="margin:0 0 8px 0">You are hereby instructed to improve your performance immediately and ensure that your working hours are utilized productively. This specifically includes recording a disposition within the prescribed four-minute window for each call or follow-up, so that avoidable idle time is not accumulated against you.</p>
+<p style="margin:0 0 8px 0">This warning is being issued to give you an opportunity to correct your work pattern immediately. Continued poor performance may result in further disciplinary action.</p>
 <p style="margin:0 0 8px 0">We expect you to take this warning seriously and show immediate improvement in your productivity and utilization of working hours.</p>
 <div style="margin:16px 0 0 0">
 <p style="margin:0 0 6px 0"><strong>For Management</strong></p>

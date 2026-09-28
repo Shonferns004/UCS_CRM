@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Bell, Users, Clock, X } from 'lucide-react';
+import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X } from 'lucide-react';
 import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
@@ -136,13 +136,6 @@ const mergePauseState = (payload, overrides) => {
     };
   });
   return changed ? { ...payload, performance } : payload;
-};
-
-const formatIdle = (seconds) => {
-  const total = Math.max(0, Number(seconds) || 0);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 };
 
 const PERIOD_LABELS = { today: 'Today', yesterday: 'Yesterday', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
@@ -572,7 +565,6 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
 const FRO_STATUS_META = {
   on_call: { label: 'Calling', dot: '#16a34a', name: '#15803d' },
   online: { label: 'Online', dot: '#16a34a', name: '#15803d' },
-  idle: { label: 'Idle', dot: '#f59e0b', name: '#d97706' },
   offline: { label: 'Offline', dot: '#dc2626', name: null },
 };
 
@@ -886,7 +878,9 @@ export default function Dashboard() {
   const [hourlyList, setHourlyList] = useState([]);
   const [hourlyFroRows, setHourlyFroRows] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
-  const [idleSearch, setIdleSearch] = useState('');
+  const [presentSearch, setPresentSearch] = useState('');
+  // Which FRO's "Remind" button is mid-flight, so only that one shows a spinner.
+  const [notifyingId, setNotifyingId] = useState(null);
   const [hourlyFroSearch, setHourlyFroSearch] = useState('');
   const [connTarget, setConnTarget] = useState(DAILY_CONNECTED_TARGET);
   const [connTargetOpen, setConnTargetOpen] = useState(false);
@@ -970,8 +964,7 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
 
-  // Saved per-day activity for the selected date (idle + calls + rank) — powers
-  // the Idle Hours alerts for any past day, not just today.
+  // Saved per-day activity for the selected date (calls + rank).
   useEffect(() => {
     let cancelled = false;
     getFroDailyStats({ date: hourlyDate, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
@@ -1058,7 +1051,7 @@ export default function Dashboard() {
   const pauseOverridesRef = useRef(new Map());
 
   // Global meeting mode (from meetingStore): freezes live counts + suppresses
-  // idle/zero-call alerts while a company-wide meeting is active.
+  // zero-call alerts while a company-wide meeting is active.
   const meeting = useMeeting();
   const meetingActive = !!meeting;
 
@@ -1077,11 +1070,9 @@ export default function Dashboard() {
     [lowPresent, lowPerfSearch]
   );
 
-  // (Productivity-alerts idle list removed — the Idle Hours panel was replaced
-  // by the FRO Status panel, which reads live data straight from tlData.)
-
-  // FRO × hour groups for the hourly performance table — active (online/on-call/idle)
-  // FROs only, sorted low-performer-first; future hours are excluded from totals today.
+  // FRO × hour groups for the hourly performance table — active
+  // (online/on-call) FROs only, sorted low-performer-first; future hours are
+  // excluded from totals today.
   // FROs who were ABSENT on the selected date (no attendance punch-in) are excluded.
   const hourlyGroups = useMemo(() => {
     const nowHourIST = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours();
@@ -1184,21 +1175,6 @@ export default function Dashboard() {
       clearInterval(interval);
     };
   }, [selectedNgoId, dashPeriod, customFrom, customTo, selectedFroId, tlRefreshNonce]);
-
-  // Send an idle_alert notification to a specific FRO (bell + realtime + FCM).
-  const [notifyingFroId, setNotifyingFroId] = useState(null);
-  const handleNotifyFro = useCallback(async (froId, froName) => {
-    if (notifyingFroId) return;
-    setNotifyingFroId(froId);
-    try {
-      await notifyFro(froId);
-      toast(`Idle alert sent to ${froName}`, 'success');
-    } catch (e) {
-      toast(e.message || 'Could not send alert', 'error');
-    } finally {
-      setNotifyingFroId(null);
-    }
-  }, [notifyingFroId]);
 
   // Per-FRO pause/resume from the Dashboard FRO Status panel (same endpoints
   // as the FRO Status page — NGO-scoped server-side).
@@ -1425,32 +1401,35 @@ export default function Dashboard() {
 
     // ── Sheet 1: Telecaller Performance ─────────────────────────────
     // Mirrors the on-screen table: FU + C/B under Follow-up, VISIT + P under
-    // Field, plus Overdue (calls / follow-ups), Logout and Idle Hr columns.
+    // Field, plus Overdue (calls / follow-ups) and Logout columns.
     const EXPORT_STATUS_ORDER = ['scheduled', 'callback', 'office_program_visit', 'promise_pay_wa_email', 'not_interested_np', 'dnd'];
     const EXPORT_STATUS_LABELS = { scheduled: 'Follow Up (FU)', callback: 'Callback (C/B)', office_program_visit: 'Visit', promise_pay_wa_email: 'P', not_interested_np: 'NI', dnd: 'DND' };
     const headers1 = [
-      'Telecaller', 'Login ID', 'Period', 'Idle Hr', 'Total Calls', 'Connected', 'Leads Done',
+      'Telecaller', 'Login ID', 'Period', 'Total Calls', 'Connected', 'Leads Done',
       ...EXPORT_STATUS_ORDER.map(k => EXPORT_STATUS_LABELS[k]),
-      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Live Status'
+      'Non-Connected', 'Interested', 'Amount (₹)', 'CO/D', 'FUP O/D', 'Logout', 'Idle (Hrs)', 'Live Status'
     ];
     const aoa1 = calcRows1.map(({ p, c }) => [
-      p.fro_name, p.fro_login_id || '', periodLabel, Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100,
+      p.fro_name, p.fro_login_id || '', periodLabel,
       c.calls, c.connected,
       c.statuses.lead_done || 0,
       ...EXPORT_STATUS_ORDER.map(k => c.statuses[k] || 0),
       c.nonConnected, c.interested, c.received, p.overdue_calls || 0, p.overdue_followups || 0,
-      p.logout_today || 0, p.status || 'offline'
+      p.logout_today || 0,
+      // Today's idle (committed + any period still running) in hours.
+      Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100,
+      p.status || 'offline'
     ]);
     const t1 = calcRows1.reduce((a, { p, c }) => ({
       calls: a.calls + c.calls, connected: a.connected + c.connected, nonConnected: a.nonConnected + c.nonConnected,
       interested: a.interested + c.interested, donors: a.donors + (p.receivedDonors || 0), amount: a.amount + c.received,
       odc: a.odc + (p.overdue_calls || 0), odf: a.odf + (p.overdue_followups || 0),
-      idleSeconds: a.idleSeconds + (p.today_idle_seconds || 0),
       logoutsToday: a.logoutsToday + (p.logout_today || 0),
+      idleSec: a.idleSec + (p.today_idle_seconds || 0),
       leadsDone: a.leadsDone + (c.statuses.lead_done || 0),
       statuses: EXPORT_STATUS_ORDER.map((k, i) => a.statuses[i] + (c.statuses[k] || 0)),
-    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, idleSeconds: 0, logoutsToday: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0) });
-    aoa1.push(['TOTAL', '', '', Math.round((t1.idleSeconds / 3600) * 100) / 100, t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, '']);
+    }), { calls: 0, connected: 0, nonConnected: 0, interested: 0, donors: 0, amount: 0, odc: 0, odf: 0, logoutsToday: 0, idleSec: 0, leadsDone: 0, statuses: EXPORT_STATUS_ORDER.map(() => 0) });
+    aoa1.push(['TOTAL', '', '', t1.calls, t1.connected, t1.leadsDone, ...t1.statuses, t1.nonConnected, t1.interested, t1.amount, t1.odc, t1.odf, t1.logoutsToday, Math.round((t1.idleSec / 3600) * 100) / 100, '']);
 
     const ws1 = XLSX.utils.aoa_to_sheet([]);
     ws1[enc({ r: 0, c: 0 })] = { t: 's', v: `Telecaller Performance — ${periodLabel}` };
@@ -1460,9 +1439,10 @@ export default function Dashboard() {
     XLSX.utils.sheet_add_aoa(ws1, aoa1, { origin: 'A3' });
     spanRef(ws1);
     ws1['!cols'] = [
-      { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+      // 6 fixed + 6 statuses + 8 tail = 20, matching headers1 (0..19).
+      { wch: 25 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
       ...EXPORT_STATUS_ORDER.map(() => ({ wch: 16 })),
-      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
+      { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }
     ];
     styleCell(ws1, 0, 0, TITLE);
     for (let c = 0; c <= 19; c++) styleCell(ws1, 1, c, HDR);
@@ -1731,27 +1711,6 @@ export default function Dashboard() {
 
       </div>
 
-      {/* Idle Alert Banner */}
-      {!meetingActive && tlData?.idle_alerts?.length > 0 && (
-        <div style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <TriangleAlert size={16} color="#d97706" style={{ flexShrink: 0 }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>Idle Alerts:</span>
-          {tlData.idle_alerts.map(a => (
-            <span key={a.fro_id} style={{ fontSize: 11, fontWeight: 500, color: '#78350f', background: '#fff', padding: '2px 6px 2px 10px', borderRadius: 12, border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {a.fro_name} — {a.idle_minutes}m idle
-              <button
-                onClick={() => handleNotifyFro(a.fro_id, a.fro_name)}
-                disabled={notifyingFroId === a.fro_id}
-                title={`Send idle alert to ${a.fro_name}`}
-                style={{ border: 'none', fontFamily: 'inherit', fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 999, cursor: notifyingFroId === a.fro_id ? 'default' : 'pointer', background: notifyingFroId === a.fro_id ? '#fde68a' : '#d97706', color: '#fff' }}
-              >
-                {notifyingFroId === a.fro_id ? '…' : 'Notify'}
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Meeting in-progress banner: live counters are frozen */}
       {meetingActive && (
         <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 8, background: '#f5f3ff', border: '1px solid #ddd6fe', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1764,8 +1723,47 @@ export default function Dashboard() {
             Started by {meeting?.started_by_name || 'Admin'}
           </span>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#6d28d9' }}>
-            Live counters (idle, calls, breaks) are paused.
+            Live counters (calls, breaks) are paused.
           </span>
+        </div>
+      )}
+
+      {/* Idle alerts: FROs whose 4-minute disposition timer ran out and who have
+          not pressed Resume. Each one gets a nudge button so the admin is not
+          stuck watching a number change. */}
+      {tlData?.idle_alerts?.length > 0 && (
+        <div style={{ marginBottom: 12, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <TriangleAlert size={16} color="#b91c1c" />
+            <span style={{ fontSize: 13, fontWeight: 800, color: '#991b1b' }}>
+              {tlData.idle_alerts.length} FRO{tlData.idle_alerts.length !== 1 ? 's' : ''} idle — awaiting Resume
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {tlData.idle_alerts.map((a) => (
+              <div key={a.worker_id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 8px 6px 10px' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#091426' }}>{a.name}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>
+                  {Math.floor((a.idle_minutes || 0) / 60)}h {String((a.idle_minutes || 0) % 60).padStart(2, '0')}m
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={notifyingId === a.worker_id}
+                  onClick={async () => {
+                    setNotifyingId(a.worker_id);
+                    try { await notifyFro(a.worker_id); toast(`Reminder sent to ${a.name}`, 'success'); }
+                    catch (e) { toast(e.message || 'Could not send reminder', 'error'); }
+                    finally { setNotifyingId(null); }
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#b91c1c', cursor: notifyingId === a.worker_id ? 'wait' : 'pointer' }}
+                >
+                  <Megaphone size={12} />
+                  {notifyingId === a.worker_id ? '…' : 'Remind'}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1776,7 +1774,7 @@ export default function Dashboard() {
             ...(meetingActive ? [{ label: 'Meeting', value: tlData.kpis.meeting || 0, color: '#7c3aed', bg: '#f5f3ff' }] : []),
             { label: 'Telecallers', value: tlData.kpis.total_fros || 0, color: '#1e40af', bg: '#eff6ff' },
             { label: 'Calling', value: tlData.kpis.calling || 0, color: '#16a34a', bg: '#f0fdf4' },
-            { label: 'Idle', value: tlData.kpis.idle || 0, color: '#d97706', bg: '#fffbeb' },
+            { label: 'Idle', value: tlData.kpis.idle || 0, color: '#b91c1c', bg: '#fef2f2' },
             { label: 'Offline', value: tlData.kpis.offline || 0, color: '#dc2626', bg: '#fef2f2' },
             { label: 'Total Calls', value: tlData.kpis.total_calls || 0, color: '#7c3aed', bg: '#f5f3ff' },
             { label: 'Connected', value: tlData.kpis.connected || 0, color: '#0891b2', bg: '#ecfeff' },
@@ -2315,7 +2313,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* FRO Status — present FROs with Pause/Resume (replaces Idle Hours) */}
+            {/* FRO Status — present FROs with Pause/Resume */}
             <div className="productivity-alerts" style={{ width: '100%', minWidth: 0, height: 460, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {/* Header */}
               <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -2323,25 +2321,23 @@ export default function Dashboard() {
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-flex', flexShrink: 0 }} />
                   FRO Status
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-                    {(tlData?.performance || []).filter(p => ['online', 'on_call', 'idle', 'meeting'].includes(p.status)).length} present
+                    {(tlData?.performance || []).filter(p => ['online', 'on_call', 'meeting'].includes(p.status)).length} present
                   </span>
                 </h3>
                 <input
                   type="text"
                   placeholder="Search FRO name..."
-                  value={idleSearch}
-                  onChange={e => setIdleSearch(e.target.value)}
+                  value={presentSearch}
+                  onChange={e => setPresentSearch(e.target.value)}
                   style={{ width: 220, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
                 />
               </div>
 
               {/* Body: loading / empty states / present-FRO list with Pause-Resume */}
               {(() => {
-                const idleShort = (secs) => formatIdle(secs);
                 const pillOf = (p) => {
                   if (p.is_paused) return { label: 'Paused', color: '#6D28D9', bg: '#F5F3FF' };
                   if (p.status === 'on_call') return { label: 'On Call', color: '#15803d', bg: '#ecfdf5' };
-                  if (p.status === 'idle') return { label: 'Idle', color: '#2F80D9', bg: '#EFF6FF' };
                   if (p.status === 'meeting') return { label: 'Meeting', color: '#7c3aed', bg: '#f5f3ff' };
                   return { label: 'Online', color: '#16a34a', bg: '#f0fdf4' };
                 };
@@ -2351,7 +2347,7 @@ export default function Dashboard() {
                   const m = Math.floor((nowTs - new Date(p.paused_at).getTime()) / 60000);
                   return m < 0 ? null : m;
                 };
-                const dotOf = (p) => p.is_paused ? '#6D28D9' : p.status === 'idle' ? '#2F80D9' : p.status === 'meeting' ? '#7c3aed' : '#16a34a';
+                const dotOf = (p) => p.is_paused ? '#6D28D9' : p.status === 'meeting' ? '#7c3aed' : '#16a34a';
                 if (!tlData) {
                   return (
                     <div style={{ padding: '8px 24px 20px' }} aria-label="Loading FRO status">
@@ -2377,10 +2373,10 @@ export default function Dashboard() {
                     </div>
                   );
                 }
-                const q = idleSearch.toLowerCase().trim();
+                const q = presentSearch.toLowerCase().trim();
                 const present = (tlData.performance || [])
-                  .filter(p => ['online', 'on_call', 'idle', 'meeting'].includes(p.status) && (!q || (p.fro_name || '').toLowerCase().includes(q)))
-                  .sort((a, b) => ((b.today_idle_seconds || 0) - (a.today_idle_seconds || 0)) || ((a.fro_name || '').localeCompare(b.fro_name || '')));
+                  .filter(p => ['online', 'on_call', 'meeting'].includes(p.status) && (!q || (p.fro_name || '').toLowerCase().includes(q)))
+                  .sort((a, b) => ((a.fro_name || '').localeCompare(b.fro_name || '')));
                 if (present.length === 0) {
                   return (
                     <div style={{ padding: '32px 16px', textAlign: 'center' }}>
@@ -2394,7 +2390,7 @@ export default function Dashboard() {
                   <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
                     {present.map(p => {
                       const pill = pillOf(p);
-                      const busy = pausingFroId === p.fro_id || notifyingFroId === p.fro_id;
+                      const busy = pausingFroId === p.fro_id;
                       return (
                         <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderBottom: '1px solid #f1f5f9' }}>
                           <span style={{ width: 9, height: 9, borderRadius: '50%', background: dotOf(p), display: 'inline-block', flexShrink: 0 }} />
@@ -2404,20 +2400,10 @@ export default function Dashboard() {
                               <span title={p.is_paused && p.paused_by ? `Paused by ${p.paused_by}` : pill.label} style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: pill.bg, color: pill.color, whiteSpace: 'nowrap', flexShrink: 0 }}>{pill.label}</span>
                             </div>
                             <div style={{ fontSize: 11, color: '#64748B', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {p.is_paused
-                                ? <>Paused {pausedMins(p) == null ? '' : `${pausedMins(p)}m `}· by {p.paused_by || 'Admin'}</>
-                                : <>Idle {idleShort(p.today_idle_seconds)}</>}
+                              {p.is_paused && <>Paused {pausedMins(p) == null ? '' : `${pausedMins(p)}m `}· by {p.paused_by || 'Admin'}</>}
                               {p.work_as_operator_name ? ` · ⚡ ${p.work_as_operator_name}` : ''}
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleNotifyFro(p.fro_id, p.fro_name)}
-                            disabled={busy}
-                            title={`Send idle alert to ${p.fro_name}`}
-                            style={{ height: 30, minWidth: 30, padding: '0 7px', border: '1px solid #f59e0b', borderRadius: 8, background: '#ffffff', color: '#d97706', fontFamily: 'inherit', cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-                          >
-                            {notifyingFroId === p.fro_id ? '…' : <Bell size={13} color="#d97706" />}
-                          </button>
                           <button
                             onClick={() => handleTogglePause(p)}
                             disabled={pausingFroId === p.fro_id}
@@ -2462,11 +2448,10 @@ export default function Dashboard() {
             </div>
           );
         }
-        const statusBuckets = { online: ['online', 'on_call'], idle: ['idle'], meeting: ['meeting'], offline: ['offline'] };
-        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.idle.includes(p.status) ? 'idle' : statusBuckets.meeting.includes(p.status) ? 'meeting' : 'offline';
+        const statusBuckets = { online: ['online', 'on_call'], meeting: ['meeting'], offline: ['offline'] };
+        const statusOf = (p) => statusBuckets.online.includes(p.status) ? 'online' : statusBuckets.meeting.includes(p.status) ? 'meeting' : 'offline';
         const bucketRows = {
           online: perfRows.filter(p => statusOf(p) === 'online'),
-          idle: perfRows.filter(p => statusOf(p) === 'idle'),
           meeting: perfRows.filter(p => statusOf(p) === 'meeting'),
           offline: perfRows.filter(p => statusOf(p) === 'offline'),
         };
@@ -2476,7 +2461,6 @@ export default function Dashboard() {
         const bucketCounts = {
           all: perfRows.filter(p => statusOf(p) !== 'offline').length,
           online: bucketRows.online.length,
-          idle: bucketRows.idle.length,
           meeting: bucketRows.meeting.length,
           offline: bucketRows.offline.length,
         };
@@ -2485,7 +2469,10 @@ export default function Dashboard() {
         const fmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
         const METRICS = [
-          { key: 'idle', param: 'IDLE HR', full: 'Idle Hours Today (cumulative)', val: (p) => p.today_idle_seconds || 0, pill: false, narrow: true, display: (v) => formatIdle(v) },
+          // Today's idle (committed + any period still running), in hours. The
+          // disposition timer is the only thing that produces it, so this is
+          // the headline number for "is this FRO actually working".
+          { key: 'idle', param: 'IDLE', full: 'Idle (Hrs)', val: (p) => Math.round(((p.today_idle_seconds || 0) / 3600) * 100) / 100, pill: true, color: '#b91c1c', bg: '#fef2f2', narrow: true },
           { key: 'nc', param: 'NC', full: 'Non-Connected Calls', val: (p) => ncOf(p), pill: true, color: '#dc2626', bg: '#fef2f2', filterType: 'non_connected' },
           { key: 'conn', param: 'CONN', full: 'Connected Calls', val: (p) => p.connected_range || 0, pill: true, color: '#16a34a', bg: '#f0fdf4', narrow: true, filterType: 'connected' },
           { key: 'ld', param: 'LD', full: 'Leads Done', val: (p) => statusesOf(p).lead_done || 0, pill: true, color: '#b45309', bg: '#fff8e7', filterType: 'connected', status: 'lead_done' },
@@ -2564,7 +2551,6 @@ export default function Dashboard() {
         const statusFilters = [
           { key: 'all', label: 'All', color: '#334155' },
           { key: 'online', label: 'Online', color: '#16a34a' },
-          { key: 'idle', label: 'Idle', color: '#2F80D9' },
           { key: 'meeting', label: 'Meeting', color: '#7c3aed' },
           { key: 'offline', label: 'Offline', color: '#94a3b8' },
         ];
@@ -2667,6 +2653,9 @@ export default function Dashboard() {
                       {groupTh('LOGOUT', '#6d28d9', '#F4EEFF', 1)}
                     </tr>
                     <tr>
+                      {/* One slice per group header above: IDLE(1), CALL
+                          ACTIVITY(3), FOLLOW-UP(2), CALLBACKS(2), FIELD(2),
+                          OTHER(2), RECEIPTS(1), LOGOUT(1) = 14. */}
                       {METRICS.slice(0, 1).map(subHeader)}
                       {METRICS.slice(1, 4).map(subHeader)}
                       {METRICS.slice(4, 6).map(subHeader)}
@@ -2680,9 +2669,12 @@ export default function Dashboard() {
                   <tbody>
                     {sortedRows.map((p) => {
                       const live = p.status === 'online' || p.status === 'on_call';
-                      const idle = p.status === 'idle';
                       const met = p.status === 'meeting';
-                      const highlighted = live || idle || met;
+                      // Idle means the disposition timer ran out and nobody has
+                      // resumed — surface it on the name cell, not just the
+                      // number, so a glance down the row catches it.
+                      const idl = p.status === 'idle';
+                      const highlighted = live || met || idl;
                       return (
                         <tr key={p.fro_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td className="pf-stick" style={{ position: 'sticky', left: 0, zIndex: 1, background: '#fff', padding: '7px 8px', whiteSpace: 'nowrap', borderRight: '1px solid #f1f5f9', width: 120, maxWidth: 140 }}>
@@ -2690,13 +2682,16 @@ export default function Dashboard() {
                               {live && (
                                 <span className="pf-live-dot" title="Online · on calls/system" style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
                               )}
-                              {idle && (
-                                <span className="pf-idle-dot" title="Idle · no recent activity" style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-block', flexShrink: 0 }} />
-                              )}
                               {met && (
                                 <span title="In meeting · counters paused" style={{ width: 9, height: 9, borderRadius: '50%', background: '#7c3aed', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(124,58,237,.18)' }} />
                               )}
-                              <span style={{ fontWeight: highlighted ? 700 : 600, color: live ? '#15803d' : (idle ? '#2F80D9' : (met ? '#6d28d9' : '#17233C')), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
+                              {idl && (
+                                <span title="Idle — disposition timer ran out, awaiting Resume" style={{ width: 9, height: 9, borderRadius: '50%', background: '#dc2626', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(220,38,38,.18)' }} />
+                              )}
+                              <span style={{ fontWeight: highlighted ? 700 : 600, color: idl ? '#b91c1c' : live ? '#15803d' : (met ? '#6d28d9' : '#17233C'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
+                              {idl && (
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Idle</span>
+                              )}
                               {met && (
                                 <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#f5f3ff', color: '#7c3aed', border: '1px solid #ddd6fe', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Megaphone size={10} /> Meeting</span>
                               )}
@@ -2704,15 +2699,6 @@ export default function Dashboard() {
                                 <span title={`${p.work_as_operator_name} work as ${p.fro_name}`} style={{ fontSize: 9, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '1px 7px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', flexShrink: 0 }}><Zap size={9} /> {p.work_as_operator_name}</span>
                               )}
                             </div>
-                            {p.status === 'idle' && p.idleMinutes > 0 && (
-                              <span
-                                title={`No call activity for ${p.idleMinutes} min — click Notify to alert`}
-                                onClick={(e) => { e.stopPropagation(); handleNotifyFro(p.fro_id, p.fro_name); }}
-                                style={{ fontSize: 9, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a', cursor: 'pointer', marginTop: 4, display: 'inline-block', fontFamily: 'inherit' }}
-                              >
-                                Idle {p.idleMinutes}m{notifyingFroId === p.fro_id ? ' •…' : ''}
-                              </span>
-                            )}
                           </td>
                           {METRICS.map(mx => metricCell(p, mx))}
                         </tr>
@@ -2729,13 +2715,6 @@ export default function Dashboard() {
                 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); }
                 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
               }
-              @keyframes pfPulseBlue {
-                0% { box-shadow: 0 0 0 0 rgba(47,128,217,.45); }
-                70% { box-shadow: 0 0 0 7px rgba(47,128,217,0); }
-                100% { box-shadow: 0 0 0 0 rgba(47,128,217,0); }
-              }
-              .pf-live-dot { animation: pfPulseGreen 1.8s ease-out infinite; }
-              .pf-idle-dot { animation: pfPulseBlue 1.8s ease-out infinite; }
               .perf-scroll { scrollbar-width: none; -ms-overflow-style: none; }
               .perf-scroll::-webkit-scrollbar { width: 0; height: 0; }
               .perf-scroll::-webkit-scrollbar:horizontal { display: none; }

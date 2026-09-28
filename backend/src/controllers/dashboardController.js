@@ -5,7 +5,7 @@ import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import db from '../config/db.js';
-import { effectiveIdleSeconds } from '../utils/froIdle.js';
+import { istDateStr } from '../utils/froIdle.js';
 
 function calcDateRange(period) {
   const now = new Date();
@@ -965,7 +965,7 @@ export const getSuperAdminAlerts = async (req, res) => {
     try {
       const { data: froStatus } = await db
         .from('fro_live_status')
-        .select('worker_id, today_calls, today_collection, on_break')
+        .select('worker_id, today_calls, today_collection')
         .eq('is_active', true);
 
       const zeroFroIds = (froStatus || [])
@@ -1289,34 +1289,56 @@ export const getSuperAdminAlerts = async (req, res) => {
       }
     } catch (e) { console.error('Alert error:', e.message); }
 
-    // ── 11. FRO on Break >30 min (HIGH) ──
+    // ── 11. FRO Idle >30 min (HIGH) ──
+    // The disposition timer lapsed and they haven't pressed Resume. idle_since
+    // is the authoritative marker; today_idle_seconds is the day's running
+    // total, so the alert can quote both "how long right now" and "how much of
+    // the day" at once.
     try {
       const thirtyMinAgo = new Date(now); thirtyMinAgo.setMinutes(thirtyMinAgo.getMinutes() - 30);
-      const { data: longBreakers } = await db
+      const { data: idleRows } = await db
         .from('fro_live_status')
-        .select('worker_id, break_started_at, today_break_seconds, break_type')
-        .eq('on_break', true)
+        .select('worker_id, idle_since, today_idle_seconds, status')
         .eq('is_active', true)
-        .lt('break_started_at', thirtyMinAgo.toISOString());
+        .eq('is_paused', false)
+        .not('idle_since', 'is', null)
+        .lt('idle_since', thirtyMinAgo.toISOString());
 
-      if ((longBreakers || []).length > 0) {
-        const wIds = longBreakers.map(f => f.worker_id);
-        const { data: bw } = await db.from('workers').select('id, name').in('id', wIds);
-        const bwMap = {};
-        for (const w of bw || []) bwMap[w.id] = w.name;
+      // A row left holding idle_since overnight is stale, not a live problem, and
+      // a meeting/pause means an admin is holding the FRO rather than the FRO
+      // stalling — neither belongs in this alert.
+      const todayIst = istDateStr(now);
+      const idleFros = (idleRows || []).filter(f =>
+        f.status !== 'meeting' && istDateStr(new Date(f.idle_since)) === todayIst
+      );
+
+      if ((idleFros || []).length > 0) {
+        const wIds = idleFros.map(f => f.worker_id);
+        const { data: iw } = await db.from('workers').select('id, name').in('id', wIds);
+        const iwMap = {};
+        for (const w of iw || []) iwMap[w.id] = w.name;
+
+        const sinceLabel = (v) => {
+          const mins = Math.floor((now.getTime() - new Date(v).getTime()) / 60000);
+          return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+        };
+        const totalLabel = (secs) => {
+          const mins = Math.floor((Number(secs || 0)) / 60);
+          return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+        };
 
         alerts.push({
-          id: 'fro-long-break',
+          id: 'fro-long-idle',
           severity: 'critical',
           category: 'fro',
-          title: `${longBreakers.length} FRO(s) on break for 30+ minutes`,
-          description: `Active FRO workers who have been on break for over half an hour during working hours.`,
-          count: longBreakers.length,
+          title: `${idleFros.length} FRO(s) idle for 30+ minutes`,
+          description: `Active FRO workers whose 4-minute disposition timer ran out and who have not resumed.`,
+          count: idleFros.length,
           actionPanel: 'fro',
           actionLabel: 'View FRO Live Status',
-          details: longBreakers.slice(0, 8).map(f => ({
-            name: bwMap[f.worker_id] || 'Unknown',
-            value: `Break started: ${new Date(f.break_started_at).toLocaleTimeString('en-IN')} · Type: ${f.break_type || 'N/A'}`,
+          details: idleFros.slice(0, 8).map(f => ({
+            name: iwMap[f.worker_id] || 'Unknown',
+            value: `Idle for ${sinceLabel(f.idle_since)} · Idle today: ${totalLabel(f.today_idle_seconds)}`,
           })),
           createdAt: now.toISOString(),
         });
@@ -1328,13 +1350,12 @@ export const getSuperAdminAlerts = async (req, res) => {
       const { data: ghostFros } = await db
         .from('fro_live_status')
         .select('worker_id, today_calls, today_talk_seconds, status, updated_at')
-        .eq('is_active', true)
-        .eq('on_break', false);
+        .eq('is_active', true);
 
       const ghosts = (ghostFros || []).filter(f =>
         (f.today_calls || 0) === 0 &&
         (f.today_talk_seconds || 0) === 0 &&
-        (f.status === 'online' || f.status === 'idle')
+        (f.status === 'online')
       );
 
       if (ghosts.length > 0) {
@@ -1348,7 +1369,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           severity: 'critical',
           category: 'fro',
           title: `${ghosts.length} FRO(s) logged in with zero activity today`,
-          description: `Active FRO workers showing online/idle status but have made no calls or talks today.`,
+          description: `Active FRO workers showing online status but have made no calls or talks today.`,
           count: ghosts.length,
           actionPanel: 'fro',
           actionLabel: 'View FRO Live Status',
@@ -1463,13 +1484,13 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 15. FRO High Idle Time (>50% of work hours) (HIGH) ──
     try {
       const workHoursSeconds = 8 * 3600;
-      // idle_since/updated_at are required: the panel only commits elapsed idle
-      // when a streak closes, so the raw counter reads 0 mid-streak and an FRO
-      // idle for hours would never trip this >4h alert. effectiveIdleSeconds
-      // adds the still-running streak.
+      // The panel only commits elapsed idle when a period closes, so the raw
+      // counter reads 0 mid-period and an FRO idle for hours would never trip
+      // this alert. effectiveIdleSeconds() adds the still-running period, which
+      // is derived from the deadline — no heartbeat required.
       const { data: idleFros } = await db
         .from('fro_live_status')
-        .select('worker_id, today_idle_seconds, today_skipped, today_calls, is_active, idle_since, updated_at')
+        .select('worker_id, today_idle_seconds, today_calls, is_active, idle_since, updated_at')
         .eq('is_active', true);
 
       const idleByWorker = {};
@@ -1503,7 +1524,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           actionLabel: 'View FRO Performance',
           details: highIdle.slice(0, 6).map(f => ({
             name: iwMap[f.worker_id] || 'Unknown',
-            value: `Idle: ${Math.round(idleByWorker[f.worker_id] / 60)}min · Skipped: ${f.today_skipped || 0} · Calls: ${f.today_calls || 0}`,
+            value: `Idle: ${Math.round(idleByWorker[f.worker_id] / 60)}min · Calls: ${f.today_calls || 0}`,
           })),
           createdAt: now.toISOString(),
         });
@@ -1722,45 +1743,9 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { console.error('Alert error:', e.message); }
+      } catch (e) { console.error('Alert error:', e.message); }
 
-    // ── 22. FRO High Skip Rate (MEDIUM) ──
-    try {
-      const { data: skipFros } = await db
-        .from('fro_live_status')
-        .select('worker_id, today_skipped, today_calls, is_active')
-        .eq('is_active', true);
-
-      const highSkip = (skipFros || []).filter(f => {
-        const total = (f.today_skipped || 0) + (f.today_calls || 0);
-        return total > 0 && (f.today_skipped || 0) / total > 0.4 && (f.today_skipped || 0) >= 5;
-      });
-
-      if (highSkip.length > 0) {
-        const sIds = highSkip.map(f => f.worker_id);
-        const { data: sw } = await db.from('workers').select('id, name').in('id', sIds);
-        const swMap = {};
-        for (const w of sw || []) swMap[w.id] = w.name;
-
-        alerts.push({
-          id: 'fro-high-skip',
-          severity: 'warning',
-          category: 'fro',
-          title: `${highSkip.length} FRO(s) with high call skip rate (>40%)`,
-          description: `FROs skipping more than 40% of their calls — possible contact avoidance.`,
-          count: highSkip.length,
-          actionPanel: 'fro',
-          actionLabel: 'View FRO Performance',
-          details: highSkip.slice(0, 6).map(f => ({
-            name: swMap[f.worker_id] || 'Unknown',
-            value: `Skipped: ${f.today_skipped} · Called: ${f.today_calls || 0} · Skip rate: ${Math.round((f.today_skipped / ((f.today_skipped || 0) + (f.today_calls || 0))) * 100)}%`,
-          })),
-          createdAt: now.toISOString(),
-        });
-      }
-    } catch (e) { console.error('Alert error:', e.message); }
-
-    // ── 23. FRO Targets Not Set for Current Month (MEDIUM) ──
+    // ── 22. FRO Targets Not Set for Current Month (MEDIUM) ──
     try {
       const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
       const { data: fros } = await db
@@ -1796,7 +1781,7 @@ export const getSuperAdminAlerts = async (req, res) => {
       }
     } catch (e) { console.error('Alert error:', e.message); }
 
-    // ── 24. Assets Assigned to Inactive Workers (MEDIUM) ──
+    // ── 23. Assets Assigned to Inactive Workers (MEDIUM) ──
     try {
       const { data: staleAssets, count: assetCount } = await db
         .from('assets')
@@ -1833,7 +1818,7 @@ export const getSuperAdminAlerts = async (req, res) => {
       }
     } catch (e) { console.error('Alert error:', e.message); }
 
-    // ── 25. Donor Name Mismatch with Bank Name (MEDIUM) ──
+    // ── 24. Donor Name Mismatch with Bank Name (MEDIUM) ──
     try {
       const { data: mismatchedDonors, count: mismatchCount } = await db
         .from('donor_profiles')

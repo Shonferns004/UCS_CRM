@@ -18,6 +18,18 @@ import { classifyLogSide, bustTlCache } from './ngoAdminController.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
 import {
+  DISPOSITION_WINDOW_SECONDS,
+  getShiftWindowMs,
+  withinShift,
+  liveIdleSeconds,
+  openIdleSeconds,
+  deadlinePassed,
+  dispositionDueMs,
+  nextDeadline,
+  secondsLeft,
+  istDateStr,
+} from '../utils/froIdle.js';
+import {
   createDonorLog,
   ensureLogSequenceHealth,
   findDispositionLogToday,
@@ -37,40 +49,10 @@ import {
   inRange,
 } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
+import { commitIdleOnExit } from '../services/froIdleCommit.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
-import { getSetting, upsertSetting } from '../models/settingsModel.js';
-import { effectiveIdleSeconds } from '../utils/froIdle.js';
-
-// ─── Idle reset epoch ──────────────────────────────────────────────
-// Every Clear Idle Time / midnight reset bumps fro_idle_epoch. Heartbeats
-// carry the epoch they last saw (idle_epoch); a client pushing with an older
-// epoch missed the reset, so its counters + idle_since are pre-reset stale
-// data and must NOT touch the row (presence fields still update). Without
-// this, a stale panel resurrects wiped totals through same-day max-keep —
-// the "clear 3 times, 1h23m still there" bug.
-const IDLE_EPOCH_KEY = 'fro_idle_epoch';
-let idleEpochCache = { v: 0, at: 0 };
-async function getIdleEpoch() {
-  if (Date.now() - idleEpochCache.at < 30000) return idleEpochCache.v;
-  try {
-    const raw = await getSetting(IDLE_EPOCH_KEY);
-    const v = Number(raw) || 0;
-    idleEpochCache = { v, at: Date.now() };
-    return v;
-  } catch {
-    return idleEpochCache.v;
-  }
-}
-async function bumpIdleEpoch() {
-  const next = (await getIdleEpoch()) + 1;
-  try {
-    await upsertSetting(IDLE_EPOCH_KEY, String(next));
-    idleEpochCache = { v: next, at: Date.now() };
-  } catch { /* non-fatal: broadcast still carries the epoch */ }
-  return next;
-}
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
@@ -800,7 +782,7 @@ export const getMyPerformance = async (req, res) => {
     const workerId = req.user.id;
     // Work-as: the token subject is the impersonated owner, but the strip paints
     // the ACTING operator's own performance (their logs and leaderboard entry).
-    // Station scope and the live-status/idle row stay on the owner: that is the
+    // Station scope and the live-status row stay on the owner: that is the
     // queue being worked and the row the heartbeat actually writes to.
     const isWorkAs = !!(req.user.impersonation && req.user.imposter_id != null);
     const identityWorkerId = isWorkAs ? req.user.imposter_id : req.user.id;
@@ -881,20 +863,15 @@ export const getMyPerformance = async (req, res) => {
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('today_idle_seconds, today_break_seconds, today_calls, idle_since, updated_at, work_as_operator_id')
+      .select('today_idle_seconds, idle_since, disposition_due_at, is_paused, status, today_calls, updated_at, work_as_operator_id')
       .eq('worker_id', workerId)
       .maybeSingle();
 
-    // Effective idle = committed counter + still-running streak (see
-    // effectiveIdleSeconds). Stale streaks (dead panel, heartbeat older than
-    // 3 min) are ignored so the number can't grow unbounded. Matches the
-    // admin Telecaller Performance definition.
-    const idleSeconds = effectiveIdleSeconds(liveStatus);
-
-    // Worked clock: active time only — the Working metric freezes while the FRO
-    // is idle or on break. It runs from the CRM login anchor, clamped to never
-    // start before today's shift start, and never past today's shift end (an
-    // early login earns nothing; time after shift end can't inflate the day).
+    // Worked clock: shift time actually on the clock. It runs from the CRM
+    // login anchor, clamped to never start before today's shift start, and
+    // never past today's shift end (an early login earns nothing; time after
+    // shift end can't inflate the day). Idle is reported separately, not
+    // subtracted, so the FRO still sees the full shift they were present for.
     const nowMs = Date.now();
     const [officeStart, officeEnd] = await Promise.all([getOfficeStart(workerId), getOfficeEnd(workerId)]);
     const officeStartMs = new Date(`${day}T${String(officeStart.hour).padStart(2, '0')}:${String(officeStart.minute).padStart(2, '0')}:00.000+05:30`).getTime();
@@ -920,11 +897,17 @@ export const getMyPerformance = async (req, res) => {
       && String(liveStatus.work_as_operator_id) !== String(identityWorkerId);
     const workedSeconds = coveredByOther
       ? 0
-      : Math.max(
-          0,
-          Math.round((workedEndMs - loginAnchorMs) / 1000) - idleSeconds - (liveStatus?.today_break_seconds || 0)
-        );
+      : Math.max(0, Math.round((workedEndMs - loginAnchorMs) / 1000));
     const workedTarget = 8 * 3600;
+
+    // Idle for the FRO's own strip: committed + any period still running,
+    // clamped to their shift. Counted on the covered FRO's row (where the
+    // counters live), and suppressed when someone else is covering it — an
+    // absent FRO must not be shown as idling on someone else's shift.
+    const idleShift = await getShiftWindowMs(workerId, nowMs);
+    const idleSeconds = coveredByOther
+      ? 0
+      : liveIdleSeconds(liveStatus || {}, idleShift, nowMs);
 
     return res.json({
       worker: { id: identityWorkerId, name: currentName },
@@ -936,13 +919,21 @@ export const getMyPerformance = async (req, res) => {
       rank: rank || null,
       team_size: leaderboard.length,
       calls: hours,
-      idle_seconds: idleSeconds,
-      idle_since: liveStatus?.idle_since || null,
       worked_seconds: workedSeconds,
       worked_target_seconds: workedTarget,
       worked_remaining: Math.max(0, workedTarget - workedSeconds),
       worked_pct: workedTarget > 0 ? Math.min(100, Math.round((workedSeconds / workedTarget) * 1000) / 10) : 0,
       today_calls: connected,
+      idle_seconds: idleSeconds,
+      idle_minutes: Math.floor(idleSeconds / 60),
+      // A lapsed deadline counts as idle even before the next heartbeat has
+      // stamped idle_since, so the badge and the number can never disagree.
+      is_idle: !coveredByOther && (!!liveStatus?.idle_since || (
+        !liveStatus?.is_paused
+        && liveStatus?.status !== 'meeting'
+        && withinShift(idleShift, nowMs)
+        && deadlinePassed(liveStatus, nowMs)
+      )),
       today_collected: todayCollection[String(identityWorkerId)] || 0,
       monthly_collected: monthCollection[String(identityWorkerId)] || 0,
       daily_target: dailyTargetMap[String(identityWorkerId)] || 0,
@@ -2961,7 +2952,81 @@ export const createDonorLogHandler = async (req, res) => {
       return log;
     });
 
-    return res.json({ message: 'Log entry created', data: result });
+    // ── Disposition resets the 4-minute idle timer ────────────────────────────
+    // Saving a disposition is the one action that keeps the FRO honest, so it
+    // buys a fresh window and clears any open idle period (folding the elapsed
+    // seconds into the day first). Runs after the transaction commits so a
+    // failed save can never hand out free time.
+    let timer = null;
+    if (action === 'disposition' && disposition_detail) {
+      try {
+        const nowMs = Date.now();
+        const shift = await getShiftWindowMs(workerId, nowMs);
+        const { data: liveRow } = await db
+          .from('fro_live_status')
+          .select('*')
+          .eq('worker_id', workerId)
+          .maybeSingle();
+        const due = nextDeadline(shift, nowMs);
+        const frozen = !!liveRow?.is_paused || liveRow?.status === 'meeting';
+        const patch = {
+          worker_id: workerId,
+          disposition_due_at: due,
+          idle_since: null,
+          updated_at: new Date(nowMs).toISOString(),
+        };
+
+        // Overdue save: the deadline had already lapsed when this disposition
+        // arrived, so the FRO owes idle time for the window between the deadline
+        // and now. Without this, submitting a disposition before the next
+        // heartbeat lands would silently forgive the overrun. idle_since is
+        // back-dated to the deadline (clamped to the shift start) so the
+        // charge matches the rule rather than the request timing.
+        const dueMs = dispositionDueMs(liveRow);
+        const overdue = !frozen && Number.isFinite(dueMs) && nowMs > dueMs;
+        if (overdue) {
+          const startMs = Number.isFinite(shift?.startMs) ? Math.max(dueMs, shift.startMs) : dueMs;
+          patch.today_idle_seconds = liveIdleSeconds(
+            { ...liveRow, idle_since: new Date(startMs).toISOString() },
+            shift,
+            nowMs,
+          );
+        } else if (liveRow?.idle_since) {
+          patch.today_idle_seconds = liveIdleSeconds(liveRow, shift, nowMs);
+        }
+
+        // Leave a frozen row (admin pause / company meeting) alone — resetting
+        // its status to 'online' would punch through a freeze the admin set.
+        if (liveRow?.status === 'idle' && !frozen) {
+          patch.status = 'online';
+          patch.current_donor_id = null;
+          patch.call_started_at = null;
+        }
+        await db.from('fro_live_status').upsert(patch, { onConflict: 'worker_id' });
+        if (patch.today_idle_seconds !== undefined) {
+          await db._pool.query(
+            `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, updated_at)
+             VALUES ($1, $2::date, GREATEST(0, $3), now())
+             ON CONFLICT (worker_id, stat_date) DO UPDATE SET
+               idle_seconds = GREATEST(fro_daily_stats.idle_seconds, EXCLUDED.idle_seconds),
+               updated_at   = now()`,
+            [workerId, istDateStr(new Date(nowMs)), patch.today_idle_seconds]
+          );
+        }
+        timer = {
+          disposition_due_at: due,
+          seconds_left: due ? DISPOSITION_WINDOW_SECONDS : null,
+          is_idle: false,
+          today_idle_seconds: patch.today_idle_seconds ?? liveRow?.today_idle_seconds ?? 0,
+        };
+      } catch (timerErr) {
+        // Non-fatal: the disposition is already saved; the timer just keeps its
+        // previous deadline and the FRO may go idle a little early.
+        console.warn('disposition timer reset skipped:', timerErr.message);
+      }
+    }
+
+    return res.json({ message: 'Log entry created', data: result, timer });
   } catch (error) {
     if (error && error.code === 'LEAD_CLOSED') {
       return res.status(409).json({ message: error.message });
@@ -4218,49 +4283,16 @@ export const getDonorHistory = async (req, res) => {
   }
 };
 
-// Book a worker's open idle streak into today_idle_seconds (clamped to the
-// shift end) and clear idle_since. Used when the panel's heartbeats are about
-// to stop writing this worker's row — a work-as start/switch/release handled in
-// authController — so uncommitted idle minutes survive the identity handover.
-// Same-IST-day only: a cross-day streak is never booked into today. No-op when
-// no streak is open.
-export const bookOpenIdleStreak = async (workerId) => {
-  try {
-    const { data: live } = await db
-      .from('fro_live_status')
-      .select('today_idle_seconds, idle_since, updated_at')
-      .eq('worker_id', workerId)
-      .maybeSingle();
-    if (!live?.idle_since) return 0;
-    const istDayOf = (v) => {
-      const d = new Date(v);
-      if (isNaN(d.getTime())) return null;
-      return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-    };
-    const day = istDayOf(Date.now());
-    if (istDayOf(live.updated_at) !== day) return 0;
-    const end = await getOfficeEnd(workerId);
-    const shiftEndMs = new Date(`${day}T${String(end.hour).padStart(2, '0')}:${String(end.minute).padStart(2, '0')}:00.000+05:30`).getTime();
-    const endMs = Math.min(Date.now(), shiftEndMs);
-    const elapsed = Math.max(0, Math.floor((endMs - new Date(live.idle_since).getTime()) / 1000));
-    if (elapsed <= 0) return 0;
-    const next = elapsed + Number(live.today_idle_seconds || 0);
-    // updated_at is deliberately NOT touched. The sweeper is explicit about
-    // this: that column is how every read path tells a live panel from a dead
-    // one, and a booking made during a work-as handover happens precisely when
-    // the departing panel has stopped heartbeating. Stamping `now` here made a
-    // dead row look live for a further 3 minutes, so its abandoned idle_since
-    // kept accruing on every read that honours a fresh streak.
-    const { error } = await db
-      .from('fro_live_status')
-      .update({ today_idle_seconds: next, idle_since: null })
-      .eq('worker_id', workerId);
-    if (error) throw error;
-    return elapsed;
-  } catch (_) {
-    return 0;
-  }
-};
+// Book a worker's open idle period into today_idle_seconds and clear
+// idle_since + the disposition deadline. Used when the panel's heartbeats are
+// about to stop writing this worker's row — a work-as release, an explicit
+// logout, or the shift-end sweep — so uncommitted idle survives the handover.
+//
+// Replaces an earlier hand-rolled version that only banked a stamped
+// idle_since and therefore lost the time entirely when a monitor was off or the
+// tab had closed (no stamp at all). This derives the period start from the
+// disposition deadline, so a lapse with no client cooperation still counts.
+export const bookOpenIdleStreak = (workerId) => commitIdleOnExit(String(workerId));
 
 export const updateLiveStatus = async (req, res) => {
   try {
@@ -4290,12 +4322,12 @@ export const updateLiveStatus = async (req, res) => {
       // auth_sessions may be absent until migration 125 — skip the guard.
     }
 
-    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type, idle_since, last_activity_at, idle_epoch, force_counters } = req.body;
+    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, last_activity_at, force_counters } = req.body;
 
-    if (status && !['online', 'idle', 'on_call', 'break', 'offline', 'meeting'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline, meeting' });
+    if (status && !['online', 'on_call', 'idle', 'offline', 'meeting'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status. Must be one of: online, on_call, idle, offline, meeting' });
     }
-    const numericFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
+    const numericFields = { today_calls, today_talk_seconds };
     for (const [key, val] of Object.entries(numericFields)) {
       if (val !== undefined && (typeof val !== 'number' || val < 0 || !Number.isFinite(val))) {
         return res.status(400).json({ message: `${key} must be a non-negative number` });
@@ -4323,76 +4355,26 @@ export const updateLiveStatus = async (req, res) => {
     }
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
-    // Reset epoch: every Clear Idle Time / midnight reset bumps fro_idle_epoch.
-    // A client pushing with an older epoch missed the reset → its counters and
-    // idle_since predate the wipe and must not touch the row (presence fields
-    // still update). Without this, a stale panel resurrects wiped totals
-    // through same-day max-keep — the "clear 3 times, 1h23m still there" bug.
-    // force_counters (deliberate rollover/clear push) always wins.
+    // force_counters is a deliberate rollover/clear push from the panel.
     const forceCounters = req.body.force_counters === true;
-    const serverEpoch = await getIdleEpoch();
-    const clientEpoch = idle_epoch === undefined || idle_epoch === null ? null : Number(idle_epoch);
-    const staleEpoch = !forceCounters && clientEpoch !== null && Number.isFinite(clientEpoch) && clientEpoch < serverEpoch;
-    // Pre-reset data (stale epoch) must not touch counters or the streak —
-    // only the deliberate force_counters push or a current epoch may.
-    const mayWriteIdleData = forceCounters || !staleEpoch;
-    if (mayWriteIdleData) {
-      // Same-day streak guard: idle_since is the start of the current idle
-      // streak. A stale panel resurrecting a streak that began on an earlier
-      // IST day must never re-open a cleared streak — only today's streaks are
-      // accepted (force_counters pushes carry idle_since:null, so they are
-      // unaffected).
-      const istDayOfIso = (v) => {
-        const d = new Date(v);
-        if (isNaN(d.getTime())) return null;
-        return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-      };
-      let parsedSince = parseTs(idle_since);
-      if (parsedSince && !forceCounters && istDayOfIso(parsedSince) !== istDayOfIso(Date.now())) {
-        parsedSince = null;
-      }
-      if (idle_since !== undefined) payload.idle_since = parsedSince;
-      if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
-    }
-    // Any non-idle status always clears the streak (server-side safety net).
-    if (status && status !== 'idle') payload.idle_since = null;
-    // Shift-window guard: idle may only accrue inside the worker's own shift
-    // (worker shift_end_time → office_end_time setting → 19:00 default). An
-    // idle push arriving outside that window comes from a stale/legacy panel
-    // and is downgraded to offline with no streak, so after-hours time can
-    // never inflate idle. Active states (on_call / break / online) are left
-    // untouched.
-    if (status === 'idle' && mayWriteIdleData) {
-      try {
-        const [start, end] = await Promise.all([getOfficeStart(workerId), getOfficeEnd(workerId)]);
-        const ist = new Date(Date.now() + 5.5 * 3600 * 1000);
-        const nowMinutes = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-        const startMinutes = start.hour * 60 + start.minute;
-        const endMinutes = end.hour * 60 + end.minute;
-        if (nowMinutes < startMinutes || nowMinutes >= endMinutes) {
-          payload.status = 'offline';
-          payload.idle_since = null;
-        }
-      } catch (_) {
-        // Shift could not be resolved — fall back to the client's idle push.
-      }
-    }
+    if (last_activity_at !== undefined) payload.last_activity_at = parseTs(last_activity_at);
     // Same-day max-keep for cumulative counters: the heartbeat blind-overwrites
     // fro_live_status, so a second tab/device (or a fresh panel that hasn't
     // hydrated yet) pushing smaller numbers would wipe the day's totals while
-    // fro_daily_stats keeps the max — the classic "IDLE HR blank but alerts
-    // show 52m" split. Within the same IST day keep the larger value; a new
-    // IST day starts from the client's number. Stale-epoch clients skip this
-    // block entirely (mayWriteIdleData === false).
-    const counterFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
+    // fro_daily_stats keeps the max — a split between the live and saved
+    // numbers. Within the same IST day keep the larger value; a new IST day
+    // starts from the client's number.
+    const counterFields = { today_calls, today_talk_seconds };
     const incomingCounters = Object.entries(counterFields).filter(([, v]) => v !== undefined);
-    if (incomingCounters.length > 0 && mayWriteIdleData) {
+    let existing = null;
+    if (incomingCounters.length > 0) {
       try {
-        const { data: existing } = await db
+        const { data } = await db
           .from('fro_live_status')
-          .select('today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, updated_at')
+          .select('today_calls, today_talk_seconds, updated_at')
           .eq('worker_id', workerId)
           .maybeSingle();
+        existing = data || null;
         const istDayOf = (v) => {
           const d = new Date(v);
           if (isNaN(d.getTime())) return null;
@@ -4411,100 +4393,117 @@ export const updateLiveStatus = async (req, res) => {
         for (const [key, val] of incomingCounters) payload[key] = val;
       }
     }
-    if (on_break !== undefined) payload.on_break = on_break;
-    if (break_type !== undefined) payload.break_type = break_type;
+
+    // ── Disposition deadline → idle ──────────────────────────────────────
+    // The server owns this rule. A 4-minute window starts at login and resets
+    // on every recorded disposition (createDonorLogHandler). Once it lapses the
+    // FRO is idle and stays idle until they press Resume — a client that keeps
+    // pushing 'online' cannot dodge it. Idle only accrues inside the shift.
+    const nowMs = Date.now();
+    const shift = await getShiftWindowMs(workerId, nowMs);
+    let row = existing;
+    if (!row) {
+      const { data: prev } = await db
+        .from('fro_live_status')
+        .select('*')
+        .eq('worker_id', workerId)
+        .maybeSingle();
+      row = prev || null;
+    }
+    const inShift = withinShift(shift, nowMs);
+    const shiftStartMs = shift?.startMs;
+    const paused = !!(row?.is_paused);
+
+    // Day rollover: an open idle period from yesterday must not be carried into
+    // today's total, and yesterday's committed total is already snapshotted.
+    // Yesterday's deadline is dropped too — it is always in the past by now, so
+    // keeping it would force the FRO idle the instant they open the next day.
+    if (row?.idle_since && istDateStr(new Date(row.idle_since)) !== istDateStr(new Date(nowMs))) {
+      payload.idle_since = null;
+      payload.today_idle_seconds = 0;
+      row = { ...row, idle_since: null, today_idle_seconds: 0 };
+    }
+    if (row?.disposition_due_at && dispositionDueMs(row) < shiftStartMs) {
+      row = { ...row, disposition_due_at: null };
+    }
+
+    // First heartbeat of the session (or after Resume) opens the window.
+    if (!row?.disposition_due_at) {
+      const due = nextDeadline(shift, nowMs);
+      if (due) payload.disposition_due_at = due;
+    }
 
     if (status === 'on_call' && current_donor_name) {
       payload.call_started_at = new Date().toISOString();
     }
-    if (status === 'idle' || status === 'online') {
+    if (status === 'online') {
       payload.call_started_at = null;
     }
-    if (status === 'break') {
-      payload.break_started_at = new Date().toISOString();
-      payload.on_break = true;
-    }
-    // idle_since: the start of the current idle streak (drives "Idle Xm" on
-    // the NGO admin dashboard). Handled in the epoch-gated block above — a
-    // stale (pre-reset) idle_since must never resurrect a cleared streak.
-    // Any non-idle status always clears the streak (server-side safety net).
-    if (status && status !== 'idle') payload.idle_since = null;
 
-    // Catch-up booking: a non-idle push that clears a running idle streak books
-    // the elapsed streak time whenever the client's committed idle did not also
-    // grow (i.e. the streak was never closed/committed on the client). Rebuilds
-    // the minutes wiped by a reload, second tab, browser drop or tab close —
-    // the same "Idle 7m became 1m" bug. Books into today only, clamped to the
-    // shift end; skipped when the client already booked (incoming grew) so a
-    // clean close never double-counts.
-    if (mayWriteIdleData && payload.idle_since === null) {
-      try {
-        const { data: liveRow } = await db
-          .from('fro_live_status')
-          .select('today_idle_seconds, idle_since, updated_at')
-          .eq('worker_id', workerId)
-          .maybeSingle();
-        if (liveRow?.idle_since) {
-          const istDayOf = (v) => {
-            const d = new Date(v);
-            if (isNaN(d.getTime())) return null;
-            return new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
-          };
-          const day = istDayOf(Date.now());
-          // Both the row's last write AND the streak's start must be today —
-          // an idle_since left over from an earlier IST day (stale panel) must
-          // never book a multi-day span into today's counter.
-          if (istDayOf(liveRow.updated_at) === day && istDayOf(liveRow.idle_since) === day) {
-            const committed = Number(liveRow.today_idle_seconds || 0);
-            const incomingCommitted = Number.isFinite(Number(today_idle_seconds)) ? Number(today_idle_seconds) : committed;
-            if (incomingCommitted <= committed) {
-              const end = await getOfficeEnd(workerId);
-              const shiftEndMs = new Date(`${day}T${String(end.hour).padStart(2, '0')}:${String(end.minute).padStart(2, '0')}:00.000+05:30`).getTime();
-              const endMs = Math.min(Date.now(), shiftEndMs);
-              const elapsed = Math.max(0, Math.floor((endMs - new Date(liveRow.idle_since).getTime()) / 1000));
-              if (elapsed > 0) payload.today_idle_seconds = committed + elapsed;
-            }
-          }
-        }
-      } catch (_) {
-        // Non-fatal: a failed catch-up must never block the live-status write.
+    // Force idle once the deadline is gone. Paused FROs and the meeting freeze
+    // are exempt — the admin is holding them, not the FRO dawdling.
+    const frozen = paused || status === 'meeting' || row?.status === 'meeting';
+    const lapsed = inShift && !frozen && deadlinePassed(row, nowMs);
+    if (lapsed) {
+      payload.status = 'idle';
+      if (!row?.idle_since) {
+        // Idle starts when the 4 minutes actually ran out, not when the next
+        // heartbeat noticed — otherwise every heartbeat interval goes unpaid.
+        // Clamped to the shift start so a stale earlier deadline can't credit
+        // time from before the FRO's day began.
+        const dueMs = dispositionDueMs(row);
+        const startMs = Number.isFinite(shiftStartMs) ? Math.max(dueMs, shiftStartMs) : dueMs;
+        payload.idle_since = new Date(startMs).toISOString();
       }
+      payload.current_donor_id = null;
+      payload.call_started_at = null;
+    } else if (payload.status === 'idle') {
+      // A client claiming 'idle' without a lapsed deadline is a stale tab; let
+      // Resume own the idle transition.
+      payload.status = row?.idle_since ? 'idle' : (status || undefined);
+      if (payload.status !== 'idle') delete payload.status;
+    } else if (row?.idle_since) {
+      // Still inside an open idle period (e.g. a heartbeat from another tab).
+      payload.status = 'idle';
     }
+
+    // today_idle_seconds holds COMMITTED time only. The still-running period
+    // lives in idle_since (or is derivable from an already-lapsed deadline when
+    // the FRO's machine is off) and is added on read (liveIdleSeconds) and when
+    // it is finally committed (Resume / disposition / sign-out / auto-logout).
+    // Writing the derived total here would keep the period open and the next
+    // read would add it a second time. Take whichever is larger so neither the
+    // server-derived open period nor a client-pushed committed value is lost.
+    const derivedIdle = Math.max(
+      liveIdleSeconds(row, shift, nowMs),
+      Number(payload.today_idle_seconds ?? row?.today_idle_seconds ?? 0) || 0
+    );
 
     const { error } = await db
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     if (error) throw error;
 
-    // Daily activity snapshot: the FRO panel's counters reset to 0 at IST
-    // midnight, so the previous day's idle/talk/break totals would otherwise be
-    // lost. Upsert today's row keeping the max value seen (the counters only
-    // grow within a day) — this powers monthly/yearly idle aggregation while
-    // the dashboard keeps showing today's fresh-from-0 count. Gated on
-    // mayWriteIdleData so a stale (pre-reset) heartbeat can't inflate today's
-    // max-kept snapshot either. Non-fatal: table may be missing until
-    // migration 126 is applied.
-    if (mayWriteIdleData) try {
-      const istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // Daily activity snapshot: the live row is a single "today" bucket, so the
+    // previous day's totals are lost without this. Upsert keeping the max seen
+    // (counters only grow within a day). Non-fatal until migration 126.
+    try {
+      const istDay = istDateStr(new Date(nowMs));
       const daily = {
-        idle_seconds: payload.today_idle_seconds ?? today_idle_seconds,
         talk_seconds: today_talk_seconds,
-        break_seconds: today_break_seconds,
         calls: today_calls,
-        skipped: today_skipped,
+        idle_seconds: derivedIdle,
       };
       if (Object.values(daily).some(v => v !== undefined)) {
         await db._pool.query(
-          `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, talk_seconds, break_seconds, calls, skipped, updated_at)
-           VALUES ($1, $2::date, GREATEST(0, COALESCE($3,0)), GREATEST(0, COALESCE($4,0)), GREATEST(0, COALESCE($5,0)), GREATEST(0, COALESCE($6,0)), GREATEST(0, COALESCE($7,0)), now())
+          `INSERT INTO fro_daily_stats (worker_id, stat_date, talk_seconds, calls, idle_seconds, updated_at)
+           VALUES ($1, $2::date, GREATEST(0, COALESCE($3,0)), GREATEST(0, COALESCE($4,0)), GREATEST(0, COALESCE($5,0)), now())
            ON CONFLICT (worker_id, stat_date) DO UPDATE SET
-             idle_seconds  = GREATEST(fro_daily_stats.idle_seconds, COALESCE(EXCLUDED.idle_seconds, 0)),
-             talk_seconds  = GREATEST(fro_daily_stats.talk_seconds,  COALESCE(EXCLUDED.talk_seconds, 0)),
-             break_seconds = GREATEST(fro_daily_stats.break_seconds, COALESCE(EXCLUDED.break_seconds, 0)),
-             calls         = GREATEST(fro_daily_stats.calls,         COALESCE(EXCLUDED.calls, 0)),
-             skipped       = GREATEST(fro_daily_stats.skipped,       COALESCE(EXCLUDED.skipped, 0)),
-             updated_at    = now()`,
-          [workerId, istDay, daily.idle_seconds, daily.talk_seconds, daily.break_seconds, daily.calls, daily.skipped]
+             talk_seconds = GREATEST(fro_daily_stats.talk_seconds, COALESCE(EXCLUDED.talk_seconds, 0)),
+             calls        = GREATEST(fro_daily_stats.calls,        COALESCE(EXCLUDED.calls, 0)),
+             idle_seconds = GREATEST(fro_daily_stats.idle_seconds, COALESCE(EXCLUDED.idle_seconds, 0)),
+             updated_at   = now()`,
+          [workerId, istDay, daily.talk_seconds, daily.calls, daily.idle_seconds]
         );
       }
     } catch (e) {
@@ -4528,13 +4527,78 @@ export const updateLiveStatus = async (req, res) => {
       // Non-fatal: auth_sessions may be absent until migration 125 is applied.
     }
 
-    // Midnight epoch heal: a panel that stayed open across the IST-midnight
-    // reset still carries the old epoch, so its non-forced pushes would be
-    // treated as stale all day (counters frozen until reload/reconnect). Teach
-    // it the current epoch — but ONLY on a deliberate force_counters push
-    // (daily rollover / admin Clear Idle). Stale resurrected panels heartbeat
-    // without force, so they never learn the epoch and stay barred.
-    return res.json({ message: 'Status updated', ...(forceCounters ? { idle_epoch: serverEpoch } : {}) });
+    // The response carries the authoritative timer state so the client's
+    // countdown and idle popup never drift from what the server just decided.
+    let fresh = null;
+    try {
+      const { data } = await db.from('fro_live_status').select('*').eq('worker_id', workerId).maybeSingle();
+      fresh = data || null;
+    } catch (_) { /* non-fatal: the client falls back to its local mirror */ }
+
+    return res.json({
+      message: 'Status updated',
+      status: fresh?.status ?? status ?? null,
+      disposition_due_at: fresh?.disposition_due_at ?? null,
+      seconds_left: secondsLeft(fresh, Date.now()),
+      is_idle: fresh?.status === 'idle',
+      today_idle_seconds: liveIdleSeconds(fresh || {}, shift, Date.now()),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// FRO pressed Resume: fold the open idle period into today's total, clear it,
+// and hand back a fresh 4-minute disposition window.
+export const resumeOwnIdle = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const nowMs = Date.now();
+    const { data: row } = await db
+      .from('fro_live_status')
+      .select('*')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    if (!row) return res.json({ message: 'Nothing to resume', today_idle_seconds: 0, seconds_left: null });
+
+    const shift = await getShiftWindowMs(workerId, nowMs);
+    const total = liveIdleSeconds(row, shift, nowMs);
+    const due = nextDeadline(shift, nowMs);
+
+    const { error } = await db
+      .from('fro_live_status')
+      .upsert({
+        worker_id: workerId,
+        status: row.status === 'idle' ? 'online' : (row.status || 'online'),
+        idle_since: null,
+        today_idle_seconds: total,
+        disposition_due_at: due,
+        current_donor_id: null,
+        call_started_at: null,
+        updated_at: new Date(nowMs).toISOString(),
+      }, { onConflict: 'worker_id' });
+    if (error) throw error;
+
+    try {
+      await db._pool.query(
+        `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, updated_at)
+         VALUES ($1, $2::date, GREATEST(0, $3), now())
+         ON CONFLICT (worker_id, stat_date) DO UPDATE SET
+           idle_seconds = GREATEST(fro_daily_stats.idle_seconds, EXCLUDED.idle_seconds),
+           updated_at   = now()`,
+        [workerId, istDateStr(new Date(nowMs)), total]
+      );
+    } catch (e) {
+      // Non-fatal: fro_daily_stats may be absent until migration 126 is applied.
+    }
+
+    return res.json({
+      message: 'Resumed',
+      today_idle_seconds: total,
+      disposition_due_at: due,
+      seconds_left: due ? DISPOSITION_WINDOW_SECONDS : null,
+      is_idle: false,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4579,35 +4643,6 @@ export const saveMyProgress = async (req, res) => {
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     return res.json({ message: 'Progress saved' });
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
-
-// Super admin: clear every FRO's current idle streak (today_idle_seconds + idle_since)
-// and push a fro:reset-idle socket event so connected FRO panels zero their in-memory
-// idle counters too (they are not persisted to localStorage anymore). The epoch
-// bump makes the wipe stick: heartbeats from panels that missed the event carry
-// an older idle_epoch and are ignored for counters/streak (presence still
-// updates). Broadcast is global (no role room) so panels whose token role isn't
-// exactly 'fro' still receive it — only FRO panels listen for this event.
-export const resetAllFroIdle = async (req, res) => {
-  try {
-    const updatedAt = new Date().toISOString();
-    const { error } = await db
-      .from('fro_live_status')
-      .update({
-        today_idle_seconds: 0,
-        idle_since: null,
-        updated_at: updatedAt,
-      })
-      .not('worker_id', 'is', null);
-    if (error) throw error;
-
-    const epoch = await bumpIdleEpoch();
-    emitRealtime('fro:reset-idle', { at: updatedAt, epoch });
-
-    return res.json({ message: 'All FRO idle counts reset' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4665,7 +4700,7 @@ export const logoutAllFros = async (req, res) => {
       }
       try {
         await db._pool.query(
-          `UPDATE fro_live_status SET status = 'offline', idle_since = NULL, updated_at = $2
+          `UPDATE fro_live_status SET status = 'offline', updated_at = $2
            WHERE worker_id = ANY($1::text[])`,
           [userIds, nowIso]
         );
@@ -4705,7 +4740,7 @@ export const resumeOwnPause = async (req, res) => {
     // worker who has never opened the panel (no row already means "not paused").
     const { error } = await db
       .from('fro_live_status')
-      .update({ is_paused: false, paused_at: null, paused_by: null, idle_since: null, updated_at: nowIso })
+      .update({ is_paused: false, paused_at: null, paused_by: null, updated_at: nowIso })
       .in('worker_id', ids);
     if (error) throw error;
 
@@ -4748,7 +4783,26 @@ export const getMyLiveStatus = async (req, res) => {
       } catch { /* non-FRO operator id — target row stands alone */ }
     }
     if (!row) return res.json(null);
-    return res.json({ ...row, idle_epoch: await getIdleEpoch() });
+    // Rehydrate the panel with the authoritative timer: the deadline, the
+    // seconds left on it, and idle time including the period still running.
+    const nowMs = Date.now();
+    const shift = await getShiftWindowMs(req.user.id, nowMs);
+    // Rows written before the column existed have no deadline yet. Report the
+    // window the next heartbeat will open so the chip starts at a full 4:00
+    // instead of blank, and derive seconds_left from the same value.
+    const due = row.disposition_due_at || nextDeadline(shift, nowMs);
+    const frozen = !!row.is_paused || row.status === 'meeting';
+    const totalIdle = liveIdleSeconds(row, shift, nowMs);
+    return res.json({
+      ...row,
+      disposition_due_at: due,
+      seconds_left: secondsLeft({ disposition_due_at: due }, nowMs),
+      in_shift: withinShift(shift, nowMs),
+      today_idle_seconds: totalIdle,
+      idle_seconds_total: totalIdle,
+      idle_minutes: Math.floor(totalIdle / 60),
+      is_idle: !!row.idle_since || (!frozen && withinShift(shift, nowMs) && deadlinePassed(row, nowMs)),
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -4791,7 +4845,7 @@ export const getLiveStatuses = async (req, res) => {
         .in('worker_id', workerIds),
       db
         .from('attendance')
-        .select('worker_id, status')
+        .select('worker_id, status, punch_in_time, punch_out_time')
         .eq('date', todayStr)
         .in('worker_id', workerIds),
       db
@@ -4815,9 +4869,20 @@ export const getLiveStatuses = async (req, res) => {
     });
 
     const punchedInSet = new Set();
+    // Per-FRO shift bounds straight from today's punch times, so the idle figure
+    // shown to an admin is clamped exactly like the FRO's own. No attendance row
+    // (a remote login with no punch) means no clamp here — the heartbeat path
+    // still clamps what it writes using the configured shift times.
+    const shiftMap = {};
     (attendanceData.data || []).forEach(a => {
       if (a.status === 'present' || a.status === 'late') punchedInSet.add(a.worker_id);
+      const inMs = a.punch_in_time ? new Date(a.punch_in_time).getTime() : NaN;
+      if (Number.isFinite(inMs)) {
+        const outMs = a.punch_out_time ? new Date(a.punch_out_time).getTime() : NaN;
+        shiftMap[a.worker_id] = { startMs: inMs, endMs: Number.isFinite(outMs) ? outMs : Infinity };
+      }
     });
+    const shiftFallback = { startMs: -Infinity, endMs: Infinity };
 
     const collectionMap = {};
     (collectionData.data || []).forEach(log => {
@@ -4844,22 +4909,25 @@ export const getLiveStatuses = async (req, res) => {
       }
     });
 
+    const nowMs = Date.now();
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
       const dataUsed = stats.contacted + stats.donation_collected;
-      // Effective idle = committed counter + still-running streak. Reading the
-      // raw column here is what made the super-admin screens report 0 idle for a
-      // FRO who had been idle for hours (the panel only commits on streak
-      // close). Fixes both the displayed figure and the productivity ratio,
-      // which divides by it — with idle pinned at 0 an idle FRO scored 100%.
-      const idleSeconds = effectiveIdleSeconds(ls);
-      const totalActive = (ls.today_talk_seconds || 0) + idleSeconds;
-      const productivity = totalActive > 0 ? Math.round(((ls.today_talk_seconds || 0) / totalActive) * 100) : null;
+      const talkSeconds = ls.today_talk_seconds || 0;
+      const productivity = talkSeconds > 0 ? 100 : null;
+      // Idle includes the period still running, clamped to the FRO's shift —
+      // same number the FRO sees, so the admin view can't disagree with them.
+      const idleSeconds = liveIdleSeconds(ls, shiftMap[ls.worker_id] || shiftFallback, nowMs);
 
       return {
         id: ls.id,
         worker_id: ls.worker_id,
-        status: ls.status,
+        // A lapsed disposition deadline means idle even if the row still says
+        // otherwise, and a row still holding idle_since is idle until Resume.
+        // A paused or meeting row is exempt — the admin/meeting is holding them.
+        status: (ls.idle_since || deadlinePassed(ls, nowMs)) && !ls.is_paused && ls.status !== 'meeting'
+          ? 'idle'
+          : ls.status,
         // Live-socket presence (panel open right now). Admins can prefer this
         // over updated_at age for "offline?" decisions — rows only move on
         // real events now that timer heartbeats are gone.
@@ -4870,9 +4938,7 @@ export const getLiveStatuses = async (req, res) => {
         current_donor_name: ls.current_donor_name,
         current_donor_id: ls.current_donor_id,
         call_started_at: ls.call_started_at,
-        break_started_at: ls.break_started_at,
-        on_break: ls.on_break,
-        break_type: ls.break_type,
+        disposition_due_at: ls.disposition_due_at || null,
         worker: {
           name: ls.workers?.name || 'Unknown',
           login_id: ls.workers?.login_id || '',
@@ -4884,10 +4950,9 @@ export const getLiveStatuses = async (req, res) => {
         },
         performance: {
           today_calls: ls.today_calls || 0,
-          today_talk_seconds: ls.today_talk_seconds || 0,
-          today_skipped: ls.today_skipped || 0,
+          today_talk_seconds: talkSeconds,
           today_idle_seconds: idleSeconds,
-          today_break_seconds: ls.today_break_seconds || 0,
+          idle_minutes: Math.floor(idleSeconds / 60),
           today_collection: collectionMap[ls.worker_id] || 0,
           total_data: stats.total,
           data_used: dataUsed,
@@ -4898,9 +4963,11 @@ export const getLiveStatuses = async (req, res) => {
         computed: {
           call_duration_seconds: ls.status === 'on_call' && ls.call_started_at
             ? Math.floor((Date.now() - new Date(ls.call_started_at).getTime()) / 1000) : null,
-          break_duration_seconds: ls.status === 'break' && ls.break_started_at
-            ? Math.floor((Date.now() - new Date(ls.break_started_at).getTime()) / 1000) : null,
-          is_long_break: (ls.today_break_seconds || 0) > 3600,
+          idle_duration_seconds: ls.idle_since
+            // Clamped to the FRO's shift like every other idle figure, so a row
+            // left idle overnight cannot show an absurd "48h idle" to an admin.
+            ? openIdleSeconds(ls, shiftMap[ls.worker_id] || shiftFallback, nowMs)
+            : null,
           last_seen: ls.updated_at,
         },
         updated_at: ls.updated_at,

@@ -65,7 +65,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrFromName, setOcrFromName] = useState('');
   const isOverdue = origScheduledAt && new Date(origScheduledAt) < new Date();
-  const { startCall, endCall, resetCallActivity } = useCall();
+  const { startCall, endCall, adoptTimer } = useCall();
 
   useEffect(() => {
     setLoading(true);
@@ -174,9 +174,11 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       if (selected === 'done') {
         logPayload.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
       }
-      await addDonorLog(donorId, logPayload);
-      // Saving a disposition counts as call activity (resets the 2-min idle timer)
-      resetCallActivity();
+      const saved = await addDonorLog(donorId, logPayload);
+      // Saving a disposition buys a fresh 4-minute window. The server returns the
+      // authoritative timer, so adopt it here — the top-bar chip restarts the
+      // moment this saves, and any overdue idle is already folded into today.
+      if (saved?.timer) adoptTimer(saved.timer);
       endCall();
       const disp = findDisp(selected);
       if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');
