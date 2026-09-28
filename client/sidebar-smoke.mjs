@@ -161,7 +161,6 @@ function check(label, route, collapsed) {
         isActive: navIsActive,
         open: false,
         onClose: noop,
-        account: { name: 'Smoke Test', onOpenSettings: noop, onLogout: noop },
       }),
     ),
   ))
@@ -179,6 +178,35 @@ function check(label, route, collapsed) {
   if (html.includes('undefined')) problems.push('markup contains the string "undefined"')
   if (!html.includes('aria-label="Collapse sidebar"') && !html.includes('aria-label="Expand sidebar"')) {
     problems.push('collapse control has no accessible name')
+  }
+
+  // The three-dot account menu duplicated the topbar user menu and was removed.
+  if (html.includes('ac-account-menu')) problems.push('account menu is back')
+  if (html.includes('Account options')) problems.push('three-dot account trigger is back')
+
+  /* The collapse control must be an in-flow child of the header, not a sibling
+     absolutely positioned over the sidebar edge. Markup order alone cannot
+     prove this: a sibling rendered after </div> still comes later in the string
+     than the header's opening tag. So track <div>/</div> nesting depth and
+     compare the depth at the header against the depth at the control. Inside,
+     the control is a child of the header div (same depth); as a following
+     sibling, the header has already closed (one level shallower). */
+  function divDepthAt(target) {
+    let depth = 0
+    const tags = /<(\/?)div\b/g
+    let m
+    while ((m = tags.exec(html)) !== null) {
+      if (m.index >= target) return depth
+      depth += m[1] ? -1 : 1
+    }
+    return depth
+  }
+  const headerIdx = html.indexOf('sb-header')
+  const collapseIdx = html.indexOf('sb-collapse')
+  if (headerIdx === -1 || collapseIdx === -1) {
+    problems.push('missing collapse control or header')
+  } else if (divDepthAt(collapseIdx) !== divDepthAt(headerIdx)) {
+    problems.push('collapse control is not inside the header')
   }
 
   if (problems.length) {
