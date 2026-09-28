@@ -28,6 +28,7 @@ import {
   nextDeadline,
   secondsLeft,
   istDateStr,
+  withoutStaleIdle,
 } from '../utils/froIdle.js';
 import {
   createDonorLog,
@@ -4418,13 +4419,14 @@ export const updateLiveStatus = async (req, res) => {
     // today's total, and yesterday's committed total is already snapshotted.
     // Yesterday's deadline is dropped too — it is always in the past by now, so
     // keeping it would force the FRO idle the instant they open the next day.
-    if (row?.idle_since && istDateStr(new Date(row.idle_since)) !== istDateStr(new Date(nowMs))) {
-      payload.idle_since = null;
-      payload.today_idle_seconds = 0;
-      row = { ...row, idle_since: null, today_idle_seconds: 0 };
-    }
-    if (row?.disposition_due_at && dispositionDueMs(row) < shiftStartMs) {
-      row = { ...row, disposition_due_at: null };
+    // Same rule the login hydrate reads with, so the two cannot disagree.
+    const cleaned = withoutStaleIdle(row, shift, nowMs);
+    if (cleaned !== row) {
+      if (cleaned.idle_since === null && row.idle_since) {
+        payload.idle_since = null;
+        payload.today_idle_seconds = 0;
+      }
+      row = cleaned;
     }
 
     // First heartbeat of the session (or after Resume) opens the window.
@@ -4787,8 +4789,13 @@ export const getMyLiveStatus = async (req, res) => {
     // seconds left on it, and idle time including the period still running.
     const nowMs = Date.now();
     const shift = await getShiftWindowMs(req.user.id, nowMs);
+    // Sign-in must not inherit yesterday's idle. The heartbeat drops these on
+    // its first run, but the panel hydrates before that, so a stale idle_since
+    // or an expired deadline would flash the Resume overlay on every login.
+    // Read the row as if that heartbeat had already cleaned it.
+    row = withoutStaleIdle(row, shift, nowMs);
     // Rows written before the column existed have no deadline yet. Report the
-    // window the next heartbeat will open so the chip starts at a full 4:00
+    // window the next heartbeat will open so the clock starts at a full 4:00
     // instead of blank, and derive seconds_left from the same value.
     const due = row.disposition_due_at || nextDeadline(shift, nowMs);
     const frozen = !!row.is_paused || row.status === 'meeting';
