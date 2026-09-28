@@ -3,10 +3,40 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { CATEGORIES, PRIORITIES, EVENT_STATUSES, fetchEventById, updateEvent, updateEventStatus, fetchWorkspaceNgos, fetchSectors, fetchActivities, fetchMedia } from '../store'
 import EditBannerModal from '../components/EditBannerModal'
 import VoluntaryPicker from '../components/VoluntaryPicker'
+import { DistrictSelect, StateSelect } from '../../../components/LocationSelect'
+import { stateForDistrict, districtsOfState as districtsOf } from '../../../utils/indiaLocations'
 
 const statusColor = (s) => {
   const map = { Completed:'green', Approved:'blue', Draft:'gray', Submitted:'yellow', Rejected:'red', Cancelled:'red', Closed:'green', Postponed:'yellow' }
   return map[s] || 'gray'
+}
+
+/* Reports a failed image instead of hiding it. Every banner/media <img> in this
+   panel used onError={e => e.currentTarget.style.display = 'none'}, which left a
+   silent empty box, so an unreachable URL was indistinguishable from "no image
+   uploaded". */
+function RemoteImage({ src, alt, height, cover = true }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [src])
+  if (!src || failed) {
+    return (
+      <div style={{
+        width: '100%', height, borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', textAlign: 'center', padding: 8, fontSize: 11, color: 'var(--ink-soft)',
+        background: 'var(--bg, #f6f7f9)', border: '1px dashed var(--line, #e5e7eb)',
+      }}>
+        {src ? 'Image could not be loaded' : 'No image'}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt || ''}
+      onError={() => setFailed(true)}
+      style={{ width: '100%', height, objectFit: cover ? 'cover' : 'contain', display: 'block', borderRadius: 'var(--radius-sm)' }}
+    />
+  )
 }
 
 export default function EventDetail() {
@@ -103,6 +133,31 @@ export default function EventDetail() {
       const next = { ...prev, [name]: value }
       if (name === 'ngo_id') { next.sector_id = ''; next.activity_id = '' }
       if (name === 'sector_id') next.activity_id = ''
+      return next
+    })
+  }
+
+  // District and State come from fixed lists, so keep the pair consistent rather
+  // than letting a district sit under the wrong state. Same rule as the Create
+  // form: a district fills in its state when the name is unique to one state
+  // (Bilaspur / Hamirpur / Pratapgarh exist in two, so those need a manual pick).
+  const pickDistrict = (district) => {
+    setForm(prev => {
+      const next = { ...prev, district }
+      if (district) {
+        const state = stateForDistrict(district)
+        if (state) next.state = state
+        else if (prev.state && !districtsOf(prev.state).includes(district)) next.state = ''
+      }
+      return next
+    })
+  }
+
+  const pickState = (state) => {
+    setForm(prev => {
+      const next = { ...prev, state }
+      // A district from another state would be wrong, so drop it.
+      if (state && prev.district && !districtsOf(state).includes(prev.district)) next.district = ''
       return next
     })
   }
@@ -215,10 +270,10 @@ export default function EventDetail() {
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
                 <div className="field"><label>GPS Location</label><input name="gps_location" value={form.gps_location} onChange={handleChange} /></div>
-                <div className="field"><label>District</label><input name="district" value={form.district} onChange={handleChange} /></div>
+                <div className="field"><label>District</label><DistrictSelect value={form.district} onChange={pickDistrict} ariaLabel="District" /></div>
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
-                <div className="field"><label>State</label><input name="state" value={form.state} onChange={handleChange} /></div>
+                <div className="field"><label>State</label><StateSelect value={form.state} onChange={pickState} ariaLabel="State" /></div>
                 <div className="field"><label>Organizer</label><input name="organizer" value={form.organizer} onChange={handleChange} /></div>
               </div>
               <div className="form-row" style={{ marginBottom: 12 }}>
@@ -258,6 +313,14 @@ export default function EventDetail() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, marginBottom: 16 }}>
           <div className="card">
             <div className="card-pad">
+              {event.banner && (
+                <div style={{ marginBottom: media.length > 0 ? 14 : 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink-soft)', marginBottom: 8 }}>Event Banner</div>
+                  <a href={event.banner} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                    <RemoteImage src={event.banner} alt={event.name} height={170} cover={false} />
+                  </a>
+                </div>
+              )}
               {media.length > 0 && (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
@@ -266,8 +329,8 @@ export default function EventDetail() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
                     {media.filter(m => /image/i.test(m.type || '') || /\.(png|jpe?g|gif|webp)$/i.test(m.url || '')).slice(0, 4).map((m, i) => (
-                      <a key={i} href={m.url} target="_blank" rel="noreferrer" style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', display: 'block' }}>
-                        <img src={m.url} alt={m.name || 'media'} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} onError={e => { e.currentTarget.style.display = 'none' }} />
+                      <a key={i} href={m.url} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                        <RemoteImage src={m.url} alt={m.name || 'media'} height={90} />
                       </a>
                     ))}
                   </div>
