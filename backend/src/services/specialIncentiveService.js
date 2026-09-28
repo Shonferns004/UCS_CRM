@@ -1,6 +1,6 @@
 import db, { sql } from '../config/db.js';
 
-// "Sir ka Incentive" (special day incentive) engine.
+// "NGO wise Incentive" (special day incentive) engine.
 // Flow: Super Admin announces -> active incentive pops in all panels ->
 // per-FRO window collections tracked live -> first past the post wins.
 
@@ -190,7 +190,7 @@ export const celebrateWinner = async (incentiveId, workerId, winnerName) => {
       .eq('id', incentiveId)
       .maybeSingle();
     const title = `🏆 WINNER: ${winnerName || 'A FRO'}`;
-    const body = `${inc?.title || 'Special Incentive'} won! ${winnerName || 'Someone'} was the first to collect ₹${fmtMoney(inc?.target_amount)} → wins ₹${fmtMoney(inc?.incentive_amount)}! 🎉`;
+    const body = `${inc?.title || 'NGO wise Incentive'} won! ${winnerName || 'Someone'} was the first to collect ₹${fmtMoney(inc?.target_amount)} → wins ₹${fmtMoney(inc?.incentive_amount)}! 🎉`;
     await sendNotificationLogs(
       rows.map((r) => ({
         worker_id: r.id,

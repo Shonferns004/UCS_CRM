@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
-import { Grid, Cal, Plus, Clock, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
+import { Grid, Cal, Plus, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import { fetchDeadlineNotifs } from './store'
@@ -9,7 +9,6 @@ import Overview from './components/Overview'
 import EventDashboard from './pages/EventDashboard'
 import CreateEvent from './pages/CreateEvent'
 import MonthlyPlanner from './pages/MonthlyPlanner'
-import EventChecklist from './pages/EventChecklist'
 import AssetRegister from './pages/AssetRegister'
 import MaterialRegister from './pages/MaterialRegister'
 import BeneficiaryDistribution from './pages/BeneficiaryDistribution'
@@ -42,7 +41,6 @@ const NAV = [
   { id:'sectors',        path:'/event-head/sectors',          label:'Sectors',               icon:Grid, section:'Programs' },
   { id:'activities',     path:'/event-head/activities',       label:'Activities',            icon:Star, section:'Programs' },
   { id:'create',         path:'/event-head/create',           label:'+ Create Event',        icon:Plus, section:'Programs' },
-  { id:'checklist',      path:'/event-head/checklist',        label:'Event Checklist',       icon:Clock, section:'Manage' },
   { id:'events-list',    path:'/event-head/events-list',      label:'My Events',             icon:Cal, section:'Manage' },
   { id:'media',          path:'/event-head/media-management', label:'Media / Banners',       icon:Eye, section:'Manage' },
   { id:'volunteers',     path:'/event-head/volunteers',       label:'Voluntary',             icon:Users, section:'Manage' },
@@ -222,7 +220,7 @@ export default function EventHeadPanel() {
             </div>
             <button className="eh-btn eh-btn-primary" style={{ marginRight:2 }} onClick={() => navigate('/event-head/create')}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Create Event
+              <span className="eh-btn-label">Create Event</span>
             </button>
             <div className="topbar-user" ref={bellRef} style={{ position: 'relative' }} onClick={() => setBellOpen(!bellOpen)}>
               <button className="eh-btn" aria-label="Deadline notifications" style={{ padding: '8px', position: 'relative' }}>
@@ -314,7 +312,6 @@ export default function EventHeadPanel() {
             <Route path="dashboard" element={<EventDashboard />} />
             <Route path="monthly-planner" element={<MonthlyPlanner />} />
             <Route path="create" element={<CreateEvent />} />
-            <Route path="checklist" element={<EventChecklist />} />
             <Route path="ngos" element={<NGOs />} />
             <Route path="sectors" element={<Sectors />} />
             <Route path="activities" element={<Activities />} />

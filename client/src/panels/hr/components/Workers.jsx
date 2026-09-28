@@ -388,6 +388,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         { wch: 20 }, { wch: 30 }, { wch: 30 },
         { wch: 28 }, { wch: 18 },
         { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 16 },
+        { wch: 14 }, // Idle Time (Hrs)
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
@@ -427,8 +428,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         PRES_DAYS: 19, ABSENT_DAYS: 20, HALF_DAYS: 21, LATE_DED: 22, SUN_DED: 23, TRAIN_DED: 24, NET_PRES: 25,
         MONTH_SAL: 26, INCENT_10: 27, TOTAL_AKI: 28, AKI: 29, GROSS: 30,
         OT: 31, PENDING: 32, ADVANCE: 33, NET_PAY: 34,
-        COMP_SUN: 35, COMP_HOLIDAY: 36, REQUIRED_SUN: 37,
-        IDLE_HRS: 38,
+        COMP_SUN: 35, COMP_HOLIDAY: 36, REQUIRED_SUN: 37, IDLE_HRS: 38,
         FIRST_DAY_COL: 39
       };
       const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
@@ -443,7 +443,10 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         'Gross Payable Salary',
         'OT/Appreciation/Extra Incentive', 'Any Pending Salary Paid for Previous Month',
         `Advance need to be deducted in ${monthName}, ${year}`, 'Net Payable Salary',
-        'Compensatory Sunday', 'Compensated Holiday', 'Required Sunday Worked', 'Idle Time (Hrs)',
+        'Compensatory Sunday', 'Compensated Holiday', 'Required Sunday Worked',
+        // FRO idle for the month, summed from the daily disposition-timer
+        // snapshots. Nil for non-FRO roles — the timer only runs for FROs.
+        'Idle Time (Hrs)',
         ...Array.from({ length: daysInMonth }, (_, i) => {
           const d = new Date(year, monthDate.getMonth(), i + 1);
           return d.toLocaleString('default', { day: '2-digit', month: 'short' });
@@ -667,6 +670,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         { wch: 22 }, { wch: 20 },
         { wch: 18 }, { wch: 18 }, { wch: 20 },
         { wch: 12 },
+        { wch: 14 }, // Idle Time (Hrs)
         ...Array.from({ length: daysInMonth }, () => ({ wch: 10 }))
       ];
       ws['!cols'] = colWidths;

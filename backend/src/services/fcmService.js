@@ -63,15 +63,43 @@ export const sendPushNotification = async (workerId, title, body, type, referenc
   }
 };
 
-export const sendPushToMultiple = async (notifications) => {
-  const results = [];
-  for (const n of notifications) {
-    const result = await sendPushNotification(
-      n.workerId, n.title, n.body, n.type, n.referenceId
-    );
-    results.push(result);
-  }
+// Concurrency for the fan-out below. High enough that 60 devices are not sent
+// serially, low enough that a burst of notifications cannot saturate the
+// event loop or open a pile of sockets on a 2 GB host.
+const PUSH_FANOUT_CONCURRENCY = 8;
+
+/**
+ * Runs `worker` over `items` with a bounded number in flight.
+ * Deliberately not Promise.all: one slow or hanging FCM call must not hold the
+ * whole batch, and an unbounded Promise.all over hundreds of devices is its own
+ * outage on a small box.
+ */
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        results[i] = await worker(items[i], i);
+      } catch (e) {
+        results[i] = null;
+      }
+    }
+  });
+  await Promise.all(runners);
   return results;
+}
+
+export const sendPushToMultiple = async (notifications) => {
+  // Was a plain `for ... await`, i.e. one FCM HTTP round-trip at a time. The
+  // 5-min scheduled-notification cron calls this once per pending notification
+  // with every registered token, so 60 workers x 3 notifications meant 180
+  // serial blocking HTTP calls holding the event loop — a recurring CPU spike
+  // on the host, and the reason that cron was measured as slow.
+  return mapWithConcurrency(notifications || [], PUSH_FANOUT_CONCURRENCY, (n) =>
+    sendPushNotification(n.workerId, n.title, n.body, n.type, n.referenceId)
+  );
 };
 
 // Always records a notification_log row (drives the FRO web bell + realtime

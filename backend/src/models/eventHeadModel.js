@@ -333,6 +333,7 @@ export const getVolunteerPeople = async () => {
     db.from('workers')
       .select('id, name, ngo_id, is_test')
       .eq('employment_status', 'active')
+      .eq('is_active', true)
       .order('name'),
     db.from('ngos').select('id, name, code'),
   ]);
@@ -359,6 +360,33 @@ export const getVolunteerPeople = async () => {
       const nb = b.ngo_name || 'Other';
       return na.localeCompare(nb) || (a.name || '').localeCompare(b.name || '');
     });
+};
+
+// Workers who are no longer active (absconded, offboarded, resigned, terminated
+// or de-activated in the HR panel). Used to drop them from the Voluntary list of
+// events they were already assigned to, so HR stays the single source of truth.
+//
+// Deliberately keyed by BOTH id and name: entries saved by the current picker
+// carry the HR worker id, while rows saved before that existed only have a name.
+// A name is only treated as inactive when it actually matches one of these rows —
+// a name that matches no worker at all (management, or a misspelling) is left
+// alone rather than silently deleted.
+export const getInactiveVolunteerKeys = async () => {
+  const { data, error } = await db
+    .from('workers')
+    .select('id, name, is_active, employment_status')
+    .neq('employment_status', 'active');
+  if (error) throw error;
+  const ids = new Set();
+  const names = new Set();
+  const key = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  for (const w of data || []) {
+    if (w.is_test) continue;
+    if (w.is_active !== false) continue;
+    if (w.id != null) ids.add(String(w.id));
+    if (w.name) names.add(key(w.name));
+  }
+  return { ids, names };
 };
 
 // ─── EXPENSES ───

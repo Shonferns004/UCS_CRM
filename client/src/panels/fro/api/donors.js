@@ -49,8 +49,8 @@ export async function updateDonorType(donorId, donorType) {
   return api(`/fro/donors/${donorId}/donor-type`, { method: 'PUT', body: JSON.stringify({ donor_type: donorType }), _prefix: 'ucs' })
 }
 
-export async function addDonorLog(donorId, data) {
-  return api(`/fro/donors/${donorId}/logs`, { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
+export async function addDonorLog(donorId, data, opts = {}) {
+  return api(`/fro/donors/${donorId}/logs`, { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs', ...opts })
 }
 
 export async function scheduleContact(donorId, data) {
@@ -68,8 +68,8 @@ export async function getDonorDonations(donorId, ngoId, period) {
   return api(`/fro/donors/${donorId}/donations?${params}`, { _prefix: 'ucs' })
 }
 
-export async function uploadPaymentScreenshot(fileBase64, mimeType) {
-  return api('/fro/upload-payment-screenshot', { method: 'POST', body: JSON.stringify({ file_base64: fileBase64, mime_type: mimeType }), _prefix: 'ucs' })
+export async function uploadPaymentScreenshot(fileBase64, mimeType, opts = {}) {
+  return api('/fro/upload-payment-screenshot', { method: 'POST', body: JSON.stringify({ file_base64: fileBase64, mime_type: mimeType }), _prefix: 'ucs', ...opts })
 }
 
 export async function getMyDashboard() {

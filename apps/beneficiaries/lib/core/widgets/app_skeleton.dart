@@ -103,6 +103,125 @@ class SkeletonAvatar extends StatelessWidget {
   }
 }
 
+/// Row of number-over-label stat cards, shaped like the cards it stands in for
+/// (Kits program/summary cards) so the layout does not jump when the real
+/// counts arrive.
+class SkeletonStatRow extends StatelessWidget {
+  final int cards;
+  final double height;
+  final double gap;
+  final double numberWidth;
+
+  const SkeletonStatRow({
+    super.key,
+    this.cards = 3,
+    this.height = 78,
+    this.gap = 10,
+    this.numberWidth = 44,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < cards; i++) ...[
+          if (i > 0) SizedBox(width: gap),
+          Expanded(
+            child: Container(
+              height: height,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.border),
+              ),
+              // FittedBox keeps the placeholder inside the card on short or
+              // narrow screens instead of overflowing when the card ends up
+              // with less room than the number+label stack needs.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBox(width: numberWidth, height: 20, borderRadius: 8),
+                    const SizedBox(height: 6),
+                    const SkeletonBox(width: 52, height: 10, borderRadius: 6),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Column of card-shaped placeholder rows. Used where a [SkeletonList] cannot
+/// be, because the real content already lives inside a parent scroll view (a
+/// nested ListView would be unbounded there).
+class SkeletonCardRows extends StatelessWidget {
+  final int rows;
+  final double gap;
+  final double leadingSize;
+  final double leadingRadius;
+  final int lines;
+
+  const SkeletonCardRows({
+    super.key,
+    this.rows = 3,
+    this.gap = 10,
+    this.leadingSize = 44,
+    this.lines = 2,
+    double? leadingRadius,
+  }) : leadingRadius = leadingRadius ?? leadingSize / 2;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < rows; i++) ...[
+          if (i > 0) SizedBox(height: gap),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                SkeletonBox(
+                  width: leadingSize,
+                  height: leadingSize,
+                  borderRadius: leadingRadius,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var l = 0; l < lines; l++) ...[
+                        if (l > 0) const SizedBox(height: 8),
+                        SkeletonBox(
+                          width: l == 0 ? double.infinity : 140,
+                          height: l == 0 ? 14 : 11,
+                          borderRadius: 6,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// Generic full-page skeleton used by list/table pages while loading.
 class SkeletonList extends StatelessWidget {
   final int rows;

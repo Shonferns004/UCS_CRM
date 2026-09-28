@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy } from 'lucide-react'
 import { useUcs } from '../../store'
@@ -14,7 +15,7 @@ import { requestNotifPermission, showDesktopNotification } from '../../utils/des
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
-import { CallProvider, useCall } from './CallContext'
+import { CallProvider, useCall, DISPOSITION_WINDOW } from './CallContext'
 import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -194,6 +195,199 @@ function PauseGate() {
   );
 }
 
+// mm:ss for the disposition countdown. Plain text on purpose — the previous
+// seven-segment SVG was hard to read at a glance, and its always-visible
+// "unlit" segments made a perfectly live clock look broken.
+function formatClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Disposition countdown, floating over every FRO screen.
+//
+// The window is opened by the FRO's first logged action of the day, not by
+// logging in, so until they do something the widget reads "Not started" instead
+// of pretending to run. Once armed it counts down from the server's deadline;
+// paused, in a meeting or off shift it holds at a full 4:00 and says why,
+// because the server issues no deadline in those states.
+function DispositionTimer() {
+  const { secondsLeft, isIdle, inShift, paused, status, idleLiveSeconds } = useCall();
+
+  const held = paused || status === 'meeting';
+  const armed = secondsLeft != null;
+  const counting = inShift && !held && armed;
+  const value = armed ? secondsLeft : DISPOSITION_WINDOW;
+  const urgent = counting && value <= 60;
+  const warn = counting && value <= 120;
+
+  let tone = 'live';
+  if (isIdle) tone = 'urgent';
+  else if (held || !inShift || !armed) tone = 'held';
+  else if (urgent) tone = 'urgent';
+  else if (warn) tone = 'warn';
+
+  const color = tone === 'urgent' ? '#DC2626' : tone === 'warn' ? '#B45309' : tone === 'live' ? '#0369A1' : '#64748B';
+  const border = tone === 'urgent' ? '#FCA5A5' : tone === 'warn' ? '#FCD34D' : tone === 'live' ? '#BAE6FD' : 'var(--line, #e2e8f0)';
+
+  const label = isIdle ? 'Idle'
+    : held ? (status === 'meeting' ? 'Meeting' : 'Paused')
+    : !inShift ? 'Off shift'
+    : !armed ? 'Not started'
+    : urgent ? 'Now'
+    : warn ? 'Due'
+    : 'Disposition';
+
+  // Idle counts UP and replaces the countdown: once the window is gone there is
+  // nothing left to count down, and the useful number is how long they have been
+  // idle. It ticks live between heartbeats, and the server commits the same
+  // figure into today's idle total the moment they record a disposition or
+  // press Resume.
+  const display = isIdle ? formatClock(idleLiveSeconds) : (armed ? formatClock(value) : '—:—');
+
+  const tip = isIdle
+    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record a disposition or press Resume to clear it.`
+    : !armed
+      ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
+      : held
+        ? 'On hold — the 4-minute window is frozen while you are paused or in a meeting.'
+        : !inShift
+          ? 'Off shift, so the window is not running. It opens with your first action of the day.'
+          : 'Time left to record a disposition. Every disposition resets this to 4:00.';
+
+  // Fraction of the window still remaining, for the bar underneath. While idle
+  // the bar is full-width: the countdown is over, this is an accrual now.
+  const remaining = isIdle ? 1 : (armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW)) : 1);
+
+  // Portalled to document.body on purpose. Rendered inline it sat at z-index 70,
+  // so the detailed donor/lead page (z-index 1400) and the donation modal (2000)
+  // covered it completely — the clock vanished exactly where the FRO spends
+  // their time. Portalled, it escapes those stacking contexts and sits above
+  // every page overlay, but still below the two full-screen holds (meeting
+  // 99999 / admin pause) which are meant to block the whole app.
+  return createPortal(
+    <>
+      {/* Keyframes live here rather than in the broadcast block: this widget is
+          on screen permanently, the broadcast is not. */}
+      <style>{'@keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.35); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
+      <div
+        title={tip}
+        style={{
+          position: 'fixed',
+          right: 20,
+          // "a little below the right middle" — 58% down the viewport, lifted by
+          // half its own height so the widget straddles that line.
+          top: '58%',
+          transform: 'translateY(-50%)',
+          zIndex: 99997,
+          width: 130,
+          padding: '10px 12px',
+          borderRadius: 14,
+          background: 'var(--card-bg, #fff)',
+          border: `1px solid ${border}`,
+          boxShadow: tone === 'urgent' ? '0 10px 28px rgba(220,38,38,.22)' : '0 8px 22px rgba(15,23,42,.16)',
+          ...(tone === 'urgent' ? { animation: 'froIdlePulse 1.4s infinite' } : {}),
+          pointerEvents: 'auto',
+        }}
+      >
+        <div style={{ fontSize: 9.5, fontWeight: 800, color, textTransform: 'uppercase', letterSpacing: .5, lineHeight: 1.2 }}>
+          {label}
+        </div>
+        <div style={{
+          fontSize: 26, fontWeight: 800, color: tone === 'held' ? '#94A3B8' : '#17233C',
+          lineHeight: 1.15, marginTop: 2, fontVariantNumeric: 'tabular-nums',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        }}>
+          {display}
+        </div>
+        <div style={{ height: 4, borderRadius: 2, background: 'var(--line, #e2e8f0)', overflow: 'hidden', marginTop: 7 }}>
+          <div style={{ height: '100%', width: `${remaining * 100}%`, background: color, transition: 'width .95s linear' }} />
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+// The disposition window ran out. This used to be a full-screen, deliberately
+// undismissable overlay — and that was the real bug: logging a disposition needs
+// a donor, so an FRO with nothing assigned could never satisfy it, and the
+// overlay covered the very screen they needed in order to try. All they could do
+// was press Resume, which handed back another 4 minutes, looping forever.
+// It is now a non-blocking banner: the panel stays fully usable, idle keeps
+// accruing, and recording a disposition clears it on its own.
+function IdleGate() {
+  const { isIdle, resumeIdle, idleSecondsToday, fmt } = useCall();
+  const [resuming, setResuming] = useState(false);
+  const [error, setError] = useState(null);
+  const onResume = async () => {
+    if (resuming) return;
+    setResuming(true);
+    setError(null);
+    try {
+      await resumeIdle();
+    } catch (e) {
+      setError(e?.message || 'Resume failed. Please try again.');
+    } finally {
+      setResuming(false);
+    }
+  };
+  if (!isIdle) return null;
+  // Portalled for the same reason as the clock: inline, a page overlay such as
+  // the detailed donor view would bury the banner and the FRO would not even
+  // know they were idle.
+  return createPortal(
+    // Anchored to the bottom, auto width, no backdrop: it reports idle without
+    // taking the app away from the FRO.
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 18,
+        transform: 'translateX(-50%)',
+        zIndex: 99998,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 12px 10px 14px',
+        borderRadius: 14,
+        background: '#fff',
+        border: '1px solid #FCA5A5',
+        boxShadow: '0 10px 30px rgba(15,23,42,.22)',
+        maxWidth: 'min(560px, calc(100vw - 24px))',
+        pointerEvents: 'auto',
+      }}
+    >
+      <span style={{ width: 30, height: 30, flex: '0 0 auto', borderRadius: '50%', background: '#FEE2E2', color: '#DC2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: '#17233C', lineHeight: 1.35 }}>
+          You are idle
+        </div>
+        <div style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45 }}>
+          Record a disposition to clear it
+          {idleSecondsToday > 0 ? <> · idle today {fmt(idleSecondsToday)}</> : null}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onResume}
+        disabled={resuming}
+        aria-label="Resume work"
+        style={{ flex: '0 0 auto', padding: '9px 14px', borderRadius: 10, border: 'none', background: '#16A34A', color: '#fff', fontSize: 13.5, fontWeight: 800, fontFamily: 'inherit', cursor: resuming ? 'wait' : 'pointer' }}
+      >
+        {resuming ? 'Resuming…' : 'Resume'}
+      </button>
+      {error && (
+        <div role="alert" style={{ position: 'absolute', left: 14, bottom: -20, fontSize: 11.5, fontWeight: 600, color: '#DC2626' }}>{error}</div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 // Live status pill for the top bar — mirrors the backend fro_live_status value.
 // Rendered inside <CallProvider> so useCall() is available.
 function FroStatusPill() {
@@ -201,12 +395,12 @@ function FroStatusPill() {
   const key = status === 'offline' ? 'offline' : status === 'idle' ? 'idle' : 'active';
   const cfg = {
     active: { label: 'Active', bg: '#e7f3ec', border: '#bce5cd', color: '#15803d', dot: '#16a34a' },
-    idle: { label: 'Idle', bg: '#fffbeb', border: '#fde68a', color: '#b45309', dot: '#f59e0b' },
+    idle: { label: 'Idle', bg: '#FEE2E2', border: '#FCA5A5', color: '#B91C1C', dot: '#DC2626' },
     offline: { label: 'Offline', bg: '#f3f4f6', border: '#e5e7eb', color: '#6b7280', dot: '#9ca3af' },
   }[key];
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, background: cfg.bg, border: `1px solid ${cfg.border}`, marginTop: 10 }}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.dot, display: 'inline-block', ...(key === 'active' ? { boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' } : {}) }} />
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.dot, display: 'inline-block', ...(key === 'active' ? { boxShadow: '0 0 0 0 rgba(22,163,74,.45)', animation: 'froActivePulse 2s infinite' } : key === 'idle' ? { boxShadow: '0 0 0 0 rgba(220,38,38,.45)', animation: 'froIdlePulse 1.4s infinite' } : {}) }} />
       <span style={{ fontSize: 10.5, fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: .4 }}>{cfg.label}</span>
     </div>
   );
@@ -675,17 +869,6 @@ export default function FROPanel() {
               toast(`${n.title}: ${n.body}`, 'info');
             }
           });
-        allNotifs
-          .filter(n => n.type === 'idle_alert' && !n.read_at)
-          .slice(0, 20)
-          .forEach(n => {
-            if (!seenNotifIds.current.has(n.id)) {
-              seenNotifIds.current.add(n.id);
-              localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
-              showDesktopNotification(n.title, n.body);
-              toast(`${n.title}: ${n.body}`, 'error');
-            }
-          });
         setAllVerified(verified);
         setVerifiedItems(verifiedSlice);
         setVerifiedCount(verified.length);
@@ -725,6 +908,15 @@ useEffect(() => onFroAction((action) => {
   useEffect(() => onFroForceLogout(() => {
     logout()
   }), [logout]);
+  // Manual sign-out. The server banks any idle still running (so the day and
+  // monthly totals keep it) before closing the session, so no confirm dialog is
+  // needed about losing time — the confirm is only to avoid accidental clicks.
+  const handleLogout = useCallback(() => {
+    setShowMenu(false)
+    if (window.confirm('Log out of the FRO panel? Any idle time still running will be recorded up to now.')) {
+      logout()
+    }
+  }, [logout])
   useEffect(() => {
     if (!froBroadcast) return;
     const minimize = setTimeout(() => setFroBroadcastMin(true), 30000);
@@ -738,13 +930,6 @@ useEffect(() => onFroAction((action) => {
     onInsert: (row) => {
       if (row?.type === 'suspense_alert') {
         ringSuspenseAlert(row);
-      }
-      // NGO admin clicked "Notify" — surface instantly (deduped via seenNotifIds)
-      if (row?.type === 'idle_alert' && row?.id && !seenNotifIds.current.has(row.id)) {
-        seenNotifIds.current.add(row.id);
-        localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
-        showDesktopNotification(row.title, row.body);
-        toast(`${row.title}: ${row.body}`, 'error');
       }
       loadNotifications();
     },
@@ -866,6 +1051,7 @@ useEffect(() => onFroAction((action) => {
   return (
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
+    <IdleGate />
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
       <div className="main">
@@ -943,8 +1129,13 @@ useEffect(() => onFroAction((action) => {
                   </div>
                   <div className="user-menu-divider" />
                   <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 1.65 1.65 0 0 1-1.82.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 1-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 1.82-.33H7a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0 .33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     Settings
+                  </div>
+                  <div className="user-menu-divider" />
+                  <div className="user-menu-item" onClick={handleLogout} style={{cursor:'pointer', color:'#b91c1c'}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Log Out
                   </div>
                   </div>
               )}
@@ -1215,7 +1406,7 @@ useEffect(() => onFroAction((action) => {
       <NoticePopup />
       {froBroadcast && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 99996, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setFroBroadcast(null)}>
-          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } } @keyframes froActivePulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }'}</style>
+          <style>{'@keyframes fro-bc-pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } } @keyframes froActivePulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } } @keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.4); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
           <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 100%)', borderRadius: 18, background: 'var(--card-bg, #fff)', boxShadow: '0 24px 60px rgba(0,0,0,.35)', overflow: 'hidden', animation: 'fro-bc-pop .4s cubic-bezier(.22,1,.36,1)', position: 'relative' }}>
             <div style={{ height: 4, background: 'linear-gradient(90deg,#8b5cf6,#6366f1,#38bdf8)' }} />
             <button onClick={() => setFroBroadcast(null)} aria-label="Close" style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', background: 'var(--line, #f1f5f9)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink, #0f172a)', fontWeight: 700, fontSize: 14, zIndex: 2 }}>✕</button>
@@ -1284,6 +1475,7 @@ useEffect(() => onFroAction((action) => {
         </div>
       )}
       <ToastContainer />
+      <DispositionTimer />
     </div>
     </CallProvider>
   )

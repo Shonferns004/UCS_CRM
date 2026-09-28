@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { Routes, Route, NavLink, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Users, Heart, Wallet, Database, Smartphone, ChevronRight } from 'lucide-react'
+import { Routes, Route, useLocation, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Users, Heart, Wallet, Database, Smartphone } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -39,7 +39,7 @@ import AttendancePage from './pages/Attendance'
 import SimSection from './components/SimSection'
 import Certificates from './pages/Certificates'
 import ChatWorkspace from '../../components/chat/ChatWorkspace'
-import ChatNavBadge from '../../components/chat/ChatNavBadge'
+import AccountsSidebar from './sidebar/AccountsSidebar'
 import BeneficiariesPanel from '../beneficiaries/BeneficiariesPanel'
 import BillReminderPage from './bill-reminder/BillReminderPage'
 import LeadIncentive from '../../components/LeadIncentive'
@@ -71,7 +71,7 @@ const NAV_GROUPS = [
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg> },
       { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
-      { id: 'incentives', path: '/accounts/incentives', label: 'Special Incentive',
+      { id: 'incentives', path: '/accounts/incentives', label: 'NGO wise Incentive',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
         match: (p) => p.startsWith('/accounts/incentives') },
     ],
@@ -168,7 +168,27 @@ const navIsActive = (n, pathname) => {
   return pathname === n.path
 }
 
-const GROUP_STORAGE_PREFIX = 'accounts_group_open_'
+/* Sidebar layout, built from the same arrays the rest of the panel uses so the
+   nav has exactly one source of truth. A group is any item carrying `items`;
+   everything else is a leaf link. `isGroupActive` exists only for Beneficiaries,
+   whose children have no catch-all match of their own. */
+const SIDEBAR_SECTIONS = [
+  {
+    id: 'main',
+    heading: 'Main',
+    items: [
+      ...NAV_TOP,
+      { id: 'g-workforce', label: NAV_GROUPS[0].title, icon: NAV_GROUPS[0].icon, storageKey: 'workforce', items: NAV_GROUPS[0].items },
+      { id: 'g-donor', label: NAV_GROUPS[1].title, icon: NAV_GROUPS[1].icon, storageKey: 'donor_management', items: NAV_GROUPS[1].items },
+      { id: 'g-asset', label: NAV_GROUPS[2].title, icon: NAV_GROUPS[2].icon, storageKey: 'asset_finance', items: NAV_GROUPS[2].items },
+      { id: 'g-data', label: NAV_DATA_GROUP.title, icon: NAV_DATA_GROUP.icon, storageKey: 'data', items: NAV_DATA_GROUP.items },
+      { id: 'g-beneficiaries', label: 'Beneficiaries', icon: <Users size={18} />, storageKey: 'beneficiaries', items: BENEFICIARY_NAV,
+        isGroupActive: (p) => p.startsWith('/accounts/beneficiaries') },
+      { id: 'g-sim', label: 'SIM Management', icon: SIM_GROUP_ICON, storageKey: 'sim', items: SIM_NAV },
+    ],
+  },
+  { id: 'settings', heading: 'Settings', items: NAV_BOTTOM },
+]
 
 const settingsViews = [
   { key: 'razorpay', label: 'Razorpay Accounts', width: 420,
@@ -190,129 +210,6 @@ const settingsViews = [
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
     content: <ChangeSalaryAccessCode /> },
 ]
-
-function NavGroup({ title, icon, storageKey, active, children }) {
-  const [open, setOpen] = useState(() => {
-    try {
-      const v = localStorage.getItem(GROUP_STORAGE_PREFIX + storageKey)
-      if (v !== null) return v === '1'
-    } catch { /* storage unavailable */ }
-    return active
-  })
-
-  useEffect(() => {
-    if (active) setOpen(true)
-  }, [active])
-
-  const toggle = () => {
-    setOpen((prev) => {
-      try { localStorage.setItem(GROUP_STORAGE_PREFIX + storageKey, prev ? '0' : '1') } catch { /* storage unavailable */ }
-      return !prev
-    })
-  }
-
-  return (
-    <div className="snav-group">
-      <button type="button" onClick={toggle} aria-expanded={open}
-        className={`snav-item snav-group-header${active ? ' active' : ''}`}>
-        {icon && <span className="ico">{icon}</span>}
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>{title}</span>
-        </span>
-        <span className={`snav-chevron${open ? ' open' : ''}`}><ChevronRight size={14} /></span>
-      </button>
-      <div className={`snav-group-items${open ? '' : ' collapsed'}`}>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function Sidebar({ open, onClose }) {
-  const location = useLocation()
-
-  const renderGroup = (group, storageKey) => (
-    <NavGroup
-      key={group.title}
-      title={group.title}
-      icon={group.icon}
-      storageKey={storageKey}
-      active={group.items.some(n => navIsActive(n, location.pathname))}
-    >
-      {group.items.map(n => (
-        <NavLink key={n.id} to={n.path} onClick={onClose}
-          data-nav-id={n.id}
-          className={`snav-item snav-sub${navIsActive(n, location.pathname) ? ' active' : ''}`}>
-          <span className="ico">{n.icon}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{n.label}</span>
-        {n.id === 'chat' && <ChatNavBadge />}
-        </span>
-        </NavLink>
-      ))}
-    </NavGroup>
-  )
-
-  return (
-    <>
-      {open && <div className="sidebar-overlay" onClick={onClose} />}
-      <aside className={`sidebar${open ? ' open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-mark">UCS</div>
-          <div className="brand-copy">
-            <h1>UCS</h1>
-            <span>Accounts Panel</span>
-          </div>
-        </div>
-        <nav className="sidebar-nav" aria-label="Accounts navigation">
-          {NAV_TOP.map(n => (
-            <NavLink key={n.id} to={n.path} onClick={onClose}
-              data-nav-id={n.id}
-              className={`snav-item ${navIsActive(n, location.pathname) ? 'active' : ''}`}>
-              <span className="ico">{n.icon}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>{n.label}</span>
-              </span>
-            </NavLink>
-          ))}
-          {renderGroup({ ...NAV_GROUPS[0], title: 'WORKFORCE' }, 'workforce')}
-          {renderGroup({ ...NAV_GROUPS[1], title: 'DONOR MANAGEMENT' }, 'donor_management')}
-          {renderGroup({ ...NAV_GROUPS[2], title: 'ASSET & FINANCE' }, 'asset_finance')}
-          {renderGroup({ ...NAV_DATA_GROUP, title: 'DATA' }, 'data')}
-          <NavGroup
-            key="beneficiaries"
-            title="BENEFICIARIES"
-            icon={<Users size={18} />}
-            storageKey="beneficiaries"
-            active={location.pathname.startsWith('/accounts/beneficiaries')}
-          >
-            {BENEFICIARY_NAV.map(n => (
-              <NavLink key={n.id} to={n.path} onClick={onClose}
-                data-nav-id={n.id}
-                className={`snav-item snav-sub${navIsActive(n, location.pathname) ? ' active' : ''}`}>
-                <span className="ico">{n.icon}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>{n.label}</span>
-                </span>
-              </NavLink>
-            ))}
-          </NavGroup>
-          {renderGroup({ title: 'SIM MANAGEMENT', icon: SIM_GROUP_ICON, items: SIM_NAV }, 'sim')}
-          {NAV_BOTTOM.map(n => (
-            <NavLink key={n.id} to={n.path} onClick={onClose}
-              data-nav-id={n.id}
-              className={`snav-item ${navIsActive(n, location.pathname) ? 'active' : ''}`}>
-              <span className="ico">{n.icon}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>{n.label}</span>
-              </span>
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-    </>
-  )
-}
 
 function hrScopeStyle(theme) {
   if (!theme) return undefined
@@ -464,7 +361,12 @@ export default function AccountsPanel() {
 
   return (
     <div className={`app${sidebarOpen ? ' sidebar-open' : ''}`}>
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <AccountsSidebar
+        sections={SIDEBAR_SECTIONS}
+        isActive={navIsActive}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>

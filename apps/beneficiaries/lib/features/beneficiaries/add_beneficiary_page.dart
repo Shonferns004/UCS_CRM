@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:dropdown_button2/dropdown_button2.dart';
 import 'package:flutter/foundation.dart';
@@ -10,7 +10,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../core/widgets/section_header.dart';
+import '../../core/utils/photo_utils.dart';
 import '../../services/api_service.dart';
+import 'camera_capture_page.dart';
 import 'document_capture_page.dart';
 import 'fingerprint_enroll_panel.dart';
 
@@ -59,7 +61,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   final _mobileController = TextEditingController();
   final _occupationController = TextEditingController();
   final _neededController = TextEditingController();
-  final _addressController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _stateController = TextEditingController();
+  final _dobController = TextEditingController();
   final _pincodeController = TextEditingController();
   final _aadhaarController = TextEditingController();
   final _disabilityPctController = TextEditingController();
@@ -82,6 +87,8 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   Map<String, dynamic>? _created;
   List<CapturedFingerprint> _captured = [];
   bool _fingersReady = false;
+  String? _photo;
+  bool _photoBusy = false;
 
   static const int requiredFingers = 3;
 
@@ -106,6 +113,121 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
   void initState() {
     super.initState();
     _loadNgos();
+    _prefillArea();
+  }
+
+  /// City/state default to the operator's own area, chosen on the Operator
+  /// Details screen, so a registration only has to change them when the
+  /// beneficiary lives somewhere else.
+  Future<void> _prefillArea() async {
+    final area = await ApiService.getOperatorArea();
+    if (area == null || !mounted) return;
+    if (area.city.isEmpty && area.state.isEmpty) return;
+    setState(() {
+      if (_cityController.text.trim().isEmpty && area.city.isNotEmpty) {
+        _cityController.text = area.city;
+      }
+      if (_stateController.text.trim().isEmpty && area.state.isNotEmpty) {
+        _stateController.text = area.state;
+      }
+    });
+  }
+
+  /// Captures the beneficiary's photo with the plain camera (no document scan
+  /// effect) and stores it small enough to keep in the record's `photo` column.
+  Future<void> _pickPhoto() async {
+    final bytes = await Navigator.push<Uint8List>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CameraCapturePage(
+          hint: 'Frame the face and capture',
+          captureLabel: 'Capture Photo',
+        ),
+      ),
+    );
+    if (bytes == null || bytes.isEmpty || !mounted) return;
+    setState(() => _photoBusy = true);
+    try {
+      final dataUrl = await compute(photoDataUrl, bytes);
+      if (!mounted) return;
+      setState(() => _photo = dataUrl);
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackbar(context, 'Could not use that photo: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _photoBusy = false);
+    }
+  }
+
+  Widget _photoSection() {
+    final has = _photo != null && _photo!.isNotEmpty;
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: has
+              ? Image.memory(
+                  dataUrlBytes(_photo!),
+                  width: 64,
+                  height: 64,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const PhotoPlaceholder(),
+                )
+              : const PhotoPlaceholder(),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Photo',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                has ? 'Will be saved with the record' : 'Optional',
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: (_created != null) || _photoBusy ? null : _pickPhoto,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 36),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                icon: _photoBusy
+                    ? const SkeletonBox(
+                        width: 14,
+                        height: 14,
+                        borderRadius: 7,
+                        baseColor: Color(0x262563EB),
+                        shineColor: Color(0xFF2563EB),
+                      )
+                    : Icon(
+                        has ? LucideIcons.camera : LucideIcons.userCircle,
+                        size: 15,
+                        color: AppColors.primaryBlue,
+                      ),
+                label: Text(
+                  has ? 'Replace photo' : 'Add photo',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -114,7 +236,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
     _mobileController.dispose();
     _occupationController.dispose();
     _neededController.dispose();
-    _addressController.dispose();
+    _locationController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
+    _dobController.dispose();
     _pincodeController.dispose();
     _aadhaarController.dispose();
     _disabilityPctController.dispose();
@@ -134,7 +259,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           ..addAll(list.map((e) => Map<String, dynamic>.from(e)));
       });
     } catch (_) {
-      // Dropdown stays empty — operator can still register without an NGO.
+      // Dropdown stays empty � operator can still register without an NGO.
     }
   }
 
@@ -161,6 +286,9 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
           if ((n['id']?.toString() ?? '') case final String id when id.isNotEmpty) id,
       };
 
+  static String _formatDob(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
   Future<void> _pickDob() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
@@ -169,7 +297,12 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       firstDate: DateTime(1900),
       lastDate: now,
     );
-    if (picked != null) setState(() => _dob = picked);
+    if (picked != null) {
+      setState(() {
+        _dob = picked;
+        _dobController.text = _formatDob(picked);
+      });
+    }
   }
 
   String _docLabel(_DocType type) => _docs.firstWhere((d) => d.type == type).label;
@@ -287,6 +420,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             final d = int.tryParse(parts[2]);
             if (y != null && m != null && d != null) {
               _dob = DateTime(y, m, d);
+              // The field is read-only, so the picked value has to be pushed
+              // into the controller or the date stays invisible behind the
+              // floating label.
+              _dobController.text = _formatDob(_dob!);
             }
           }
         }
@@ -296,7 +433,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
         }
         final address = fields['address_line_1']?.toString();
         if (address != null && address.trim().isNotEmpty) {
-          _addressController.text = address.trim();
+          _locationController.text = address.trim();
         }
         final aadhaar = fields['aadhaar_number']?.toString();
         if (aadhaar != null && aadhaar.trim().isNotEmpty) {
@@ -384,7 +521,10 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
       if (_dob != null) body['date_of_birth'] = '${_dob!.year.toString().padLeft(4, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.day.toString().padLeft(2, '0')}';
       if (_gender != null) body['gender'] = _gender;
       if (_occupationController.text.trim().isNotEmpty) body['occupation'] = _occupationController.text.trim();
-      if (_addressController.text.trim().isNotEmpty) body['address_line_1'] = _addressController.text.trim();
+      if (_locationController.text.trim().isNotEmpty) body['address_line_1'] = _locationController.text.trim();
+      if (_cityController.text.trim().isNotEmpty) body['city'] = _cityController.text.trim();
+      if (_stateController.text.trim().isNotEmpty) body['state'] = _stateController.text.trim();
+      if (_photo != null && _photo!.isNotEmpty) body['photo'] = _photo;
       if (_pincodeController.text.trim().isNotEmpty) body['pincode'] = _pincodeController.text.trim();
       if (_aadhaarController.text.trim().isNotEmpty) body['aadhaar_number'] = _aadhaarController.text.trim();
       if (_neededController.text.trim().isNotEmpty) body['needed'] = _neededController.text.trim();
@@ -520,51 +660,63 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               enabled: !_loading && created == null,
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField2<String>(
-                    valueListenable: ValueNotifier<String?>(_gender),
-                    decoration: const InputDecoration(labelText: 'Gender'),
-                    items: ['Male', 'Female', 'Other']
-                        .map((g) => DropdownItem<String>(value: g, child: Text(g)))
-                        .toList(),
-                    onChanged: (v) => setState(() => _gender = v),
-                    buttonStyleData: const FormFieldButtonStyleData(
-                      height: 52,
-                      padding: EdgeInsets.only(left: 12),
-                    ),
-                    iconStyleData: const IconStyleData(iconSize: 20),
-                    dropdownStyleData: const DropdownStyleData(
-                      maxHeight: 260,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.all(Radius.circular(12)),
-                      ),
-                    ),
-                    menuItemStyleData: const MenuItemStyleData(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
+            // Stacks on narrow phones so neither field gets squeezed.
+            LayoutBuilder(
+              builder: (context, box) {
+                final genderField = DropdownButtonFormField2<String>(
+                  valueListenable: ValueNotifier<String?>(_gender),
+                  decoration: const InputDecoration(labelText: 'Gender'),
+                  isExpanded: true,
+                  items: ['Male', 'Female', 'Other', 'Transgender']
+                      .map((g) => DropdownItem<String>(value: g, child: Text(g, overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  onChanged: created == null ? (v) => setState(() => _gender = v) : null,
+                  buttonStyleData: const FormFieldButtonStyleData(
+                    height: 52,
+                    padding: EdgeInsets.only(left: 16, right: 8),
+                  ),
+                  iconStyleData: const IconStyleData(iconSize: 20),
+                  dropdownStyleData: const DropdownStyleData(
+                    maxHeight: 220,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: created == null ? _pickDob : null,
-                    child: AbsorbPointer(
-                      child: TextFormField(
-                        readOnly: true,
-                        decoration: InputDecoration(
-                          labelText: 'Date of Birth',
-                          hintText: _dob == null
-                              ? 'Select date'
-                              : '${_dob!.day}/${_dob!.month}/${_dob!.year}',
-                          suffixIcon: const Icon(LucideIcons.calendar, size: 18),
-                        ),
+                  menuItemStyleData: const MenuItemStyleData(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                );
+                final dobField = GestureDetector(
+                  onTap: created == null ? _pickDob : null,
+                  child: AbsorbPointer(
+                    child: TextFormField(
+                      controller: _dobController,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Date of Birth',
+                        hintText: 'Select date',
+                        suffixIcon: Icon(LucideIcons.calendar, size: 18),
                       ),
                     ),
                   ),
-                ),
-              ],
+                );
+                if (box.maxWidth < 320) {
+                  return Column(
+                    children: [
+                      genderField,
+                      const SizedBox(height: 16),
+                      dobField,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: genderField),
+                    const SizedBox(width: 12),
+                    Expanded(child: dobField),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -586,11 +738,33 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 16),
             TextFormField(
-              controller: _addressController,
-              decoration: const InputDecoration(labelText: 'Address'),
+              controller: _locationController,
+              decoration: const InputDecoration(labelText: 'Location'),
               textCapitalization: TextCapitalization.words,
               maxLines: 2,
               enabled: !_loading && created == null,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _cityController,
+                    decoration: const InputDecoration(labelText: 'City'),
+                    textCapitalization: TextCapitalization.words,
+                    enabled: !_loading && created == null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _stateController,
+                    decoration: const InputDecoration(labelText: 'State'),
+                    textCapitalization: TextCapitalization.words,
+                    enabled: !_loading && created == null,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField2<String>(
@@ -606,11 +780,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               validator: (v) => v == null ? 'Please select an NGO' : null,
               buttonStyleData: const FormFieldButtonStyleData(
                 height: 52,
-                padding: EdgeInsets.only(left: 12),
+                padding: EdgeInsets.only(left: 16, right: 8),
               ),
               iconStyleData: const IconStyleData(iconSize: 20),
               dropdownStyleData: const DropdownStyleData(
-                maxHeight: 300,
+                maxHeight: 240,
                 padding: EdgeInsets.symmetric(vertical: 4),
               ),
               menuItemStyleData: const MenuItemStyleData(
@@ -635,11 +809,15 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 24),
 
-            // Documents — Aadhaar required, UDID or Disability certificate.
+            // Documents � Aadhaar required, UDID or Disability certificate.
+            const SectionHeader(title: 'Photo'),
+            const SizedBox(height: 16),
+            _photoSection(),
+            const SizedBox(height: 28),
             const SectionHeader(title: 'Documents'),
             const SizedBox(height: 16),
 
-            // Dotted upload area → bottom sheet with the not-yet-added choices.
+            // Dotted upload area ? bottom sheet with the not-yet-added choices.
             InkWell(
               onTap: (_loading || created != null) ? null : _uploadDocument,
               borderRadius: BorderRadius.circular(16),
@@ -648,7 +826,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
                   color: AppColors.dashedBorder,
                 ),
                 child: Container(
-                  width: double.infinity,
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
@@ -674,7 +851,7 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
             ),
             const SizedBox(height: 12),
 
-            // Per-document status rows — only show docs that were actually
+            // Per-document status rows � only show docs that were actually
             // scanned, so "Not scanned" placeholders stay out of the way.
             ..._docs.where((doc) => doc.base64 != null).map((doc) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -699,11 +876,11 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
               validator: (v) => v == null ? 'Select disability type' : null,
               buttonStyleData: const FormFieldButtonStyleData(
                 height: 52,
-                padding: EdgeInsets.only(left: 12),
+                padding: EdgeInsets.only(left: 16, right: 8),
               ),
               iconStyleData: const IconStyleData(iconSize: 20),
               dropdownStyleData: const DropdownStyleData(
-                maxHeight: 320,
+                maxHeight: 260,
                 padding: EdgeInsets.symmetric(vertical: 4),
               ),
               menuItemStyleData: const MenuItemStyleData(
@@ -745,7 +922,6 @@ class _AddBeneficiaryPageState extends State<AddBeneficiaryPage> {
 
             // Register button enabled only after 3 fingerprints are scanned
             SizedBox(
-              width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: (_fingersReady && !_loading) ? _submit : null,
                 style: ElevatedButton.styleFrom(

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { fetchVolunteerPeople } from '../store'
+import { fetchVolunteerPeople, fetchWorkspaceNgos } from '../store'
+import { sortNgos, parseManagementTeam, buildRoster } from '../voluntaryRoster'
 import hrFileUrl from './HR EMPLOYEES FILES (1).xlsx?url'
 
 const PALETTE = ['#5B6B4E', '#C08A2E', '#7A5C7E', '#B5603A', '#4F6472', '#88693D', '#2E7D32', '#1565C0', '#00838F', '#6A1B9A']
@@ -10,50 +11,7 @@ const ngoColor = (name) => {
 }
 
 const initials = (n) => String(n || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?'
-const orderIndex = (label) => {
-  const u = String(label || '').toUpperCase()
-  const map = { BSCT: 0, AFLF: 1, MANN: 2, MAN: 2, OTHERS: 3, OTHER: 3 }
-  return map[u] !== undefined ? map[u] : 100
-}
-const sortGroups = (a, b) => orderIndex(a) - orderIndex(b) || String(a).localeCompare(String(b))
-
-const shortLabel = (p) => {
-  const code = String(p.ngo_code || '').toUpperCase().trim()
-  const map = { BSCT: 'BSCT', AFLF: 'AFLF', MANN: 'Mann', MAN: 'Mann', OTHER: 'Others', OTHERS: 'Others' }
-  return map[code] || p.ngo_name || 'Other'
-}
-
-const parseManagementTeam = (rows) => {
-  const active = {}
-  const out = []
-  for (const row of rows) {
-    for (let c = 0; c < row.length; c++) {
-      const txt = String(row[c] || '').trim()
-      const mg = txt.match(/^(.*?)\s*Management\s+Team\s*$/i)
-      if (mg) {
-        active[c] = { ngo: (mg[1] || '').trim() || 'Other' }
-        continue
-      }
-      if (txt && /Volunteer\s+Team\s*$/i.test(txt)) {
-        delete active[c]
-      }
-    }
-    for (const c of Object.keys(active)) {
-      const ci = Number(c)
-      const name = String(row[ci + 1] || '').trim().replace(/\s+/g, ' ')
-      const ngoCell = String(row[ci + 2] || '').trim()
-      if (!name || /Team\s*$/i.test(name) || /^Sr\.?\s*No\.?\s*$/i.test(name) || name.toUpperCase() === 'NAME') continue
-      out.push({ name, ngo: ngoCell || active[c].ngo })
-    }
-  }
-  const seen = new Set()
-  return out.filter(m => {
-    const k = m.name.toLowerCase() + '|' + m.ngo.toLowerCase()
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
-}
+const sortGroups = sortNgos
 
 export default function VolunteerManagement() {
   const [people, setPeople] = useState([])
@@ -86,23 +44,25 @@ export default function VolunteerManagement() {
     Promise.all([
       fetchVolunteerPeople().catch(() => []),
       loadFile(),
-    ]).then(([list, mgmt]) => {
+      fetchWorkspaceNgos().catch(() => []),
+    ]).then(([list, mgmt, ngoList]) => {
       if (cancelled) return
-      setPeople(list || [])
-      setManagement(mgmt)
+      // Same shared roster the Create/Edit Event picker uses, so the two
+      // screens always agree on who is listed and under which NGO.
+      const roster = buildRoster(list, mgmt, ngoList)
+      setPeople(roster.filter(r => r.team === 'Volunteer'))
+      setManagement(roster.filter(r => r.team === 'Management'))
       setLoading(false)
     })
 
     return () => { cancelled = true }
   }, [])
 
-  const volunteers = useMemo(() =>
-    people.map(p => ({ ...p, cat: 'Volunteer', ngo: shortLabel(p) })),
-  [people])
+  const volunteers = useMemo(() => people.map(p => ({ ...p, cat: 'Volunteer' })), [people])
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const mgmt = management.map(m => ({ ...m, cat: 'Management', ngo: m.ngo || 'Other' }))
+    const mgmt = management.map(m => ({ ...m, cat: 'Management', ngo: m.ngo || 'Others' }))
     return [...volunteers, ...mgmt].filter(r => {
       if (ngoFilter !== 'All' && r.ngo !== ngoFilter) return false
       if (q && !(r.name || '').toLowerCase().includes(q)) return false
@@ -112,8 +72,8 @@ export default function VolunteerManagement() {
 
   const counts = useMemo(() => {
     const c = {}
-    for (const r of [...volunteers, ...management.map(m => ({ ngo: m.ngo || 'Other' }))]) {
-      const k = r.ngo || 'Other'
+    for (const r of [...volunteers, ...management.map(m => ({ ngo: m.ngo || 'Others' }))]) {
+      const k = r.ngo || 'Others'
       c[k] = (c[k] || 0) + 1
     }
     return c

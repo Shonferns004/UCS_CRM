@@ -29,6 +29,11 @@ const PROJECTS = [
 ];
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
+// A save button stuck on "Loading..." for the shared api() default 120s is
+// unusable in the field. 20s is generous for a screenshot upload on a slow
+// link and short enough that the panel recovers on its own.
+const SAVE_TIMEOUT_MS = 20000;
+
 const DISP_TO_STATUS = { office_visit_scheduled: 'scheduled', program_visit_scheduled: 'scheduled' };
 
 const isCollectionLog = (log) =>
@@ -289,7 +294,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
   const savedListScrollRef = useRef(0);
-  const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
+  const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView, adoptTimer, adoptOptimisticDisposition } = useCall();
 
   useEffect(() => {
     let cancelled = false;
@@ -864,14 +869,21 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     savingRef.current = true;
     setDonationSaving(true);
     setMessage(null);
+    // Restart the window at submit time; the saved.timer below replaces it with
+    // the server's answer if the request lands.
+    adoptOptimisticDisposition();
     try {
-      await addDonorLog(donor.id, {
+      // Adopt the server's timer answer straight away. The next heartbeat would
+      // carry the same deadline, but waiting for it leaves the 4-minute clock
+      // stale for up to 30s right after the FRO's first action of the day.
+      const saved = await addDonorLog(donor.id, {
         action: 'donation',
         amount_collected: Number(donationAmt),
         transaction_datetime: new Date(donationDt).toISOString(),
         notes: `Donation recorded (${donor.donor_type})`,
         ngo_id: donor.ngo_id,
-      });
+      }, { timeout: SAVE_TIMEOUT_MS });
+      if (saved?.timer) adoptTimer(saved.timer);
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
@@ -894,7 +906,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       }
       clearFormState();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      const offline = /abort|timeout|failed to fetch|network|load failed/i.test(err?.message || '');
+      setMessage({ type: 'error', text: offline ? 'Could not reach the server — nothing was saved. Check your connection and try again.' : err.message });
     } finally {
       setDonationSaving(false);
       savingRef.current = false;
@@ -1145,6 +1158,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     savingRef.current = true;
 
     setSaving(true); setMessage(null);
+    // Close the 4-minute window at submit time rather than when the response
+    // lands, so a dropped connection can't leave the FRO watching a live
+    // countdown for a disposition they already recorded. saved.timer below
+    // overwrites this with the server's authoritative value.
+    adoptOptimisticDisposition();
     try {
       const logData = {
         action: 'disposition',
@@ -1161,7 +1179,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
-          const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime);
+          const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime, { timeout: SAVE_TIMEOUT_MS });
           logData.payment_screenshot_url = uploadResult.file_url;
         }
         logData.donor_address = leadAddress || null;
@@ -1182,7 +1200,10 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       suppressRealtimeUntilRef.current = Date.now() + 10000;
       if (debounceReloadRef.current) { clearTimeout(debounceReloadRef.current); debounceReloadRef.current = null; }
 
-      await addDonorLog(donor.id, logData);
+      const saved = await addDonorLog(donor.id, logData, { timeout: SAVE_TIMEOUT_MS });
+      // Same as the donation path: take the server's deadline now rather than
+      // letting the countdown show stale seconds until the next heartbeat.
+      if (saved?.timer) adoptTimer(saved.timer);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       // Same-day suppression (backend-authoritative): a donor with ANY

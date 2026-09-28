@@ -8,8 +8,8 @@ import { getUserByEmail, getUserByName, getUserById, updateUser } from '../model
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
 import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } from '../models/workAsSessionModel.js';
-import { bookOpenIdleStreak } from './froController.js';
 import { resolveOperatorIdentity } from '../utils/workAs.js';
+import { commitIdleOnExit } from '../services/froIdleCommit.js';
 
 dotenv.config();
 
@@ -183,6 +183,14 @@ export const logout = async (req, res) => {
     const key = String(uid);
     const now = new Date().toISOString();
     await sql(`UPDATE auth_sessions SET logged_out_at = $1 WHERE user_id = $2 AND logged_out_at IS NULL`, [now, key]);
+    // An FRO signing out mid-idle would otherwise lose the open period from both
+    // the day total and the monthly salary figure. Non-fatal and a no-op for
+    // anyone without a live-status row.
+    try {
+      await commitIdleOnExit(key);
+    } catch (e) {
+      console.warn('[auth] FRO idle commit on logout failed:', e?.message || String(e));
+    }
     try {
       await db.from('auth_logout_events').insert({
         user_id: key,
@@ -519,16 +527,6 @@ export const impersonateFRO = async (req, res) => {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
-    // Handover carry-forward: the operator's heartbeats are about to stop
-    // writing the row they operated so far (themselves when not impersonating,
-    // otherwise the current covered FRO) and move to the new target. Book any
-    // open idle streak on the departing identity — without this its uncommitted
-    // idle minutes are orphaned by the switch. No-op when no streak is open or
-    // the target is unchanged.
-    if (String(req.user.id) !== String(target.id)) {
-      await bookOpenIdleStreak(String(req.user.id));
-    }
-
     // Reopen the target's CRM session: a work-as switch is an explicit
     // activation of the covered FRO's session. Without this, the heartbeat
     // force-logout guard (froController.updateLiveStatus) sees the target's
@@ -749,10 +747,6 @@ export const getFroWorkAsStations = async (req, res) => {
 // Release every active work-as session the caller holds (Exit work-as button).
 export const releaseWorkAs = async (req, res) => {
   try {
-    // Exiting work-as: the operator's heartbeats stop writing the covered FRO's
-    // row. Book any open idle streak on that target first so the minutes are
-    // preserved instead of orphaned. No-op when no streak is open.
-    await bookOpenIdleStreak(String(req.user.id));
     const operatorId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : req.user.id;
     const released = await releaseOperatorSessions(operatorId);
     return res.json({ message: 'Work-as sessions released', released });

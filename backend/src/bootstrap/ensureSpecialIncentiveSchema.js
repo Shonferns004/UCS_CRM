@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 
-// Idempotent bootstrap for the "Sir ka Incentive" (special day incentive)
+// Idempotent bootstrap for the "NGO wise Incentive" (special day incentive)
 // tables. Ensures both tables exist on server start so the special-incentive
 // flow (announce -> live leaderboard -> first-past-the-post winner) never
 // fails on a fresh DB.
@@ -80,7 +80,7 @@ ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS lead_rate NUMERIC(12,2) NOT
 -- every verified lead counts toward it (no per-lead minimum).
 ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS amount_to_win NUMERIC(12,2) NOT NULL DEFAULT 1500;
 ALTER TABLE incentive_slabs ADD COLUMN IF NOT EXISTS stopped_date DATE;
--- Competition window (like "Sir ka Incentive"): started_at = when the range's
+-- Competition window (like "NGO wise Incentive"): started_at = when the range's
 -- competition begins, ended_at = when it ends. NULL started_at = not started yet;
 -- NULL ended_at = runs until stopped/end of day. Leads verified outside the
 -- window never count. Set via the ⏱ Start/End Time controls (all or single range).

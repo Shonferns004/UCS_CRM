@@ -51,11 +51,18 @@ const ICONS = {
   chat: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/></svg>,
 }
 
+// Panel-with-a-left-edge icons. The divider on the left is the part of the
+// panel that stays; the arrow points the way the sidebar is about to go.
+const RAIL_ICON = {
+  collapse: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>,
+  expand: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>,
+}
+
 const MAX_DROPDOWN = 4
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
-function Sidebar({ open, onClose }) {
+function Sidebar({ open, onClose, collapsed }) {
   const location = useLocation()
   return (
     <>
@@ -63,16 +70,21 @@ function Sidebar({ open, onClose }) {
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-mark">NA</div>
-          <div><h1>UFS</h1><span>Admin Panel</span></div>
+          {/* Classed so the rail rule in index.css can drop the wordmark. Left in
+              the DOM rather than conditionally rendered, so the expanded and
+              collapsed layouts cannot drift apart. */}
+          <div className="sidebar-brand-text"><h1>UFS</h1><span>Admin Panel</span></div>
         </div>
         <nav className="sidebar-nav">
           {NAV.map(n => {
             const active = location.pathname === n.path || location.pathname.startsWith(n.path + '/') || (n.id === 'donors' && location.pathname.startsWith('/ngo-admin/donors/'))
             return (
             <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
-              onClick={() => onClose?.()}>
+              onClick={() => onClose?.()}
+              title={collapsed ? n.label : undefined}
+              aria-label={collapsed ? n.label : undefined}>
               <span className="ico">{ICONS[n.icon]}</span>
-              <span>{n.label}</span>
+              <span className="snav-label">{n.label}</span>
               {n.id === 'chat' && <ChatNavBadge quiet />}
             </NavLink>
           )})}
@@ -99,6 +111,10 @@ export default function NgoAdminPanel() {
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Desktop rail state, kept across reloads the same way the theme is. Collapsing
+  // is a deliberate choice about how much of the board you can see, so it should
+  // survive a refresh rather than springing open on every one.
+  const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem('ngoadmin_nav_collapsed') === '1')
   const [themeName, setThemeName] = useState(() => localStorage.getItem('ngoadmin_theme') || 'sky')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState({ donors: [], fros: [], stations: [] })
@@ -126,6 +142,10 @@ export default function NgoAdminPanel() {
   const [meetingTeams, setMeetingTeams] = useState([]);
   const [teamsList, setTeamsList] = useState([]);
   const meetingRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem('ngoadmin_nav_collapsed', navCollapsed ? '1' : '0');
+  }, [navCollapsed]);
 
   useEffect(() => {
     if (meetingActive) setShowMeetingPrompt(false);
@@ -303,13 +323,24 @@ export default function NgoAdminPanel() {
   };
 
   return (
-    <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={navCollapsed} />
       <div className="main">
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+            </button>
+            {/* desktop-only: the hamburger above owns the mobile drawer, so this
+                shows nothing below 821px rather than competing with it. */}
+            <button
+              className="desktop-only nav-collapse-toggle"
+              onClick={() => setNavCollapsed(c => !c)}
+              aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!navCollapsed}
+              title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {navCollapsed ? RAIL_ICON.expand : RAIL_ICON.collapse}
             </button>
             <div style={{ minWidth: 140 }}>
               <div className="eyebrow">Admin</div>
@@ -426,7 +457,7 @@ export default function NgoAdminPanel() {
                 <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 288, background: '#fff', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 16px 40px rgba(15,23,42,.16)', padding: 14, zIndex: 300 }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>Start team meeting</div>
                   <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
-                    A blocking popup appears for the selected teams' FROs and their live counters (idle, calls, breaks) pause.
+                    A blocking popup appears for the selected teams' FROs and their live counters (calls, breaks) pause.
                   </div>
                   <input
                     type="text"
