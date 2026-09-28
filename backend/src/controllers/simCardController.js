@@ -20,29 +20,46 @@ export const requiredFields = [
   'mobile_id',
 ];
 
-const alwaysPresentFields = [
-  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'ngo', 'sim_type', 'gb',
-  'sim_1', 'sim_2', 'sim_3', 'sim_4', 'sim_5', 'sim_6', 'sim_7', 'sim_8',
-  'sim_9', 'sim_10', 'sim_11', 'sim_12', 'sim_13', 'sim_14', 'sim_15', 'sim_16', 'sim_17', 'sim_18', 'sim_19', 'sim_20',
+/* Every column the SIM panel is allowed to write.
+ *
+ * The Add form posts owner, ngo, w1_name, gb, sim_type and all 20 SIM slots in
+ * one payload, and PostgREST rejects the ENTIRE statement when any single key
+ * is not a real column on sim_cards. An installation that never had migration
+ * 114/117 applied therefore failed every Add with
+ *   {"message":"column sim_cards.owner does not exist"}
+ * and nothing saved, while the rest of the panel kept working. migrations/154
+ * brings the schema up to date; filtering the body down to this list means any
+ * column that has not been migrated on a given database drops out of the write
+ * (stored as NULL) instead of taking the whole save down with it.
+ *
+ * The key set is fixed rather than derived from the request body on purpose: a
+ * bulk insert requires every object to carry identical keys, so a spreadsheet
+ * row that happens to omit `owner` would otherwise disagree with a row that
+ * includes it and fail the whole import. */
+const writableFields = [
+  'mobile_id', 'device_model', 'imei', 'team', 'signature', 'ngo', 'owner',
+  'sim_type', 'gb', 'remark', 'notes', 'calling_mobile', 'use_for',
+  'team_leader_name', 'user_name', 'w1_name', 'w2_name', 'w3_name', 'w4_name',
+  'issue_date', 'expiry_date', 'status', 'replacement_count', 'created_by',
+  ...Array.from({ length: 20 }, (_, i) => `sim_${i + 1}`),
 ];
 
+const dateFields = new Set(['issue_date', 'expiry_date']);
+
+/* Reduces a request body or an imported spreadsheet row to exactly
+ * writableFields, with absent values normalised to NULL. The date columns are
+ * truncated to YYYY-MM-DD so an Excel cell carrying a timestamp or a
+ * dd-Mon-yy label cannot be rejected by the date cast. */
 function clean(data) {
-  const c = { ...data };
-  delete c.id;
-  delete c.created_at;
-  delete c.updated_at;
-  alwaysPresentFields.forEach((k) => {
-    if (c[k] === undefined || c[k] === null) c[k] = '';
-    if (c[k] === '') c[k] = null;
+  const src = data || {};
+  const c = {};
+  writableFields.forEach((k) => {
+    const v = src[k];
+    if (v === undefined || v === null || v === '') c[k] = null;
+    else if (dateFields.has(k)) c[k] = String(v).slice(0, 10);
+    else c[k] = v;
   });
-  ['issue_date', 'expiry_date'].forEach((k) => {
-    if (c[k] === undefined || c[k] === null) c[k] = null;
-    if (c[k] === '') c[k] = null;
-  });
-  if (c.replacement_count === undefined || c.replacement_count === null || c.replacement_count === '') {
-    c.replacement_count = 0;
-  }
-  if (c.replacement_count) c.replacement_count = Number(c.replacement_count) || 0;
+  c.replacement_count = Number(c.replacement_count) || 0;
   return c;
 }
 
@@ -131,8 +148,16 @@ export const editSimCard = async (req, res) => {
     }
     const writable = {};
     const nonNullableText = ['mobile_id', 'device_model', 'imei', 'team', 'signature', 'ngo'];
-    for (const [k, v] of Object.entries(body || {})) {
-      if (k === 'id' || k === 'created_at' || k === 'updated_at') continue;
+    /* Walk the whitelist rather than the request body. listSimCards hands the
+     * client a `derived_status` field that is computed, not stored, so echoing a
+     * card back would otherwise try to write a column that does not exist - the
+     * same "column sim_cards.x does not exist" failure as the Add form, this time
+     * on save. `created_by` is a create-time audit field and is never rewritten
+     * by an edit. */
+    for (const k of writableFields) {
+      if (k === 'created_by') continue;
+      if (!(k in body)) continue;
+      const v = body[k];
       if (nonNullableText.includes(k)) {
         writable[k] = v === null || v === undefined ? null : String(v);
         if (writable[k] === '') writable[k] = null;
@@ -140,6 +165,7 @@ export const editSimCard = async (req, res) => {
       }
       if (v === undefined) continue;
       writable[k] = v === '' || v === null ? null : v;
+      if (dateFields.has(k) && typeof writable[k] === 'string') writable[k] = writable[k].slice(0, 10);
     }
     const patch = writable;
 

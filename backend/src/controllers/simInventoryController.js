@@ -15,20 +15,36 @@ export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', '
    expiry instead of a spare with no expiry at all. */
 export const SIM_VALIDITY_DAYS = 28;
 
-const alwaysPresentFields = [
+/* Every column the Locker is allowed to write.
+ *
+ * The Add form's "Owner Name" input is named owner_name but is stored in the
+ * assigned_to column, and the payload used to be built with a `...form` spread,
+ * so owner_name rode along next to the assigned_to it had been mapped into.
+ * PostgREST rejects the ENTIRE statement when any key is not a real column, so
+ * every Add to the Locker failed with
+ *   {"message":"column \"owner_name\" of relation \"sim_inventory\" does not exist"}
+ * and nothing saved. migrations/154 completes the table, and this list means any
+ * future stray field is dropped instead of taking the whole save down.
+ *
+ * The key set is fixed rather than derived from the request body on purpose: a
+ * bulk insert requires every object to carry identical keys, so an imported row
+ * that omits `location` would otherwise disagree with a row that includes it. */
+const writableFields = [
   'sim_name', 'sim_number', 'sim_type', 'provider', 'status', 'location',
   'mobile_id', 'device', 'imei', 'assigned_to', 'team',
-  'assignment_date', 'issue_date', 'expiry_date', 'notes',
+  'assignment_date', 'issue_date', 'expiry_date', 'notes', 'created_by',
 ];
 
+const dateFields = new Set(['assignment_date', 'issue_date', 'expiry_date']);
+
 function clean(data) {
-  const c = { ...data };
-  delete c.id;
-  delete c.created_at;
-  delete c.updated_at;
-  alwaysPresentFields.forEach((k) => {
-    if (c[k] === undefined || c[k] === null) c[k] = '';
-    if (c[k] === '') c[k] = null;
+  const src = data || {};
+  const c = {};
+  writableFields.forEach((k) => {
+    const v = src[k];
+    if (v === undefined || v === null || v === '') c[k] = null;
+    else if (dateFields.has(k)) c[k] = String(v).slice(0, 10);
+    else c[k] = v;
   });
   if (!c.status || !INVENTORY_STATUSES.includes(c.status)) c.status = 'Available';
   return c;

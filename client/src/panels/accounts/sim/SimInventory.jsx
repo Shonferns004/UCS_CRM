@@ -3,6 +3,7 @@ import { useSim } from './store';
 import { Icon } from './components';
 import { daysLeft, formatDate, dayLabel, dayClass, autoExpiryDate, SIM_VALIDITY_DAYS } from './helpers';
 import { toast } from '../../../components/Toast';
+import { ConfirmDialog } from './ImportModal';
 
 export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', 'Damaged', 'Inactive'];
 const SIM_TYPES = ['Standard', 'Micro', 'Nano', 'eSIM', 'Other'];
@@ -78,11 +79,19 @@ function AddSimModal({ open, onClose, onSaved }) {
     }
     setSaving(true);
     try {
+      /* Fields are listed explicitly rather than spread from `form`: the Owner
+         Name input is called owner_name but is stored in the assigned_to column,
+         and a `...form` spread sent owner_name as well, which the server passed
+         straight to Postgres - so every Add failed with
+         'column "owner_name" of relation "sim_inventory" does not exist'. */
       await onSaved({
-        ...form,
         sim_name: form.sim_name.trim(),
         sim_number: form.sim_number.trim(),
         assigned_to: String(form.owner_name || '').trim() || null,
+        sim_type: form.sim_type,
+        provider: String(form.provider || '').trim() || null,
+        location: String(form.location || '').trim() || null,
+        status: form.status,
         issue_date: form.issue_date || null,
         expiry_date: expiry,
       });
@@ -450,16 +459,26 @@ export default function SimInventory() {
 
   const clearFilters = () => { setSearch(''); setProvider('All'); setTeam('All'); setSimType('All'); };
 
-  async function handleRelease(item) {
-    if (!window.confirm(`Release SIM ${item.sim_number || ''} back to the locker?`)) return;
-    setBusyId(item.id);
+  // Pending destructive action awaiting confirmation, replacing window.confirm():
+  // { action: 'release' | 'delete', item, busy }
+  const [pending, setPending] = useState(null);
+
+  async function runPending() {
+    if (!pending || pending.busy) return;
+    const { action, item } = pending;
+    setPending((p) => ({ ...p, busy: true }));
     try {
-      await releaseInventoryItem(item);
-      toast('SIM released back to locker', 'success');
+      if (action === 'release') {
+        await releaseInventoryItem(item);
+        toast('SIM released back to locker', 'success');
+      } else {
+        await deleteInventoryItem(item.id);
+        toast('SIM removed from inventory', 'success');
+      }
+      setPending(null);
     } catch (e) {
-      toast(e.message || 'Release failed', 'error');
-    } finally {
-      setBusyId(null);
+      toast(e.message || (action === 'release' ? 'Release failed' : 'Delete failed'), 'error');
+      setPending((p) => ({ ...p, busy: false }));
     }
   }
 
@@ -475,15 +494,9 @@ export default function SimInventory() {
     }
   }
 
-  async function handleDelete(item) {
-    if (!window.confirm(`Delete SIM ${item.sim_number || ''} from inventory? This cannot be undone.`)) return;
-    try {
-      await deleteInventoryItem(item.id);
-      toast('SIM removed from inventory', 'success');
-    } catch (e) {
-      toast(e.message || 'Delete failed', 'error');
-    }
-  }
+  const handleRelease = (item) => setPending({ action: 'release', item });
+
+  const handleDelete = (item) => setPending({ action: 'delete', item });
 
   const summary = [
     { label: 'Total SIMs', val: total, icon: 'simcard', tint: { bg: '#eff6ff', color: '#2563eb' } },
@@ -658,6 +671,20 @@ export default function SimInventory() {
       <AddSimModal key={addKey} open={addOpen} onClose={() => setAddOpen(false)} onSaved={addInventoryItem} />
       <AssignSimModal open={!!assignItem} item={assignItem} onClose={() => setAssignItem(null)} onSaved={assignInventoryItem} />
       <InventoryDetails item={viewItem} onClose={() => setViewItem(null)} />
+
+      <ConfirmDialog
+        open={!!pending}
+        busy={!!pending?.busy}
+        variant={pending?.action === 'release' ? 'primary' : 'danger'}
+        title={pending?.action === 'release' ? 'Release SIM?' : 'Delete SIM?'}
+        message={pending?.action === 'release'
+          ? <>Release <strong>&ldquo;{pending?.item?.sim_number || 'this SIM'}&rdquo;</strong> back to the locker? It becomes Available again for assignment.</>
+          : <>Delete <strong>&ldquo;{pending?.item?.sim_number || 'this SIM'}&rdquo;</strong> from inventory? This action cannot be undone.</>}
+        confirmLabel={pending?.action === 'release' ? 'Release' : 'Delete'}
+        busyLabel={pending?.action === 'release' ? 'Releasing...' : 'Deleting...'}
+        onConfirm={runPending}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }
