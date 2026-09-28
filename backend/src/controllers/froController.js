@@ -51,7 +51,7 @@ import {
   inRange,
 } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
-import { commitIdleOnExit } from '../services/froIdleCommit.js';
+import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
@@ -921,6 +921,18 @@ export const getMyPerformance = async (req, res) => {
     // counters live), and suppressed when someone else is covering it — an
     // absent FRO must not be shown as idling on someone else's shift.
     const idleShift = await getShiftWindowMs(workerId, nowMs);
+    if (!coveredByOther && liveStatus && !liveStatus.idle_since
+      && !liveStatus.is_paused && liveStatus.status !== 'meeting') {
+      const dueNow = dispositionDueMs(liveStatus);
+      if (Number.isFinite(dueNow) && nowMs >= dueNow
+        && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))
+        && withinShift(idleShift, nowMs)) {
+        if (await stampLapsedIdle(workerId, nowMs)) {
+          liveStatus.idle_since = liveStatus.disposition_due_at;
+          liveStatus.status = 'idle';
+        }
+      }
+    }
     const idleSeconds = coveredByOther
       ? 0
       : liveIdleSeconds(liveStatus || {}, idleShift, nowMs);
@@ -4827,6 +4839,19 @@ export const getMyLiveStatus = async (req, res) => {
     // or an expired deadline would flash the Resume overlay on every login.
     // Read the row as if that heartbeat had already cleaned it.
     row = withoutStaleIdle(row, shift, nowMs);
+    // The window lapsed but nothing ever pushed the stamp, so the row's stored
+    // total still disagrees with the stretch being derived from the deadline.
+    // Settle it now so this panel and every stored-column reader agree. Guarded
+    // locally first so the common cases cost no extra query.
+    if (!row?.idle_since && !row?.is_paused && row?.status !== 'meeting') {
+      const dueNow = dispositionDueMs(row);
+      if (Number.isFinite(dueNow) && nowMs >= dueNow
+        && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))
+        && withinShift(shift, nowMs)) {
+        const stamped = await stampLapsedIdle(req.user.id, nowMs);
+        if (stamped) row = { ...row, idle_since: row.disposition_due_at, status: 'idle' };
+      }
+    }
     // The clock is NOT armed here. Signing in is not work, so handing out a
     // 4-minute window on load meant the countdown started before the FRO had
     // done anything — and the overlay that fires when it expires locked them out
