@@ -2950,21 +2950,26 @@ export const createDonorLogHandler = async (req, res) => {
       return log;
     });
 
-    // ── Disposition resets the 4-minute idle timer ────────────────────────────
-    // Saving a disposition is the one action that keeps the FRO honest, so it
-    // buys a fresh window and clears any open idle period (folding the elapsed
-    // seconds into the day first). Runs after the transaction commits so a
-    // failed save can never hand out free time.
+    // ── The 4-minute window: opened by the first action, reset by dispositions ──
+    // The clock no longer starts at login (it used to, which counted the minutes
+    // before the FRO had done anything and fired the overlay at them). It is
+    // armed here by the first logged action of the day, and from then on every
+    // disposition buys a fresh window and clears any open idle period (folding
+    // the elapsed seconds into the day first). Runs after the transaction
+    // commits so a failed save can never hand out free time.
     let timer = null;
-    if (action === 'disposition' && disposition_detail) {
-      try {
-        const nowMs = Date.now();
-        const shift = await getShiftWindowMs(workerId, nowMs);
-        const { data: liveRow } = await db
-          .from('fro_live_status')
-          .select('*')
-          .eq('worker_id', workerId)
-          .maybeSingle();
+    try {
+      const nowMs = Date.now();
+      const shift = await getShiftWindowMs(workerId, nowMs);
+      const { data: liveRow } = await db
+        .from('fro_live_status')
+        .select('*')
+        .eq('worker_id', workerId)
+        .maybeSingle();
+      const isDisposition = action === 'disposition' && !!disposition_detail;
+      // Unarmed and the FRO just did something: open their window now.
+      const arming = !liveRow?.disposition_due_at;
+      if (isDisposition || arming) {
         const due = nextDeadline(shift, nowMs);
         const frozen = !!liveRow?.is_paused || liveRow?.status === 'meeting';
         const patch = {
@@ -3017,11 +3022,11 @@ export const createDonorLogHandler = async (req, res) => {
           is_idle: false,
           today_idle_seconds: patch.today_idle_seconds ?? liveRow?.today_idle_seconds ?? 0,
         };
-      } catch (timerErr) {
-        // Non-fatal: the disposition is already saved; the timer just keeps its
-        // previous deadline and the FRO may go idle a little early.
-        console.warn('disposition timer reset skipped:', timerErr.message);
       }
+    } catch (timerErr) {
+      // Non-fatal: the action is already saved; the timer just keeps its
+      // previous deadline and the FRO may go idle a little early.
+      console.warn('disposition timer reset skipped:', timerErr.message);
     }
 
     return res.json({ message: 'Log entry created', data: result, timer });
@@ -4426,11 +4431,11 @@ export const updateLiveStatus = async (req, res) => {
       row = cleaned;
     }
 
-    // First heartbeat of the session (or after Resume) opens the window.
-    if (!row?.disposition_due_at) {
-      const due = nextDeadline(shift, nowMs);
-      if (due) payload.disposition_due_at = due;
-    }
+    // Deliberately does NOT open the window. A heartbeat is presence, not work,
+    // so arming the clock here re-started the 4 minutes seconds after login and
+    // trapped the FRO in the idle overlay before they could log anything. The
+    // window is opened by the first logged action of the day, and from then on
+    // every disposition resets it.
 
     if (status === 'on_call' && current_donor_name) {
       payload.call_started_at = new Date().toISOString();
@@ -4794,10 +4799,13 @@ export const getMyLiveStatus = async (req, res) => {
     // or an expired deadline would flash the Resume overlay on every login.
     // Read the row as if that heartbeat had already cleaned it.
     row = withoutStaleIdle(row, shift, nowMs);
-    // Rows written before the column existed have no deadline yet. Report the
-    // window the next heartbeat will open so the clock starts at a full 4:00
-    // instead of blank, and derive seconds_left from the same value.
-    const due = row.disposition_due_at || nextDeadline(shift, nowMs);
+    // The clock is NOT armed here. Signing in is not work, so handing out a
+    // 4-minute window on load meant the countdown started before the FRO had
+    // done anything — and the overlay that fires when it expires locked them out
+    // of the very screen they needed to record a disposition on. The window is
+    // now opened by the first logged action of the day (see createDonorLogHandler)
+    // and only ever re-armed by the server inside the shift.
+    const due = row.disposition_due_at || null;
     const totalIdle = liveIdleSeconds(row, shift, nowMs);
     return res.json({
       ...row,

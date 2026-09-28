@@ -194,132 +194,111 @@ function PauseGate() {
   );
 }
 
-// A seven-segment digit, drawn as SVG rather than typed as text: a real digital
-// clock look, and it keeps the "off" segments faintly visible the way an LCD
-// does. Segment geometry is a 10x18 box; T is the bar thickness.
-const SEG_T = 1.7
-const SEG_H = (y) => `M1,${y} L${1 + SEG_T / 2},${y - SEG_T / 2} L${9 - SEG_T / 2},${y - SEG_T / 2} L9,${y} L${9 - SEG_T / 2},${y + SEG_T / 2} L${1 + SEG_T / 2},${y + SEG_T / 2} Z`
-const SEG_V = (x, y1, y2) => `M${x},${y1} L${x + SEG_T / 2},${y1 + SEG_T / 2} L${x + SEG_T / 2},${y2 - SEG_T / 2} L${x},${y2} L${x - SEG_T / 2},${y2 - SEG_T / 2} L${x - SEG_T / 2},${y1 + SEG_T / 2} Z`
-
-const SEGMENTS = {
-  a: SEG_H(0),      // top
-  f: SEG_V(0, 1, 8),   // upper-left
-  b: SEG_V(10, 1, 8),  // upper-right
-  g: SEG_H(9),      // middle
-  e: SEG_V(0, 10, 17), // lower-left
-  c: SEG_V(10, 10, 17), // lower-right
-  d: SEG_H(18),     // bottom
+// mm:ss for the disposition countdown. Plain text on purpose — the previous
+// seven-segment SVG was hard to read at a glance, and its always-visible
+// "unlit" segments made a perfectly live clock look broken.
+function formatClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// Which segments are lit for each digit.
-const DIGIT_SEGMENTS = {
-  0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc',
-  5: 'afgcd', 6: 'afgecd', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg',
-}
-
-function SevenSegDigit({ digit, x, on, off }) {
-  const lit = DIGIT_SEGMENTS[digit] || ''
-  return (
-    <g transform={`translate(${x},0)`}>
-      {Object.keys(SEGMENTS).map((k) => (
-        <path key={k} d={SEGMENTS[k]} fill={lit.includes(k) ? on : off} />
-      ))}
-    </g>
-  )
-}
-
-function DigitalClock({ totalSeconds, on, off, height = 26 }) {
-  const m = Math.floor(Math.max(0, totalSeconds) / 60)
-  const s = Math.max(0, totalSeconds) % 60
-  const digits = [Math.floor(m / 10) % 10, m % 10, Math.floor(s / 10), s % 10]
-  return (
-    // 36.5 wide x 18 tall, so a 26px-high clock is ~53px wide.
-    <svg width={53} height={height} viewBox="0 0 36.5 18" aria-hidden="true" style={{ display: 'block' }}>
-      {/* The colon, drawn as two blocks. */}
-      <rect x="12.6" y="5" width="2" height="2" rx=".7" fill={on} />
-      <rect x="12.6" y="11" width="2" height="2" rx=".7" fill={on} />
-      <SevenSegDigit digit={digits[0]} x={0} on={on} off={off} />
-      <SevenSegDigit digit={digits[1]} x={15} on={on} off={off} />
-      <SevenSegDigit digit={digits[2]} x={26.5} on={on} off={off} />
-    </svg>
-  )
-}
-
-// Disposition countdown, floating over every FRO screen. It reads a full 4:00
-// by default and only actually runs inside the shift: outside shift hours, or
-// while an admin pause or a company meeting is holding the clock, the server
-// issues no deadline, so the digits sit at 4:00 dimmed and labelled rather than
-// the widget disappearing. The deadline itself is still the server's — this
-// only mirrors it.
+// Disposition countdown, floating over every FRO screen.
+//
+// The window is opened by the FRO's first logged action of the day, not by
+// logging in, so until they do something the widget reads "Not started" instead
+// of pretending to run. Once armed it counts down from the server's deadline;
+// paused, in a meeting or off shift it holds at a full 4:00 and says why,
+// because the server issues no deadline in those states.
 function DispositionTimer() {
   const { secondsLeft, isIdle, inShift, paused, status } = useCall();
-  if (isIdle) return null; // the blocking Resume overlay owns the screen
 
   const held = paused || status === 'meeting';
-  const counting = inShift && !held;
-  // No deadline means there is nothing to count: the server issues one only
-  // inside the shift, so before it arrives the display holds a full 4:00 rather
-  // than pretending to run. The fallback is intentionally not gated on inShift,
-  // which defaults true and would blank the digits on the first render.
-  const value = secondsLeft != null ? secondsLeft : DISPOSITION_WINDOW;
+  const armed = secondsLeft != null;
+  const counting = inShift && !held && armed;
+  const value = armed ? secondsLeft : DISPOSITION_WINDOW;
   const urgent = counting && value <= 60;
   const warn = counting && value <= 120;
 
-  const tone = held ? 'held' : !inShift ? 'held' : urgent ? 'urgent' : warn ? 'warn' : 'live';
-  const on = tone === 'urgent' ? '#F87171' : tone === 'warn' ? '#FBBF24' : tone === 'live' ? '#38BDF8' : '#64748B';
-  const off = tone === 'urgent' ? 'rgba(248,113,113,.20)' : tone === 'warn' ? 'rgba(251,191,36,.20)' : tone === 'live' ? 'rgba(56,189,248,.20)' : 'rgba(100,116,139,.18)';
-  const label = held ? (status === 'meeting' ? 'Meeting' : 'Paused') : !inShift ? 'Off shift' : urgent ? 'Now' : warn ? 'Due' : 'Disposition';
+  let tone = 'live';
+  if (isIdle) tone = 'urgent';
+  else if (held || !inShift || !armed) tone = 'held';
+  else if (urgent) tone = 'urgent';
+  else if (warn) tone = 'warn';
+
+  const color = tone === 'urgent' ? '#DC2626' : tone === 'warn' ? '#B45309' : tone === 'live' ? '#0369A1' : '#64748B';
+  const border = tone === 'urgent' ? '#FCA5A5' : tone === 'warn' ? '#FCD34D' : tone === 'live' ? '#BAE6FD' : 'var(--line, #e2e8f0)';
+
+  const label = isIdle ? 'Idle'
+    : held ? (status === 'meeting' ? 'Meeting' : 'Paused')
+    : !inShift ? 'Off shift'
+    : !armed ? 'Not started'
+    : urgent ? 'Now'
+    : warn ? 'Due'
+    : 'Disposition';
+
+  const tip = !armed
+    ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
+    : isIdle
+      ? 'Your 4-minute window ran out. Idle time keeps adding up until you record a disposition or resume.'
+      : held
+        ? 'On hold — the 4-minute window is frozen while you are paused or in a meeting.'
+        : !inShift
+          ? 'Off shift, so the window is not running. It opens with your first action of the day.'
+          : 'Time left to record a disposition. Every disposition resets this to 4:00.';
+
+  // Fraction of the window still remaining, for the bar underneath.
+  const remaining = armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW)) : 1;
 
   return (
     <div>
-      {/* Keyframes live here rather than in the broadcast block: this clock is
+      {/* Keyframes live here rather than in the broadcast block: this widget is
           on screen permanently, the broadcast is not. */}
-      <style>{'@keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.4); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
+      <style>{'@keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.35); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
       <div
-        title={counting
-          ? 'Time left to record a disposition. Every disposition resets this to 4:00; if it runs out you are marked idle until you resume.'
-          : 'Your 4-minute disposition window. The clock starts when your shift does.'}
+        title={tip}
         style={{
           position: 'fixed',
           right: 20,
           // "a little below the right middle" — 58% down the viewport, lifted by
-          // half its own height so the display straddles that line.
+          // half its own height so the widget straddles that line.
           top: '58%',
           transform: 'translateY(-50%)',
           zIndex: 70,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '9px 13px',
-          borderRadius: 16,
+          width: 130,
+          padding: '10px 12px',
+          borderRadius: 14,
           background: 'var(--card-bg, #fff)',
-          border: `1px solid ${counting ? (urgent ? '#FCA5A5' : warn ? '#FCD34D' : '#BFDBFE') : 'var(--line, #e2e8f0)'}`,
-          boxShadow: urgent ? '0 10px 28px rgba(220,38,38,.30)' : '0 8px 22px rgba(15,23,42,.16)',
-          ...(urgent ? { animation: 'froIdlePulse 1.4s infinite' } : {}),
+          border: `1px solid ${border}`,
+          boxShadow: tone === 'urgent' ? '0 10px 28px rgba(220,38,38,.22)' : '0 8px 22px rgba(15,23,42,.16)',
+          ...(tone === 'urgent' ? { animation: 'froIdlePulse 1.4s infinite' } : {}),
           pointerEvents: 'auto',
         }}
       >
-        <span style={{
-          fontSize: 9.5, fontWeight: 800, color: on, textTransform: 'uppercase',
-          letterSpacing: .5, lineHeight: 1.2, maxWidth: 52,
-        }}>
+        <div style={{ fontSize: 9.5, fontWeight: 800, color, textTransform: 'uppercase', letterSpacing: .5, lineHeight: 1.2 }}>
           {label}
-        </span>
-        {/* Dark inset so the lit segments read as a real display. */}
-        <span style={{
-          display: 'block', padding: '4px 6px', borderRadius: 8,
-          background: '#0B1220', boxShadow: 'inset 0 1px 3px rgba(0,0,0,.6)',
+        </div>
+        <div style={{
+          fontSize: 26, fontWeight: 800, color: tone === 'held' ? '#94A3B8' : '#17233C',
+          lineHeight: 1.15, marginTop: 2, fontVariantNumeric: 'tabular-nums',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
         }}>
-          <DigitalClock totalSeconds={value} on={on} off={off} />
-        </span>
+          {armed ? formatClock(value) : '—:—'}
+        </div>
+        <div style={{ height: 4, borderRadius: 2, background: 'var(--line, #e2e8f0)', overflow: 'hidden', marginTop: 7 }}>
+          <div style={{ height: '100%', width: `${remaining * 100}%`, background: color, transition: 'width .95s linear' }} />
+        </div>
       </div>
     </div>
   );
 }
 
-// The disposition window ran out. Blocking overlay with the single action that
-// lifts it — Resume, which commits the idle time so far into today and starts a
-// fresh 4-minute window. Deliberately not dismissable: idle only stops here.
+// The disposition window ran out. This used to be a full-screen, deliberately
+// undismissable overlay — and that was the real bug: logging a disposition needs
+// a donor, so an FRO with nothing assigned could never satisfy it, and the
+// overlay covered the very screen they needed in order to try. All they could do
+// was press Resume, which handed back another 4 minutes, looping forever.
+// It is now a non-blocking banner: the panel stays fully usable, idle keeps
+// accruing, and recording a disposition clears it on its own.
 function IdleGate() {
   const { isIdle, resumeIdle, idleSecondsToday, fmt } = useCall();
   const [resuming, setResuming] = useState(false);
@@ -338,35 +317,53 @@ function IdleGate() {
   };
   if (!isIdle) return null;
   return (
-    <div role="alertdialog" aria-modal="true" aria-label="You are idle"
-      style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'rgba(15,23,42,.82)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ width: 'min(420px, 100%)', borderRadius: 18, background: '#fff', boxShadow: '0 24px 60px rgba(0,0,0,.45)', padding: 24, textAlign: 'center' }}>
-        <span style={{ width: 52, height: 52, borderRadius: '50%', background: '#FEE2E2', color: '#DC2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-        </span>
-        <div style={{ fontSize: 18, fontWeight: 800, color: '#17233C' }}>You are idle</div>
-        <div style={{ fontSize: 13, color: '#64748B', marginTop: 6, lineHeight: 1.6 }}>
-          Your 4-minute disposition timer ran out. Idle time keeps adding up until you resume.
+    // Anchored to the bottom, auto width, no backdrop: it reports idle without
+    // taking the app away from the FRO.
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 18,
+        transform: 'translateX(-50%)',
+        zIndex: 99998,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 12px 10px 14px',
+        borderRadius: 14,
+        background: '#fff',
+        border: '1px solid #FCA5A5',
+        boxShadow: '0 10px 30px rgba(15,23,42,.22)',
+        maxWidth: 'min(560px, calc(100vw - 24px))',
+        pointerEvents: 'auto',
+      }}
+    >
+      <span style={{ width: 30, height: 30, flex: '0 0 auto', borderRadius: '50%', background: '#FEE2E2', color: '#DC2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: '#17233C', lineHeight: 1.35 }}>
+          You are idle
         </div>
-        {idleSecondsToday > 0 && (
-          <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA', fontSize: 12.5, fontWeight: 600, color: '#991B1B', lineHeight: 1.55 }}>
-            Idle today: {fmt(idleSecondsToday)}
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={onResume}
-          disabled={resuming}
-          aria-label="Resume work"
-          style={{ marginTop: 14, width: '100%', padding: '12px 14px', borderRadius: 12, border: 'none', background: '#16A34A', color: '#fff', fontSize: 15, fontWeight: 800, fontFamily: 'inherit', cursor: resuming ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-          {resuming ? 'Resuming…' : 'Resume Work'}
-        </button>
-        {error && (
-          <div role="alert" style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: '#DC2626' }}>{error}</div>
-        )}
+        <div style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45 }}>
+          Record a disposition to clear it
+          {idleSecondsToday > 0 ? <> · idle today {fmt(idleSecondsToday)}</> : null}
+        </div>
       </div>
+      <button
+        type="button"
+        onClick={onResume}
+        disabled={resuming}
+        aria-label="Resume work"
+        style={{ flex: '0 0 auto', padding: '9px 14px', borderRadius: 10, border: 'none', background: '#16A34A', color: '#fff', fontSize: 13.5, fontWeight: 800, fontFamily: 'inherit', cursor: resuming ? 'wait' : 'pointer' }}
+      >
+        {resuming ? 'Resuming…' : 'Resume'}
+      </button>
+      {error && (
+        <div role="alert" style={{ position: 'absolute', left: 14, bottom: -20, fontSize: 11.5, fontWeight: 600, color: '#DC2626' }}>{error}</div>
+      )}
     </div>
   );
 }
