@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X } from 'lucide-react';
-import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, notifyFro } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
@@ -872,6 +872,11 @@ export default function Dashboard() {
   const [weakLoading, setWeakLoading] = useState(false);
   const [highPerfSearch, setHighPerfSearch] = useState('');
   const [lowPerfSearch, setLowPerfSearch] = useState('');
+  // Which half of the below-target roster Low Performance shows. Defaults to
+  // 'present' so the panel answers "who came in and underperformed", which is the
+  // question the panel exists for; the Absent tab is one click away for the other
+  // half, and the footer always reports both counts so neither is hidden.
+  const [lowPerfAttendance, setLowPerfAttendance] = useState('present');
   const [froSearch, setFroSearch] = useState('');
   const [perfStatusFilter, setPerfStatusFilter] = useState('all');
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
@@ -883,8 +888,6 @@ export default function Dashboard() {
   const [hourlyFroRows, setHourlyFroRows] = useState([]);
   const [hourlyLoading, setHourlyLoading] = useState(false);
   const [presentSearch, setPresentSearch] = useState('');
-  // Which FRO's "Remind" button is mid-flight, so only that one shows a spinner.
-  const [notifyingId, setNotifyingId] = useState(null);
   const [hourlyFroSearch, setHourlyFroSearch] = useState('');
   const [connTarget, setConnTarget] = useState(DAILY_CONNECTED_TARGET);
   const [connTargetOpen, setConnTargetOpen] = useState(false);
@@ -1038,20 +1041,34 @@ export default function Dashboard() {
     return () => { cancelled = true };
   }, [selectedNgoId, activeRange]);
 
+  // FROs hidden from every reporting surface on this page.
+  //
+  // Two long-tenured FROs carrying real collections (Priyank Shah ₹1.2L, Anjana
+  // Vyas ₹41K) but no monthly target, so every target-derived column on them read
+  // ₹0 / blank. Telecaller Performance has always excluded them; this set now
+  // applies to the High / Low panels too, so a FRO cannot be invisible in one
+  // board and conspicuous in the next. High Performance is unaffected on its own
+  // (it requires monthly_target > 0, which neither has); Low Performance is the
+  // one that needed the explicit filter.
+  //
+  // The underlying rows are untouched in the database — this is a display
+  // exclusion only, so clear the ids here once their targets are set and they
+  // come back.
+  const HIDDEN_FRO_IDS = useMemo(() => new Set([
+    '0b6af56d-512c-4ffc-a671-a27ad7c7bfe0', // Priyank Shah
+    '766fc6ea-9102-45d9-9475-812287d1bbd7', // Anjana Vyas
+  ]), []);
+
   // High performers: at or above 100% of the period target, and only those who
   // actually punched in, best score first.
-  const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.punched_in === true && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
-  // Low performers: every FRO on the roster below 100% of the period target.
-  //
-  // This panel used to carry a Present / Show All toggle that defaulted to
-  // Present, which hid anyone not marked present or with no monthly target. The
-  // toggle is gone, so the panel lists the full below-target set unconditionally
-  // — keeping the old default would hide rows behind a control that no longer
-  // exists. Present rows still sort ahead of absent ones so the FROs who came
-  // in and underperformed are not buried under everyone who never arrived.
+  const topPerformers = useMemo(() => weakPerformers.filter(p => !HIDDEN_FRO_IDS.has(p.fro_id) && p.monthly_target > 0 && p.punched_in === true && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers, HIDDEN_FRO_IDS]);
+  // Low performers: every FRO on the roster below 100% of the period target,
+  // minus the display-excluded ids above. Present rows still sort ahead of absent
+  // ones so the FROs who came in and underperformed are not buried under everyone
+  // who never arrived.
   const lowAll = useMemo(() => weakPerformers
-    .filter(p => p.performance_pct < 100)
-    .sort((a, b) => (Number(b.punched_in) - Number(a.punched_in)) || (a.performance_pct - b.performance_pct)), [weakPerformers]);
+    .filter(p => !HIDDEN_FRO_IDS.has(p.fro_id) && p.performance_pct < 100)
+    .sort((a, b) => (Number(b.punched_in) - Number(a.punched_in)) || (a.performance_pct - b.performance_pct)), [weakPerformers, HIDDEN_FRO_IDS]);
   // Absent FROs at or above target land in neither panel, so they are surfaced
   // in the footer to keep the two halves of the roster accounted for.
   const lowAboveTargetAbsent = useMemo(() => weakPerformers.filter(p => p.punched_in !== true && p.performance_pct >= 100).length, [weakPerformers]);
@@ -1080,15 +1097,25 @@ export default function Dashboard() {
   // gated; Low Performance lists the whole below-target set.
   const topPresent = topPerformers;
 
-  // Independent per-panel search (High / Low)
+  // Independent per-panel search (High / Low). Low Performance additionally
+  // applies the Present / Absent tab; the two compose (search inside the tab).
   const highRows = useMemo(
     () => topPresent.filter(p => (p.fro_name || '').toLowerCase().includes(highPerfSearch.trim().toLowerCase())),
     [topPresent, highPerfSearch]
   );
   const lowRows = useMemo(
-    () => lowAll.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
-    [lowAll, lowPerfSearch]
+    () => lowAll.filter(p =>
+      (lowPerfAttendance !== 'absent' ? p.punched_in === true : p.punched_in !== true)
+      && (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())
+    ),
+    [lowAll, lowPerfSearch, lowPerfAttendance]
   );
+  // Split of the below-target roster, so the footer can report both halves no
+  // matter which tab is active.
+  const lowAttendanceCounts = useMemo(() => ({
+    present: lowAll.filter(p => p.punched_in === true).length,
+    absent: lowAll.filter(p => p.punched_in !== true).length,
+  }), [lowAll]);
 
   // FRO × hour groups for the hourly performance table — active
   // (online/on-call) FROs only, sorted low-performer-first; future hours are
@@ -1146,22 +1173,12 @@ export default function Dashboard() {
   // the browser; that rendered the whole block as ₹0 whenever that second request
   // failed, so the backend now sends the same leaderboard figures on the row.
   //
-  // Hidden from this board at the admin's request, by fro_id so a rename or a
-  // similar spelling does not silently bring the row back. Both are long-tenured
-  // FROs carrying real collections (Priyank Shah ₹1.2L, Anjana Vyas ₹41K) but no
-  // monthly target, so every target-derived column on them read ₹0 / blank. They
-  // are still in the High / Low panels and in their own My Leads strip. The
-  // underlying rows are untouched in the database — this is a display exclusion
-  // only, so clear the ids here once their targets are set and they come back.
-  const HIDDEN_TELECALLER_IDS = useMemo(() => new Set([
-    '0b6af56d-512c-4ffc-a671-a27ad7c7bfe0', // Priyank Shah
-    '766fc6ea-9102-45d9-9475-812287d1bbd7', // Anjana Vyas
-  ]), []);
-
+  // Shares HIDDEN_FRO_IDS with the High / Low panels, so a FRO is either shown
+  // across the whole page or excluded from all of it.
   const perfRows = useMemo(() => (tlData?.performance || []).filter(p =>
-    !HIDDEN_TELECALLER_IDS.has(p.fro_id)
+    !HIDDEN_FRO_IDS.has(p.fro_id)
     && (!froSearch || (p.fro_name || '').toLowerCase().includes(froSearch.toLowerCase()))
-  ), [tlData, froSearch, HIDDEN_TELECALLER_IDS]);
+  ), [tlData, froSearch, HIDDEN_FRO_IDS]);
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
@@ -1397,11 +1414,11 @@ export default function Dashboard() {
     };
 
     const periodLabel = PERIOD_LABELS[dashPeriod] || 'Range';
-    // Same HIDDEN_TELECALLER_IDS filter as the board, so the XLSX matches what is
+    // Same HIDDEN_FRO_IDS filter as the board, so the XLSX matches what is
     // on screen. Filtering only the table would have exported two FROs the admin
     // cannot see in the report they are looking at.
     const filteredPerformance = tlData.performance.filter(p =>
-      !HIDDEN_TELECALLER_IDS.has(p.fro_id)
+      !HIDDEN_FRO_IDS.has(p.fro_id)
       && (!froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase()))
     );
 
@@ -1691,7 +1708,7 @@ export default function Dashboard() {
         )}
         <select value={selectedFroId} onChange={(e) => setSelectedFroId(e.target.value)} style={{ padding: '8px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', background: '#fff' }}>
           <option value="">All Telecallers</option>
-          {(tlData?.performance || []).filter(p => !HIDDEN_TELECALLER_IDS.has(p.fro_id)).map(p => (
+          {(tlData?.performance || []).filter(p => !HIDDEN_FRO_IDS.has(p.fro_id)).map(p => (
             <option key={p.fro_id} value={p.fro_id}>{p.fro_name}</option>
           ))}
         </select>
@@ -1768,73 +1785,6 @@ export default function Dashboard() {
           <span style={{ fontSize: 12, fontWeight: 600, color: '#6d28d9' }}>
             Live counters (calls, breaks) are paused.
           </span>
-        </div>
-      )}
-
-      {/* Idle alerts: FROs whose 4-minute disposition timer ran out and who have
-          not pressed Resume. Each one gets a nudge button so the admin is not
-          stuck watching a number change. */}
-      {tlData?.idle_alerts?.length > 0 && (
-        <div style={{ marginBottom: 12, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <TriangleAlert size={16} color="#b91c1c" />
-            <span style={{ fontSize: 13, fontWeight: 800, color: '#991b1b' }}>
-              {tlData.idle_alerts.length} FRO{tlData.idle_alerts.length !== 1 ? 's' : ''} idle — awaiting Resume
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {tlData.idle_alerts.map((a) => (
-              <div key={a.worker_id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 8px 6px 10px' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#091426' }}>{a.name}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>
-                  {Math.floor((a.idle_minutes || 0) / 60)}h {String((a.idle_minutes || 0) % 60).padStart(2, '0')}m
-                </span>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={notifyingId === a.worker_id}
-                  onClick={async () => {
-                    setNotifyingId(a.worker_id);
-                    try { await notifyFro(a.worker_id); toast(`Reminder sent to ${a.name}`, 'success'); }
-                    catch (e) { toast(e.message || 'Could not send reminder', 'error'); }
-                    finally { setNotifyingId(null); }
-                  }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#b91c1c', cursor: notifyingId === a.worker_id ? 'wait' : 'pointer' }}
-                >
-                  <Megaphone size={12} />
-                  {notifyingId === a.worker_id ? '…' : 'Remind'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Telecaller Live Status KPI Bar */}
-      {tlData?.kpis && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
-          {[
-            ...(meetingActive ? [{ label: 'Meeting', value: tlData.kpis.meeting || 0, color: '#7c3aed', bg: '#f5f3ff' }] : []),
-            { label: 'Telecallers', value: tlData.kpis.total_fros || 0, color: '#1e40af', bg: '#eff6ff' },
-            { label: 'Calling', value: tlData.kpis.calling || 0, color: '#16a34a', bg: '#f0fdf4' },
-            { label: 'Idle', value: tlData.kpis.idle || 0, color: '#b91c1c', bg: '#fef2f2' },
-            { label: 'Offline', value: tlData.kpis.offline || 0, color: '#dc2626', bg: '#fef2f2' },
-            { label: 'Total Calls', value: tlData.kpis.total_calls || 0, color: '#7c3aed', bg: '#f5f3ff' },
-            { label: 'Connected', value: tlData.kpis.connected || 0, color: '#0891b2', bg: '#ecfeff' },
-            { label: 'Not Connected', value: tlData.kpis.not_connected || 0, color: '#dc2626', bg: '#fef2f2' },
-            { label: 'Connect %', value: (tlData.kpis.connect_rate || 0) + '%', color: '#334155', bg: '#f1f5f9' },
-            { label: 'Donations', value: tlData.kpis.donations || 0, color: '#16a34a', bg: '#f0fdf4' },
-            { label: 'Interested', value: tlData.kpis.interested || 0, color: '#db2777', bg: '#fdf2f8' },
-            { label: 'Received', value: '₹' + Number(tlData.kpis.received_amount || 0).toLocaleString('en-IN'), color: '#16a34a', bg: '#f0fdf4', isAmount: true },
-            { label: 'Follow-ups Due', value: tlData.kpis.followups_due || 0, color: '#ea580c', bg: '#fff7ed' },
-            { label: 'Suspenses', value: tlData.kpis.suspenses || 0, color: '#4f46e5', bg: '#eef2ff' },
-            { label: 'Target %', value: (tlData.kpis.target_pct || 0) + '%', color: tlData.kpis.target_pct >= 75 ? '#16a34a' : '#dc2626', bg: tlData.kpis.target_pct >= 75 ? '#f0fdf4' : '#fef2f2' },
-          ].map((s, i) => (
-            <div key={i} className="card" style={{ marginBottom: 0, padding: '10px 12px', textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: 9, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{s.label}</div>
-            </div>
-          ))}
         </div>
       )}
 
@@ -2148,9 +2098,14 @@ export default function Dashboard() {
 
         const metricCell = (p, m) => {
           const v = m.val(p);
+          // Clicking still requires a real value — a zero has no donors to list.
           const click = m.filterType ? (e) => { e.stopPropagation(); if (v > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: m.filterType, status: m.status }); } : null;
-          const show = v > 0;
-          if (m.pill && show) {
+          // Every value renders in the same style, zero and ₹0 included. These
+          // used to drop to a washed-out grey with no weight whenever the value was
+          // 0, and a pill column lost its colour entirely — so a ₹0 read as "no
+          // data" rather than "collected nothing", which is a different thing on a
+          // performance board. A zero is a real result and is shown like one.
+          if (m.pill) {
             return (
               <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
                 <span
@@ -2164,7 +2119,7 @@ export default function Dashboard() {
           }
           return (
             <td key={m.key} style={{ padding: m.narrow ? '6px 1px' : '6px 2px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
-              {show ? <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span> : <span style={{ color: '#cbd5e1', fontSize: '0.656rem' }}>{m.display ? m.display(v) : 0}</span>}
+              <span onClick={click} style={{ fontSize: '0.656rem', fontWeight: 600, color: '#334155', cursor: click ? 'pointer' : 'default' }}>{m.display ? m.display(v) : v}</span>
             </td>
           );
         };
@@ -2461,6 +2416,41 @@ export default function Dashboard() {
                 onChange={e => setLowPerfSearch(e.target.value)}
                 style={{ width: 190, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
               />
+              {/* Present / Absent. Defaults to Present: the panel's question is who
+                  came in and underperformed, and mixing in everyone who never
+                  arrived pushed the relevant rows down the list. Each tab carries
+                  its own count so a non-zero other half is never mistaken for an
+                  empty panel. */}
+              <div role="tablist" aria-label="Filter Low Performance by attendance" style={{ display: 'inline-flex', border: '1px solid #dbe5f1', borderRadius: 8, overflow: 'hidden', height: 34 }}>
+                {[
+                  { key: 'present', label: 'Present', count: lowAttendanceCounts.present, color: '#16a34a', bg: '#f0fdf4' },
+                  { key: 'absent', label: 'Absent', count: lowAttendanceCounts.absent, color: '#b45309', bg: '#fff8e7' },
+                ].map(t => {
+                  const active = lowPerfAttendance === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setLowPerfAttendance(t.key)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5, height: '100%', padding: '0 10px',
+                        border: 'none', borderLeft: t.key === 'absent' ? '1px solid #dbe5f1' : 'none',
+                        background: active ? t.bg : '#ffffff', color: active ? t.color : '#64748b',
+                        fontSize: 11.5, fontWeight: active ? 700 : 600, fontFamily: 'inherit', cursor: 'pointer',
+                      }}
+                    >
+                      {t.label}
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, minWidth: 16, padding: '1px 4px', borderRadius: 999,
+                        background: active ? t.color : '#f1f5f9', color: active ? '#ffffff' : '#64748b',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}>{t.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -2486,7 +2476,11 @@ export default function Dashboard() {
                   <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
                     {lowPerfSearch.trim()
                       ? 'No FROs match your search.'
-                      : 'All FROs have reached the daily target.'}
+                      : lowPerfAttendance === 'absent'
+                        ? 'No absent FROs are below target.'
+                        : lowAttendanceCounts.absent > 0
+                          ? 'No present FROs are below target. Everyone here is on the Absent tab.'
+                          : 'All FROs have reached the daily target.'}
                   </div>
                 </div>
               </div>
@@ -2565,7 +2559,7 @@ export default function Dashboard() {
                   <Users size={14} /> Total Low Performers: {lowAll.length} FROs
                 </div>
                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
-                  These FROs are below 100% of their daily collection target.
+                  These FROs are below 100% of their daily collection target — {lowAttendanceCounts.present} present, {lowAttendanceCounts.absent} absent.
                 </div>
                 {lowAboveTargetAbsent > 0 && (
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
