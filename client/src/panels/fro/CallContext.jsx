@@ -59,9 +59,17 @@ export function CallProvider({ children, userId, operatorId }) {
   const idleSeedRef = useRef({ seconds: 0, at: 0 })
   const [idleLiveSeconds, setIdleLiveSeconds] = useState(0)
 
-  // The server flipped us idle between heartbeats; push one so the row records
-  // the transition (and idle_since) without waiting for the next scheduled beat.
+  // Reaching zero asks the server whether it agrees they are idle, and the panel
+  // records the transition (idle_since) as soon as it says so.
   const idleNotifiedRef = useRef(false)
+  // Reaching zero asks the server "am I idle?". If it says not yet, that is
+  // usually just a clock/network lag, so ask a few more times over the next few
+  // seconds and then stop. Bounded on purpose: there is no periodic heartbeat in
+  // this panel, so this is the only thing that can resolve a disagreement, and it
+  // must not become a background poll.
+  const IDLE_CONFIRM_MAX = 4
+  const IDLE_CONFIRM_MS = 2500
+  const idleAskRef = useRef({ count: 0, at: 0 })
 
   // Admin per-FRO pause: freezes every live counter exactly like meeting mode.
   // Only an admin resume lifts it — the panel never unpauses itself.
@@ -122,9 +130,13 @@ export function CallProvider({ children, userId, operatorId }) {
       // A fresh, still-open window means there is genuinely time left, so the
       // "ask the server whether I am idle" latch is released. It deliberately
       // does NOT release on a plain is_idle:false, otherwise sitting on 0:00
-      // while the server still disagreed would re-fire a heartbeat every second.
-      // The panel's own 30s heartbeat keeps checking regardless.
-      if (s.seconds_left > 0) idleNotifiedRef.current = false
+      // while the server still disagreed would re-ask every second. The bounded
+      // retry below is what covers that case instead.
+      if (s.seconds_left > 0) {
+        idleNotifiedRef.current = false
+        // A genuinely open window re-arms the ask budget for the next expiry.
+        idleAskRef.current = { count: 0, at: 0 }
+      }
     } else if (s.seconds_left === null) {
       // Explicitly "not armed" — never leave a stale countdown on screen.
       serverSecondsRef.current = null
@@ -215,8 +227,9 @@ export function CallProvider({ children, userId, operatorId }) {
   // Counts the server's "seconds left" down locally. The only thing read from
   // this machine is elapsed time via performance.now(), never the wall clock, so
   // a laptop whose date/time is wrong cannot pin the display at 0:00 or make a
-  // fresh window look unreset. Every heartbeat re-syncs the number, so drift
-  // from a throttled tab or a sleeping laptop is corrected within one beat.
+  // fresh window look unreset. The seed is re-taken whenever the panel talks to
+  // the server (open, call start/stop, pause, disposition, resume), so drift
+  // from a throttled tab or a sleeping laptop is corrected on the next sync.
   useEffect(() => {
     if (dispositionDueAt == null) {
       setSecondsLeft(null)
@@ -243,8 +256,20 @@ export function CallProvider({ children, userId, operatorId }) {
         // only thing that happens at zero is a push to ask the server, and the
         // banner appears and stays exactly when the server says idle. If the
         // server disagrees, its own seconds_left re-seeds the display instead.
+        //
+        // With no periodic heartbeat, a single ask could go unanswered by a
+        // transient failure and the banner would never appear at all. So ask
+        // again a few times, rate-limited, then give up rather than poll.
+        const ask = idleAskRef.current
+        const nowMs = performance.now()
         if (!idleNotifiedRef.current) {
           idleNotifiedRef.current = true
+          ask.count = 1
+          ask.at = nowMs
+          syncAllStats()
+        } else if (ask.count < IDLE_CONFIRM_MAX && nowMs - ask.at >= IDLE_CONFIRM_MS) {
+          ask.count += 1
+          ask.at = nowMs
           syncAllStats()
         }
       }
@@ -390,9 +415,9 @@ export function CallProvider({ children, userId, operatorId }) {
       filter: (p) => watched.has(String((p.new || p.old || {}).worker_id)),
       onInsert: (row) => { if (row?.is_paused) applyPause(row.paused_by); },
       onUpdate: (row) => {
-        // Heartbeats rewrite this row ~every 30s without changing pause
-        // state — only converge (GET /fro/status/me) when the flag flipped,
-        // otherwise every heartbeat costs a pointless round-trip per panel.
+        // Ordinary status pushes rewrite this row without changing pause state,
+        // so only converge (GET /fro/status/me) when the flag actually flipped,
+        // otherwise every push costs a pointless round-trip per panel.
         if (!!row?.is_paused === pausedRef.current) return
         if (row?.is_paused) applyPause(row?.paused_by)
         else converge()
