@@ -2966,7 +2966,11 @@ export const createDonorLogHandler = async (req, res) => {
         .select('*')
         .eq('worker_id', workerId)
         .maybeSingle();
-      const isDisposition = action === 'disposition' && !!disposition_detail;
+      // Any disposition resets the window, whether or not a subtype came with
+      // it. Gating on disposition_detail meant a disposition saved without one
+      // silently kept the old (already expired) deadline, so the FRO kept seeing
+      // 0:00 and pressing Resume did not appear to reset anything.
+      const isDisposition = action === 'disposition';
       // Unarmed and the FRO just did something: open their window now.
       const arming = !liveRow?.disposition_due_at;
       if (isDisposition || arming) {
