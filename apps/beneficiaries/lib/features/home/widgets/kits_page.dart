@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/lucide_icons.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_skeleton.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../services/api_service.dart';
 import '../../beneficiaries/beneficiary_detail_page.dart';
+import '../../beneficiaries/beneficiary_list_page.dart';
 
 /// Kits screen — per-NGO (BSCT / AFLF / MANN) registration counts, total and
 /// kit-given cards, today's event name, and the list of beneficiaries who
@@ -36,6 +39,7 @@ class KitsPageState extends State<KitsPage> {
   Future<void> refresh() => _load();
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -78,19 +82,17 @@ class KitsPageState extends State<KitsPage> {
         const SizedBox(height: 4),
         Text('Kit distribution overview', style: AppTextStyles.pageTitle),
         const SizedBox(height: 20),
-        if (_loading)
-          ...List.generate(
-            4,
-            (i) => Container(
-              height: 76,
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: AppColors.skeleton,
-                borderRadius: BorderRadius.circular(18),
-              ),
-            ),
-          )
-        else if (_error != null)
+        if (_loading) ...[
+          const SkeletonStatRow(cards: 3, height: 78),
+          const SizedBox(height: 12),
+          const SkeletonStatRow(cards: 2, height: 70, numberWidth: 40),
+          const SizedBox(height: 28),
+          const SkeletonBox(width: 130, height: 15, borderRadius: 6),
+          const SizedBox(height: 8),
+          const SkeletonBox(width: 180, height: 12, borderRadius: 6),
+          const SizedBox(height: 16),
+          const SkeletonCardRows(rows: 3),
+        ] else if (_error != null)
           _errorTile()
         else ...[
           _programCards(),
@@ -188,37 +190,53 @@ class KitsPageState extends State<KitsPage> {
   Widget _summaryCards() {
     return Row(
       children: [
+        // Total is the way into the full member list (name + number, searchable).
         Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.primaryBlueSoft,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.statMembersBorder),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$_totalRegistered',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
+          child: InkWell(
+            onTap: () => _openBeneficiaryList(),
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.primaryBlueSoft,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.statMembersBorder),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$_totalRegistered',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primaryBlue,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Total',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    LucideIcons.chevronRight,
+                    size: 18,
                     color: AppColors.primaryBlue,
                   ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Total',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -256,6 +274,16 @@ class KitsPageState extends State<KitsPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _openBeneficiaryList() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const BeneficiaryListPage(
+          title: 'All Beneficiaries',
+        ),
+      ),
     );
   }
 

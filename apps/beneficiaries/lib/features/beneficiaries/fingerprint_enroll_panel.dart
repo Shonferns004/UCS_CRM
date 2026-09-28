@@ -56,6 +56,11 @@ class FingerprintEnrollPanel extends StatefulWidget {
   final VoidCallback? onDone;
   final ValueChanged<List<CapturedFingerprint>>? onCaptured;
 
+  /// Fingers already stored against this beneficiary. They are treated as
+  /// done, so the picker never offers one again — the server has no dedupe, so
+  /// a re-scan would otherwise create a second ENROLLED row for the same finger.
+  final List<String> alreadyEnrolledFingers;
+
   const FingerprintEnrollPanel({
     super.key,
     this.beneficiaryCode,
@@ -63,6 +68,7 @@ class FingerprintEnrollPanel extends StatefulWidget {
     this.collectOnly = false,
     this.onDone,
     this.onCaptured,
+    this.alreadyEnrolledFingers = const [],
   });
 
   @override
@@ -100,6 +106,7 @@ class _FingerprintEnrollPanelState extends State<FingerprintEnrollPanel> {
   @override
   void initState() {
     super.initState();
+    _enrolledFingers.addAll(widget.alreadyEnrolledFingers);
     FingerprintService.initialize();
     _detect();
   }

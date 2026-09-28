@@ -44,10 +44,11 @@ import {
   getSuspenseReceipts,
   claimSuspenseReceipt,
   searchSuspenseDonors,
-  resetAllFroIdle,
   getMyLiveStatus,
   resumeOwnPause,
+  resumeOwnIdle,
   logoutAllFros,
+  resetAllFroIdle,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -58,6 +59,9 @@ router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses)
 // Attendance-punched roster for today. Registered next to /status; the path is
 // two segments so it cannot be shadowed by any single-segment /:id route.
 router.get('/status/present', authenticateRole('super_admin', 'admin'), getPresentToday);
+// Super-admin only (not plain admin): ends the still-running idle period for
+// every FRO on shift and re-arms a full disposition window. Committed idle is
+// preserved — see resetAllFroIdle for why.
 router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
 router.post('/status/logout-all', authenticateRole('admin', 'super_admin'), logoutAllFros);
 router.get('/status/me', getMyLiveStatus);
@@ -72,6 +76,9 @@ const requireFro = (req, res, next) => {
 // spelling in their token (requireFro below rejects non-'fro' roles, which
 // made Play flaky per-FRO). It only ever touches the caller's own row.
 router.post('/status/resume-self', authenticate, resumeOwnPause);
+// FRO-side Resume from the idle popup: commits the open idle period into today
+// and hands back a fresh 4-minute disposition window. Same access rule as above.
+router.post('/status/resume-idle', authenticate, resumeOwnIdle);
 
 router.use(requireFro);
 

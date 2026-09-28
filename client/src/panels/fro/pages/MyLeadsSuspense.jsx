@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Trophy, Clock, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown } from 'lucide-react';
+import { Trophy, Timer, PhoneOutgoing, Activity, ArrowUp, ArrowDown, Clock } from 'lucide-react';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import MyDonors from './MyDonors';
 import FroSuspense from './Suspense';
 import { getMyPerformance } from '../api/donors';
+import { formatDuration } from '../../../utils/formatDuration';
 
 function SectionTitle({ label, pct }) {
   return (
@@ -13,13 +14,6 @@ function SectionTitle({ label, pct }) {
       <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, color: 'var(--line)' }}>{pct}</span>
     </div>
   );
-}
-
-function formatIdle(seconds) {
-  const total = Math.max(0, Number(seconds) || 0);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 function Arrow({ good }) {
@@ -64,9 +58,12 @@ function PersonalPerformance() {
 return (
         <div style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', height: '100%' }}>
           <Metric label="Rank" value={data?.rank ? `#${data.rank}` : '—'} accent="#7c3aed" icon={<Trophy size={16} />} />
-          <Metric label="Idle" value={formatIdle(data?.idle_seconds)} accent="#d97706" icon={<Clock size={16} />} />
-          <Metric label="Worked" value={`${formatIdle(data?.worked_seconds)} / 8h`} good={(data?.worked_seconds ?? 0) >= 8 * 3600} accent="#0891b2" icon={<Timer size={16} />} />
+          <Metric label="Worked" value={`${formatDuration(data?.worked_seconds)} / 8h`} good={(data?.worked_seconds ?? 0) >= 8 * 3600} accent="#0891b2" icon={<Timer size={16} />} />
           <Metric label="Calls" value={(data?.today_calls ?? 0).toString()} good={(data?.today_calls ?? 0) >= callTarget} accent="#2563eb" icon={<PhoneOutgoing size={16} />} />
+          {/* Idle today, including a period still running. The timer in the top
+              bar is what produces it, so this is the FRO's own answer to "how
+              much of my day was actually productive". */}
+          <Metric label="Idle" value={formatDuration(data?.idle_seconds)} good={!(data?.is_idle)} accent={(data?.idle_seconds ?? 0) > 0 ? '#dc2626' : '#64748b'} icon={<Clock size={16} />} />
 <Metric label="Performance" value={`${data?.performance ?? 0}%`} good={levelHigh} accent={levelHigh ? '#16a34a' : '#dc2626'} icon={<Activity size={16} />} />
         </div>
   );

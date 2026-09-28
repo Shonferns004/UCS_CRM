@@ -17,6 +17,13 @@ const PROJECTS = [
 ];
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
+// The shared api() helper aborts after 120s by default, which for a save button
+// is two minutes of "Saving..." with no way out. On a dead connection the FRO is
+// left staring at a disabled button and a running countdown for something they
+// already did. 20s is long enough for a screenshot upload on a slow link and
+// short enough that the panel comes back on its own.
+const SAVE_TIMEOUT_MS = 20000;
+
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 const timelineIcon = (log) => {
@@ -65,7 +72,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrFromName, setOcrFromName] = useState('');
   const isOverdue = origScheduledAt && new Date(origScheduledAt) < new Date();
-  const { startCall, endCall, resetCallActivity } = useCall();
+  const { startCall, endCall, adoptTimer, adoptOptimisticDisposition } = useCall();
 
   useEffect(() => {
     setLoading(true);
@@ -145,6 +152,16 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
+    // Recording a disposition is exactly what the 4-minute window exists to be
+    // satisfied by, so the window closes the instant they commit it — not when
+    // the server gets around to answering. Adopting the server's timer only after
+    // the await tied the countdown to connectivity: on a lost connection the chip
+    // kept counting the old deadline, the button stayed disabled, and they
+    // watched the clock run down for an action they had already taken. This is
+    // the optimistic value; saved.timer below overwrites it with the
+    // authoritative one the moment the response lands, and the next hydrate
+    // reconciles it if the response never lands at all.
+    adoptOptimisticDisposition();
     try {
       const logPayload = {
         action: 'disposition',
@@ -160,7 +177,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
-          const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime);
+          const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime, { timeout: SAVE_TIMEOUT_MS });
           logPayload.payment_screenshot_url = uploadResult.file_url;
         }
         logPayload.donor_address = leadAddress || null;
@@ -174,9 +191,11 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       if (selected === 'done') {
         logPayload.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
       }
-      await addDonorLog(donorId, logPayload);
-      // Saving a disposition counts as call activity (resets the 2-min idle timer)
-      resetCallActivity();
+      const saved = await addDonorLog(donorId, logPayload, { timeout: SAVE_TIMEOUT_MS });
+      // Saving a disposition buys a fresh 4-minute window. The server returns the
+      // authoritative timer, so adopt it here — the top-bar chip restarts the
+      // moment this saves, and any overdue idle is already folded into today.
+      if (saved?.timer) adoptTimer(saved.timer);
       endCall();
       const disp = findDisp(selected);
       if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');
@@ -185,7 +204,17 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       else toast(`Disposition: ${disp?.label || selected}`, 'info');
       onDone();
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      // The disposition did NOT reach the server, so say so plainly instead of
+      // surfacing a bare "Failed to fetch" — otherwise it looks like the save
+      // worked and they stop recording anything else. The timer has already
+      // restarted optimistically; the next hydrate reconciles it either way.
+      const offline = /abort|timeout|failed to fetch|network|load failed/i.test(err?.message || '');
+      setMessage({
+        type: 'error',
+        text: offline
+          ? 'Could not reach the server — this disposition was NOT saved. Check your connection and try again.'
+          : err.message,
+      });
     } finally { setSaving(false); savingRef.current = false; }
   };
 

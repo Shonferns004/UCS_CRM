@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import db from '../config/db.js';
 import { emitRealtime } from '../socket.js';
 import { makeNonOverlap } from '../utils/noOverlap.js';
+import { commitIdleOnExit } from './froIdleCommit.js';
 
 // Auto-logout for FRO panels. The manual Sign out button was removed from the
 // FRO panel, so every open FRO session is closed automatically once the
@@ -76,13 +77,36 @@ export async function runFroAutoLogout() {
   }
 
   try {
+    // Fold any open idle period into the day total BEFORE going offline —
+    // otherwise a forced logout (shift end) silently drops the idle seconds the
+    // FRO accrued but never resumed out of, and the monthly salary total misses
+    // the tail. The per-worker cap is that worker's own shift end, so the grace
+    // minutes after they went home are never billed as idle.
+    for (const s of due) {
+      if (!s.user_id) continue;
+      const raw = String(s.shift_end_time || s.office_end_time || DEFAULT_END).trim();
+      const [h, m] = raw.split(':').map(Number);
+      const capMs = istNow().setUTCHours(h || 19, m || 0, 0, 0);
+      try {
+        await commitIdleOnExit(s.user_id, Date.now(), capMs);
+      } catch (e) {
+        // Non-fatal: continue with the rest of the batch.
+      }
+    }
+  } catch (e) {
+    // Non-fatal: live status row may not exist for every session.
+  }
+
+  try {
     await db._pool.query(
-      `UPDATE fro_live_status SET status = 'offline', idle_since = NULL, updated_at = $2
-       WHERE worker_id = ANY($1::text[])`,
+      `UPDATE fro_live_status
+          SET status = 'offline',
+              updated_at = $2
+        WHERE worker_id = ANY($1::text[])`,
       [userIds, nowIso]
     );
   } catch (e) {
-    // Non-fatal: live status row may not exist for every session.
+    // Non-fatal.
   }
 
   // Target only the due workers: a global broadcast would bounce FROs whose

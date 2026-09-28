@@ -60,26 +60,27 @@ const LFS_CSS = `
 
 const PILL = {
   online: { label: 'Online', color: '#12A65A', bg: '#EAF9F0' },
-  idle: { label: 'Idle', color: '#E98A00', bg: '#FFF7EA' },
   on_call: { label: 'Talking', color: '#287FE8', bg: '#EFF6FF' },
-  break: { label: 'Break', color: '#E98A00', bg: '#FFF7EA' },
+  // Idle = the disposition timer ran out and they have not resumed.
+  idle: { label: 'Idle', color: '#D92D20', bg: '#FEF3F2' },
+  // Held by an admin pause or a company meeting — not the FRO's own doing.
+  meeting: { label: 'Paused', color: '#6D28D9', bg: '#F5F3FF' },
   offline: { label: 'Offline', color: '#6D7E95', bg: '#F1F5F9' },
 }
 
 const FILTERS = [
   { value: 'all', label: 'All Status' },
   { value: 'online', label: 'Online' },
-  { value: 'idle', label: 'Idle' },
   { value: 'on_call', label: 'Talking' },
-  { value: 'break', label: 'On Break' },
+  { value: 'idle', label: 'Idle' },
   { value: 'offline', label: 'Offline' },
 ]
 
 const SORTS = [
   { value: 'name-asc', label: 'Sort by Name (A-Z)' },
   { value: 'name-desc', label: 'Sort by Name (Z-A)' },
-  { value: 'idle-desc', label: 'Sort by Idle (High First)' },
   { value: 'calls-desc', label: 'Sort by Calls (High First)' },
+  { value: 'idle-desc', label: 'Sort by Idle Time (High First)' },
 ]
 
 const initialsOf = (name) => String(name || 'F').split(' ').slice(0, 2).map((s) => s[0]).join('').toUpperCase()
@@ -102,8 +103,8 @@ export default function LiveFroStatus() {
   const [statuses, setStatuses] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
-  const [resetting, setResetting] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [pausingId, setPausingId] = useState(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -210,6 +211,36 @@ export default function LiveFroStatus() {
 
   const refresh = () => { loadStatuses(true); loadPresent() }
 
+  // Super-admin escape hatch for a bad disposition day (timer misfired, or the
+  // office dropped long enough that every panel stopped beating). Stops idle
+  // that is still COUNTING for every FRO on shift and re-arms their 4-minute
+  // window. Idle already banked today stays banked — that is the salary record,
+  // and the server keeps the daily high-water mark anyway, so zeroing the number
+  // here would only make this page disagree with the monthly report.
+  const clearIdleTime = async () => {
+    if (resetting) return
+    if (!window.confirm('Clear idle time for all FROs on shift?\n\nThis stops idle that is currently counting and gives everyone a fresh 4-minute disposition window. Idle already recorded today is kept, since it feeds their salary.')) return
+    setResetting(true)
+    try {
+      const r = await api('/fro/status/reset-idle', { method: 'PUT', body: JSON.stringify({}), _prefix: 'ucs' })
+      await loadStatuses(false)
+      // Reported every time, including the no-op case: when nothing was accruing
+      // the table looks identical afterwards, and the admin needs to know the
+      // button actually ran rather than silently doing nothing.
+      const n = r?.cleared
+      window.alert(typeof n === 'number'
+        ? (n > 0
+          ? `Cleared idle for ${n} FRO${n === 1 ? '' : 's'}. Everyone on shift has a fresh 4-minute window.`
+          : 'No FRO had idle time running.')
+        : (r?.message || 'Idle time cleared.'))
+    } catch (e) {
+      console.error('Error:', e.message)
+      window.alert(`Could not clear idle time: ${e.message || 'request failed'}`)
+    } finally {
+      if (aliveRef.current) setResetting(false)
+    }
+  }
+
   // Per-FRO admin pause ("play/pause"): freezes all their timers and shows a
   // blocking popup on their panel until resumed here.
   const togglePause = async (fs) => {
@@ -243,19 +274,6 @@ export default function LiveFroStatus() {
     }
   }
 
-  const resetAllIdle = async () => {
-    if (!window.confirm("Clear today's idle time for ALL FROs? This resets every FRO's current idle counter to zero.")) return
-    setResetting(true)
-    try {
-      await api('/fro/status/reset-idle', { method: 'PUT', body: JSON.stringify({}), _prefix: 'ucs' })
-      await loadStatuses(false)
-    } catch (e) {
-      console.error('Error:', e.message)
-    } finally {
-      if (aliveRef.current) setResetting(false)
-    }
-  }
-
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     const out = statuses.filter((s) => {
@@ -266,11 +284,11 @@ export default function LiveFroStatus() {
       return name.includes(q) || mail.includes(q)
     })
     const byName = (a, b) => (a.worker?.name || '').localeCompare(b.worker?.name || '')
-    const idleOf = (s) => Number(s.performance?.today_idle_seconds) || 0
     const callsOf = (s) => Number(s.performance?.today_calls) || 0
+    const idleOf = (s) => Number(s.performance?.today_idle_seconds) || 0
     if (sort === 'name-desc') out.sort((a, b) => byName(b, a))
-    else if (sort === 'idle-desc') out.sort((a, b) => idleOf(b) - idleOf(a) || byName(a, b))
     else if (sort === 'calls-desc') out.sort((a, b) => callsOf(b) - callsOf(a) || byName(a, b))
+    else if (sort === 'idle-desc') out.sort((a, b) => idleOf(b) - idleOf(a) || byName(a, b))
     else out.sort(byName)
     return out
   }, [statuses, query, statusFilter, sort])
@@ -287,9 +305,9 @@ export default function LiveFroStatus() {
     if (fs.call_started_at) return secsSince(fs.call_started_at)
     return 0
   }
-  const liveBreakSecs = (fs) => {
-    if (fs.computed?.break_duration_seconds != null) return fs.computed.break_duration_seconds
-    if (fs.break_started_at) return secsSince(fs.break_started_at)
+  const liveIdleSecs = (fs) => {
+    if (fs.computed?.idle_duration_seconds != null) return fs.computed.idle_duration_seconds
+    if (fs.idle_since) return secsSince(fs.idle_since)
     return 0
   }
 
@@ -308,7 +326,15 @@ export default function LiveFroStatus() {
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button type="button" className="lfs-btn lfs-btn-danger" onClick={resetAllIdle} disabled={resetting}>
+          <button
+            type="button"
+            className="lfs-btn lfs-btn-danger"
+            onClick={clearIdleTime}
+            disabled={resetting}
+            aria-label="Clear idle time for all FROs"
+            title="Stop idle that is currently counting for every FRO on shift and re-arm a fresh 4-minute window. Idle already recorded today is kept."
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>timer_off</span>
             {resetting ? 'Clearing…' : 'Clear Idle Time'}
           </button>
         </div>
@@ -375,10 +401,16 @@ export default function LiveFroStatus() {
             const mail = fs.worker?.email || fs.worker?.login_id || ''
             const rowId = fs.worker_id || fs.fro_id || fs.id
             const talk = Number(fs.performance?.today_talk_seconds) || 0
-            const idleS = Number(fs.performance?.today_idle_seconds) || 0
             const calls = Number(fs.performance?.today_calls) || 0
-            const denom = talk + idleS
-            const prod = denom > 0 ? `${Math.round((talk / denom) * 100)}%` : '—'
+            // Idle today, including a period still running (server-derived).
+            const idleSec = Number(fs.performance?.today_idle_seconds) || 0
+            // How long THIS idle stretch has been going, as opposed to the day
+            // total — what an admin needs to judge an idle row right now.
+            const idleRun = fs.idle_since ? liveIdleSecs(fs) : null
+            // Productivity = talk as a share of the accounted-for day. Idle is
+            // the only thing we subtract, so a FRO who talked all day is 100%
+            // and one who sat idle is visibly diluted.
+            const prod = talk + idleSec > 0 ? `${Math.round((talk / (talk + idleSec)) * 100)}%` : '—'
             return (
               <article key={fs.id} className="lfs-card" aria-label={`${name}, ${meta.label}`}>
                 <div className="lfs-card-top">
@@ -402,7 +434,7 @@ export default function LiveFroStatus() {
                     <div className="lfs-metric-lbl">Calls</div>
                   </div>
                   <div className="lfs-metric">
-                    <div className="lfs-metric-val" style={{ color: '#E98A00' }}>{fmt(idleS)}</div>
+                    <div className="lfs-metric-val" style={{ color: idleSec > 0 ? '#D92D20' : '#E52B4A' }}>{fmt(idleSec)}</div>
                     <div className="lfs-metric-lbl">Idle</div>
                   </div>
                   <div className="lfs-metric">
@@ -410,6 +442,13 @@ export default function LiveFroStatus() {
                     <div className="lfs-metric-lbl">Productivity</div>
                   </div>
                 </div>
+                {/* While the timer is out, say how long — the day total alone can
+                    read as "some idle earlier" when it is happening right now. */}
+                {idleRun != null && idleRun > 0 && (
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#D92D20', marginTop: 4 }}>
+                    Idle {Math.floor(idleRun / 60)}m now · waiting on Resume
+                  </div>
+                )}
                 <div className="lfs-seen">Last seen: {fs.updated_at ? new Date(fs.updated_at).toLocaleTimeString('en-IN') : '—'}</div>
                 {paused && fs.paused_at && (() => {
                   const m = Math.floor((now - new Date(fs.paused_at).getTime()) / 60000);

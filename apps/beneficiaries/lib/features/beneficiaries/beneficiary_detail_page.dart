@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../core/lucide_icons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/photo_utils.dart';
 import '../../core/widgets/app_snackbar.dart';
 import '../../services/api_service.dart';
 import 'edit_beneficiary_page.dart';
@@ -501,28 +502,37 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
   }
 
   Widget _avatar(String name) {
+    final photo = _b['photo']?.toString();
+    // Same two shapes as the list: an inline data URL captured in the app, or
+    // a remote URL from an imported record. Anything else keeps the monogram.
+    final ImageProvider? image = isInlinePhoto(photo)
+        ? MemoryImage(dataUrlBytes(photo!))
+        : isRemotePhoto(photo)
+            ? NetworkImage(photo!)
+            : null;
+
     return SizedBox(
       width: 64,
       height: 64,
       child: Stack(
         children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: const BoxDecoration(
-              color: _kAvatarBg,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : '?',
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primaryBlue,
+          if (image != null)
+            Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(
+                color: _kAvatarBg,
+                shape: BoxShape.circle,
               ),
-            ),
-          ),
+              clipBehavior: Clip.antiAlias,
+              child: Image(
+                image: image,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stack) => _monogram(name),
+              ),
+            )
+          else
+            _monogram(name),
           Positioned(
             right: 0,
             bottom: 0,
@@ -537,6 +547,26 @@ class _BeneficiaryDetailPageState extends State<BeneficiaryDetailPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _monogram(String name) {
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: const BoxDecoration(
+        color: _kAvatarBg,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        name.isNotEmpty ? name[0].toUpperCase() : '?',
+        style: const TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.w600,
+          color: AppColors.primaryBlue,
+        ),
       ),
     );
   }

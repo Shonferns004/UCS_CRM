@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { fetchWorkspaceNgos, fetchEventsByNgo } from '../store'
+import { fetchWorkspaceNgos, fetchEventsByNgo, fetchVolunteerPeople } from '../store'
+import { shortLabel, sortNgos, parseManagementTeam, buildRoster } from '../voluntaryRoster'
 import hrFileUrl from '../pages/HR EMPLOYEES FILES (1).xlsx?url'
 
 const PALETTE = ['#5B6B4E', '#C08A2E', '#7A5C7E', '#B5603A', '#4F6472', '#88693D', '#2E7D32', '#1565C0', '#00838F', '#6A1B9A']
@@ -10,59 +11,13 @@ const ngoColor = (name) => {
 }
 const initials = (n) => String(n || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?'
 
-const shortLabel = (codeOrName) => {
-  const c = String(codeOrName || '').toUpperCase().trim()
-  const map = { BSCT: 'BSCT', AFLF: 'AFLF', MANN: 'Mann', MAN: 'Mann', OTHER: 'Others', OTHERS: 'Others' }
-  return map[c] || String(codeOrName || '').trim()
-}
-
-const orderIndex = (label) => {
-  const u = String(label || '').toUpperCase()
-  const map = { BSCT: 0, AFLF: 1, MANN: 2, MAN: 2, OTHERS: 3, OTHER: 3 }
-  return map[u] !== undefined ? map[u] : 100
-}
-const sortNgos = (a, b) => orderIndex(a) - orderIndex(b) || String(a).localeCompare(String(b))
-
-const parseHRTeams = (rows) => {
-  const active = {}
-  const out = []
-  for (const row of rows) {
-    for (let c = 0; c < row.length; c++) {
-      const txt = String(row[c] || '').trim()
-      const mg = txt.match(/^(.*?)\s*Management\s+Team\s*$/i)
-      if (mg) {
-        active[c] = { team: 'Management', ngo: (mg[1] || '').trim() || 'Other' }
-        continue
-      }
-      const vol = txt.match(/^(.*?)\s*Volunteer\s+Team\s*$/i)
-      if (vol) {
-        active[c] = { team: 'Volunteer', ngo: (vol[1] || '').trim() || 'Other' }
-        continue
-      }
-      if (txt && /Team\s*$/i.test(txt)) {
-        delete active[c]
-      }
-    }
-    for (const c of Object.keys(active)) {
-      const ci = Number(c)
-      const name = String(row[ci + 1] || '').trim().replace(/\s+/g, ' ')
-      const ngoCell = String(row[ci + 2] || '').trim()
-      if (!name || /Team\s*$/i.test(name) || /^Sr\.?\s*No\.?\s*$/i.test(name) || name.toUpperCase() === 'NAME') continue
-      out.push({ name, ngo: ngoCell || active[c].ngo, team: active[c].team })
-    }
-  }
-  const seen = new Set()
-  return out.filter(m => {
-    const k = m.name.toLowerCase() + '|' + m.ngo.toLowerCase() + '|' + m.team
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
-}
-
+// The id is the HR worker id when the entry came from the HR panel, so the
+// server can match exactly. Management entries and rows saved before this
+// existed have no id and fall back to name matching.
 const normalizeSelected = (list) =>
   (Array.isArray(list) ? list : []).map(v => ({
     key: [v.team, v.ngo, v.name].join('|'),
+    id: v.id ?? null,
     name: v.name,
     ngo: v.ngo || 'Others',
     team: v.team === 'Management' ? 'Management' : 'Volunteer',
@@ -91,16 +46,23 @@ export default function VoluntaryPicker({ ngoId, value, onChange }) {
         const wb = XLSX.read(buf, { type: 'array' })
         const sheetName = wb.SheetNames.find(n => /^sheet3$/i.test(n)) || wb.SheetNames[0]
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false })
-        return parseHRTeams(rows)
+        return parseManagementTeam(rows)
       } catch (e) {
-        if (!cancelled) setFileError('Could not load the HR employees file.')
+        if (!cancelled) setFileError('Could not load the management list from the HR employees file.')
         return []
       }
     }
 
-    Promise.all([loadFile(), fetchWorkspaceNgos().catch(() => [])]).then(([teamItems, ngoList]) => {
+    // fetchVolunteerPeople is the live HR-panel roster: the server already keeps
+    // employment_status = 'active' and drops test records, so anyone absconded
+    // in the HR panel is gone from here automatically.
+    Promise.all([
+      fetchVolunteerPeople().catch(() => []),
+      loadFile(),
+      fetchWorkspaceNgos().catch(() => []),
+    ]).then(([people, mgmt, ngoList]) => {
       if (cancelled) return
-      setItems(teamItems)
+      setItems(buildRoster(people, mgmt, ngoList))
       setNgos(ngoList || [])
       setLoading(false)
     })
@@ -166,7 +128,7 @@ export default function VoluntaryPicker({ ngoId, value, onChange }) {
   const toggle = (item) => {
     const key = [item.team, item.ngo, item.name].join('|')
     const next = (value || []).filter(v => [v.team, v.ngo, v.name].join('|') !== key)
-    if (!isSelected(item)) next.push({ name: item.name, ngo: item.ngo, team: item.team })
+    if (!isSelected(item)) next.push({ id: item.id ?? null, name: item.name, ngo: item.ngo, team: item.team })
     onChange(next)
   }
   const setGroup = (teamRows, on) => {
@@ -175,7 +137,7 @@ export default function VoluntaryPicker({ ngoId, value, onChange }) {
     onChange(current)
   }
   const copySelection = (ev) => {
-    onChange(normalizeSelected(ev.volunteers).map(v => ({ name: v.name, ngo: v.ngo, team: v.team })))
+    onChange(normalizeSelected(ev.volunteers).map(v => ({ id: v.id ?? null, name: v.name, ngo: v.ngo, team: v.team })))
   }
 
   const inline = { padding: '10px 16px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, outline: 'none', background: 'var(--card-bg)' }
@@ -183,7 +145,8 @@ export default function VoluntaryPicker({ ngoId, value, onChange }) {
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--eh-ink-soft, #6b7280)', marginBottom: 12 }}>
-        Pick the Voluntary (volunteer + management) people for this event — grouped NGO-wise, from the HR employees file.
+        Pick the Voluntary (volunteer + management) people for this event — grouped NGO-wise.
+        Volunteers come live from the HR panel, so anyone absconded there is already hidden. Management comes from the HR employees file.
       </div>
 
       {loading ? (

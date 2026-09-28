@@ -4,6 +4,7 @@ import { Icon } from './components';
 import { effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_STATUSES } from './helpers';
 import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from '../../components/Toast';
+import { ConfirmDialog } from './modals';
 
 const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
 const EXPIRY_FILTERS = ['All', 'Expired', 'Within 7 Days', 'Within 30 Days', 'More than 30 Days'];
@@ -104,6 +105,9 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
   };
   const clearFilters = () => { setSearch(''); setStatus('All'); setTeam('All'); setDevice('All'); setExpiry('All'); setPage(1); };
 
+  // Pending delete confirmation, replacing window.confirm(): { mode: 'one' | 'bulk', card?, ids?, busy? }
+  const [pending, setPending] = useState(null);
+
   async function doBulkChange(statusVal) {
     const ids = Object.keys(selected).filter((k) => selected[k]);
     if (!ids.length) return;
@@ -117,17 +121,33 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
   async function doBulkDelete() {
     const ids = Object.keys(selected).filter((k) => selected[k]);
     if (!ids.length) return;
-    if (!window.confirm(`Delete ${ids.length} selected SIM card(s)? This cannot be undone.`)) return;
-    try {
-      await bulkDelete(ids);
-      toast(`${ids.length} SIM card(s) deleted`, 'success');
-      setSelected({}); refresh();
-    } catch (e) { toast(e.message || 'Failed', 'error'); }
+    setPending({ mode: 'bulk', ids });
   }
 
-  const handleDelete = (c) => {
-    if (window.confirm(`Delete SIM card ${c.mobile_id || ''}? This cannot be undone.`)) onDelete(c);
-  };
+  const handleDelete = (c) => setPending({ mode: 'one', card: c });
+
+  async function runPendingDelete() {
+    if (!pending || pending.busy) return;
+    if (pending.mode === 'bulk') {
+      setPending((p) => ({ ...p, busy: true }));
+      try {
+        await bulkDelete(pending.ids);
+        toast(`${pending.ids.length} SIM card(s) deleted`, 'success');
+        setSelected({});
+        setPending(null);
+        refresh();
+      } catch (e) {
+        toast(e.message || 'Failed to delete SIM cards', 'error');
+        setPending((p) => ({ ...p, busy: false }));
+      }
+    } else {
+      // The parent's doDelete owns its own toast and refresh and swallows its
+      // own errors, so hand the card over and close rather than reporting twice.
+      const card = pending.card;
+      setPending(null);
+      onDelete(card);
+    }
+  }
 
   return (
     <div>
@@ -252,6 +272,18 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete }
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pending}
+        busy={!!pending?.busy}
+        title={pending?.mode === 'bulk' ? 'Delete SIM Cards?' : 'Delete SIM Card?'}
+        message={pending?.mode === 'bulk'
+          ? <>Are you sure you want to delete <strong>{pending.ids.length} selected SIM card(s)</strong>? This action cannot be undone.</>
+          : <>Are you sure you want to delete <strong>&ldquo;{pending?.card?.mobile_id || 'this SIM card'}&rdquo;</strong>? This action cannot be undone.</>}
+        confirmLabel="Delete"
+        onConfirm={runPendingDelete}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { daysLeft, formatDate, dayLabel, dayClass } from './helpers';
+import { daysLeft, formatDate, dayLabel, dayClass, autoExpiryDate, SIM_VALIDITY_DAYS } from './helpers';
 import { toast } from '../../../components/Toast';
+import { ConfirmDialog } from './ImportModal';
 
 export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', 'Damaged', 'Inactive'];
 const SIM_TYPES = ['Standard', 'Micro', 'Nano', 'eSIM', 'Other'];
@@ -50,11 +51,22 @@ function daysFor(item) {
 }
 
 function AddSimModal({ open, onClose, onSaved }) {
-  const [form, setForm] = useState({ sim_name: '', sim_number: '', owner_name: '', sim_type: 'Standard', provider: '', location: '', expiry_date: '', status: 'Available' });
+  const [form, setForm] = useState({ sim_name: '', sim_number: '', owner_name: '', sim_type: 'Standard', provider: '', location: '', issue_date: '', status: 'Available' });
+  const [customExpiry, setCustomExpiry] = useState(false);
+  const [customExpiryDate, setCustomExpiryDate] = useState('');
   const [saving, setSaving] = useState(false);
 
   if (!open) return null;
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  /* Expiry is the issue date plus the SIM validity window by default, so the Add
+     form and the server always agree on the same date. A SIM that does not follow
+     the standard 28 day window (a custom recharge, a validity that was extended)
+     needs its own date, which is what the manual option is for. Clearing the
+     manual box falls back to the automatic date rather than leaving no expiry. */
+  const autoExpiry = autoExpiryDate(form.issue_date);
+  const expiry = customExpiry && customExpiryDate ? customExpiryDate : autoExpiry;
+  const dl = daysLeft(expiry);
 
   async function handleSave() {
     if (!form.sim_name || !String(form.sim_name).trim()) {
@@ -67,11 +79,21 @@ function AddSimModal({ open, onClose, onSaved }) {
     }
     setSaving(true);
     try {
+      /* Fields are listed explicitly rather than spread from `form`: the Owner
+         Name input is called owner_name but is stored in the assigned_to column,
+         and a `...form` spread sent owner_name as well, which the server passed
+         straight to Postgres - so every Add failed with
+         'column "owner_name" of relation "sim_inventory" does not exist'. */
       await onSaved({
-        ...form,
         sim_name: form.sim_name.trim(),
         sim_number: form.sim_number.trim(),
         assigned_to: String(form.owner_name || '').trim() || null,
+        sim_type: form.sim_type,
+        provider: String(form.provider || '').trim() || null,
+        location: String(form.location || '').trim() || null,
+        status: form.status,
+        issue_date: form.issue_date || null,
+        expiry_date: expiry,
       });
       toast('SIM added to inventory', 'success');
       onClose();
@@ -118,8 +140,26 @@ function AddSimModal({ open, onClose, onSaved }) {
               <input value={form.location} onChange={(e) => set('location', e.target.value)} />
             </div>
             <div className="form-row">
-              <label>Expiry Date</label>
-              <input type="date" value={form.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} />
+              <label>SIM Card Issue Date</label>
+              <input type="date" value={form.issue_date} onChange={(e) => set('issue_date', e.target.value)} />
+            </div>
+            <div className="sim-manual-toggle">
+              <label>
+                <input type="checkbox" checked={customExpiry} onChange={(e) => setCustomExpiry(e.target.checked)} />
+                Enter expiry date manually
+              </label>
+            </div>
+            <div className={`form-row${customExpiry ? '' : ' locked'}`}>
+              <label>Auto Expiry Date {!customExpiry && <span className="auto-tag">auto</span>}</label>
+              {customExpiry ? (
+                <input type="date" value={customExpiryDate} onChange={(e) => setCustomExpiryDate(e.target.value)} />
+              ) : (
+                <input value={autoExpiry || '—'} disabled readOnly />
+              )}
+            </div>
+            <div className="form-row locked">
+              <label>SIM Expiry Days Left <span className="auto-tag">auto</span></label>
+              <input value={dl === null ? '—' : dayLabel(dl)} disabled readOnly />
             </div>
             <div className="form-row">
               <label>Status</label>
@@ -127,6 +167,9 @@ function AddSimModal({ open, onClose, onSaved }) {
                 {INVENTORY_STATUSES.map((s) => <option key={s}>{s}</option>)}
               </select>
             </div>
+          </div>
+          <div className="ln" style={{ marginTop: 10, fontSize: 12 }}>
+            Expiry is set automatically {SIM_VALIDITY_DAYS} days after the issue date, and the days left count down from it. Tick the box to use a different expiry date.
           </div>
         </div>
         <div className="modal-foot">
@@ -323,6 +366,9 @@ function InventoryDetails({ item, onClose }) {
             <Item k="SIM Type" v={item.sim_type} />
             <Item k="Status" v={item.status} />
             <Item k="Location" v={item.location} />
+            <Item k="SIM Card Issue Date" v={formatDate(item.issue_date)} />
+            <Item k="Auto Expiry Date" v={formatDate(item.expiry_date)} />
+            <Item k="SIM Expiry Days Left" v={dayLabel(dl)} />
           </div>
           {item.status === 'Assigned' && (
             <>
@@ -332,9 +378,6 @@ function InventoryDetails({ item, onClose }) {
                 <Item k="Device" v={item.device} />
                 <Item k="IMEI No." v={item.imei} />
                 <Item k="Team" v={item.team} />
-                <Item k="Issue Date" v={formatDate(item.issue_date)} />
-                <Item k="Expiry Date" v={formatDate(item.expiry_date)} />
-                <Item k="Days Left" v={dayLabel(dl)} />
                 <Item k="Assignment Date" v={formatDate(item.assignment_date)} />
               </div>
             </>
@@ -416,16 +459,26 @@ export default function SimInventory() {
 
   const clearFilters = () => { setSearch(''); setProvider('All'); setTeam('All'); setSimType('All'); };
 
-  async function handleRelease(item) {
-    if (!window.confirm(`Release SIM ${item.sim_number || ''} back to the locker?`)) return;
-    setBusyId(item.id);
+  // Pending destructive action awaiting confirmation, replacing window.confirm():
+  // { action: 'release' | 'delete', item, busy }
+  const [pending, setPending] = useState(null);
+
+  async function runPending() {
+    if (!pending || pending.busy) return;
+    const { action, item } = pending;
+    setPending((p) => ({ ...p, busy: true }));
     try {
-      await releaseInventoryItem(item);
-      toast('SIM released back to locker', 'success');
+      if (action === 'release') {
+        await releaseInventoryItem(item);
+        toast('SIM released back to locker', 'success');
+      } else {
+        await deleteInventoryItem(item.id);
+        toast('SIM removed from inventory', 'success');
+      }
+      setPending(null);
     } catch (e) {
-      toast(e.message || 'Release failed', 'error');
-    } finally {
-      setBusyId(null);
+      toast(e.message || (action === 'release' ? 'Release failed' : 'Delete failed'), 'error');
+      setPending((p) => ({ ...p, busy: false }));
     }
   }
 
@@ -441,15 +494,9 @@ export default function SimInventory() {
     }
   }
 
-  async function handleDelete(item) {
-    if (!window.confirm(`Delete SIM ${item.sim_number || ''} from inventory? This cannot be undone.`)) return;
-    try {
-      await deleteInventoryItem(item.id);
-      toast('SIM removed from inventory', 'success');
-    } catch (e) {
-      toast(e.message || 'Delete failed', 'error');
-    }
-  }
+  const handleRelease = (item) => setPending({ action: 'release', item });
+
+  const handleDelete = (item) => setPending({ action: 'delete', item });
 
   const summary = [
     { label: 'Total SIMs', val: total, icon: 'simcard', tint: { bg: '#eff6ff', color: '#2563eb' } },
@@ -591,8 +638,9 @@ export default function SimInventory() {
                         <div className="sc-field"><span className="sc-k">Provider</span><span className="sc-v">{item.provider || '—'}</span></div>
                         <div className="sc-field"><span className="sc-k">Team</span><span className="sc-v">{item.team || '—'}</span></div>
                         <div className="sc-field"><span className="sc-k">Location</span><span className="sc-v">{item.location || '—'}</span></div>
-                        <div className="sc-field"><span className="sc-k">Expiry</span><span className="sc-v">{formatDate(item.expiry_date)}</span></div>
-                        <div className="sc-field"><span className="sc-k">Days Left</span><span className={`sc-v ${dayClass(dl)}`}>{dayLabel(dl)}</span></div>
+                        <div className="sc-field"><span className="sc-k">SIM Card Issue Date</span><span className="sc-v">{formatDate(item.issue_date)}</span></div>
+                        <div className="sc-field"><span className="sc-k">Auto Expiry Date</span><span className="sc-v">{formatDate(item.expiry_date)}</span></div>
+                        <div className="sc-field"><span className="sc-k">SIM Expiry Days Left</span><span className={`sc-v ${dayClass(dl)}`}>{dayLabel(dl)}</span></div>
                       </div>
                       <div className="sc-actions">
                         <button className="mini-btn" onClick={() => setViewItem(item)}>View</button>
@@ -623,6 +671,20 @@ export default function SimInventory() {
       <AddSimModal key={addKey} open={addOpen} onClose={() => setAddOpen(false)} onSaved={addInventoryItem} />
       <AssignSimModal open={!!assignItem} item={assignItem} onClose={() => setAssignItem(null)} onSaved={assignInventoryItem} />
       <InventoryDetails item={viewItem} onClose={() => setViewItem(null)} />
+
+      <ConfirmDialog
+        open={!!pending}
+        busy={!!pending?.busy}
+        variant={pending?.action === 'release' ? 'primary' : 'danger'}
+        title={pending?.action === 'release' ? 'Release SIM?' : 'Delete SIM?'}
+        message={pending?.action === 'release'
+          ? <>Release <strong>&ldquo;{pending?.item?.sim_number || 'this SIM'}&rdquo;</strong> back to the locker? It becomes Available again for assignment.</>
+          : <>Delete <strong>&ldquo;{pending?.item?.sim_number || 'this SIM'}&rdquo;</strong> from inventory? This action cannot be undone.</>}
+        confirmLabel={pending?.action === 'release' ? 'Release' : 'Delete'}
+        busyLabel={pending?.action === 'release' ? 'Releasing...' : 'Deleting...'}
+        onConfirm={runPending}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }

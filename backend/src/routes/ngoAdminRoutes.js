@@ -80,10 +80,9 @@ import {
   getFollowups,
   reassignFollowup,
   updateFollowupDate,
-  getIdleAlerts,
-  notifyFroHandler,
   pauseFro,
   resumeFro,
+  notifyFroHandler,
   getTopPerformers,
   getBottomPerformers,
   getAssignedData,
@@ -120,7 +119,7 @@ router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'account
 router.get('/non-connected-fresh', authenticateRole('admin', 'super_admin'), getNonConnectedFresh);
 router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admin'), deleteNonConnectedFresh);
 
-// Per-day FRO idle stats — also used by HR for warning letters on a selected FRO
+// Per-day FRO stats (calls / talk / break / skips) — also used by HR for warning letters on a selected FRO
 router.get('/fro-daily-stats', authenticateRole('admin', 'super_admin', 'hr'), getFroDailyStats);
 
 router.use(authenticateRole('admin', 'super_admin'));
@@ -133,9 +132,8 @@ router.get('/dashboard/station-stats', getStationStats);
 router.get('/tl-dashboard', getTLDashboard);
 router.get('/dashboard/donation-funnel', getDonationFunnel);
 router.get('/dashboard/hourly-performance', getHourlyPerformance);
-router.get('/dashboard/idle-alerts', getIdleAlerts);
-router.post('/notify-fro', authenticateRole('admin', 'super_admin'), notifyFroHandler);
 router.post('/fro/:id/pause', authenticateRole('admin', 'super_admin'), pauseFro);
+router.post('/notify-fro', authenticateRole('admin', 'super_admin'), notifyFroHandler);
 router.post('/fro/:id/resume', authenticateRole('admin', 'super_admin'), resumeFro);
 router.get('/dashboard/top-performers', getTopPerformers);
 router.get('/dashboard/bottom-performers', getBottomPerformers);

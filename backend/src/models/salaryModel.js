@@ -75,6 +75,27 @@ export const getActiveSalaryByWorker = async (workerId) => {
   return data && data.length > 0 ? data[0] : null;
 };
 
+// Batch form of getActiveSalaryByWorker: one query for a whole roster instead of
+// N. Rows come back ordered by from_month desc, so the first row seen for a
+// worker is the same one the per-worker .limit(1) would have returned (latest
+// from_month among the open-ended ones). Returns a Map keyed by worker_id.
+export const getActiveSalaryByWorkers = async (workerIds) => {
+  const map = new Map();
+  const ids = (workerIds || []).filter(Boolean);
+  if (ids.length === 0) return map;
+  const { data, error } = await db
+    .from('salary_history')
+    .select('worker_id, salary, from_month')
+    .in('worker_id', ids)
+    .is('to_month', null)
+    .order('from_month', { ascending: false });
+  if (error) throw error;
+  for (const row of data || []) {
+    if (!map.has(row.worker_id)) map.set(row.worker_id, row);
+  }
+  return map;
+};
+
 export const getSalaryById = async (id) => {
   const { data, error } = await db
     .from('salary_history')
@@ -607,6 +628,23 @@ export const getPagarExportData = async (month) => {
     attByWorker[r.worker_id].push(r);
   }
 
+  // 4b. Idle seconds per FRO for the month, summed from the daily snapshots.
+  // Powers the HR salary sheet's "Idle Time (Hrs)" column. Non-fatal: the table
+  // may be absent until migration 126 is applied.
+  const idleSecondsByWorker = {};
+  try {
+    const { data: idleRows } = await db
+      .from('fro_daily_stats')
+      .select('worker_id, idle_seconds')
+      .gte('stat_date', startDate)
+      .lte('stat_date', endDate);
+    for (const r of idleRows || []) {
+      idleSecondsByWorker[r.worker_id] = (idleSecondsByWorker[r.worker_id] || 0) + (Number(r.idle_seconds) || 0);
+    }
+  } catch (e) {
+    // Non-fatal.
+  }
+
   // 5. Station assignments
   const { data: stations, error: stErr } = await db
     .from('fro_station_assignments')
@@ -617,22 +655,6 @@ export const getPagarExportData = async (month) => {
     if (!stationsByWorker[s.fro_worker_id]) stationsByWorker[s.fro_worker_id] = [];
     stationsByWorker[s.fro_worker_id].push(s.station);
   }
-
-  // 5b. Monthly idle time per worker (fro_daily_stats heartbeat snapshot). Non-FRO
-  // workers have no rows, so they simply stay at 0.
-  let idleByWorker = {};
-  try {
-    const { data: idleRows, error: idleErr } = await db
-      .from('fro_daily_stats')
-      .select('worker_id, idle_seconds')
-      .gte('stat_date', startDate)
-      .lte('stat_date', endDate);
-    if (!idleErr && idleRows) {
-      for (const rec of idleRows) {
-        idleByWorker[rec.worker_id] = (idleByWorker[rec.worker_id] || 0) + (Number(rec.idle_seconds) || 0);
-      }
-    }
-  } catch (_) { idleByWorker = {}; }
 
   // 6. Collections from RECEIPTS (matches the Accounts Agent-wise report).
   // Achieved/daily amounts are attributed by receipt.agent_name -> FRO worker,
@@ -921,7 +943,7 @@ export const getPagarExportData = async (month) => {
       gross_payable: grossPayable,
       advance_deduction: advanceDeduction,
       net_payable: netPayable,
-      idle_seconds: idleByWorker[w.id] || 0,
+      idle_seconds: idleSecondsByWorker[w.id] || 0,
       daily: daily, // { day: amount }
       days_in_month: daysInMonth,
       start_date: startDate,
