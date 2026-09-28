@@ -868,9 +868,9 @@ export default function Dashboard() {
   const [weakLoading, setWeakLoading] = useState(false);
   const [highPerfSearch, setHighPerfSearch] = useState('');
   const [lowPerfSearch, setLowPerfSearch] = useState('');
-  // Low Performance card: 'all' = the full FRO roster, 'below' = the original
-  // below-target view. Defaults to 'all' so no FRO is hidden by default.
-  const [lowPerfFilter, setLowPerfFilter] = useState('all');
+  // Low Performance scope: 'present' (default) lists only FROs marked present for
+  // the selected period, 'all' lists every FRO on the NGO roster below target.
+  const [lowScope, setLowScope] = useState('present');
   const [froSearch, setFroSearch] = useState('');
   const [perfStatusFilter, setPerfStatusFilter] = useState('all');
   const [perfSort, setPerfSort] = useState({ key: null, dir: 1 });
@@ -1037,16 +1037,22 @@ export default function Dashboard() {
 
   // Top performers = same global-filtered dataset, best score first
   const topPerformers = useMemo(() => weakPerformers.filter(p => p.monthly_target > 0 && p.punched_in === true && p.performance_pct >= 100).sort((a, b) => b.performance_pct - a.performance_pct), [weakPerformers]);
-
-  // Low Performance roster: EVERY FRO the API returns, worst pace first. The
-  // endpoint already sends every active non-test FRO in the admin's accessible
-  // NGOs, so the card's "All" option is the complete roster — no monthly-target
-  // and no punch-in gate, so FROs with no target set and FROs who have not
-  // punched in are listed too. Copied before sorting because topPerformers reads
-  // the same weakPerformers state array.
-  const lowRoster = useMemo(() => [...weakPerformers].sort((a, b) => a.performance_pct - b.performance_pct), [weakPerformers]);
-  // "Below Target" keeps the previous narrower view for the ones who want it.
-  const lowBelowTarget = useMemo(() => lowRoster.filter(p => p.monthly_target > 0 && p.punched_in === true && p.performance_pct < 100), [lowRoster]);
+  // Low performers. `lowAll` is the full below-target set and `lowPresent` the
+  // default view. Present keeps the historical `monthly_target > 0` gate so the
+  // default list is unchanged; Show All drops it, because a FRO with no target
+  // has periodTarget 0, so performance_pct reads 0 and they belong at the bottom
+  // of the list rather than vanishing from it. Present rows sort ahead of absent
+  // ones so the FROs who came in and underperformed are not buried under
+  // everyone who never arrived.
+  const lowAll = useMemo(() => weakPerformers
+    .filter(p => p.performance_pct < 100)
+    .sort((a, b) => (Number(b.punched_in) - Number(a.punched_in)) || (a.performance_pct - b.performance_pct)), [weakPerformers]);
+  const lowPresent = useMemo(() => lowAll.filter(p => p.punched_in === true && Number(p.monthly_target) > 0), [lowAll]);
+  // Rows the Show All toggle pulls in, and the ones no panel shows at all: High
+  // Performance keeps its own punch-in gate, so an absent FRO already at 100% of
+  // target lands in neither panel. Surfaced in the footer so it stays visible.
+  const lowHiddenCount = lowAll.length - lowPresent.length;
+  const lowAboveTargetAbsent = useMemo(() => weakPerformers.filter(p => p.punched_in !== true && p.performance_pct >= 100).length, [weakPerformers]);
 
   // NGO filter pills from the admin's accessible NGOs
   const ngoFilterPills = useMemo(() => (accessibleNgos || []).filter(n => n && n.id).map(n => ({
@@ -1067,24 +1073,20 @@ export default function Dashboard() {
   const meeting = useMeeting();
   const meetingActive = !!meeting;
 
-  // Full roster (search-independent) — every FRO with a monthly target competes,
-  // online or not, so the numbering matches the FRO My Leads strip.
+  // Full roster (search-independent) — every FRO competes, online or not, so the
+  // numbering matches the FRO My Leads strip. High Performance stays
+  // punch-in gated; Low Performance is gated by the Present / Show All toggle.
   const topPresent = topPerformers;
-  const lowPresent = lowPerfFilter === 'below' ? lowBelowTarget : lowRoster;
-  const lowCounts = { all: lowRoster.length, below: lowBelowTarget.length };
-  const lowFilters = [
-    { key: 'all', label: 'All', color: '#334155' },
-    { key: 'below', label: 'Below Target', color: '#EF4444' },
-  ];
 
   // Independent per-panel search (High / Low)
   const highRows = useMemo(
     () => topPresent.filter(p => (p.fro_name || '').toLowerCase().includes(highPerfSearch.trim().toLowerCase())),
     [topPresent, highPerfSearch]
   );
+  const lowScopeRows = lowScope === 'all' ? lowAll : lowPresent;
   const lowRows = useMemo(
-    () => lowPresent.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
-    [lowPresent, lowPerfSearch]
+    () => lowScopeRows.filter(p => (p.fro_name || '').toLowerCase().includes(lowPerfSearch.trim().toLowerCase())),
+    [lowScopeRows, lowPerfSearch]
   );
 
   // FRO × hour groups for the hourly performance table — active
@@ -2094,6 +2096,33 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              <div
+                role="group"
+                aria-label="Low Performance scope"
+                style={{ display: 'inline-flex', alignItems: 'center', padding: 2, gap: 2, border: '1px solid #fecdd3', borderRadius: 9, background: '#fff5f5' }}
+              >
+                {[['present', 'Present'], ['all', 'Show All']].map(([value, label]) => {
+                  const active = lowScope === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setLowScope(value)}
+                      aria-pressed={active}
+                      title={value === 'present'
+                        ? 'Only FROs marked present for this period'
+                        : 'Every FRO below target, including absent and no-target'}
+                      style={{
+                        height: 28, padding: '0 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                        fontSize: 11, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap',
+                        background: active ? '#EF4444' : 'transparent',
+                        color: active ? '#ffffff' : '#991B1B',
+                        boxShadow: active ? '0 1px 2px rgba(15,23,42,0.12)' : 'none',
+                      }}
+                    >{label}</button>
+                  );
+                })}
+              </div>
               {weakLoading
                 ? <span style={{ whiteSpace: 'nowrap', fontSize: 10, color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg> Loading…</span>
                 : <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Daily target pace</span>}
@@ -2105,39 +2134,6 @@ export default function Dashboard() {
                 style={{ width: 190, height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 10px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C', boxSizing: 'border-box' }}
               />
             </div>
-          </div>
-
-          {/* All / Below Target options — "All" lists the complete FRO roster */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 16px 12px' }}>
-            {lowFilters.map(f => {
-              const active = lowPerfFilter === f.key;
-              return (
-                <button
-                  key={f.key}
-                  onClick={() => setLowPerfFilter(f.key)}
-                  title={`Show ${f.label} FROs`}
-                  aria-pressed={active}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 999,
-                    border: `1.5px solid ${active ? f.color : '#e2e8f0'}`,
-                    background: active ? `${f.color}14` : '#fff',
-                    color: active ? f.color : '#64748B',
-                    fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    transition: 'all .18s ease', whiteSpace: 'nowrap',
-                  }}
-                >
-                  {f.key !== 'all' && (
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: f.color, display: 'inline-block', flexShrink: 0 }} />
-                  )}
-                  <span>{f.label}</span>
-                  <span style={{
-                    minWidth: 18, height: 18, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700,
-                    background: active ? f.color : '#eef1f6', color: active ? '#fff' : '#64748B',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', transition: 'all .18s ease',
-                  }}>{lowCounts[f.key]}</span>
-                </button>
-              );
-            })}
           </div>
 
           <div className="performance-table-wrapper" style={{ flex: 1 }}>
@@ -2160,9 +2156,11 @@ export default function Dashboard() {
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Target size={16} /></div>
                   <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                    {lowPresent.length === 0
-                      ? (lowPerfFilter === 'below' ? 'All FROs have reached the daily target.' : 'No FROs are available to show.')
-                      : 'No FROs match your search.'}
+                    {lowRows.length === 0 && lowPerfSearch.trim()
+                      ? 'No FROs match your search.'
+                      : lowPresent.length === 0 && lowHiddenCount > 0
+                        ? `No present FROs with a target are below 100%. ${lowHiddenCount} below-target FRO${lowHiddenCount === 1 ? ' is' : 's are'} hidden in this view — switch to Show All.`
+                        : 'All FROs have reached the daily target.'}
                   </div>
                 </div>
               </div>
@@ -2187,25 +2185,47 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {lowRows.map((p, i) => (
+                    {lowRows.map((p) => {
+                      const noTarget = !(Number(p.monthly_target) > 0);
+                      const absent = p.punched_in !== true;
+                      return (
                       <tr key={p.fro_id} className="performance-row" style={{ minHeight: 42, borderBottom: '1px solid #edf1f5' }}>
                         <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#EF4444', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{p.rank ?? (lowRows.length - i)}</span>
+                          {p.rank != null
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#EF4444', color: '#ffffff', fontSize: 10, fontWeight: 700 }}>{p.rank}</span>
+                            : <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, borderRadius: 999, background: '#e5e7eb', color: '#64748b', fontSize: 11, fontWeight: 700 }} title="Not ranked — no monthly target set">—</span>}
                         </td>
-                        <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>{p.fro_name}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.period_collection ?? p.today_collection ?? 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.collection_amount || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.monthly_target || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.period_target ?? p.average_collection ?? 0).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
-                        <td style={{ padding: '7px 8px', textAlign: 'center' }}>
-                          <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
-                          <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.min(Number(p.performance_pct || 0), 100)}%`, height: '100%', borderRadius: 'inherit', background: '#EF4444' }} />
+                        <td style={{ padding: '7px 8px', fontWeight: 600, color: '#17233C', fontSize: 11, overflowWrap: 'anywhere', lineHeight: 1.25 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span>{p.fro_name}</span>
+                            {absent && (
+                              <span title="Not marked present for this period" style={{ fontSize: 9, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', padding: '1px 6px', borderRadius: 999 }}>Absent</span>
+                            )}
+                            {noTarget && (
+                              <span title="No monthly target set for this month" style={{ fontSize: 9, fontWeight: 700, letterSpacing: .3, textTransform: 'uppercase', color: '#475569', background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '1px 6px', borderRadius: 999 }}>No target</span>
+                            )}
                           </div>
                         </td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Number(p.period_collection ?? p.today_collection ?? 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>₹{Math.round(p.collection_amount || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>{noTarget ? <span style={{ color: '#94a3b8' }}>—</span> : `₹${Math.round(p.monthly_target || 0).toLocaleString('en-IN')}`}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>{noTarget ? <span style={{ color: '#94a3b8' }}>—</span> : `₹${Math.round(p.period_target ?? p.average_collection ?? 0).toLocaleString('en-IN')}`}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'center', fontWeight: 600, color: '#17233C', fontSize: 11 }}>{p.worked_days}/{p.working_days}</td>
+                        <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                          {noTarget ? (
+                            <div style={{ fontWeight: 600, color: '#64748b', fontSize: 10.5 }} title="Performance is measured against the monthly target; none is set for this month.">No target set</div>
+                          ) : (
+                            <>
+                              <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 11, marginBottom: 4 }}>{Number(p.performance_pct || 0).toFixed(1)}%</div>
+                              <div style={{ width: '100%', height: 5, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(Number(p.performance_pct || 0), 100)}%`, height: '100%', borderRadius: 'inherit', background: '#EF4444' }} />
+                              </div>
+                            </>
+                          )}
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2215,8 +2235,29 @@ export default function Dashboard() {
           <div style={{ padding: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 12px', border: '1px solid #fecdd3', borderRadius: 10, background: '#fff5f5' }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 6 }}><Users size={14} /> {lowPerfFilter === 'below' ? `Total Low Performers: ${lowPresent.length} FROs` : `Showing All ${lowPresent.length} FROs`}</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>{lowPerfFilter === 'below' ? 'These FROs are below 100% of their daily collection target.' : 'The full FRO roster, slowest target pace first. Switch to Below Target to see only those under 100%.'}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Users size={14} /> Total Low Performers: {(lowScope === 'all' ? lowAll.length : lowPresent.length)} FROs
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
+                  These FROs are below 100% of their daily collection target.
+                </div>
+                {lowScope === 'present' && lowHiddenCount > 0 && (
+                  <div style={{ fontSize: 11, color: '#92400e', marginTop: 4, lineHeight: 1.4, fontWeight: 600 }}>
+                    {lowHiddenCount} more below target not shown here (not marked present, or no monthly target set) — use Show All to include {lowHiddenCount === 1 ? 'it' : 'them'}.
+                  </div>
+                )}
+                {lowScope === 'all' && (
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+                    {lowHiddenCount === 0
+                      ? 'Every below-target FRO on this roster is present and has a monthly target.'
+                      : `Includes ${lowHiddenCount} FRO${lowHiddenCount === 1 ? '' : 's'} hidden in the Present view — not marked present, or no monthly target set.`}
+                  </div>
+                )}
+                {lowAboveTargetAbsent > 0 && (
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.4 }}>
+                    {lowAboveTargetAbsent} absent FRO{lowAboveTargetAbsent === 1 ? '' : 's'} at or above target — above 100%, so not listed here.
+                  </div>
+                )}
               </div>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', whiteSpace: 'nowrap' }}>Let's support them!</span>
             </div>

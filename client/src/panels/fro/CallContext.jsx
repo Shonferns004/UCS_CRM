@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react'
+import { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { api } from './api/auth'
 import { istDateString } from './utils/time'
 import { useMeeting } from '../../meetingStore'
@@ -16,6 +16,7 @@ function fmt(seconds) {
   if (seconds == null) return '00:00'
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
+  console.log(m,"Minutes")
   const s = seconds % 60
   if (h > 0) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
@@ -59,9 +60,19 @@ export function CallProvider({ children, userId, operatorId }) {
   const idleSeedRef = useRef({ seconds: 0, at: 0 })
   const [idleLiveSeconds, setIdleLiveSeconds] = useState(0)
 
-  // The server flipped us idle between heartbeats; push one so the row records
-  // the transition (and idle_since) without waiting for the next scheduled beat.
+  // Reaching zero asks the server whether it agrees they are idle, and the panel
+  // records the transition (idle_since) as soon as it says so.
   const idleNotifiedRef = useRef(false)
+  // Reaching zero asks the server "am I idle?". If it says not yet, that is
+  // usually just a clock/network lag, so ask a few more times over the next few
+  // seconds and then stop. Bounded on purpose: there is no periodic heartbeat in
+  // this panel, so this is the only thing that can resolve a disagreement, and it
+  // must not become a background poll.
+  const IDLE_CONFIRM_MAX = 4
+  const IDLE_CONFIRM_MS = 2500
+  const idleAskRef = useRef({ count: 0, at: 0 })
+  // Throttle for mirroring the running idle figure to localStorage.
+  const idlePersistAtRef = useRef(0)
 
   // Admin per-FRO pause: freezes every live counter exactly like meeting mode.
   // Only an admin resume lifts it — the panel never unpauses itself.
@@ -95,10 +106,58 @@ export function CallProvider({ children, userId, operatorId }) {
 
   const clearTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null } }
 
+  // ── Survive a reload ──────────────────────────────────────────
+  // The countdown and the idle figure must not reset when the FRO hits F5. The
+  // server remains the authority — this is only the bridge across the gap while
+  // the panel is remounting, so a reload shows the number the FRO was already
+  // looking at instead of a jarring snap back to 4:00.
+  //
+  // Deliberately NOT used for the day totals in todayStats: those are counters
+  // that only ever grow on the server, and mirroring them locally was what
+  // previously resurrected a midnight-zeroed row.
+  const timerStoreKey = useMemo(
+    () => (userId ? `ucs_fro_timer_v1_${userId}` : null),
+    [userId]
+  )
+
+  const persistTimer = useCallback((s) => {
+    if (!timerStoreKey) return
+    try {
+      localStorage.setItem(timerStoreKey, JSON.stringify({
+        disposition_due_at: s.dispositionDueAt ?? null,
+        seconds_left: s.secondsLeft ?? null,
+        is_idle: !!s.isIdle,
+        idle_total: s.idleTotal ?? null,
+        idle_live: s.idleLive ?? null,
+        // Wall clock, used only to discount the reload gap on the way back in.
+        saved_at: Date.now(),
+      }))
+    } catch (_) { /* private mode / quota — the server still has the truth */ }
+  }, [timerStoreKey])
+
+  const readPersistedTimer = useCallback(() => {
+    if (!timerStoreKey) return null
+    try {
+      const raw = localStorage.getItem(timerStoreKey)
+      if (!raw) return null
+      const saved = JSON.parse(raw)
+      if (!saved || typeof saved !== 'object') return null
+      // Yesterday's numbers must never come back to life today.
+      if (istDateString(saved.saved_at) !== istDateString()) return null
+      return saved
+    } catch (_) { return null }
+  }, [timerStoreKey])
+
+  const clearPersistedTimer = useCallback(() => {
+    if (!timerStoreKey) return
+    try { localStorage.removeItem(timerStoreKey) } catch (_) { /* ignore */ }
+  }, [timerStoreKey])
+
   /**
-   * Take the server's timer answer as truth. Every mutating endpoint (heartbeat,
-   * disposition save, Resume) returns the same shape, so they all land here and
-   * the chip, popup and idle flag can never disagree with what was stored.
+   * Take the server's timer answer as truth. Every mutating endpoint (status
+   * push, disposition save, Resume) returns the same shape, so they all land
+   * here and the chip, popup and idle flag can never disagree with what was
+   * stored.
    */
   const adoptTimer = useCallback((s) => {
     if (!s) return
@@ -122,9 +181,13 @@ export function CallProvider({ children, userId, operatorId }) {
       // A fresh, still-open window means there is genuinely time left, so the
       // "ask the server whether I am idle" latch is released. It deliberately
       // does NOT release on a plain is_idle:false, otherwise sitting on 0:00
-      // while the server still disagreed would re-fire a heartbeat every second.
-      // The panel's own 30s heartbeat keeps checking regardless.
-      if (s.seconds_left > 0) idleNotifiedRef.current = false
+      // while the server still disagreed would re-ask every second. The bounded
+      // retry below is what covers that case instead.
+      if (s.seconds_left > 0) {
+        idleNotifiedRef.current = false
+        // A genuinely open window re-arms the ask budget for the next expiry.
+        idleAskRef.current = { count: 0, at: 0 }
+      }
     } else if (s.seconds_left === null) {
       // Explicitly "not armed" — never leave a stale countdown on screen.
       serverSecondsRef.current = null
@@ -142,7 +205,17 @@ export function CallProvider({ children, userId, operatorId }) {
       setIsIdle(s.is_idle)
       isIdleRef.current = s.is_idle
     }
-  }, [])
+    // Mirror the authoritative answer so a reload has something to show.
+    persistTimer({
+      dispositionDueAt: s.disposition_due_at !== undefined ? (s.disposition_due_at || null) : dispositionDueRef.current,
+      secondsLeft: typeof s.seconds_left === 'number'
+        ? s.seconds_left
+        : (s.seconds_left === null ? null : serverSecondsRef.current?.seconds ?? null),
+      isIdle: typeof s.is_idle === 'boolean' ? s.is_idle : isIdleRef.current,
+      idleTotal: typeof s.today_idle_seconds === 'number' ? s.today_idle_seconds : idleSeedRef.current.seconds,
+      idleLive: isIdleRef.current ? (idleSeedRef.current.seconds + (performance.now() - idleSeedRef.current.at) / 1000) : null,
+    })
+  }, [persistTimer])
 
   // Stats are server-authoritative: the client keeps today's counters in memory
   // only (never localStorage) and pushes them on every change. statsOverride lets
@@ -215,8 +288,9 @@ export function CallProvider({ children, userId, operatorId }) {
   // Counts the server's "seconds left" down locally. The only thing read from
   // this machine is elapsed time via performance.now(), never the wall clock, so
   // a laptop whose date/time is wrong cannot pin the display at 0:00 or make a
-  // fresh window look unreset. Every heartbeat re-syncs the number, so drift
-  // from a throttled tab or a sleeping laptop is corrected within one beat.
+  // fresh window look unreset. The seed is re-taken whenever the panel talks to
+  // the server (open, call start/stop, pause, disposition, resume), so drift
+  // from a throttled tab or a sleeping laptop is corrected on the next sync.
   useEffect(() => {
     if (dispositionDueAt == null) {
       setSecondsLeft(null)
@@ -243,20 +317,47 @@ export function CallProvider({ children, userId, operatorId }) {
         // only thing that happens at zero is a push to ask the server, and the
         // banner appears and stays exactly when the server says idle. If the
         // server disagrees, its own seconds_left re-seeds the display instead.
+        //
+        // With no periodic heartbeat, a single ask could go unanswered by a
+        // transient failure and the banner would never appear at all. So ask
+        // again a few times, rate-limited, then give up rather than poll.
+        const ask = idleAskRef.current
+        const nowMs = performance.now()
         if (!idleNotifiedRef.current) {
           idleNotifiedRef.current = true
+          ask.count = 1
+          ask.at = nowMs
+          syncAllStats()
+        } else if (ask.count < IDLE_CONFIRM_MAX && nowMs - ask.at >= IDLE_CONFIRM_MS) {
+          ask.count += 1
+          ask.at = nowMs
           syncAllStats()
         }
       }
       // While idle, keep the on-screen idle counter counting up between beats.
       if (isIdleRef.current) {
-        setIdleLiveSeconds(idleSeedRef.current.seconds + (performance.now() - idleSeedRef.current.at) / 1000)
+        const live = idleSeedRef.current.seconds + (performance.now() - idleSeedRef.current.at) / 1000
+        setIdleLiveSeconds(live)
+        // Mirror it as it runs so a reload resumes the same figure instead of
+        // restarting the count. Throttled — this is a small JSON write and there
+        // is no need to do it 60 times a minute.
+        const nowMs = performance.now()
+        if (nowMs - idlePersistAtRef.current >= 5000) {
+          idlePersistAtRef.current = nowMs
+          persistTimer({
+            dispositionDueAt: dispositionDueRef.current,
+            secondsLeft: serverSecondsRef.current?.seconds ?? null,
+            isIdle: true,
+            idleTotal: idleSeedRef.current.seconds,
+            idleLive: live,
+          })
+        }
       }
     }
     tick()
     const iv = setInterval(tick, 1000)
     return () => clearInterval(iv)
-  }, [dispositionDueAt, syncAllStats])
+  }, [dispositionDueAt, syncAllStats, persistTimer])
 
   // Resume: the FRO acknowledges the idle state. The server commits the elapsed
   // seconds into today and hands back a fresh 4-minute window.
@@ -278,8 +379,42 @@ export function CallProvider({ children, userId, operatorId }) {
   useEffect(() => {
     if (!localStorage.getItem('ucs_token')) return
     let cancelled = false
-    // No localStorage anymore: hydrate today's counters from the server (same IST
-    // day only — a new day starts at zero), then announce online/status.
+
+    // Paint the last known timer before the network answers, so a reload shows
+    // the number the FRO was already looking at instead of snapping back to
+    // 4:00 (or blank) for a beat. Discount the time the tab was closed using the
+    // wall clock, but only ever downwards: a laptop with a wrong date can make
+    // this gap too big, never too generous, and the server's own answer lands
+    // moments later and is what counts.
+    const saved = readPersistedTimer()
+    if (saved) {
+      const gap = Math.max(0, Math.round((Date.now() - (saved.saved_at || Date.now())) / 1000))
+      const restored = typeof saved.seconds_left === 'number'
+        ? Math.max(0, saved.seconds_left - gap)
+        : null
+      if (saved.disposition_due_at) {
+        setDispositionDueAt(saved.disposition_due_at)
+        dispositionDueRef.current = saved.disposition_due_at
+      }
+      if (typeof saved.idle_total === 'number') {
+        setIdleSecondsToday(saved.idle_total)
+        idleSeedRef.current = { seconds: saved.idle_total, at: performance.now() }
+      }
+      if (saved.is_idle) {
+        setIsIdle(true)
+        isIdleRef.current = true
+        if (typeof saved.idle_live === 'number') {
+          setIdleLiveSeconds(saved.idle_live + gap)
+        }
+      }
+      if (restored !== null) {
+        serverSecondsRef.current = { seconds: restored, at: performance.now() }
+        setSecondsLeft(restored)
+      }
+    }
+
+    // No localStorage for the counters: hydrate today's stats from the server
+    // (same IST day only — a new day starts at zero), then announce online.
     ;(async () => {
       try {
         const live = await api('/fro/status/me', { _prefix: 'ucs' })
@@ -316,7 +451,7 @@ export function CallProvider({ children, userId, operatorId }) {
       if (!localStorage.getItem('ucs_token')) return
       api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch(() => {})
     }
-  }, [hydrateTodayStats, syncAllStats, adoptTimer])
+  }, [hydrateTodayStats, syncAllStats, adoptTimer, readPersistedTimer])
 
   // ── Admin per-FRO pause ──────────────────────────────────────
   // applyPause freezes exactly like meeting start: accrue the paused window from
@@ -390,9 +525,9 @@ export function CallProvider({ children, userId, operatorId }) {
       filter: (p) => watched.has(String((p.new || p.old || {}).worker_id)),
       onInsert: (row) => { if (row?.is_paused) applyPause(row.paused_by); },
       onUpdate: (row) => {
-        // Heartbeats rewrite this row ~every 30s without changing pause
-        // state — only converge (GET /fro/status/me) when the flag flipped,
-        // otherwise every heartbeat costs a pointless round-trip per panel.
+        // Ordinary status pushes rewrite this row without changing pause state,
+        // so only converge (GET /fro/status/me) when the flag actually flipped,
+        // otherwise every push costs a pointless round-trip per panel.
         if (!!row?.is_paused === pausedRef.current) return
         if (row?.is_paused) applyPause(row?.paused_by)
         else converge()

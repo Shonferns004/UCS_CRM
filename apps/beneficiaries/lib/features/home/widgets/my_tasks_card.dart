@@ -1,6 +1,7 @@
 ﻿import '../../../core/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_skeleton.dart';
 import '../../../services/api_service.dart';
 
 class MyTasksCard extends StatefulWidget {
@@ -39,7 +40,16 @@ class _MyTasksCardState extends State<MyTasksCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const SizedBox.shrink();
+    if (_loading) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          SkeletonBox(width: 130, height: 16, borderRadius: 7),
+          SizedBox(height: 12),
+          SkeletonCardRows(rows: 3, leadingSize: 20, leadingRadius: 6),
+        ],
+      );
+    }
     if (_tasks.isEmpty) return const SizedBox.shrink();
 
     return Column(
