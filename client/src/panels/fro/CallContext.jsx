@@ -53,6 +53,11 @@ export function CallProvider({ children, userId, operatorId }) {
   // only ever measures elapsed time on this machine, so a wrong clock cannot
   // affect it.
   const serverSecondsRef = useRef(null)
+  // The server's committed idle total plus the monotonic reading taken when it
+  // arrived, so the "idle counter" in the clock widget can tick up live between
+  // heartbeats instead of sitting frozen for 30s at a time.
+  const idleSeedRef = useRef({ seconds: 0, at: 0 })
+  const [idleLiveSeconds, setIdleLiveSeconds] = useState(0)
 
   // The server flipped us idle between heartbeats; push one so the row records
   // the transition (and idle_since) without waiting for the next scheduled beat.
@@ -114,6 +119,12 @@ export function CallProvider({ children, userId, operatorId }) {
     if (typeof s.seconds_left === 'number') {
       serverSecondsRef.current = { seconds: s.seconds_left, at: performance.now() }
       setSecondsLeft(s.seconds_left)
+      // A fresh, still-open window means there is genuinely time left, so the
+      // "ask the server whether I am idle" latch is released. It deliberately
+      // does NOT release on a plain is_idle:false, otherwise sitting on 0:00
+      // while the server still disagreed would re-fire a heartbeat every second.
+      // The panel's own 30s heartbeat keeps checking regardless.
+      if (s.seconds_left > 0) idleNotifiedRef.current = false
     } else if (s.seconds_left === null) {
       // Explicitly "not armed" — never leave a stale countdown on screen.
       serverSecondsRef.current = null
@@ -123,11 +134,13 @@ export function CallProvider({ children, userId, operatorId }) {
       setInShift(s.in_shift)
       inShiftRef.current = s.in_shift
     }
-    if (typeof s.today_idle_seconds === 'number') setIdleSecondsToday(s.today_idle_seconds)
+    if (typeof s.today_idle_seconds === 'number') {
+      setIdleSecondsToday(s.today_idle_seconds)
+      idleSeedRef.current = { seconds: s.today_idle_seconds, at: performance.now() }
+    }
     if (typeof s.is_idle === 'boolean') {
       setIsIdle(s.is_idle)
       isIdleRef.current = s.is_idle
-      if (!s.is_idle) idleNotifiedRef.current = false
     }
   }, [])
 
@@ -222,14 +235,22 @@ export function CallProvider({ children, userId, operatorId }) {
       // this the panel declared itself idle off the clock, pushed a heartbeat
       // saying so, and fought the server's own answer on every tick.
       if (left === 0 && !pausedRef.current && !meetingActiveRef.current && !isIdleRef.current && inShiftRef.current) {
-        setIsIdle(true)
-        isIdleRef.current = true
-        // Tell the server now instead of waiting for the next heartbeat, so
-        // idle_since is stamped the moment the window actually ran out.
+        // The server decides idle, never this countdown. It used to set isIdle
+        // here, which flashed the idle banner for a frame: the two clocks are
+        // never perfectly aligned, so whenever the server still believed the
+        // window was open it answered is_idle false, the banner vanished, and
+        // the re-seeded seconds_left put the display back up around 3:40. Now the
+        // only thing that happens at zero is a push to ask the server, and the
+        // banner appears and stays exactly when the server says idle. If the
+        // server disagrees, its own seconds_left re-seeds the display instead.
         if (!idleNotifiedRef.current) {
           idleNotifiedRef.current = true
           syncAllStats()
         }
+      }
+      // While idle, keep the on-screen idle counter counting up between beats.
+      if (isIdleRef.current) {
+        setIdleLiveSeconds(idleSeedRef.current.seconds + (performance.now() - idleSeedRef.current.at) / 1000)
       }
     }
     tick()
@@ -514,7 +535,7 @@ export function CallProvider({ children, userId, operatorId }) {
       status: liveStatus,
       paused, pausedBy, resumeSelf,
       // Disposition timer / idle
-      dispositionDueAt, secondsLeft, isIdle, idleSecondsToday, inShift,
+      dispositionDueAt, secondsLeft, isIdle, idleSecondsToday, idleLiveSeconds, inShift,
       resumeIdle, adoptTimer, DISPOSITION_WINDOW,
     }}>
       {children}

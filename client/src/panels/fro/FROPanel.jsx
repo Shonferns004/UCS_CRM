@@ -211,7 +211,7 @@ function formatClock(totalSeconds) {
 // paused, in a meeting or off shift it holds at a full 4:00 and says why,
 // because the server issues no deadline in those states.
 function DispositionTimer() {
-  const { secondsLeft, isIdle, inShift, paused, status } = useCall();
+  const { secondsLeft, isIdle, inShift, paused, status, idleLiveSeconds } = useCall();
 
   const held = paused || status === 'meeting';
   const armed = secondsLeft != null;
@@ -237,18 +237,26 @@ function DispositionTimer() {
     : warn ? 'Due'
     : 'Disposition';
 
-  const tip = !armed
-    ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
-    : isIdle
-      ? 'Your 4-minute window ran out. Idle time keeps adding up until you record a disposition or resume.'
+  // Idle counts UP and replaces the countdown: once the window is gone there is
+  // nothing left to count down, and the useful number is how long they have been
+  // idle. It ticks live between heartbeats, and the server commits the same
+  // figure into today's idle total the moment they record a disposition or
+  // press Resume.
+  const display = isIdle ? formatClock(idleLiveSeconds) : (armed ? formatClock(value) : '—:—');
+
+  const tip = isIdle
+    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record a disposition or press Resume to clear it.`
+    : !armed
+      ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
       : held
         ? 'On hold — the 4-minute window is frozen while you are paused or in a meeting.'
         : !inShift
           ? 'Off shift, so the window is not running. It opens with your first action of the day.'
           : 'Time left to record a disposition. Every disposition resets this to 4:00.';
 
-  // Fraction of the window still remaining, for the bar underneath.
-  const remaining = armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW)) : 1;
+  // Fraction of the window still remaining, for the bar underneath. While idle
+  // the bar is full-width: the countdown is over, this is an accrual now.
+  const remaining = isIdle ? 1 : (armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW)) : 1);
 
   // Portalled to document.body on purpose. Rendered inline it sat at z-index 70,
   // so the detailed donor/lead page (z-index 1400) and the donation modal (2000)
@@ -289,7 +297,7 @@ function DispositionTimer() {
           lineHeight: 1.15, marginTop: 2, fontVariantNumeric: 'tabular-nums',
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
         }}>
-          {armed ? formatClock(value) : '—:—'}
+          {display}
         </div>
         <div style={{ height: 4, borderRadius: 2, background: 'var(--line, #e2e8f0)', overflow: 'hidden', marginTop: 7 }}>
           <div style={{ height: '100%', width: `${remaining * 100}%`, background: color, transition: 'width .95s linear' }} />
