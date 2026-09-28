@@ -22,6 +22,7 @@ import {
   getShiftWindowMs,
   withinShift,
   liveIdleSeconds,
+  effectiveIdleSeconds,
   openIdleSeconds,
   deadlinePassed,
   dispositionDueMs,
@@ -917,11 +918,19 @@ export const getMyPerformance = async (req, res) => {
     const workedTarget = 8 * 3600;
 
     // Idle for the FRO's own strip: committed + any period still running,
-    // clamped to their shift. Counted on the covered FRO's row (where the
-    // counters live), and suppressed when someone else is covering it — an
-    // absent FRO must not be shown as idling on someone else's shift.
+    // clamped to their shift — the same effectiveIdleSeconds() the NGO-admin
+    // telecaller table uses for this worker, so the two surfaces cannot show
+    // different numbers for the same person at the same moment.
+    //
+    // The coveredByOther suppression that used to live here is gone on purpose.
+    // It zeroed the figure whenever a third party looked at a covered FRO, so
+    // the strip read 0 while the admin table read the real total for the very
+    // same row. That row is this FRO's own committed counter; the admin screen
+    // already settled the rule ("every row renders its own committed counter
+    // and streak, nothing is inherited from a work-as covered row"), so the
+    // strip follows it rather than keeping a second opinion.
     const idleShift = await getShiftWindowMs(workerId, nowMs);
-    if (!coveredByOther && liveStatus && !liveStatus.idle_since
+    if (liveStatus && !liveStatus.idle_since
       && !liveStatus.is_paused && liveStatus.status !== 'meeting') {
       const dueNow = dispositionDueMs(liveStatus);
       if (Number.isFinite(dueNow) && nowMs >= dueNow
@@ -933,9 +942,7 @@ export const getMyPerformance = async (req, res) => {
         }
       }
     }
-    const idleSeconds = coveredByOther
-      ? 0
-      : liveIdleSeconds(liveStatus || {}, idleShift, nowMs);
+    const idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
 
     return res.json({
       worker: { id: identityWorkerId, name: currentName },
