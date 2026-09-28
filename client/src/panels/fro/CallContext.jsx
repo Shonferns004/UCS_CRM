@@ -217,6 +217,30 @@ export function CallProvider({ children, userId, operatorId }) {
     })
   }, [persistTimer])
 
+  /**
+   * Restart the 4-minute window the moment the FRO records a disposition,
+   * without waiting for the network round trip.
+   *
+   * Every disposition save used to adopt the server's timer only after its await
+   * resolved, which tied the countdown to connectivity: on a dead or slow
+   * connection the chip kept counting the old deadline, the save button stayed
+   * disabled on "Loading...", and the FRO watched the clock run down for an
+   * action they had already taken. This restarts the window locally at submit
+   * time; the server's own timer overwrites it the moment the response lands, and
+   * the next hydrate reconciles it if the response never comes.
+   *
+   * seconds_left is what the chip counts down from, anchored to performance.now()
+   * rather than the wall clock, so a machine with a wrong date still shows a
+   * correct 4:00 — the same property the server-sourced path relies on.
+   */
+  const adoptOptimisticDisposition = useCallback(() => {
+    adoptTimer({
+      disposition_due_at: new Date(Date.now() + DISPOSITION_WINDOW * 1000).toISOString(),
+      seconds_left: DISPOSITION_WINDOW,
+      is_idle: false,
+    });
+  }, [adoptTimer])
+
   // Stats are server-authoritative: the client keeps today's counters in memory
   // only (never localStorage) and pushes them on every change. statsOverride lets
   // a caller push a freshly-computed value before React re-renders the ref.
@@ -671,7 +695,7 @@ export function CallProvider({ children, userId, operatorId }) {
       paused, pausedBy, resumeSelf,
       // Disposition timer / idle
       dispositionDueAt, secondsLeft, isIdle, idleSecondsToday, idleLiveSeconds, inShift,
-      resumeIdle, adoptTimer, DISPOSITION_WINDOW,
+      resumeIdle, adoptTimer, adoptOptimisticDisposition, DISPOSITION_WINDOW,
     }}>
       {children}
     </CallContext.Provider>
