@@ -276,7 +276,7 @@ function DispositionTimer() {
           on screen permanently, the broadcast is not. */}
       <style>{'@keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.4); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
       <div
-        title={live
+        title={counting
           ? 'Time left to record a disposition. Every disposition resets this to 4:00; if it runs out you are marked idle until you resume.'
           : 'Your 4-minute disposition window. The clock starts when your shift does.'}
         style={{
@@ -293,7 +293,7 @@ function DispositionTimer() {
           padding: '9px 13px',
           borderRadius: 16,
           background: 'var(--card-bg, #fff)',
-          border: `1px solid ${live ? (urgent ? '#FCA5A5' : warn ? '#FCD34D' : '#BFDBFE') : 'var(--line, #e2e8f0)'}`,
+          border: `1px solid ${counting ? (urgent ? '#FCA5A5' : warn ? '#FCD34D' : '#BFDBFE') : 'var(--line, #e2e8f0)'}`,
           boxShadow: urgent ? '0 10px 28px rgba(220,38,38,.30)' : '0 8px 22px rgba(15,23,42,.16)',
           ...(urgent ? { animation: 'froIdlePulse 1.4s infinite' } : {}),
           pointerEvents: 'auto',
