@@ -237,6 +237,24 @@ export function withoutStaleIdle(row, shift, nowMs = Date.now()) {
   };
 }
 
+/**
+ * Is this FRO idle right now? The single answer every reader must give.
+ *
+ * Deliberately requires the shift to be open. Idle is a shift-time state — the
+ * seconds only count inside the window — so a row whose idle_since is still set
+ * after hours has simply not been cleaned up yet, and reporting it as idle
+ * parks a blocking Resume overlay on a worker who is off the clock.
+ *
+ * Delegates the "is a period open" half to idlePeriodStartMs so the same rule
+ * decides this everywhere: a stamp from a previous IST day does not count, an
+ * already-lapsed deadline does, and a paused or meeting FRO never does.
+ */
+export function isIdleNow(row, shift, nowMs = Date.now()) {
+  if (!withinShift(shift, nowMs)) return false;
+  if (row?.is_paused || row?.status === 'meeting') return false;
+  return Number.isFinite(idlePeriodStartMs(row, nowMs));
+}
+
 export function secondsLeft(row, nowMs = Date.now()) {
   const due = dispositionDueMs(row);
   if (!Number.isFinite(due)) return null;
