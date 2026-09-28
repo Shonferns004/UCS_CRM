@@ -9,6 +9,12 @@ import {
 
 export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', 'Damaged', 'Inactive'];
 
+/* A SIM is valid for 28 days from the day it is issued, so a SIM issued on
+   21-09-2026 expires on 19-10-2026. The Add form sends the derived date, but the
+   rule is applied here too so imports and direct API calls land on the same
+   expiry instead of a spare with no expiry at all. */
+export const SIM_VALIDITY_DAYS = 28;
+
 const alwaysPresentFields = [
   'sim_name', 'sim_number', 'sim_type', 'provider', 'status', 'location',
   'mobile_id', 'device', 'imei', 'assigned_to', 'team',
@@ -28,13 +34,43 @@ function clean(data) {
   return c;
 }
 
+/* Calendar-day arithmetic rather than milliseconds: adding 86400000 drifts by an
+   hour across a DST boundary and can land on the previous day. setDate() keeps
+   the local calendar date exact. */
+export function addDaysStr(dateStr, days) {
+  if (!dateStr) return null;
+  const d = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function autoExpiryDate(issueDate, validityDays = SIM_VALIDITY_DAYS) {
+  return addDaysStr(issueDate, validityDays);
+}
+
+/* Fills in the expiry of a row that has an issue date but never got one. An
+   expiry that is already stored is left alone, so a SIM with a different validity
+   window (a custom recharge, say) is not silently rewritten. */
+function applyAutoExpiry(row) {
+  if (row.issue_date && !row.expiry_date) {
+    row.expiry_date = autoExpiryDate(row.issue_date);
+  }
+  return row;
+}
+
 function computeExpiry(expiryDate, today = new Date()) {
   if (!expiryDate) return { days_left: null, derived_status: 'Inactive' };
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const end = new Date(`${expiryDate}T00:00:00`).getTime();
   const days = Math.round((end - start) / 86400000);
+  /* days === 0 means today IS the expiry date, so the SIM is still good for the
+     whole of today and only turns Expired the day after. Treating 0 as Expired
+     (days >= 1) cut a SIM's life one day short: one issued 21-09-2026 expired on
+     19-10-2026 rather than 20-10, so it was marked Expired while the Locker
+     still showed "Today" days left. */
   if (days > 30) return { days_left: days, derived_status: 'Active' };
-  if (days >= 1) return { days_left: days, derived_status: 'Expiring Soon' };
+  if (days >= 0) return { days_left: days, derived_status: 'Expiring Soon' };
   return { days_left: days, derived_status: 'Expired' };
 }
 
@@ -63,7 +99,7 @@ export const addInventoryItem = async (req, res) => {
     if (!body.sim_number || !String(body.sim_number).trim()) {
       return res.status(400).json({ message: 'SIM Number is required' });
     }
-    const derived = computeExpiry(body.expiry_date);
+    const derived = computeExpiry(applyAutoExpiry(body).expiry_date);
     body.status = finalStatus({ status: body.status }, derived);
     body.created_by = req.user?.login_id || req.user?.id || req.user?.name || null;
     const item = await createInventoryItem(body);
@@ -80,7 +116,8 @@ export const listInventoryItems = async (req, res) => {
   try {
     const items = await getAllInventoryItems();
     const now = new Date();
-    const withMeta = items.map((it) => {
+    const withMeta = items.map((raw) => {
+      const it = applyAutoExpiry({ ...raw });
       const derived = computeExpiry(it.expiry_date, now);
       const status = finalStatus(it, derived);
       return { ...it, status, days_left: derived.days_left, derived_status: status };
@@ -95,8 +132,9 @@ export const getInventoryItem = async (req, res) => {
   try {
     const item = await getInventoryItemById(req.params.id);
     if (!item) return res.status(404).json({ message: 'Inventory item not found' });
-    const derived = computeExpiry(item.expiry_date);
-    return res.json({ ...item, days_left: derived.days_left, derived_status: finalStatus(item, derived) });
+    const withExpiry = applyAutoExpiry({ ...item });
+    const derived = computeExpiry(withExpiry.expiry_date);
+    return res.json({ ...withExpiry, days_left: derived.days_left, derived_status: finalStatus(withExpiry, derived) });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -108,7 +146,7 @@ export const editInventoryItem = async (req, res) => {
     if (!body.sim_number || !String(body.sim_number).trim()) {
       return res.status(400).json({ message: 'SIM Number is required' });
     }
-    const derived = computeExpiry(body.expiry_date);
+    const derived = computeExpiry(applyAutoExpiry(body).expiry_date);
     body.status = finalStatus({ status: body.status }, derived);
     const item = await updateInventoryItem(req.params.id, body);
     return res.json({ message: 'Inventory item updated', item, days_left: derived.days_left });
@@ -173,7 +211,7 @@ export const updateStatus = async (req, res) => {
       });
     }
     const item = await updateInventoryItem(req.params.id, updates);
-    const derived = computeExpiry(item.expiry_date);
+    const derived = computeExpiry(applyAutoExpiry({ ...item }).expiry_date);
     return res.json({ message: 'Status updated', item: { ...item, status, ...derived } });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -213,7 +251,7 @@ export const importInventoryItems = async (req, res) => {
         invalid.push({ row, reason: missing ? 'Missing SIM Number' : 'Duplicate SIM Number' });
         continue;
       }
-      const derived = computeExpiry(row.expiry_date);
+      const derived = computeExpiry(applyAutoExpiry(row).expiry_date);
       row.status = finalStatus({ status: row.status }, derived);
       row.created_by = req.user?.login_id || req.user?.name || null;
       valid.push(row);
