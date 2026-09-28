@@ -14,7 +14,7 @@ import { requestNotifPermission, showDesktopNotification } from '../../utils/des
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
-import { CallProvider, useCall } from './CallContext'
+import { CallProvider, useCall, DISPOSITION_WINDOW } from './CallContext'
 import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -194,46 +194,127 @@ function PauseGate() {
   );
 }
 
-// Disposition countdown. Sits in the top bar so it is visible on every FRO
-// page, not just the one where work happens. It counts down to the deadline the
-// server set and turns red as the window closes. Hidden outside the shift and
-// while an admin pause or a company meeting is holding the clock.
-function DispositionChip() {
-  const { secondsLeft, isIdle, inShift, paused, status } = useCall();
-  if (paused || status === 'meeting' || !inShift) return null;
-  if (isIdle) return null;
-  if (secondsLeft == null) return null;
-  const urgent = secondsLeft <= 60;
-  const warn = secondsLeft <= 120;
-  const cfg = urgent
-    ? { bg: '#FEE2E2', border: '#FCA5A5', color: '#B91C1C', label: 'Disposition now' }
-    : warn
-      ? { bg: '#FEF3C7', border: '#FCD34D', color: '#B45309', label: 'Disposition due' }
-      : { bg: '#EFF6FF', border: '#BFDBFE', color: '#1D4ED8', label: 'Disposition' };
-  return (
-    <div
-      title="Time left to record a disposition. Every disposition resets this to 4:00; if it runs out you are marked idle until you resume."
-      style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999,
-        background: cfg.bg, border: `1px solid ${cfg.border}`,
-        ...(urgent ? { boxShadow: '0 0 0 0 rgba(220,38,38,.4)', animation: 'froIdlePulse 1.4s infinite' } : {}),
-      }}
-    >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={cfg.color} strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
-      </svg>
-      <span style={{ fontSize: 10.5, fontWeight: 700, color: cfg.color, textTransform: 'uppercase', letterSpacing: .4 }}>{cfg.label}</span>
-      <span style={{ fontSize: 12.5, fontWeight: 800, color: cfg.color, fontVariantNumeric: 'tabular-nums' }}>
-        {fmtCountdown(secondsLeft)}
-      </span>
-    </div>
-  );
+// A seven-segment digit, drawn as SVG rather than typed as text: a real digital
+// clock look, and it keeps the "off" segments faintly visible the way an LCD
+// does. Segment geometry is a 10x18 box; T is the bar thickness.
+const SEG_T = 1.7
+const SEG_H = (y) => `M1,${y} L${1 + SEG_T / 2},${y - SEG_T / 2} L${9 - SEG_T / 2},${y - SEG_T / 2} L9,${y} L${9 - SEG_T / 2},${y + SEG_T / 2} L${1 + SEG_T / 2},${y + SEG_T / 2} Z`
+const SEG_V = (x, y1, y2) => `M${x},${y1} L${x + SEG_T / 2},${y1 + SEG_T / 2} L${x + SEG_T / 2},${y2 - SEG_T / 2} L${x},${y2} L${x - SEG_T / 2},${y2 - SEG_T / 2} L${x - SEG_T / 2},${y1 + SEG_T / 2} Z`
+
+const SEGMENTS = {
+  a: SEG_H(0),      // top
+  f: SEG_V(0, 1, 8),   // upper-left
+  b: SEG_V(10, 1, 8),  // upper-right
+  g: SEG_H(9),      // middle
+  e: SEG_V(0, 10, 17), // lower-left
+  c: SEG_V(10, 10, 17), // lower-right
+  d: SEG_H(18),     // bottom
 }
 
-function fmtCountdown(total) {
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+// Which segments are lit for each digit.
+const DIGIT_SEGMENTS = {
+  0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc',
+  5: 'afgcd', 6: 'afgecd', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg',
+}
+
+function SevenSegDigit({ digit, x, on, off }) {
+  const lit = DIGIT_SEGMENTS[digit] || ''
+  return (
+    <g transform={`translate(${x},0)`}>
+      {Object.keys(SEGMENTS).map((k) => (
+        <path key={k} d={SEGMENTS[k]} fill={lit.includes(k) ? on : off} />
+      ))}
+    </g>
+  )
+}
+
+function DigitalClock({ totalSeconds, on, off, height = 26 }) {
+  const m = Math.floor(Math.max(0, totalSeconds) / 60)
+  const s = Math.max(0, totalSeconds) % 60
+  const digits = [Math.floor(m / 10) % 10, m % 10, Math.floor(s / 10), s % 10]
+  return (
+    // 36.5 wide x 18 tall, so a 26px-high clock is ~53px wide.
+    <svg width={53} height={height} viewBox="0 0 36.5 18" aria-hidden="true" style={{ display: 'block' }}>
+      {/* The colon, drawn as two blocks. */}
+      <rect x="12.6" y="5" width="2" height="2" rx=".7" fill={on} />
+      <rect x="12.6" y="11" width="2" height="2" rx=".7" fill={on} />
+      <SevenSegDigit digit={digits[0]} x={0} on={on} off={off} />
+      <SevenSegDigit digit={digits[1]} x={15} on={on} off={off} />
+      <SevenSegDigit digit={digits[2]} x={26.5} on={on} off={off} />
+    </svg>
+  )
+}
+
+// Disposition countdown, floating over every FRO screen. It reads a full 4:00
+// by default and only actually runs inside the shift: outside shift hours, or
+// while an admin pause or a company meeting is holding the clock, the server
+// issues no deadline, so the digits sit at 4:00 dimmed and labelled rather than
+// the widget disappearing. The deadline itself is still the server's — this
+// only mirrors it.
+function DispositionTimer() {
+  const { secondsLeft, isIdle, inShift, paused, status } = useCall();
+  if (isIdle) return null; // the blocking Resume overlay owns the screen
+
+  const held = paused || status === 'meeting';
+  const counting = inShift && !held;
+  // No deadline means there is nothing to count: the server issues one only
+  // inside the shift, so before it arrives the display holds a full 4:00 rather
+  // than pretending to run. The fallback is intentionally not gated on inShift,
+  // which defaults true and would blank the digits on the first render.
+  const value = secondsLeft != null ? secondsLeft : DISPOSITION_WINDOW;
+  const urgent = counting && value <= 60;
+  const warn = counting && value <= 120;
+
+  const tone = held ? 'held' : !inShift ? 'held' : urgent ? 'urgent' : warn ? 'warn' : 'live';
+  const on = tone === 'urgent' ? '#F87171' : tone === 'warn' ? '#FBBF24' : tone === 'live' ? '#38BDF8' : '#64748B';
+  const off = tone === 'urgent' ? 'rgba(248,113,113,.20)' : tone === 'warn' ? 'rgba(251,191,36,.20)' : tone === 'live' ? 'rgba(56,189,248,.20)' : 'rgba(100,116,139,.18)';
+  const label = held ? (status === 'meeting' ? 'Meeting' : 'Paused') : !inShift ? 'Off shift' : urgent ? 'Now' : warn ? 'Due' : 'Disposition';
+
+  return (
+    <div>
+      {/* Keyframes live here rather than in the broadcast block: this clock is
+          on screen permanently, the broadcast is not. */}
+      <style>{'@keyframes froIdlePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.4); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }'}</style>
+      <div
+        title={live
+          ? 'Time left to record a disposition. Every disposition resets this to 4:00; if it runs out you are marked idle until you resume.'
+          : 'Your 4-minute disposition window. The clock starts when your shift does.'}
+        style={{
+          position: 'fixed',
+          right: 20,
+          // "a little below the right middle" — 58% down the viewport, lifted by
+          // half its own height so the display straddles that line.
+          top: '58%',
+          transform: 'translateY(-50%)',
+          zIndex: 70,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '9px 13px',
+          borderRadius: 16,
+          background: 'var(--card-bg, #fff)',
+          border: `1px solid ${live ? (urgent ? '#FCA5A5' : warn ? '#FCD34D' : '#BFDBFE') : 'var(--line, #e2e8f0)'}`,
+          boxShadow: urgent ? '0 10px 28px rgba(220,38,38,.30)' : '0 8px 22px rgba(15,23,42,.16)',
+          ...(urgent ? { animation: 'froIdlePulse 1.4s infinite' } : {}),
+          pointerEvents: 'auto',
+        }}
+      >
+        <span style={{
+          fontSize: 9.5, fontWeight: 800, color: on, textTransform: 'uppercase',
+          letterSpacing: .5, lineHeight: 1.2, maxWidth: 52,
+        }}>
+          {label}
+        </span>
+        {/* Dark inset so the lit segments read as a real display. */}
+        <span style={{
+          display: 'block', padding: '4px 6px', borderRadius: 8,
+          background: '#0B1220', boxShadow: 'inset 0 1px 3px rgba(0,0,0,.6)',
+        }}>
+          <DigitalClock totalSeconds={value} on={on} off={off} />
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // The disposition window ran out. Blocking overlay with the single action that
@@ -971,7 +1052,6 @@ useEffect(() => onFroAction((action) => {
             <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
             <FroStatusPill />
-            <DispositionChip />
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
@@ -1378,6 +1458,7 @@ useEffect(() => onFroAction((action) => {
         </div>
       )}
       <ToastContainer />
+      <DispositionTimer />
     </div>
     </CallProvider>
   )
