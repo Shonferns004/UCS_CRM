@@ -46,6 +46,28 @@ export function daysLeft(expiryDate) {
   return Math.round((end - today) / 86400000);
 }
 
+/* How long a SIM stays valid once it is issued. A SIM handed out on 21-09-2026
+   therefore expires on 19-10-2026 (28 days later), and the days-left figure is
+   derived from that expiry rather than stored. */
+export const SIM_VALIDITY_DAYS = 28;
+
+/* Calendar-day arithmetic, not milliseconds: adding 86400000 drifts by an hour
+   across a DST boundary and can land on the wrong day. setDate() keeps the local
+   calendar date exact. */
+export function addDaysStr(dateStr, days) {
+  if (!dateStr) return null;
+  const d = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/* Auto Expiry Date for a SIM Card Issue Date. Null issue date means the SIM has
+   not been issued yet, so there is nothing to count down from. */
+export function autoExpiryDate(issueDate, validityDays = SIM_VALIDITY_DAYS) {
+  return addDaysStr(issueDate, validityDays);
+}
+
 export function effectiveStatus(card) {
   const base = card.status || 'Active';
   if (base === 'Replaced') return base;
