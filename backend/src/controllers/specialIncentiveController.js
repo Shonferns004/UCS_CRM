@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import groq from '../config/groq.js';
+import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import {
   getActiveIncentives,
   getIncentiveById,
@@ -51,10 +51,10 @@ const throttleGroq = async () => {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 };
 
-// Model pinned per environment; defaults to gpt-oss-120b, one of the models the
-// deployment's Groq key can actually access (llama-3.3-70b-versatile was
-// removed from the account -> 404 model_not_found).
-const CONGRATS_MODEL = process.env.GROQ_CONGRATS_MODEL || process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
+// Was the first caller to be fixed when llama-3.3-70b-versatile was removed
+// from the Groq account (-> 404 model_not_found). The model now lives in
+// config/groq.js so all five call sites share one definition.
+const CONGRATS_MODEL = GROQ_CHAT_MODEL;
 
 export async function generateCongratsMessage({ winnerName, title, amount }) {
   await throttleGroq();
@@ -299,7 +299,7 @@ export async function aiDraftHandler(req, res) {
       message: `BOOM! First FRO to smash ₹${target.toLocaleString('en-IN')} grabs a massive ₹${reward.toLocaleString('en-IN')}! Full speed, full energy — GO GO GO! 🔥`,
     });
     try {
-      const model = process.env.GROQ_CONGRATS_MODEL || process.env.GROQ_SPELLING_MODEL || 'openai/gpt-oss-120b';
+      const model = GROQ_CHAT_MODEL;
       const completion = await groq.chat.completions.create({
         messages: [
           {

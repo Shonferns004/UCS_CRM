@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import groq from '../config/groq.js';
+import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import db from '../config/db.js';
 import { getAllWorkers } from '../models/workerModel.js';
 import { settleMonthlyLoanDeductions } from '../models/loanModel.js';
@@ -52,7 +52,7 @@ async function generateAiMessage(prompt) {
         },
         { role: 'user', content: prompt },
       ],
-      model: 'llama-3.3-70b-versatile',
+      model: GROQ_CHAT_MODEL,
       max_tokens: 80,
       temperature: 0.7,
     });

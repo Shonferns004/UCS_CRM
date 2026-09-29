@@ -1,9 +1,9 @@
 import db from '../config/db.js';
-import groq from '../config/groq.js';
+import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import config from '../config/whatsappConfig.js';
 
-const AI_MODEL = 'llama-3.3-70b-versatile';
+const AI_MODEL = GROQ_CHAT_MODEL;
 const TRANSCRIPT_LIMIT = 12;
 
 function normalizePhone(phone) {
