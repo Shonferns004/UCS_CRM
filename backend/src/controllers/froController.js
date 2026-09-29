@@ -4658,66 +4658,13 @@ export const updateLiveStatus = async (req, res) => {
   }
 };
 
-// FRO pressed Resume: fold the open idle period into today's total, clear it,
-// and hand back a fresh 4-minute disposition window.
-export const resumeOwnIdle = async (req, res) => {
-  try {
-    // The human's own row, matching where updateLiveStatus() files the heartbeat.
-    const { human: humanCtx } = splitWorkerContext(req.user);
-    const workerId = humanCtx.id;
-    const nowMs = Date.now();
-    const { data: row } = await db
-      .from('fro_live_status')
-      .select('*')
-      .eq('worker_id', workerId)
-      .maybeSingle();
-    if (!row) return res.json({ message: 'Nothing to resume', today_idle_seconds: 0, seconds_left: null });
-
-    const shift = await getShiftWindowMs(workerId, nowMs);
-
-    // Rollover BEFORE the total is computed. Resuming is exactly the moment a stale
-    // counter gets written back, so doing it afterwards would bank a total that
-    // still had yesterday's committed idle inside it.
-    const roll = await rollCountersForNewDay(workerId, row, nowMs, { dbg: 'resume' });
-    const base = roll.rolled
-      ? { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null }
-      : row;
-    const total = liveIdleSeconds(base, shift, nowMs);
-    const due = nextDeadline(shift, nowMs);
-
-    const { error } = await db
-      .from('fro_live_status')
-      .upsert({
-        worker_id: workerId,
-        status: row.status === 'idle' ? 'online' : (row.status || 'online'),
-        idle_since: null,
-        today_idle_seconds: total,
-        stats_date: roll.statsDate,
-        disposition_due_at: due,
-        current_donor_id: null,
-        call_started_at: null,
-        updated_at: new Date(nowMs).toISOString(),
-      }, { onConflict: 'worker_id' });
-    if (error) throw error;
-
-    await writeDailySnapshot(workerId, roll.statsDate, { idle_seconds: total }, {
-      extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
-        ? Math.max(0, shift.endMs - shift.startMs)
-        : NaN,
-      dbg: 'resume',
-    });
-
-    return res.json({
-      message: 'Resumed',
-      today_idle_seconds: total,
-      disposition_due_at: due,
-      seconds_left: due ? DISPOSITION_WINDOW_SECONDS : null,
-      is_idle: false,
-    });
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
+// resumeOwnIdle was removed along with POST /fro/status/resume-idle. It folded
+// the open idle period into today and handed back a fresh 4-minute window
+// without the FRO doing any work, which made idle free to shrug off: the idle
+// seconds were still charged, but the cost of missing the window was a button
+// press rather than a disposition. The disposition path is now the only exit and
+// charges the same period, back-dating idle_since to the expired deadline so a
+// late disposition is not treated more leniently than a fast one.
 
 // ─── Progress Save/Restore ──────────────────────────────────────
 

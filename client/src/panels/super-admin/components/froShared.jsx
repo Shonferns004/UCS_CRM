@@ -9,7 +9,8 @@ export const STATUS_META = {
   on_call: { label: 'On Call', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
   online: { label: 'Online', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
   // Idle = the FRO's 4-minute disposition window ran out and they have not
-  // pressed Resume. Accrues into their day total until they do.
+  // recorded a disposition. Accrues into their day total until they do, or until
+  // they sign out.
   idle: { label: 'Idle', color: '#b91c1c', bg: '#fef2f2', border: '#fca5a5' },
   // A paused FRO or one in a company-wide meeting is held by an admin, not
   // idle by their own doing — shown distinctly so nobody is blamed for it.
