@@ -20,7 +20,6 @@ const STATION_GROUPS = [
   { key: 'bfd', label: 'BFD', prefixes: ['BFD'] },
   { key: 'mfd', label: 'MFD', prefixes: ['MFD'] },
 ];
-const STATION_GROUP_ALL_ON = STATION_GROUPS.map(g => g.key);
 const stationGroupOf = (code) => {
   const prefix = String(code || '').trim().split('-')[0].toUpperCase();
   return STATION_GROUPS.find(g => g.prefixes.includes(prefix))?.key || null;
@@ -934,15 +933,15 @@ export default function Dashboard() {
     const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [stationGroups, setStationGroups] = useState(() => new Set(STATION_GROUP_ALL_ON));
+  // Exactly one family is shown at a time, BOD by default. These behave as radio
+  // buttons rather than checkboxes: picking MOD replaces the selection instead
+  // of adding to it, so the station list always answers a single question
+  // ("how much did this family collect") and the other five are never mixed in.
+  const [stationGroups, setStationGroups] = useState(() => new Set([STATION_GROUPS[0].key]));
   const [stationLoading, setStationLoading] = useState(false);
 
-  const toggleStationGroup = useCallback((key) => {
-    setStationGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
+  const selectStationGroup = useCallback((key) => {
+    setStationGroups(new Set([key]));
   }, []);
 
   // Global date range (derived from the header filter) used by the table & exports
@@ -1055,12 +1054,13 @@ export default function Dashboard() {
     () => visibleStationRows.reduce((s, r) => s + (Number(r.amount) || 0), 0),
     [visibleStationRows]
   );
-  // True when a group chip is switched off, so the table can say so. The badge
-  // above the table stays on the FULL month total either way, because that is
-  // the figure the Collection card reports and it must not appear to change just
-  // because someone hid a station group.
-  const stationGroupsFiltered = useMemo(
-    () => stationGroups.size !== STATION_GROUP_ALL_ON.length,
+  // Name of the family currently shown, for the "showing N of M" hint. With
+  // single-select the table always shows a subset, so the hint is always on and
+  // no conditional is needed. The badge above the table keeps showing the FULL
+  // month total, because that is the figure the Collection card reports and it
+  // must not appear to change just because a family filter is applied.
+  const activeStationLabel = useMemo(
+    () => STATION_GROUPS.find(g => stationGroups.has(g.key))?.label || '',
     [stationGroups]
   );
 
@@ -2930,7 +2930,7 @@ export default function Dashboard() {
                 performance-card so it sits at the same width as Hourly Performance
                 rather than stretching the full page width. */}
             <div className="performance-sections">
-            <div className="performance-card productivity-alerts" style={{ height: 460 }}>
+            <div className="performance-card productivity-alerts station-collection-card" style={{ height: 460 }}>
               <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-flex', flexShrink: 0 }} />
@@ -2965,7 +2965,7 @@ export default function Dashboard() {
                       {gi > 0 && <span style={{ width: 1, height: 20, background: '#e2e8f0', flexShrink: 0 }} />}
                       <button
                         type="button"
-                        onClick={() => toggleStationGroup(g.key)}
+                        onClick={() => selectStationGroup(g.key)}
                         aria-pressed={on}
                         style={{ height: 30, padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${on ? '#2F80D9' : '#dbe5f1'}`, background: on ? '#eff6ff' : '#ffffff', color: on ? '#1d4ed8' : '#94a3b8' }}
                       >
@@ -2976,14 +2976,6 @@ export default function Dashboard() {
                     </span>
                   );
                 })}
-                <span style={{ width: 1, height: 20, background: '#e2e8f0', flexShrink: 0 }} />
-                <button
-                  type="button"
-                  onClick={() => setStationGroups(new Set(STATION_GROUP_ALL_ON))}
-                  style={{ height: 30, padding: '0 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', background: 'transparent', border: '1px solid #dbe5f1', color: '#64748B' }}
-                >
-                  Reset
-                </button>
               </div>
 
               {(() => {
@@ -3012,12 +3004,8 @@ export default function Dashboard() {
                   return (
                     <div style={{ padding: '32px 16px', textAlign: 'center' }}>
                       <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>
-                        {stationGroups.size === 0 ? 'All station groups are hidden.' : 'No station collected in this month.'}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
-                        {stationGroups.size === 0 ? 'Use Reset to show every group again.' : 'Pick a different month above.'}
-                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>No {activeStationLabel} station collected in this month.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick another group or a different month above.</div>
                     </div>
                   );
                 }
@@ -3025,19 +3013,22 @@ export default function Dashboard() {
                 const unattributed = stationCollection.unattributed || { amount: 0, count: 0 };
                 return (
                   <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
-                    {stationGroupsFiltered && (
-                      /* The badge above keeps showing the full month total, so say
-                         plainly that the rows below are a subset - otherwise the two
-                         numbers look like they disagree when they don't. */
-                      <div style={{ padding: '6px 24px', fontSize: 11, color: '#64748B', background: '#f8fbff', borderBottom: '1px solid #f1f5f9' }}>
-                        Showing {visibleStationRows.length} of {(stationCollection.stations || []).length} stations ({formatRupees(visibleStationTotal)}). Month total {formatRupees(stationCollection.total || 0)}.
-                      </div>
-                    )}
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    {/* Single-select always shows a subset, so this is unconditional.
+                        Without it the subset total in the hint and the full total in
+                        the badge would look like they disagree when they don't. */}
+                    <div style={{ padding: '6px 24px', fontSize: 11, color: '#64748B', background: '#f8fbff', borderBottom: '1px solid #f1f5f9' }}>
+                      {activeStationLabel} only: {visibleStationRows.length} of {(stationCollection.stations || []).length} stations ({formatRupees(visibleStationTotal)}). All stations: {formatRupees(stationCollection.total || 0)}.
+                    </div>
+                    {/* borderCollapse 'separate' is deliberate. Chromium does not
+                        apply position:sticky to a th inside a collapsed-border
+                        table, so with 'collapse' the header scrolled away and rows
+                        passed behind it. Separate borders are drawn on the cells
+                        below instead, which keeps the sticky header working. */}
+                    <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                       <thead>
                         <tr>
-                          <th style={{ textAlign: 'left', padding: '8px 24px', fontSize: 11, fontWeight: 700, color: '#64748B', borderBottom: '1px solid #e2e8f0' }}>Station</th>
-                          <th style={{ textAlign: 'right', padding: '8px 24px', fontSize: 11, fontWeight: 700, color: '#64748B', borderBottom: '1px solid #e2e8f0' }}>Collection</th>
+                          <th style={{ textAlign: 'left', padding: '8px 24px', fontSize: 11, fontWeight: 700, color: '#64748B', background: '#ffffff', borderBottom: '1px solid #e2e8f0' }}>Station</th>
+                          <th style={{ textAlign: 'right', padding: '8px 24px', fontSize: 11, fontWeight: 700, color: '#64748B', background: '#ffffff', borderBottom: '1px solid #e2e8f0' }}>Collection</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3066,6 +3057,21 @@ export default function Dashboard() {
                   </div>
                 );
               })()}
+
+              {/* Scoped to this card rather than relying on .productivity-alerts,
+                  whose sticky rule lives in a <style> tag inside the FRO Status
+                  card. Independent, so moving either card cannot break the other. */}
+              <style>{`
+                .station-collection-table thead th { position: sticky; top: 0; z-index: 2; }
+                .station-collection-table tbody tr:hover { background: #f8fbff; }
+                /* Vertical scrollbar hidden on request. The element keeps
+                   overflow-y: auto, so the list still scrolls by wheel, trackpad
+                   and keyboard, and the sticky header still works. Only the bar
+                   itself is invisible; the border-bottom on the header keeps the
+                   two columns readable while rows pass underneath. */
+                .station-collection-card .productivity-table-wrap { scrollbar-width: none; -ms-overflow-style: none; }
+                .station-collection-card .productivity-table-wrap::-webkit-scrollbar { width: 0; height: 0; display: none; }
+              `}</style>
             </div>
             </div>
           </>
