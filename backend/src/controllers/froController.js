@@ -4513,8 +4513,15 @@ export const updateLiveStatus = async (req, res) => {
     // idle_since cleared — the welded state that read "status idle + timer 3:00"
     // in one response. Idle is applied by a guarded UPDATE that only matches a
     // row whose deadline is STILL in the past at write time.
-    const frozen = paused || status === 'meeting' || row?.status === 'meeting';
-    const idleActive = isIdleNow(row, shift, nowMs);
+    // A held row (meeting / admin pause) is frozen: the server must stop its
+    // countdown exactly like the client's, never force idle, and stamp when the
+    // freeze began. rowFrozen is the state we just read; nowFrozen is what THIS
+    // heartbeat says, so a transition can be told apart from steady state. When
+    // this heartbeat is itself the freeze signal, idle must NOT be forced — that
+    // would strip the meeting status and the row would never register as held.
+    const rowFrozen = (row?.is_paused === true) || (row?.status === 'meeting');
+    const nowFrozen = paused || status === 'meeting';
+    const idleActive = !nowFrozen && isIdleNow(row, shift, nowMs);
     let idleStartMs = NaN;
     if (idleActive) {
       delete payload.status;
@@ -4534,6 +4541,32 @@ export const updateLiveStatus = async (req, res) => {
       // Resume own the idle transition.
       payload.status = row?.idle_since ? 'idle' : (status || undefined);
       if (payload.status !== 'idle') delete payload.status;
+    }
+
+    // Freeze bookkeeping. A meeting or admin pause must freeze the SERVER's
+    // countdown exactly like the client's. frozen_at marks the moment the freeze
+    // began, and every read caps open idle there, so time inside the window is
+    // held work time — never idle. On the heartbeat that lifts the freeze the
+    // deadline is re-armed to a fresh window, so the response cannot read a
+    // deadline that lapsed mid-window back as idle. frozen_at is deliberately
+    // KEPT on lift: it still caps any idle that had already begun when the freeze
+    // started, and is inert once that period is resolved (the cap only bites a
+    // period that began at or before frozen_at).
+    if (nowFrozen) {
+      // Entering a freeze stamps its start, refreshed for a new freeze but never
+      // slid forward while one is already in progress.
+      if (!rowFrozen || !row?.frozen_at) {
+        payload.frozen_at = new Date(nowMs).toISOString();
+      }
+    } else if (rowFrozen) {
+      // The freeze lifted THIS heartbeat (the pre-read row was still held). Give
+      // back a fresh window so a deadline that lapsed mid-freeze cannot read back
+      // as idle. Skipped when the FRO is still carrying an idle period from
+      // before the freeze: they stay idle (Resume re-arms), so a window here
+      // would only paint the forbidden "idle + 4:00" state.
+      if (!Number.isFinite(idlePeriodStartMs(row, nowMs))) {
+        payload.disposition_due_at = nextDeadline(shift, nowMs);
+      }
     }
 
     // today_idle_seconds holds COMMITTED time only. The still-running period
@@ -4871,13 +4904,37 @@ export const resumeOwnPause = async (req, res) => {
     // because the other row was still paused) cannot recur.
     const { human: humanCtx } = splitWorkerContext(req.user);
     const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
     const ids = [String(humanCtx.id)];
+
+    // A deadline that lapsed inside the pause must not read back as idle: the
+    // pause held the clock, so hand the FRO a fresh window instead of letting the
+    // spent deadline decide they were idle while an admin held them. frozen_at is
+    // left in place — it still caps any idle that began before the pause, and is
+    // inert once that period is resolved.
+    let reArmIso;
+    try {
+      const { data } = await db
+        .from('fro_live_status')
+        .select('disposition_due_at')
+        .eq('worker_id', ids[0])
+        .maybeSingle();
+      const dueMs = dispositionDueMs(data || {});
+      if (Number.isFinite(dueMs) && nowMs >= dueMs) {
+        const shift = await getShiftWindowMs(ids[0], nowMs);
+        reArmIso = nextDeadline(shift, nowMs);
+      }
+    } catch (_) {
+      // Non-fatal: a missing shift just leaves the deadline as it was.
+    }
 
     // Update, never upsert: a resume must not manufacture a live row for a
     // worker who has never opened the panel (no row already means "not paused").
+    const patch = { is_paused: false, paused_at: null, paused_by: null, updated_at: nowIso };
+    if (reArmIso) patch.disposition_due_at = reArmIso;
     const { error } = await db
       .from('fro_live_status')
-      .update({ is_paused: false, paused_at: null, paused_by: null, updated_at: nowIso })
+      .update(patch)
       .in('worker_id', ids);
     if (error) throw error;
 
