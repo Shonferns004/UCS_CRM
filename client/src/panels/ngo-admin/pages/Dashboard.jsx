@@ -7,15 +7,18 @@ import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
 import { formatDuration } from '../../../utils/formatDuration';
 
-// Station-wise Collection: the four toggle groups the admin asked for. Each chip
-// owns one or more station-family prefixes; a station matches a chip purely on
-// the prefix before the dash, so 'AFD-23' is in AFD and 'MOD-1' is in BFD+MOD.
-// All four start ON so the panel first shows the complete station picture.
+// Station-wise Collection: six toggle filters, one per station family, each
+// fully separate so any one family can be hidden without affecting the others.
+// A station matches a filter purely on the prefix before the dash, so 'AFD-23'
+// matches AFD and 'MOD-1' matches MOD. All six start ON so the panel first
+// shows the complete station picture.
 const STATION_GROUPS = [
   { key: 'bod', label: 'BOD', prefixes: ['BOD'] },
-  { key: 'bfd_mod', label: 'BFD+MOD', prefixes: ['BFD', 'MOD'] },
-  { key: 'mfd_aod', label: 'MFD+AOD', prefixes: ['MFD', 'AOD'] },
+  { key: 'mod', label: 'MOD', prefixes: ['MOD'] },
+  { key: 'aod', label: 'AOD', prefixes: ['AOD'] },
   { key: 'afd', label: 'AFD', prefixes: ['AFD'] },
+  { key: 'bfd', label: 'BFD', prefixes: ['BFD'] },
+  { key: 'mfd', label: 'MFD', prefixes: ['MFD'] },
 ];
 const STATION_GROUP_ALL_ON = STATION_GROUPS.map(g => g.key);
 const stationGroupOf = (code) => {
