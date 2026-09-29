@@ -45,7 +45,7 @@ export function FroMiniCard({ fro, onCardClick }) {
       {fro.status === 'idle' && idleTimer && (
         <div style={{ padding: '6px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fca5a5', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#b91c1c' }}>timer_off</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>Idle — awaiting Resume</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>Idle — awaiting disposition</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>{idleTimer}</span>
         </div>
       )}

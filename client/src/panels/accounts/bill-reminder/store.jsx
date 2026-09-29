@@ -72,7 +72,7 @@ export function RemProvider({ children }) {
         const seen = new Map()
         for (const r of data) {
           if (!r || r.is_deleted) continue
-          const key = [norm(r.title), norm(r.category), norm(r.owner)].join('||')
+          const key = [norm(r.title), norm(r.category), norm(r.owner), norm(r.source_section)].join('||')
           const prev = seen.get(key)
           if (!prev) { seen.set(key, r); continue }
           seen.set(key, bestReminder(prev, r))

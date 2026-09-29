@@ -19,7 +19,6 @@ import { classifyLogSide, bustTlCache } from './ngoAdminController.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
 import {
-  DISPOSITION_WINDOW_SECONDS,
   getShiftWindowMs,
   withinShift,
   liveIdleSeconds,
@@ -64,6 +63,7 @@ import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayU
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
+import { resetLiveWindow } from '../services/froLiveWindow.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -1852,7 +1852,17 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
 
-    return res.status(201).json({ message: `Claimed for ${claimedDonorName} — pending in Lead Verification`, log_id: log.id });
+    // A suspense claim is real disposition work — re-arm the human-at-the-
+    // keyboard's window so it cannot time the FRO out mid-claim. Non-fatal.
+    let timer = null;
+    try {
+      const { human: humanCtx } = splitWorkerContext(req.user);
+      timer = await resetLiveWindow(humanCtx.id, { nowMs: Date.now(), dbg: 'claim' });
+    } catch (claimTimerErr) {
+      console.warn('suspense claim live window reset skipped:', claimTimerErr.message);
+    }
+
+    return res.status(201).json({ message: `Claimed for ${claimedDonorName} — pending in Lead Verification`, log_id: log.id, timer });
   } catch (error) {
     // If THIS request authored a brand-new suspense receipt for an entry- claim
     // but the claim failed, undo it so the bank-audit entry returns to a fully
@@ -2990,98 +3000,29 @@ export const createDonorLogHandler = async (req, res) => {
       return log;
     });
 
-    // ── The 4-minute window: opened by the first action, reset by dispositions ──
-    // The clock no longer starts at login (it used to, which counted the minutes
-    // before the FRO had done anything and fired the overlay at them). It is
-    // armed here by the first logged action of the day, and from then on every
-    // disposition buys a fresh window and clears any open idle period (folding
-    // the elapsed seconds into the day first). Runs after the transaction
-    // commits so a failed save can never hand out free time.
+    // ── The 4-minute window: re-armed by every recorded activity ──
+    // The clock no longer starts at login; the FIRST saved action of the day
+    // opens the window and every subsequent saved action (donation, call, visit,
+    // message, follow_up, note, disposition) buys a fresh 4 minutes and clears
+    // any open idle period, folding the elapsed seconds into the day first.
+    // Runs after the transaction commits so a failed save can never hand out
+    // free time.
+    //
+    // The row is keyed on the HUMAN at the keyboard (splitWorkerContext) — the
+    // same identity the heartbeat and every status read use. Under work-as the
+    // JWT's id is the covered FRO; arming the covered FRO's row instead would
+    // leave the operator's own row stale with a lapsed deadline and accrue idle
+    // for work they were demonstrably doing. The lead / assignment / credit
+    // side above still uses the painted workerId unchanged.
     let timer = null;
     try {
       const nowMs = Date.now();
-      const shift = await getShiftWindowMs(workerId, nowMs);
-      const { data: liveRow } = await db
-        .from('fro_live_status')
-        .select('*')
-        .eq('worker_id', workerId)
-        .maybeSingle();
-      // Any disposition resets the window, whether or not a subtype came with
-      // it. Gating on disposition_detail meant a disposition saved without one
-      // silently kept the old (already expired) deadline, so the FRO kept seeing
-      // 0:00 and pressing Resume did not appear to reset anything.
-      const isDisposition = action === 'disposition';
-      // "Unarmed and the FRO just did something" is NOT the same thing as "first
-      // action of the day", and conflating them is what made the timer appear to
-      // reset itself. The deadline is also cleared by withoutStaleIdle and by
-      // commitIdleOnExit, so a mid-day FRO whose window had expired (or been
-      // cleaned up) would be handed a brand-new 4 minutes by any unrelated
-      // action — a call note, a lead update — which reads exactly like the clock
-      // rewinding. Only open a window when they have genuinely recorded no work
-      // today; after that, the window is reset by a disposition or by Resume, and
-      // an expired one keeps reading idle until then.
-      const workedToday = Number(liveRow?.today_calls || 0) > 0
-        || Number(liveRow?.today_talk_seconds || 0) > 0;
-      const arming = !liveRow?.disposition_due_at && !workedToday;
-      if (isDisposition || arming) {
-        const due = nextDeadline(shift, nowMs);
-        const frozen = !!liveRow?.is_paused || liveRow?.status === 'meeting';
-        const patch = {
-          worker_id: workerId,
-          disposition_due_at: due,
-          idle_since: null,
-          updated_at: new Date(nowMs).toISOString(),
-        };
-
-        // Overdue save: the deadline had already lapsed when this disposition
-        // arrived, so the FRO owes idle time for the window between the deadline
-        // and now. Without this, submitting a disposition before the next
-        // heartbeat lands would silently forgive the overrun. idle_since is
-        // back-dated to the deadline (clamped to the shift start) so the
-        // charge matches the rule rather than the request timing.
-        const dueMs = dispositionDueMs(liveRow);
-        const overdue = !frozen && Number.isFinite(dueMs) && nowMs > dueMs;
-        if (overdue) {
-          const startMs = Number.isFinite(shift?.startMs) ? Math.max(dueMs, shift.startMs) : dueMs;
-          patch.today_idle_seconds = liveIdleSeconds(
-            { ...liveRow, idle_since: new Date(startMs).toISOString() },
-            shift,
-            nowMs,
-          );
-        } else if (liveRow?.idle_since) {
-          patch.today_idle_seconds = liveIdleSeconds(liveRow, shift, nowMs);
-        }
-        patch.stats_date = istDateStr(new Date(nowMs));
-
-        // Leave a frozen row (admin pause / company meeting) alone — resetting
-        // its status to 'online' would punch through a freeze the admin set.
-        if (liveRow?.status === 'idle' && !frozen) {
-          patch.status = 'online';
-          patch.current_donor_id = null;
-          patch.call_started_at = null;
-        }
-        await db.from('fro_live_status').upsert(patch, { onConflict: 'worker_id' });
-        if (patch.today_idle_seconds !== undefined) {
-          await writeDailySnapshot(workerId, istDateStr(new Date(nowMs)), {
-            idle_seconds: patch.today_idle_seconds,
-          }, {
-            extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
-              ? Math.max(0, shift.endMs - shift.startMs)
-              : NaN,
-            dbg: 'disposition',
-          });
-        }
-        timer = {
-          disposition_due_at: due,
-          seconds_left: due ? DISPOSITION_WINDOW_SECONDS : null,
-          is_idle: false,
-          today_idle_seconds: patch.today_idle_seconds ?? liveRow?.today_idle_seconds ?? 0,
-        };
-      }
+      const { human: humanCtx } = splitWorkerContext(req.user);
+      timer = await resetLiveWindow(humanCtx.id, { nowMs });
     } catch (timerErr) {
       // Non-fatal: the action is already saved; the timer just keeps its
       // previous deadline and the FRO may go idle a little early.
-      console.warn('disposition timer reset skipped:', timerErr.message);
+      console.warn('live window reset skipped:', timerErr.message);
     }
 
     return res.json({ message: 'Log entry created', data: result, timer });
@@ -3092,7 +3033,14 @@ export const createDonorLogHandler = async (req, res) => {
     if (error && error.code === '23505') {
       // Duplicate same-day disposition prevented by the DB unique index — the
       // save already happened; treat as idempotent success so the front-end
-      // advances rather than erroring repeatedly.
+      // advances rather than erroring repeatedly. Still re-arm the human's
+      // window so a suppressed duplicate cannot leave them stamped idle.
+      try {
+        const { human: humanCtx } = splitWorkerContext(req.user);
+        await resetLiveWindow(humanCtx.id, { nowMs: Date.now() });
+      } catch (dupTimerErr) {
+        console.warn('duplicate-suppressed live window reset skipped:', dupTimerErr.message);
+      }
       console.warn('duplicate same-day disposition suppressed:', error.message);
       return res.status(200).json({ message: 'Already logged — duplicate suppressed', data: null });
     }
@@ -4369,6 +4317,9 @@ export const updateLiveStatus = async (req, res) => {
     // Filing on the human removes all of it at the source: one row per person,
     // so nothing can overwrite anything, and the cover relationship is carried by
     // work_as_sessions instead of by a single column on the row.
+    // The disposition save (createDonorLogHandler) re-arms through
+    // resetLiveWindow on the SAME human id, so a disposition always refreshes
+    // the row this heartbeat writes.
     const { human: humanCtx } = splitWorkerContext(req.user);
     const workerId = humanCtx.id;
 
@@ -4658,66 +4609,13 @@ export const updateLiveStatus = async (req, res) => {
   }
 };
 
-// FRO pressed Resume: fold the open idle period into today's total, clear it,
-// and hand back a fresh 4-minute disposition window.
-export const resumeOwnIdle = async (req, res) => {
-  try {
-    // The human's own row, matching where updateLiveStatus() files the heartbeat.
-    const { human: humanCtx } = splitWorkerContext(req.user);
-    const workerId = humanCtx.id;
-    const nowMs = Date.now();
-    const { data: row } = await db
-      .from('fro_live_status')
-      .select('*')
-      .eq('worker_id', workerId)
-      .maybeSingle();
-    if (!row) return res.json({ message: 'Nothing to resume', today_idle_seconds: 0, seconds_left: null });
-
-    const shift = await getShiftWindowMs(workerId, nowMs);
-
-    // Rollover BEFORE the total is computed. Resuming is exactly the moment a stale
-    // counter gets written back, so doing it afterwards would bank a total that
-    // still had yesterday's committed idle inside it.
-    const roll = await rollCountersForNewDay(workerId, row, nowMs, { dbg: 'resume' });
-    const base = roll.rolled
-      ? { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null }
-      : row;
-    const total = liveIdleSeconds(base, shift, nowMs);
-    const due = nextDeadline(shift, nowMs);
-
-    const { error } = await db
-      .from('fro_live_status')
-      .upsert({
-        worker_id: workerId,
-        status: row.status === 'idle' ? 'online' : (row.status || 'online'),
-        idle_since: null,
-        today_idle_seconds: total,
-        stats_date: roll.statsDate,
-        disposition_due_at: due,
-        current_donor_id: null,
-        call_started_at: null,
-        updated_at: new Date(nowMs).toISOString(),
-      }, { onConflict: 'worker_id' });
-    if (error) throw error;
-
-    await writeDailySnapshot(workerId, roll.statsDate, { idle_seconds: total }, {
-      extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
-        ? Math.max(0, shift.endMs - shift.startMs)
-        : NaN,
-      dbg: 'resume',
-    });
-
-    return res.json({
-      message: 'Resumed',
-      today_idle_seconds: total,
-      disposition_due_at: due,
-      seconds_left: due ? DISPOSITION_WINDOW_SECONDS : null,
-      is_idle: false,
-    });
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
+// resumeOwnIdle was removed along with POST /fro/status/resume-idle. It folded
+// the open idle period into today and handed back a fresh 4-minute window
+// without the FRO doing any work, which made idle free to shrug off: the idle
+// seconds were still charged, but the cost of missing the window was a button
+// press rather than a disposition. The disposition path is now the only exit and
+// charges the same period, back-dating idle_since to the expired deadline so a
+// late disposition is not treated more leniently than a fast one.
 
 // ─── Progress Save/Restore ──────────────────────────────────────
 

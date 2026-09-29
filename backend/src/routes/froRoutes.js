@@ -46,7 +46,7 @@ import {
   searchSuspenseDonors,
   getMyLiveStatus,
   resumeOwnPause,
-  resumeOwnIdle,
+  // resumeOwnIdle removed: see the note at the end of the /status routes.
   logoutAllFros,
   resetAllFroIdle,
 } from '../controllers/froController.js';
@@ -76,9 +76,13 @@ const requireFro = (req, res, next) => {
 // spelling in their token (requireFro below rejects non-'fro' roles, which
 // made Play flaky per-FRO). It only ever touches the caller's own row.
 router.post('/status/resume-self', authenticate, resumeOwnPause);
-// FRO-side Resume from the idle popup: commits the open idle period into today
-// and hands back a fresh 4-minute disposition window. Same access rule as above.
-router.post('/status/resume-idle', authenticate, resumeOwnIdle);
+// There is deliberately no idle-resume route. It used to hand back a fresh
+// 4-minute window without the FRO doing anything, which made the cost of
+// idling optional. Recording a disposition is now the only way out of idle, and
+// that path already commits the open period into the day (back-dated to the
+// expiry, so the overrun is still charged). Do not re-add a resume affordance
+// without changing that rule here, or the UI removal is only cosmetic and the
+// endpoint stays callable.
 
 router.use(requireFro);
 

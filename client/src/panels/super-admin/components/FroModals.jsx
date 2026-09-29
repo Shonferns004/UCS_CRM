@@ -52,7 +52,7 @@ export function FroDeepDetailModal({ fro, onClose }) {
         )}
         {fro.status === 'idle' && (
           <div style={{ padding: '10px 12px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fca5a5', marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: '#991b1b', fontWeight: 600, marginBottom: 4 }}> Idle — awaiting Resume</div>
+            <div style={{ fontSize: 10, color: '#991b1b', fontWeight: 600, marginBottom: 4 }}> Idle — awaiting disposition</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
                 {fro.computed?.idle_duration_seconds != null ? fmt(fro.computed.idle_duration_seconds) : '00:00'}
@@ -117,7 +117,7 @@ export function FroDetailModal({ fro, onClose, onShowDeep }) {
           <div style={{ padding: '8px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fca5a5', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#b91c1c' }}>timer_off</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>Idle — awaiting Resume</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>Idle — awaiting disposition</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>
                 {fro.computed?.idle_duration_seconds != null ? fmt(fro.computed.idle_duration_seconds) : '00:00'}
               </span>

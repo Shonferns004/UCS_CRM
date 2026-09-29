@@ -25,7 +25,7 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
-import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowsMs, idleFreezeCutoffMs, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
+import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/workAsSessionModel.js';
@@ -5494,8 +5494,12 @@ export const getTLDashboard = async (req, res) => {
       // for one person's login to overwrite another's figures.
       let status = 'offline';
       if (acting) {
+        // Same rule as the FRO board: idle if there is an idle stamp OR the
+        // disposition deadline has lapsed, except while paused / in a meeting.
         status = acting.status === 'on_call' ? 'on_call'
-          : (acting.idle_since ? 'idle' : (acting.status || 'online'));
+          : ((acting.idle_since || deadlinePassed(acting, now.getTime())) && !acting.is_paused && acting.status !== 'meeting')
+            ? 'idle'
+            : (acting.status || 'online');
       } else if (isPresent(w.id) && lsFresh) {
         // Presence is decided on this worker's OWN row and a FRESH one, so a
         // covered FRO who is actually at their desk reads as online. The old

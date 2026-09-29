@@ -2257,7 +2257,7 @@ export default function Dashboard() {
                                 <span title="In meeting · counters paused" style={{ width: 9, height: 9, borderRadius: '50%', background: '#7c3aed', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(124,58,237,.18)' }} />
                               )}
                               {idl && (
-                                <span title="Idle — disposition timer ran out, awaiting Resume" style={{ width: 9, height: 9, borderRadius: '50%', background: '#dc2626', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(220,38,38,.18)' }} />
+                                <span title="Idle — disposition timer ran out, awaiting disposition" style={{ width: 9, height: 9, borderRadius: '50%', background: '#dc2626', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 0 3px rgba(220,38,38,.18)' }} />
                               )}
                               <span style={{ fontWeight: highlighted ? 700 : 600, color: idl ? '#b91c1c' : live ? '#15803d' : (met ? '#6d28d9' : '#17233C'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.fro_name}</span>
                               {idl && (

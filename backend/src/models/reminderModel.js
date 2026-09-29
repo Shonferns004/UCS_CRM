@@ -24,10 +24,13 @@ export const getAllReminders = async (includeDeleted = false) => {
   if (error) throw error;
   const rows = data || [];
   // Deduplicate rows that describe the same reminder (same title + category +
-  // owner, compared case-insensitively after collapsing whitespace/dashes),
-  // keeping the row with the most data (due date / amount / due-date text),
-  // tie-broken by lowest id. Guards against migrations/imports being run more
-  // than once, which would otherwise double every reminder across all clients.
+  // owner + source_section, compared case-insensitively after collapsing
+  // whitespace/dashes), keeping the row with the most data (due date / amount /
+  // due-date text), tie-broken by lowest id. Guards against migrations/imports
+  // being run more than once, which would otherwise double every reminder
+  // across all clients. source_section is part of the key so the sparse Finance
+  // rows (same bare titles under Income Tax / Advance Tax / Accounts and Audit
+  // Fees) stay distinct, matching the client-side dedupe in store.jsx.
   const norm = (s) => String(s || '')
     .toLowerCase()
     .trim()
@@ -40,7 +43,7 @@ export const getAllReminders = async (includeDeleted = false) => {
     (r.due_date_display ? 1 : 0);
   const seen = new Map();
   for (const r of rows) {
-    const key = `${norm(r.title)}||${norm(r.category)}||${norm(r.owner)}`;
+    const key = `${norm(r.title)}||${norm(r.category)}||${norm(r.owner)}||${norm(r.source_section)}`;
     const prev = seen.get(key);
     if (!prev) { seen.set(key, r); continue; }
     const sa = score(prev), sb = score(r);
