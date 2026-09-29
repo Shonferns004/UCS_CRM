@@ -8,7 +8,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { deptLabel } from '../../../lib/labels';
 
-const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','NOBSD2','ODAR','Volunteer Termination Letter','Blank Letter'];
+const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','NOBSD2','ODAR','Doc Submitted','Volunteer Termination Letter','Blank Letter'];
 
 const HR_MESSAGES = [
   {
@@ -86,6 +86,47 @@ function buildLetterheadLayout(ngoKey, innerHtml) {
 const HAS_LH = (k) => k === 'BSCT' || k === 'AFLF' || k === 'MANN';
 
 function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function safeImgSrc(url) {
+  const s = String(url ?? '').trim();
+  if (!/^https?:\/\//i.test(s)) return '';
+  if (/["'<>\\s`]/.test(s)) return '';
+  return s;
+}
+
+const SIG_LINE_FALLBACK = '_______________________';
+
+function signatureImgHtml(url) {
+  const src = safeImgSrc(url);
+  return src
+    ? `<img src="${src}" alt="" style="height:34px;vertical-align:middle;max-width:190px;object-fit:contain" />`
+    : SIG_LINE_FALLBACK;
+}
+
+function waitForImage(img) {
+  if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => resolve();
+    img.addEventListener('load', done, { once: true });
+    img.addEventListener('error', done, { once: true });
+  });
+}
+
+function imgToDataUrl(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
 
 function titleCase(s) { return String(s ?? '').replace(/\b\w/g, c => c.toUpperCase()); }
 
@@ -566,7 +607,7 @@ ${rowsHtml}
 <p style="margin:0 0 8px 0"><strong>Volunteer Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
 </div>
 <table style="width:100%;border-collapse:collapse;margin-top:8px">
-<tr><td style="padding:4px 0"><strong>Volunteer Signature:</strong> _______________________</td></tr>
+<tr><td style="padding:4px 0"><strong>Volunteer Signature:</strong> ${signatureImgHtml(w.signature_url)}</td></tr>
 </table>
 <div style="margin:18px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Acknowledgement</div>
@@ -712,7 +753,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
         <tbody>
-          <tr><td style={{ padding: '4px 0' }}><strong>Volunteer Signature:</strong> _______________________</td></tr>
+          <tr><td style={{ padding: '4px 0' }}><strong>Volunteer Signature:</strong> {(() => { const src = safeImgSrc(w.signature_url); return src ? <img src={src} alt="" style={{ height: 34, verticalAlign: 'middle', maxWidth: 190, objectFit: 'contain' }} /> : SIG_LINE_FALLBACK; })()}</td></tr>
         </tbody>
       </table>
       <div style={{ margin: '18px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
@@ -1042,8 +1083,15 @@ export default function Letters() {
     el.style.width = singlePage ? '900px' : '800px';
     el.innerHTML = bodyText;
     await document.fonts?.ready;
-    await new Promise(r => setTimeout(r, 100));
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+    const imgs = [...el.querySelectorAll('img')];
+    await Promise.all(imgs.map(waitForImage));
+    await Promise.all(imgs.map(async (img) => {
+      const raw = img.getAttribute('src') || '';
+      if (!/^https?:\/\//i.test(raw)) return;
+      try { img.src = await imgToDataUrl(raw); } catch (_) { /* fall back to CORS-less render */ }
+    }));
+    await Promise.all(imgs.map(waitForImage));
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
     el.style.display = 'none';
     const pdf = new jsPDF('p', 'mm', 'a4');
     const pdfW = pdf.internal.pageSize.getWidth();
@@ -1090,7 +1138,7 @@ export default function Letters() {
       const hrNameText = hrName || '{{hr_name}}';
       body = buildNoBSD2DeclarationHTML(w, dateText, hrNameText, subject, ngo, bsd2Amount);
       today = dateText;
-    } else if (type === 'ODAR') {
+    } else if (type === 'ODAR' || type === 'Doc Submitted') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
       body = buildODARDocumentHTML(w, dateText, hrNameText, subject, ngo, docRows);
@@ -1163,7 +1211,7 @@ export default function Letters() {
     }
     setOut({ today, body, type, odar });
     setShowDownload(false);
-    await capturePdf(body, type, type === 'ODAR' || type === 'NOBSD' || type === 'NOBSD2' || type === 'Blank Letter' || HAS_LH(ngo));
+    await capturePdf(body, type, type === 'ODAR' || type === 'Doc Submitted' || type === 'NOBSD' || type === 'NOBSD2' || type === 'Blank Letter' || HAS_LH(ngo));
     setShowDownload(true);
   };
 
@@ -1288,7 +1336,7 @@ export default function Letters() {
 
         {out && !sopSel && (
           <div className="letter">
-            {type === 'ODAR' && out.odar ? (
+            {(type === 'ODAR' || type === 'Doc Submitted') && out.odar ? (
               <ODARDocumentPreview
                 {...out.odar}
                 ngoKey={ngo}
