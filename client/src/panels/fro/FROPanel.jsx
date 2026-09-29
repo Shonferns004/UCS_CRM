@@ -240,18 +240,18 @@ function DispositionTimer() {
   // Idle counts UP and replaces the countdown: once the window is gone there is
   // nothing left to count down, and the useful number is how long they have been
   // idle. It ticks live between heartbeats, and the server commits the same
-  // figure into today's idle total the moment they record a disposition.
+  // figure into today's idle total the moment they record any activity.
   const display = isIdle ? formatClock(idleLiveSeconds) : (armed ? formatClock(value) : '—:—');
 
   const tip = isIdle
-    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record a disposition to clear it.`
+    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record any activity to clear it.`
     : !armed
       ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
       : held
         ? 'On hold — the 4-minute window is frozen while you are paused or in a meeting.'
         : !inShift
           ? 'Off shift, so the window is not running. It opens with your first action of the day.'
-          : 'Time left to record a disposition. Every disposition resets this to 4:00.';
+          : 'Time left to record an activity. Every activity resets this to 4:00.';
 
   // Fraction of the window still remaining, for the bar underneath. While idle
   // the bar is full-width: the countdown is over, this is an accrual now.
@@ -360,7 +360,7 @@ function IdleGate() {
           You are idle
         </div>
         <div style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45 }}>
-          Record a disposition to clear it
+          Record any activity to clear it
           {idleSecondsToday > 0 ? <> · idle today {fmt(idleSecondsToday)}</> : null}
         </div>
       </div>
