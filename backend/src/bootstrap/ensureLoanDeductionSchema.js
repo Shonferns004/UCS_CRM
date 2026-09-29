@@ -47,4 +47,25 @@ export async function ensureLoanDeductionSchema() {
   } catch (e) {
     console.warn('[loan deduction FK cascade] skip:', e?.message || String(e));
   }
+  // 'overdue' is a terminal-but-still-owed status: the term has fully elapsed with
+  // a balance left, so the loan can no longer be auto-deducted from salary. Older
+  // DBs constrain status to {pending,approved,rejected,active,closed}, which makes
+  // every attempt to retire an expired loan fail with a check violation and leaves
+  // it stuck on 'active' forever. Re-point the constraint at the full set; the
+  // values are additive so no existing row is invalidated.
+  try {
+    await db._pool.query(`
+      ALTER TABLE worker_loans DROP CONSTRAINT IF EXISTS worker_loans_status_check
+    `);
+    await db._pool.query(`
+      ALTER TABLE worker_loans
+        ADD CONSTRAINT worker_loans_status_check
+        CHECK (status IS NULL OR status = ANY (ARRAY[
+          'pending','approved','rejected','active','closed','overdue'
+        ]))
+    `);
+    console.log("worker_loans status constraint now allows 'overdue'");
+  } catch (e) {
+    console.warn('[loan status constraint] skip:', e?.message || String(e));
+  }
 }

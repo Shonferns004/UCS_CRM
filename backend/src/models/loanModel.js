@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { endOfMonth, monthStartOf, settlementOutcome } from '../utils/loanTerm.js';
 
 export const applyLoan = async (data) => {
   const { data: result, error } = await db
@@ -67,29 +68,75 @@ export const deleteLoan = async (id) => {
   if (error) throw error;
 };
 
+// Statuses that mean "this loan is still live and can be deducted from salary".
+// Anything outside this set is excluded from every automatic pick, so a loan
+// only ever leaves this set deliberately (or by expiring, see expireOverdueLoans).
+export const LIVE_LOAN_STATUSES = ['approved', 'active'];
+
+// A loan whose term has fully elapsed can never be settled again: the end_month
+// guard in settleMonthlyLoanDeductions skips it for every month after the term,
+// so remaining_amount never decreases and status never leaves 'active'. Such a
+// row then sits in the live set forever, inflating outstanding-loan figures and
+// — because two callers filter on status alone — silently deducted from salary.
+//
+// expireOverdueLoans moves those rows to the terminal 'overdue' status. The
+// balance is deliberately preserved: the money is still owed, it simply cannot
+// be auto-deducted because the term is over. That is a decision for accounts,
+// not something settlement should silently discard.
+//
+// Only non-recurring loans are expired. A recurring loan (monthly rent) runs
+// until it is explicitly stopped, so its end_month being in the past is not by
+// itself a reason to retire it.
+export const expireOverdueLoans = async ({ monthDate }) => {
+  const { rows, error } = await db._pool.query(
+    `UPDATE worker_loans
+        SET status = 'overdue', updated_at = now()
+      WHERE status = ANY($1)
+        AND COALESCE(recurring, FALSE) = FALSE
+        AND COALESCE(remaining_amount, 0) > 0
+        AND end_month IS NOT NULL
+        AND end_month < $2
+      RETURNING id, worker_id, total_amount, remaining_amount, monthly_deduction, end_month`,
+    [LIVE_LOAN_STATUSES, monthDate]
+  );
+  if (error) throw error;
+  return rows || [];
+};
+
 export const getActiveLoansByWorker = async (workerId) => {
-  const now = new Date();
-  const curMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const curMonthEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+  const monthStart = monthStartOf();
+  const monthEnd = endOfMonth(monthStart);
   const { data, error } = await db
     .from('worker_loans')
     .select('*')
     .eq('worker_id', workerId)
-    .in('status', ['approved', 'active'])
+    .in('status', LIVE_LOAN_STATUSES)
     .gt('remaining_amount', 0)
-    .lte('start_month', curMonthEnd)
-    .or(`end_month.is.null,end_month.gte.${curMonthStart}`);
+    .lte('start_month', monthEnd)
+    .or(`end_month.is.null,end_month.gte.${monthStart}`);
   if (error) throw error;
   return data || [];
 };
 
-export const getActiveLoansForAllWorkers = async () => {
-  const { data, error } = await db
+// Settlement-only pick, optionally scoped to a single worker. Unlike the
+// salary/report picks this deliberately has no period filter, because the caller
+// re-checks start_month/end_month per month being settled. 'overdue' is included
+// so a back-settled month within the original term still works after a later run
+// already retired the loan; the deduction then revives it (see
+// settleMonthlyLoanDeductions).
+//
+// Settling must NOT use getActiveLoansByWorker here: that filters against the
+// *current* month, so back-settling a month whose loan term has already ended
+// (e.g. recording an August loan in September) would match nothing and silently
+// deduct nothing.
+export const getLoansForSettlement = async ({ workerId } = {}) => {
+  let query = db
     .from('worker_loans')
     .select('*')
-    .in('status', ['approved', 'active'])
-    .gt('remaining_amount', 0)
-    .order('worker_id');
+    .in('status', [...LIVE_LOAN_STATUSES, 'overdue'])
+    .gt('remaining_amount', 0);
+  if (workerId) query = query.eq('worker_id', workerId);
+  const { data, error } = await query.order('worker_id');
   if (error) throw error;
   return data || [];
 };
@@ -155,11 +202,12 @@ export const getTotalDeductedByLoanIds = async (loanIds) => {
 // by the deduction and closes the loan once the balance reaches zero.
 export const settleMonthlyLoanDeductions = async ({ year, month, workerId }) => {
   const monthDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const loans = workerId
-    ? await getActiveLoansByWorker(workerId)
-    : await getActiveLoansForAllWorkers();
+  // Retire loans whose term ended before the month being settled. Without this
+  // they keep status='active' forever and are still counted as outstanding.
+  const expired = await expireOverdueLoans({ monthDate });
+  const loans = await getLoansForSettlement({ workerId });
 
-  if (!loans.length) return { settled: 0, skipped: 0, total_deducted: 0 };
+  if (!loans.length) return { settled: 0, skipped: 0, total_deducted: 0, expired: expired.length };
 
   const { data: existing, error: exErr } = await db
     .from('worker_loan_deductions')
@@ -174,21 +222,15 @@ export const settleMonthlyLoanDeductions = async ({ year, month, workerId }) => 
   let total_deducted = 0;
 
   for (const loan of loans) {
-    if (settledLoanIds.has(loan.id)) {
+    const outcome = settlementOutcome(loan, monthDate, {
+      settled: settledLoanIds.has(loan.id),
+    });
+    if (outcome.action === 'skip') {
       skipped++;
       continue;
     }
-    if (loan.start_month && monthDate < loan.start_month) { skipped++; continue; }
-    if (loan.end_month && monthDate > loan.end_month) { skipped++; continue; }
-    const remaining = parseFloat(loan.remaining_amount || 0);
-    const monthly = parseFloat(loan.monthly_deduction || 0);
-    if (monthly <= 0 || remaining <= 0) {
-      skipped++;
-      continue;
-    }
-    const amount = Math.min(monthly, remaining);
     try {
-      await createDeduction(loan.id, monthDate, amount);
+      await createDeduction(loan.id, monthDate, outcome.amount);
     } catch (e) {
       if (/duplicate|unique/i.test(e?.message || '')) {
         skipped++;
@@ -196,21 +238,10 @@ export const settleMonthlyLoanDeductions = async ({ year, month, workerId }) => 
       }
       throw e;
     }
-    // Recurring loans (e.g. monthly rent) keep their balance constant and never
-    // auto-close; they stay active until manually stopped (end_month or closed).
-    if (loan.recurring) {
-      settled++;
-      total_deducted += amount;
-      continue;
-    }
-    const newRemaining = Math.max(0, remaining - amount);
-    await updateLoan(loan.id, {
-      remaining_amount: newRemaining,
-      status: newRemaining <= 0 ? 'closed' : loan.status,
-    });
+    await updateLoan(loan.id, outcome.updates);
     settled++;
-    total_deducted += amount;
+    total_deducted += outcome.amount;
   }
 
-  return { settled, skipped, total_deducted };
+  return { settled, skipped, total_deducted, expired: expired.length };
 };

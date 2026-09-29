@@ -2,9 +2,40 @@ import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { COMPENSATORY_WORKDAYS, computePaidDays, getISTToday } from '../utils/salaryDays.js';
 import { normalizeAgentName } from '../utils/workerNameMatch.js';
+import { projectedLoanDeduction } from '../utils/loanTerm.js';
 import { getSetting, upsertSetting } from './settingsModel.js';
+import { LIVE_LOAN_STATUSES } from './loanModel.js';
 
 const SALARY_COMPENSATIONS_KEY = 'accounts_salary_compensations';
+
+// Sums the loan/advance amounts actually recovered in `monthDate` (a
+// 'YYYY-MM-01' value) per worker, from the rows written by
+// loanModel.settleMonthlyLoanDeductions.
+//
+// Returns a plain object keyed by worker id. Workers with no recorded deduction
+// are simply absent, so callers can distinguish "nothing was recovered" from
+// "recovered nothing because no loan exists" and fall back to a projection when
+// the month has not been settled yet. A failure here must never blank out a
+// payslip, so errors degrade to an empty result and the caller projects instead.
+const getRecordedLoanDeductionsForMonth = async (monthDate) => {
+  try {
+    const { rows, error } = await db._pool.query(
+      `SELECT l.worker_id, COALESCE(SUM(d.amount), 0) AS amount
+         FROM worker_loan_deductions d
+         JOIN worker_loans l ON l.id = d.loan_id
+        WHERE d.month = $1::date
+        GROUP BY l.worker_id`,
+      [monthDate]
+    );
+    if (error) throw error;
+    const byWorker = {};
+    for (const r of rows || []) byWorker[r.worker_id] = parseFloat(r.amount || 0);
+    return byWorker;
+  } catch (e) {
+    console.warn('[salary] recorded loan deductions unavailable:', e?.message || String(e));
+    return {};
+  }
+};
 
 const parseSalaryCompensations = (value) => {
   if (Array.isArray(value)) return value;
@@ -256,7 +287,7 @@ export const getPayrollData = async (month, extended = false) => {
   const { data: activeLoans, error: loanErr } = await db
     .from('worker_loans')
     .select('worker_id, monthly_deduction, remaining_amount, type, start_month, end_month')
-    .in('status', ['approved', 'active'])
+    .in('status', LIVE_LOAN_STATUSES)
     .gt('remaining_amount', 0)
     .lte('start_month', endDate)
     .or(`end_month.is.null,end_month.gte.${startDate}`);
@@ -270,6 +301,17 @@ export const getPayrollData = async (month, extended = false) => {
       }
     }
   }
+
+  // What was actually recovered this month, as recorded by the settlement run.
+  //
+  // Deriving the figure from monthly_deduction on live loans alone silently drops
+  // the final instalment of any loan: the settlement that repays the last amount
+  // also closes the loan, and a closed row is no longer 'active', so the month it
+  // was actually recovered in stops showing a deduction. Prefer the recorded rows
+  // where they exist and only project the live loans for workers whose month has
+  // not been settled yet — that way an un-settled month still previews correctly
+  // instead of dropping to zero.
+  const recordedLoanDeductions = await getRecordedLoanDeductionsForMonth(startDate);
 
   const monthDays = [];
   for (let d = 1; d <= daysInMonth; d++) {
@@ -304,9 +346,12 @@ export const getPayrollData = async (month, extended = false) => {
       }
     }
 
-    // Loan/advance deduction
-    const workerLoans = loanByWorker[w.id] || [];
-    const loanDeduction = workerLoans.reduce((sum, l) => sum + parseFloat(l.monthly_deduction || 0), 0);
+    // Loan/advance deduction. All live loans are summed and a non-recurring
+    // instalment is capped to the outstanding balance, via the same helper the
+    // settlement and the Loans payroll check use.
+    const loanDeduction = recordedLoanDeductions[w.id] !== undefined
+      ? recordedLoanDeductions[w.id]
+      : projectedLoanDeduction(loanByWorker[w.id]);
     const netDue = totalDue - Math.round(loanDeduction);
 
     const workerAllocs = allocsByWorker[w.id] || [];
@@ -818,17 +863,37 @@ export const getPagarExportData = async (month) => {
   }
 
   // 7. Active loans for advance deduction
+  // Must carry the same period filter as the payslip pick above (see
+  // getActiveLoansByWorker). Filtering on status alone let a loan whose term had
+  // already ended keep deducting from salary forever: expireOverdueLoans retires
+  // those rows, but the window between a term ending and the next settlement run
+  // is still enough to deduct an expired loan out of a live salary month.
   const { data: loans, error: lnErr } = await db
     .from('worker_loans')
-    .select('worker_id, monthly_deduction')
-    .in('status', ['approved', 'active'])
-    .gt('remaining_amount', 0);
+    .select('worker_id, monthly_deduction, remaining_amount, recurring')
+    .in('status', LIVE_LOAN_STATUSES)
+    .gt('remaining_amount', 0)
+    .lte('start_month', endDate)
+    .or(`end_month.is.null,end_month.gte.${startDate}`);
   if (lnErr) throw lnErr;
+  // All of a worker's live loans are summed and a non-recurring instalment is
+  // capped to the outstanding balance. This used to be `loanByWorker[id] = ded`,
+  // which silently kept only the last loan, so a worker holding a recurring
+  // deposit plus a one-time advance lost one of the two instalments.
   const loanByWorker = {};
   for (const l of loans || []) {
-    const ded = parseFloat(l.monthly_deduction || 0);
-    if (ded > 0) loanByWorker[l.worker_id] = ded;
+    const monthly = parseFloat(l.monthly_deduction || 0);
+    if (!(monthly > 0)) continue;
+    const remaining = parseFloat(l.remaining_amount || 0);
+    const ded = l.recurring ? monthly : Math.min(monthly, remaining);
+    if (ded > 0) loanByWorker[l.worker_id] = (loanByWorker[l.worker_id] || 0) + ded;
   }
+
+  // Prefer the deductions actually recorded for this month over the projection, for
+  // the same reason as the payslip: the month a loan's final instalment was
+  // recovered is also the month it gets closed, so a closed loan is invisible to
+  // the projection above and its last instalment would be lost from the export.
+  const recordedLoanDeductions = await getRecordedLoanDeductionsForMonth(startDate);
 
   // 7b. Per-month salary holds (Hold/Released). Absence of a row = Released.
   const { data: holds, error: holdErr } = await db
@@ -889,7 +954,9 @@ export const getPagarExportData = async (month) => {
       ? (isNewJoiner ? Math.round(totalAKI) : Math.round(totalAKI / 2))
       : 0;
 
-    const advanceDeduction = loanByWorker[w.id] || 0;
+    const advanceDeduction = recordedLoanDeductions[w.id] !== undefined
+      ? recordedLoanDeductions[w.id]
+      : (loanByWorker[w.id] || 0);
 
     const monthSalary = Math.round(perDay * netPresentDays);
     const grossPayable = monthSalary + monthlyIncentive + akiPayout;
