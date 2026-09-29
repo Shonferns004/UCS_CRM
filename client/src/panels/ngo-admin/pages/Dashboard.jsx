@@ -3285,7 +3285,16 @@ export default function Dashboard() {
                 /* Section tinting. The hue rides on a custom property so one rule
                    paints a section, so recolouring BSCT/AFLF/MANN is a single
                    edit per section rather than a per-cell one. */
-                .station-section { --sec: #dbeafe; --sec-rule: #bfdbfe; }
+                .station-section {
+                  --sec: #dbeafe; --sec-rule: #bfdbfe;
+                  display: flex;
+                }
+                /* Each family is its own table. A sparse family would otherwise
+                   stop at its last populated row while its sibling sections keep
+                   going, leaving the blank column visually shorter. Let the table
+                   use its stretched grid-cell height so all four sections finish
+                   on the same baseline. */
+                .station-section > .station-collection-table { height: 100%; }
                 .station-section:nth-child(2) { --sec: #ede9fe; --sec-rule: #ddd6fe; }
                 .station-section:nth-child(3) { --sec: #fce7f3; --sec-rule: #fbcfe8; }
                 .station-section .station-family-a { background: var(--sec); }
@@ -3371,4 +3380,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
