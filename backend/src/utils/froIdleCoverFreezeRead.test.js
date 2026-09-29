@@ -16,9 +16,11 @@ import {
   effectiveIdleSeconds,
   frozenIdleSeconds,
   idleFreezeCutoffMs,
+  idlePeriodStartMs,
   isIdleNow,
   liveIdleSeconds,
   openIdleSeconds,
+  secondsLeft,
 } from './froIdle.js';
 
 // Fixed clock so nothing here depends on the wall clock. 2026-09-29T12:00:00Z
@@ -130,4 +132,36 @@ test('frozen reads are null-safe', () => {
   assert.equal(frozenIdleSeconds({}, SHIFT, NOW), 0);
   assert.equal(openIdleSeconds(null, SHIFT, NOW, 0), 0);
   assert.equal(isIdleNow(null, SHIFT, NOW, 0), false);
+});
+
+test('a welded row (status idle, future deadline, no stamp) is NOT idle', () => {
+  // The exact corruption being fixed: a heartbeat that read the row just before a
+  // disposition reset upserted status='idle' onto a freshly re-armed row — future
+  // deadline, idle_since cleared. Before the fix this row's status column said
+  // idle (the header pill) while secondsLeft still counted down (the timer). The
+  // readers share one predicate, so both now come from isIdleNow.
+  const row = {
+    status: 'idle',
+    idle_since: null,
+    disposition_due_at: new Date(NOW + 3 * 60 * 1000).toISOString(), // due in 3 min
+    updated_at: ago(30_000),
+  };
+  assert.equal(Number.isNaN(idlePeriodStartMs(row, NOW)), true);
+  assert.equal(isIdleNow(row, SHIFT, NOW), false);
+  assert.equal(secondsLeft(row, NOW), 3 * 60);
+});
+
+test('a genuinely lapsed row IS idle and the timer reads 0:00', () => {
+  // Opposite shape: the deadline passed 3 minutes ago on the same IST day, inside
+  // the shift, and no stamp exists yet. The readers derive the period start from
+  // the deadline, so idle shows AND counts from the moment the timer hit 0:00.
+  const row = {
+    status: 'online',
+    idle_since: null,
+    disposition_due_at: ago(3 * 60 * 1000),
+    updated_at: ago(30_000),
+  };
+  assert.equal(idlePeriodStartMs(row, NOW), NOW - 3 * 60 * 1000);
+  assert.equal(isIdleNow(row, SHIFT, NOW), true);
+  assert.equal(secondsLeft(row, NOW), 0);
 });

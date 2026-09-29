@@ -4502,29 +4502,38 @@ export const updateLiveStatus = async (req, res) => {
 
     // Force idle once the deadline is gone. Paused FROs and the meeting freeze
     // are exempt — the admin is holding them, not the FRO dawdling.
+    //
+    // The decision uses the same "idle right now" predicate every reader answers
+    // with (isIdleNow), so the header pill (status column) and the countdown
+    // (is_idle / seconds_left) can never disagree. The status/idle_since fields
+    // are deliberately NOT carried in the payload upsert below: resetLiveWindow()
+    // re-arms the row concurrently on every disposition save, and a heartbeat
+    // that read the row one moment before that reset would otherwise upsert
+    // status back to 'idle' onto a freshly re-armed row — future deadline,
+    // idle_since cleared — the welded state that read "status idle + timer 3:00"
+    // in one response. Idle is applied by a guarded UPDATE that only matches a
+    // row whose deadline is STILL in the past at write time.
     const frozen = paused || status === 'meeting' || row?.status === 'meeting';
-    const lapsed = inShift && !frozen && deadlinePassed(row, nowMs);
-    if (lapsed) {
-      payload.status = 'idle';
-      if (!row?.idle_since) {
-        // Idle starts when the 4 minutes actually ran out, not when the next
-        // heartbeat noticed — otherwise every heartbeat interval goes unpaid.
-        // Clamped to the shift start so a stale earlier deadline can't credit
-        // time from before the FRO's day began.
-        const dueMs = dispositionDueMs(row);
-        const startMs = Number.isFinite(shiftStartMs) ? Math.max(dueMs, shiftStartMs) : dueMs;
-        payload.idle_since = new Date(startMs).toISOString();
-      }
-      payload.current_donor_id = null;
-      payload.call_started_at = null;
+    const idleActive = isIdleNow(row, shift, nowMs);
+    let idleStartMs = NaN;
+    if (idleActive) {
+      delete payload.status;
+      delete payload.idle_since;
+      delete payload.current_donor_id;
+      delete payload.call_started_at;
+      // Idle starts when the 4 minutes actually ran out, not when the next
+      // heartbeat noticed — otherwise every heartbeat interval goes unpaid.
+      // Clamped to the shift start so a stale earlier deadline can't credit
+      // time from before the FRO's day began.
+      const dueMs = dispositionDueMs(row);
+      idleStartMs = Number.isFinite(dueMs)
+        ? (Number.isFinite(shiftStartMs) ? Math.max(dueMs, shiftStartMs) : dueMs)
+        : NaN;
     } else if (payload.status === 'idle') {
       // A client claiming 'idle' without a lapsed deadline is a stale tab; let
       // Resume own the idle transition.
       payload.status = row?.idle_since ? 'idle' : (status || undefined);
       if (payload.status !== 'idle') delete payload.status;
-    } else if (row?.idle_since) {
-      // Still inside an open idle period (e.g. a heartbeat from another tab).
-      payload.status = 'idle';
     }
 
     // today_idle_seconds holds COMMITTED time only. The still-running period
@@ -4543,6 +4552,33 @@ export const updateLiveStatus = async (req, res) => {
       .from('fro_live_status')
       .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     if (error) throw error;
+
+    // Apply the idle state only if the row is STILL past its deadline at write
+    // time. A disposition reset (resetLiveWindow) re-arms the row concurrently:
+    // when it wins this race no row matches and the client's pushed status
+    // survives, so a fresh 4-minute window can never read back as idle. The
+    // status/idle_since are written here (guarded), NOT in the upsert above,
+    // because that upsert was built from a pre-read that the reset can invalidate
+    // between read and write.
+    if (idleActive) {
+      const idleStartIso = Number.isFinite(idleStartMs) ? new Date(idleStartMs).toISOString() : null;
+      await db._pool.query(
+        `UPDATE fro_live_status
+            SET status = 'idle',
+                idle_since = COALESCE(idle_since, $2),
+                current_donor_id = NULL,
+                call_started_at = NULL,
+                updated_at = now()
+          WHERE worker_id = $1
+            AND (status IS NULL OR status <> 'meeting')
+            AND (is_paused IS NOT TRUE)
+            AND (
+              (disposition_due_at IS NOT NULL AND disposition_due_at <= $3)
+              OR (idle_since IS NOT NULL AND idle_since <= $3)
+            )`,
+        [workerId, idleStartIso, new Date(nowMs).toISOString()]
+      );
+    }
 
     // Daily activity snapshot: the live row is a single "today" bucket, so the
     // previous day's totals are lost without this. Routed through the shared
