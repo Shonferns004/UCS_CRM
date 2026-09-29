@@ -32,8 +32,8 @@ export function CallProvider({ children, userId, operatorId }) {
 
   // ── Disposition timer ────────────────────────────────────────
   // The FRO gets 4 minutes from their first action of the day, and 4 more after
-  // every disposition. When it runs out they are idle until they record a
-  // disposition. All of that is decided on the server; these values are its
+  // every recorded activity. When it runs out they are idle until they record
+  // any activity. All of that is decided on the server; these values are its
   // answers, mirrored so the chip and banner can render.
   const [dispositionDueAt, setDispositionDueAt] = useState(null)
   const [secondsLeft, setSecondsLeft] = useState(null)
