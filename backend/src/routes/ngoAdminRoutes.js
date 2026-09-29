@@ -88,6 +88,7 @@ import {
   getAssignedData,
   restoreWrongAssignments,
   getFroHourlyPerformance,
+  getStationWiseCollection,
   ensureStandardNgos,
   getAllNgosForTabs,
   getNonConnectedFresh,
@@ -205,6 +206,7 @@ router.post('/donor-crm/followups', createFollowup);
 router.get('/master-search', masterSearch);
 router.get('/call-analytics', getCallAnalytics);
 router.get('/fro-hourly-performance', getFroHourlyPerformance);
+router.get('/station-collection', getStationWiseCollection);
 
 router.post('/stations/seed', seedStations);
 router.post('/stations/cleanup', cleanupOrphanedStations);

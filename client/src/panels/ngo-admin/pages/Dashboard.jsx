@@ -1,11 +1,36 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X } from 'lucide-react';
-import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
 import { formatDuration } from '../../../utils/formatDuration';
+
+// Station-wise Collection: the four toggle groups the admin asked for. Each chip
+// owns one or more station-family prefixes; a station matches a chip purely on
+// the prefix before the dash, so 'AFD-23' is in AFD and 'MOD-1' is in BFD+MOD.
+// All four start ON so the panel first shows the complete station picture.
+const STATION_GROUPS = [
+  { key: 'bod', label: 'BOD', prefixes: ['BOD'] },
+  { key: 'bfd_mod', label: 'BFD+MOD', prefixes: ['BFD', 'MOD'] },
+  { key: 'mfd_aod', label: 'MFD+AOD', prefixes: ['MFD', 'AOD'] },
+  { key: 'afd', label: 'AFD', prefixes: ['AFD'] },
+];
+const STATION_GROUP_ALL_ON = STATION_GROUPS.map(g => g.key);
+const stationGroupOf = (code) => {
+  const prefix = String(code || '').trim().split('-')[0].toUpperCase();
+  return STATION_GROUPS.find(g => g.prefixes.includes(prefix))?.key || null;
+};
+// Compact in-rupee display, matching the Collection card above so the two read
+// as the same number rather than looking like different quantities.
+const formatRupees = (n) => {
+  const v = Math.round(Number(n) || 0);
+  if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
+  if (v >= 100000) return `₹${(v / 100000).toFixed(2)} L`;
+  if (v >= 1000) return `₹${(v / 1000).toFixed(1)}K`;
+  return `₹${v.toLocaleString('en-IN')}`;
+};
 
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
@@ -896,6 +921,27 @@ export default function Dashboard() {
   const [connTargetMsg, setConnTargetMsg] = useState('');
   const [dailyStats, setDailyStats] = useState([]);
 
+  // Station-wise Collection. The month picker is deliberately independent of the
+  // header dashPeriod: this panel is a monthly revenue breakdown, so a "Today" or
+  // "Last 7 days" header filter would silently narrow it to a partial month and
+  // make the station ranking contradict the Collection card above.
+  const [stationCollection, setStationCollection] = useState(null);
+  const [stationMonth, setStationMonth] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [stationGroups, setStationGroups] = useState(() => new Set(STATION_GROUP_ALL_ON));
+  const [stationLoading, setStationLoading] = useState(false);
+
+  const toggleStationGroup = useCallback((key) => {
+    setStationGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
     const now = new Date();
@@ -979,6 +1025,41 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setDailyStats([]); });
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
+
+  // Station-wise Collection: refetched on month or NGO change only. The group
+  // chips deliberately do NOT appear in the dependency list - they filter the
+  // already-fetched rows client-side, so toggling them is instant and the
+  // network is left alone.
+  useEffect(() => {
+    let cancelled = false;
+    setStationLoading(true);
+    getStationWiseCollection({ month: stationMonth, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
+      .then(data => { if (!cancelled) setStationCollection(data); })
+      .catch(() => { if (!cancelled) setStationCollection(null); })
+      .finally(() => { if (!cancelled) setStationLoading(false); });
+    return () => { cancelled = true; };
+  }, [stationMonth, selectedNgoId]);
+
+  // Filter + re-rank in memory so hiding a group is a pure client operation.
+  const visibleStationRows = useMemo(() => {
+    const rows = stationCollection?.stations || [];
+    return rows
+      .filter(r => stationGroups.has(stationGroupOf(r.station)))
+      .sort((a, b) => b.amount - a.amount || String(a.station).localeCompare(String(b.station)));
+  }, [stationCollection, stationGroups]);
+
+  const visibleStationTotal = useMemo(
+    () => visibleStationRows.reduce((s, r) => s + (Number(r.amount) || 0), 0),
+    [visibleStationRows]
+  );
+  // True when a group chip is switched off, so the table can say so. The badge
+  // above the table stays on the FULL month total either way, because that is
+  // the figure the Collection card reports and it must not appear to change just
+  // because someone hid a station group.
+  const stationGroupsFiltered = useMemo(
+    () => stationGroups.size !== STATION_GROUP_ALL_ON.length,
+    [stationGroups]
+  );
 
   // Editable "connected calls per day" target — loaded once from server settings
   // (shared by the whole team), falls back to the built-in default (200).
@@ -2837,6 +2918,152 @@ export default function Dashboard() {
                 @keyframes countPop { 0% { transform: scale(.55); opacity: .3; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
               `}</style>
               </div>
+            </div>
+
+            {/* Station-wise Collection - monthly actual receipts ranked by station.
+                Amounts come from receipts.amount (money received), not from an FRO's
+                logged amount_collected, so this card agrees with the Collection card
+                above it instead of contradicting it. Uses performance-sections /
+                performance-card so it sits at the same width as Hourly Performance
+                rather than stretching the full page width. */}
+            <div className="performance-sections">
+            <div className="performance-card productivity-alerts" style={{ height: 460 }}>
+              <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-flex', flexShrink: 0 }} />
+                  Station-wise Collection
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                    {formatRupees(stationCollection?.total || 0)}
+                  </span>
+                </h3>
+                <input
+                  type="month"
+                  aria-label="Station-wise Collection month"
+                  value={stationMonth}
+                  onChange={e => e.target.value && setStationMonth(e.target.value)}
+                  style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                />
+              </div>
+
+              {/* Group filters. Each one is its own bordered block with a gap and a
+                  divider between them, so it reads as four separate filters rather
+                  than one merged control. Clicking one hides or shows its stations;
+                  the rows are already in memory, so this never refetches. */}
+              <div style={{ padding: '0 24px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0 }}>Filter</span>
+                {STATION_GROUPS.map((g, gi) => {
+                  const on = stationGroups.has(g.key);
+                  const count = (stationCollection?.stations || []).filter(r => stationGroupOf(r.station) === g.key).length;
+                  const amount = (stationCollection?.stations || [])
+                    .filter(r => stationGroupOf(r.station) === g.key)
+                    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+                  return (
+                    <span key={g.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                      {gi > 0 && <span style={{ width: 1, height: 20, background: '#e2e8f0', flexShrink: 0 }} />}
+                      <button
+                        type="button"
+                        onClick={() => toggleStationGroup(g.key)}
+                        aria-pressed={on}
+                        style={{ height: 30, padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${on ? '#2F80D9' : '#dbe5f1'}`, background: on ? '#eff6ff' : '#ffffff', color: on ? '#1d4ed8' : '#94a3b8' }}
+                      >
+                        {g.label}
+                        <span style={{ fontWeight: 800, color: on ? '#2F80D9' : '#cbd5e1' }}>{count}</span>
+                        <span style={{ fontWeight: 600, color: on ? '#64748B' : '#cbd5e1' }}>{formatRupees(amount)}</span>
+                      </button>
+                    </span>
+                  );
+                })}
+                <span style={{ width: 1, height: 20, background: '#e2e8f0', flexShrink: 0 }} />
+                <button
+                  type="button"
+                  onClick={() => setStationGroups(new Set(STATION_GROUP_ALL_ON))}
+                  style={{ height: 30, padding: '0 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', background: 'transparent', border: '1px solid #dbe5f1', color: '#64748B' }}
+                >
+                  Reset
+                </button>
+              </div>
+
+              {(() => {
+                if (stationLoading && !stationCollection) {
+                  return (
+                    <div style={{ padding: '8px 24px 20px' }} aria-label="Loading station collection">
+                      {[0, 1, 2, 3, 4].map(i => (
+                        <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < 4 ? '1px solid #f1f5f9' : 'none', alignItems: 'center' }}>
+                          <div style={{ width: 72, height: 13, background: '#eef2f6', borderRadius: 6 }} />
+                          <div style={{ flex: 1 }} />
+                          <div style={{ width: 84, height: 13, background: '#eef2f6', borderRadius: 6 }} />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                if (!stationCollection) {
+                  return (
+                    <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>Could not load station collection.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Change the month or try again.</div>
+                    </div>
+                  );
+                }
+                if (visibleStationRows.length === 0) {
+                  return (
+                    <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>
+                        {stationGroups.size === 0 ? 'All station groups are hidden.' : 'No station collected in this month.'}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
+                        {stationGroups.size === 0 ? 'Use Reset to show every group again.' : 'Pick a different month above.'}
+                      </div>
+                    </div>
+                  );
+                }
+                const other = stationCollection.other || { amount: 0, count: 0 };
+                const unattributed = stationCollection.unattributed || { amount: 0, count: 0 };
+                return (
+                  <div className="productivity-table-wrap" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
+                    {stationGroupsFiltered && (
+                      /* The badge above keeps showing the full month total, so say
+                         plainly that the rows below are a subset - otherwise the two
+                         numbers look like they disagree when they don't. */
+                      <div style={{ padding: '6px 24px', fontSize: 11, color: '#64748B', background: '#f8fbff', borderBottom: '1px solid #f1f5f9' }}>
+                        Showing {visibleStationRows.length} of {(stationCollection.stations || []).length} stations ({formatRupees(visibleStationTotal)}). Month total {formatRupees(stationCollection.total || 0)}.
+                      </div>
+                    )}
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left', padding: '8px 24px', fontSize: 11, fontWeight: 700, color: '#64748B', borderBottom: '1px solid #e2e8f0' }}>Station</th>
+                          <th style={{ textAlign: 'right', padding: '8px 24px', fontSize: 11, fontWeight: 700, color: '#64748B', borderBottom: '1px solid #e2e8f0' }}>Collection</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleStationRows.map(r => (
+                          <tr key={r.station}>
+                            <td style={{ padding: '9px 24px', fontSize: 13, fontWeight: 700, color: '#17233C', borderBottom: '1px solid #f1f5f9' }}>{r.station}</td>
+                            <td style={{ padding: '9px 24px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: '#17233C', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }} title={`₹${Math.round(r.amount || 0).toLocaleString('en-IN')}`}>
+                              {formatRupees(r.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                        {other.count > 0 && (
+                          <tr title={`Receipts tied to a pre-rename or unrecognised station code (${other.count} receipts). Counted in the total, because the money is attributed - just to an older station name.`}>
+                            <td style={{ padding: '9px 24px', fontSize: 13, fontWeight: 700, color: '#92400E', borderBottom: '1px solid #f1f5f9' }}>Other / Legacy Code</td>
+                            <td style={{ padding: '9px 24px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: '#92400E', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{formatRupees(other.amount)}</td>
+                          </tr>
+                        )}
+                        {unattributed.count > 0 && (
+                          <tr title={`Receipts whose assignment carries no station (${unattributed.count} receipts). Counted in the total so this card agrees with the Collection card above.`}>
+                            <td style={{ padding: '9px 24px', fontSize: 13, fontWeight: 700, color: '#92400E', borderBottom: '1px solid #f1f5f9' }}>Unattributed / No Station</td>
+                            <td style={{ padding: '9px 24px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: '#92400E', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{formatRupees(unattributed.amount)}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
             </div>
           </>
         );

@@ -6650,6 +6650,163 @@ export const getFroHourlyPerformance = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------------
+// STATION-WISE COLLECTION
+//
+// Answers "which station brings in the most money", which nothing on the
+// dashboard could answer before. The Collection card splits only by NGO, and
+// the station_performance view counts DONORS, not rupees.
+//
+// WHY receipts, NOT amount_collected on fro_donor_logs. Those are different
+// numbers: amount_collected is what an FRO logged at the moment of asking for
+// money, receipts.amount is what was actually received. The existing TL
+// dashboard already reports revenue from receipts so that it ties out with the
+// Accounts panel, and this card follows the same convention deliberately rather
+// than disagreeing with the total shown directly above it. The join and the
+// IST date boundaries are copied from getTLDashboard's collections_per_ngo for
+// the same reason.
+//
+// WHY THE STATION COMES VIA THE ASSIGNMENT rather than receipts.station. A
+// receipt's own station column is written at receipt time and can hold a
+// pre-rename code ("M-2", "ND-1") or nothing at all, whereas the assignment
+// row is what the bulk station rename rewrote. Following the receipt back
+// through fro_donor_logs to fro_assignments therefore resolves current codes
+// for history that receipts.station cannot.
+//
+// Receipts that resolve to a legacy or unrecognised station code ("M-2",
+// "ND-1", "Ajay 16", "AJ") are reported as `other`; receipts whose assignment
+// carries no station at all are reported as `unattributed`. Both stay in
+// `total`, because the set of rows this query returns is identical to the one
+// behind the Collection card, so excluding either bucket would make the two
+// cards report different money. Neither is a station, so the client keeps them
+// out of the station ranking and shows them as labelled rows at the foot.
+//
+// Query params:
+//   ngo_id  - a specific NGO, or 'all' (default) for every NGO the caller may see
+//   month   - 'YYYY-MM'; defaults to the current IST month
+// ---------------------------------------------------------------------------
+
+// The six station families the dashboard groups by. Anything outside these is
+// surfaced as `other` instead of being folded into a family it isn't part of.
+const STATION_FAMILIES = ['BOD', 'AOD', 'MOD', 'BFD', 'AFD', 'MFD'];
+
+const stationFamilyOf = (code) => {
+  const prefix = String(code || '').trim().split('-')[0].toUpperCase();
+  return STATION_FAMILIES.includes(prefix) ? prefix : null;
+};
+
+// 'YYYY-MM' -> the first and last calendar day of that month, so the caller
+// can pass the IST date boundaries the receipts query needs.
+function monthBounds(monthParam) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(monthParam || '').trim());
+  const nowIst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  let year, mon;
+  if (m) {
+    year = Number(m[1]);
+    mon = Number(m[2]);
+    if (mon < 1 || mon > 12) return null;
+  } else {
+    year = nowIst.getFullYear();
+    mon = nowIst.getMonth() + 1;
+  }
+  const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    from: `${year}-${pad(mon)}-01`,
+    to: `${year}-${pad(mon)}-${pad(lastDay)}`,
+    month: `${year}-${pad(mon)}`,
+  };
+}
+
+export const getStationWiseCollection = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0 && req.user.ngo_id) ngoIds = [req.user.ngo_id];
+
+    // Same scoping rule as every other ngo-admin endpoint: a caller may narrow
+    // to one NGO, but only to one they already have access to.
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
+      if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
+    }
+
+    if (ngoIds.length === 0) {
+      return res.json({ month: monthBounds(req.query.month)?.month || null, from: null, to: null, stations: [], other: { amount: 0, count: 0 }, unattributed: { amount: 0, count: 0 }, total: 0 });
+    }
+
+    const bounds = monthBounds(req.query.month);
+    if (!bounds) return res.status(400).json({ message: 'month must be YYYY-MM' });
+
+    // Identical shape to getTLDashboard's collections_per_ngo, with the GROUP BY
+    // moved from fa.ngo_id to fa.station. receipt_date is a timestamptz, so the
+    // boundaries are converted from IST calendar days exactly as there.
+    const rows = await sql(
+      `SELECT fa.station AS station,
+              COALESCE(SUM(r.amount), 0) AS total,
+              COUNT(*)::int AS receipts
+         FROM receipts r
+         LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+         LEFT JOIN fro_assignments fa ON fa.id = l.assignment_id
+        WHERE r.receipt_date >= ($1::date AT TIME ZONE 'Asia/Kolkata')
+          AND r.receipt_date <  (($2::date + 1) AT TIME ZONE 'Asia/Kolkata')
+          AND fa.ngo_id = ANY($3)
+        GROUP BY fa.station`,
+      [bounds.from, bounds.to, ngoIds]
+    );
+
+    const stations = [];
+    let otherAmount = 0;
+    let otherCount = 0;
+    let unattributedAmount = 0;
+    let unattributedCount = 0;
+    for (const row of rows) {
+      const amount = Math.round(parseFloat(row.total || 0));
+      const count = Number(row.receipts || 0);
+      if (row.station == null) {
+        // The assignment resolved (the WHERE already guarantees fa.ngo_id) but
+        // carries no station, so the receipt cannot be credited to one. Kept in
+        // the total because the Collection card counts it too.
+        unattributedAmount += amount;
+        unattributedCount += count;
+      } else if (stationFamilyOf(row.station)) {
+        // Guard against a duplicated station code folding to two rows: the GROUP
+        // BY already does that, so this is just a safe accumulate.
+        const existing = stations.find(s => s.station === row.station);
+        if (existing) { existing.amount += amount; existing.receipts += count; }
+        else stations.push({ station: String(row.station), family: stationFamilyOf(row.station), amount, receipts: count });
+      } else {
+        // A real station value that is a pre-rename or legacy code ("M-2",
+        // "ND-1", "Ajay 16"). Money is genuinely attributed, so it stays in the
+        // reconciled total and shows under Other.
+        otherAmount += amount;
+        otherCount += count;
+      }
+    }
+
+    stations.sort((a, b) => b.amount - a.amount || a.station.localeCompare(b.station));
+
+    // stations + other + unattributed, i.e. EVERY row the query above returns.
+    // That set is identical to getTLDashboard's collections_per_ngo set, so this
+    // total ties out with the Collection card directly above it. Verified against
+    // production: excluding `unattributed` showed a shortfall equal to it exactly.
+    const total = stations.reduce((s, r) => s + r.amount, 0) + otherAmount + unattributedAmount;
+
+    return res.json({
+      month: bounds.month,
+      from: bounds.from,
+      to: bounds.to,
+      stations,
+      other: { amount: otherAmount, count: otherCount },
+      unattributed: { amount: unattributedAmount, count: unattributedCount },
+      total,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ---------------------------------------------------------------------------
 // BULK STATION RENAME
 //
 // Rewrites a station code in place across every table that stores it, scoped
