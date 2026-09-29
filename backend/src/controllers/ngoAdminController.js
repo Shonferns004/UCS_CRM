@@ -25,7 +25,7 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
-import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
+import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/workAsSessionModel.js';
@@ -6079,13 +6079,43 @@ export const notifyFroHandler = async (req, res) => {
 // with every presence column given a safe default so the insert is always
 // valid. status 'offline' keeps a row we invented out of the "online" counts.
 const setFroPaused = async (workerId, paused, by = null) => {
-  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
   const patch = {
     is_paused: !!paused,
     paused_at: paused ? nowIso : null,
     paused_by: paused ? by : null,
     updated_at: nowIso,
   };
+
+  // Freeze bookkeeping, mirroring the heartbeat. Pausing marks the freeze start;
+  // resuming re-arms the deadline if it lapsed while the pause held it, so the
+  // held stretch is never read back as idle. An existing frozen_at is preserved
+  // both ways — a pause during a meeting must not slide the freeze forward, and
+  // the value keeps capping any idle that began before the freeze.
+  let existing = null;
+  try {
+    const { data } = await db
+      .from('fro_live_status')
+      .select('frozen_at, disposition_due_at')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    existing = data || null;
+  } catch (_) {
+    // Non-fatal: without the read we simply keep the plain pause patch.
+  }
+  if (paused) {
+    if (!existing?.frozen_at) patch.frozen_at = nowIso;
+  } else {
+    const dueMs = dispositionDueMs(existing || {});
+    if (Number.isFinite(dueMs) && nowMs >= dueMs) {
+      try {
+        const shift = await getShiftWindowMs(workerId, nowMs);
+        const nd = nextDeadline(shift, nowMs);
+        if (nd) patch.disposition_due_at = nd;
+      } catch (_) { /* non-fatal: leave the deadline as it was */ }
+    }
+  }
 
   const { data, error } = await db
     .from('fro_live_status')

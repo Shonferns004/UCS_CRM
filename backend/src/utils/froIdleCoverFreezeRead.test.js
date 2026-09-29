@@ -13,12 +13,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  DISPOSITION_WINDOW_SECONDS,
   effectiveIdleSeconds,
   frozenIdleSeconds,
   idleFreezeCutoffMs,
   idlePeriodStartMs,
   isIdleNow,
   liveIdleSeconds,
+  nextDeadline,
   openIdleSeconds,
   secondsLeft,
 } from './froIdle.js';
@@ -164,4 +166,96 @@ test('a genuinely lapsed row IS idle and the timer reads 0:00', () => {
   assert.equal(idlePeriodStartMs(row, NOW), NOW - 3 * 60 * 1000);
   assert.equal(isIdleNow(row, SHIFT, NOW), true);
   assert.equal(secondsLeft(row, NOW), 0);
+});
+
+// ── Meeting / pause freeze ─────────────────────────────────────────────────
+// The disposition deadline only ever froze on the client. While a FRO was in a
+// meeting or admin pause the server deadline kept ticking and lapsed mid-window,
+// so when the freeze lifted the response read "online + expired deadline" and
+// billed the whole held stretch as idle. These tests pin the server-side freeze:
+// frozen_at caps any idle that had already begun, the cap survives the lift, and
+// a re-armed deadline reads as working.
+
+test('a meeting freezes an already-open idle at the moment it began', () => {
+  const row = {
+    status: 'meeting',
+    idle_since: ago(30 * 60 * 1000),
+    today_idle_seconds: 600,
+    frozen_at: ago(20 * 60 * 1000),
+    updated_at: ago(20 * 60 * 1000),
+  };
+  // 10 min committed + the 10 minutes of idle before the freeze. The 20 minutes
+  // since the meeting began are held work time, not idle.
+  assert.equal(liveIdleSeconds(row, SHIFT, NOW), 600 + 10 * 60);
+  assert.equal(openIdleSeconds(row, SHIFT, NOW), 10 * 60);
+  assert.equal(isIdleNow(row, SHIFT, NOW), false);
+  // The lift guard reads the open period directly (the stamp branch is not
+  // meeting-exempt), which is how it knows an idle was already running.
+  assert.equal(idlePeriodStartMs(row, NOW), NOW - 30 * 60 * 1000);
+});
+
+test('the freeze cap survives the lift, so meeting time never becomes idle', () => {
+  // Same row one heartbeat after the meeting ends: status is back to online and
+  // frozen_at is kept. The open idle still caps at the freeze start.
+  const row = {
+    status: 'online',
+    is_paused: false,
+    idle_since: ago(30 * 60 * 1000),
+    today_idle_seconds: 0,
+    frozen_at: ago(20 * 60 * 1000),
+    updated_at: ago(20 * 60 * 1000),
+  };
+  assert.equal(liveIdleSeconds(row, SHIFT, NOW), 10 * 60);
+  assert.equal(openIdleSeconds(row, SHIFT, NOW), 10 * 60);
+});
+
+test('an unstamped deadline that lapsed before the freeze is still capped after it lifts', () => {
+  const row = {
+    status: 'online',
+    is_paused: false,
+    idle_since: null,
+    disposition_due_at: ago(25 * 60 * 1000), // lapsed 25 min ago, before the freeze
+    frozen_at: ago(20 * 60 * 1000),
+    updated_at: ago(20 * 60 * 1000),
+  };
+  // Idle runs from the deadline (25 min ago) to the freeze (20 min ago) = 5 min.
+  assert.equal(liveIdleSeconds(row, SHIFT, NOW), 5 * 60);
+});
+
+test('idle that begins after the freeze is not capped by an old frozen_at', () => {
+  const row = {
+    status: 'online',
+    is_paused: false,
+    idle_since: null,
+    disposition_due_at: ago(3 * 60 * 1000), // lapsed 3 min ago, AFTER the old freeze
+    frozen_at: ago(60 * 60 * 1000),
+    updated_at: ago(30_000),
+  };
+  assert.equal(liveIdleSeconds(row, SHIFT, NOW), 3 * 60);
+});
+
+test('a stale frozen_at with no open idle changes nothing', () => {
+  const row = {
+    status: 'online',
+    is_paused: false,
+    idle_since: null,
+    disposition_due_at: new Date(NOW + 3 * 60 * 1000).toISOString(),
+    frozen_at: ago(60 * 60 * 1000),
+  };
+  assert.equal(liveIdleSeconds(row, SHIFT, NOW), 0);
+  assert.equal(isIdleNow(row, SHIFT, NOW), false);
+});
+
+test('a re-armed window after a meeting reads working, not idle', () => {
+  // What the lift heartbeat hands back: a fresh 4-minute deadline. The response
+  // then reads is_idle=false and a full countdown, instead of the lapsed deadline
+  // that used to declare the FRO idle.
+  const row = {
+    status: 'online',
+    is_paused: false,
+    idle_since: null,
+    disposition_due_at: nextDeadline(SHIFT, NOW),
+  };
+  assert.equal(isIdleNow(row, SHIFT, NOW), false);
+  assert.equal(secondsLeft(row, NOW), DISPOSITION_WINDOW_SECONDS);
 });

@@ -2,7 +2,9 @@ import db from '../config/db.js';
 
 // fro_live_status gains "work as" context: when an operator (abc) is assigned
 // to work another FRO's stations (cbd), the live status row for the target FRO
-// records who is actually operating it. Reruns safely on every boot via
+// records who is actually operating it. It also carries the meeting/pause freeze
+// start (frozen_at) so the server holds the disposition countdown during a held
+// window instead of billing it as idle. Reruns safely on every boot via
 // ADD COLUMN IF NOT EXISTS.
 export async function ensureFroLiveStatusSchema() {
   try {
@@ -11,6 +13,7 @@ export async function ensureFroLiveStatusSchema() {
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE`);
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ NULL`);
     await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS paused_by TEXT NULL`);
+    await db._pool.query(`ALTER TABLE fro_live_status ADD COLUMN IF NOT EXISTS frozen_at TIMESTAMPTZ NULL`);
   } catch (error) {
     throw error;
   }
