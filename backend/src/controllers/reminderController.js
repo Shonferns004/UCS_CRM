@@ -67,6 +67,14 @@ export function computeDueMeta(reminder, now = new Date()) {
     return { daysLeft: null, daysOverdue: null, derivedStatus: 'Completed' };
   }
 
+  // Sheet marks these as settled by the tenant: no real date to count down to.
+  const paidByTenant = /paid by tenant/i.test(reminder.due_date_display || '')
+    || /paid by tenant/i.test(reminder.renewal_date_display || '')
+    || /paid by tenant/i.test(reminder.notes || '');
+  if (paidByTenant) {
+    return { daysLeft: null, daysOverdue: null, derivedStatus: 'Paid', dueDate: null, renewalDate: null };
+  }
+
   const reference = due || renewal;
   if (!reference) {
     return { daysLeft: null, daysOverdue: null, derivedStatus: 'Upcoming', dueDate: null, renewalDate: null };
@@ -85,6 +93,8 @@ export function computeDueMeta(reminder, now = new Date()) {
     derivedStatus = 'Due Today';
   } else if (days === 1) {
     derivedStatus = 'Due Tomorrow';
+  } else if (days <= 7) {
+    derivedStatus = 'Due Soon';
   } else {
     derivedStatus = 'Upcoming';
   }
