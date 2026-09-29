@@ -3110,6 +3110,19 @@ export default function Dashboard() {
                                 return (
                                   <div key={section.label} className="station-section" style={{ minWidth: 0, borderLeft: si > 0 ? '1px solid #e2e8f0' : 'none' }}>
                                     <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
+                                      {/* Explicit column widths, identical for all
+                                          three sections. Without them the two
+                                          columns are resolved from content, so a
+                                          section whose rows happen to be blank (a
+                                          missing station number) came out narrower
+                                          than its neighbours and the four columns
+                                          stopped lining up. Fixed here so an empty
+                                          cell paints an empty bordered box instead
+                                          of collapsing the column. */}
+                                      <colgroup>
+                                        <col style={{ width: '46%' }} />
+                                        <col style={{ width: '54%' }} />
+                                      </colgroup>
                                       <thead>
                                         <tr>
                                           <th colSpan={2} style={{ ...thBase, height: 34, padding: '0 12px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: hue.head, borderBottom: '1px solid #e2e8f0' }}>
@@ -3121,7 +3134,7 @@ export default function Dashboard() {
                                         </tr>
                                         <tr>
                                           <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
-                                          <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
+                                          <th className="station-rule-right" style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -3136,11 +3149,15 @@ export default function Dashboard() {
                                             in one column never shifts the others. */}
                                         {rows.map(row => {
                                           const r = row.cells[si];
-                                          const cell = { padding: '8px 10px', fontSize: 12, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' };
+                                          // A visible rule on every cell, blank or
+                                          // not, so a station number missing from
+                                          // this section still reads as a real slot
+                                          // in the grid instead of a gap.
+                                          const cell = { padding: '8px 10px', fontSize: 12, whiteSpace: 'nowrap' };
                                           return (
                                             <tr key={`${family}-${row.key}`} className="station-row">
                                               <td title={r?.station} style={{ ...cell, fontWeight: 700, color: r ? '#17233C' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r?.station || ''}</td>
-                                              <td style={{ ...cell, textAlign: 'right', fontWeight: 700, color: r ? hue.head : '#cbd5e1' }}>{r ? formatRupees(r.amount) : ''}</td>
+                                              <td className="station-rule-right" style={{ ...cell, textAlign: 'right', fontWeight: 700, color: r ? hue.head : '#cbd5e1' }}>{r ? formatRupees(r.amount) : ''}</td>
                                             </tr>
                                           );
                                         })}
@@ -3195,7 +3212,7 @@ export default function Dashboard() {
                                       const present = row.cells.filter(Boolean);
                                       return (
                                         <tr key={`total-${row.key}`} className="station-row">
-                                          <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
+                                          <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
                                             {present.length ? formatRupees(t) : ''}
                                           </td>
                                         </tr>
@@ -3254,7 +3271,16 @@ export default function Dashboard() {
                    fixed band heights set inline (34 / 28 / 26). */
                 .station-collection-table thead tr:nth-child(1) th { position: sticky; top: 0; z-index: 4; }
                 .station-collection-table thead tr:nth-child(2) th { position: sticky; top: 34px; z-index: 4; }
-                .station-collection-table thead tr:nth-child(3) th { position: sticky; top: 62px; z-index: 4; box-shadow: inset 0 -1px 0 #e2e8f0; }
+                .station-collection-table thead tr:nth-child(3) th { position: sticky; top: 62px; z-index: 4; border-bottom: 1px solid #cbd5e1; }
+
+                /* Visible row and column lines. Every cell carries a rule —
+                   including a cell with no station on it — so a gap reads as an
+                   empty slot in the grid rather than the column collapsing.
+                   Drawn from --sec-rule, so each section's lines carry its own
+                   tint and the three still line up with the Total column. */
+                .station-collection-table tbody td { border-bottom: 1px solid var(--sec-rule, #e2e8f0); }
+                .station-collection-table tbody tr:last-child td { border-bottom: 1px solid #94a3b8; }
+                .station-collection-table .station-rule-right { border-left: 1px solid var(--sec-rule, #e2e8f0); }
 
                 /* Section tinting. The hue rides on a custom property so one rule
                    paints a section, so recolouring BSCT/AFLF/MANN is a single
