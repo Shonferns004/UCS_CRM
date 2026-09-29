@@ -1010,7 +1010,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           )}
         </div>
         <table>
-          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Documents</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -1028,6 +1028,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                   <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
+                  <td><div className="sk" style={{ width:60, height:18, borderRadius:10 }} /></td>
                   <td style={{ textAlign:'right' }}><div className="sk" style={{ width:28, height:28, borderRadius:'50%', marginLeft:'auto' }} /></td>
                 </tr>
               ))
@@ -1064,6 +1065,24 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
                       </td>
                       <td>
+                        {w.documents_submitted ? (
+                          <span
+                            title={`Documents submitted: ${w.documents_value || 'Yes'}`}
+                            style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                            <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ display:'block' }}>
+                                <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </span>
+                            <span style={{ fontSize:11, color:'var(--ink-soft)', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{w.documents_value || 'Yes'}</span>
+                          </span>
+                        ) : (
+                          <span title="Documents not submitted" style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#fce4ec', color:'#c62828' }}>
+                            Missing
+                          </span>
+                        )}
+                      </td>
+                      <td>
                         <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
                           background: w.employment_status === 'absconded' ? '#fff3e0' : w.employment_status === 'offboarded' ? '#fce4ec' : '#e8f5e9',
                           color: w.employment_status === 'absconded' ? '#e65100' : w.employment_status === 'offboarded' ? '#c62828' : '#2e7d32' }}>
@@ -1079,7 +1098,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                     </tr>
                   );
                 })}
-                {!filtered.length && <tr><td colSpan={6}><div className="empty">No volunteers found.</div></td></tr>}
+                {!filtered.length && <tr><td colSpan={7}><div className="empty">No volunteers found.</div></td></tr>}
               </>
             )}
           </tbody>
