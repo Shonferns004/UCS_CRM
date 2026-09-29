@@ -54,9 +54,14 @@ function PersonalPerformance() {
 
   const levelHigh = data?.level === 'high';
   const callTarget = 17;
+  // Whose figures these are. Under "work as" the strip paints the person at the
+  // keyboard (Priya covering Riya shows Priya's numbers), while the lead queue
+  // and donors below stay with the account being worked. The name is exposed as a
+  // title rather than a badge, so the strip keeps its five-tile layout.
+  const figuresOwner = data?.worker?.name || '';
 
 return (
-        <div style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', height: '100%' }}>
+        <div style={{ display: 'flex', flexWrap: 'nowrap', width: '100%', height: '100%' }} title={figuresOwner ? `Your figures: ${figuresOwner}` : undefined}>
           <Metric label="Rank" value={data?.rank ? `#${data.rank}` : '—'} accent="#7c3aed" icon={<Trophy size={16} />} />
           <Metric label="Worked" value={`${formatDuration(data?.worked_seconds)} / 8h`} good={(data?.worked_seconds ?? 0) >= 8 * 3600} accent="#0891b2" icon={<Timer size={16} />} />
           <Metric label="Calls" value={(data?.today_calls ?? 0).toString()} good={(data?.today_calls ?? 0) >= callTarget} accent="#2563eb" icon={<PhoneOutgoing size={16} />} />

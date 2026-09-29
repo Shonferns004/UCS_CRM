@@ -7,7 +7,7 @@ import { getBnfOperatorByLoginId, getBnfOperatorById, updateBnfOperator } from '
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
-import { releaseOperatorSessions, getActiveSessionsForTarget, claimStations } from '../models/workAsSessionModel.js';
+import { releaseOperatorSessions, getActiveSessionsForTarget, clearOperatorCoverLabels, claimStations } from '../models/workAsSessionModel.js';
 import { resolveOperatorIdentity } from '../utils/workAs.js';
 import { commitIdleOnExit } from '../services/froIdleCommit.js';
 
@@ -598,6 +598,14 @@ export const impersonateFRO = async (req, res) => {
       // being covered, so releasing against it wiped the COVERED FRO's sessions
       // and left the real operator's sessions running — which is how stale
       // work_as_sessions rows outlived their coverage.
+      //
+      // The display label goes with them. It lives on the target's own live row
+      // and nothing else clears it: not a release, and not a switch to a new
+      // target (which only brands the new one). Without this, switching from one
+      // FRO to another left the first FRO's row still reading "being worked by
+      // Priya" for as long as they stayed logged out — a cover that had ended but
+      // still named, on the very board that is meant to say who is covering whom.
+      await clearOperatorCoverLabels(imposterId);
       await releaseOperatorSessions(imposterId);
       const claim = await claimStations({
         targetWorkerId: target.id,
@@ -613,8 +621,34 @@ export const impersonateFRO = async (req, res) => {
       }
       actStations = claim.ok;
     } else {
-      // Unrestricted switch still supersedes any earlier scoped session.
+      // Unrestricted switch still supersedes any earlier scoped session, and
+      // takes its display label with it.
+      await clearOperatorCoverLabels(imposterId);
       await releaseOperatorSessions(imposterId);
+    }
+
+    // Park the operator's own open idle state before the switch begins.
+    //
+    // Their live row is about to stop receiving heartbeats, so any open period
+    // or disposition deadline on it would be left behind. On return, the
+    // deadline-derived fallback would backdate idle to whenever it lapsed —
+    // charging the operator for the entire cover they spent demonstrably
+    // working. Clearing it means they return to a clean row, and their idle
+    // restarts from the first real action of the new session.
+    await parkIdleForCoverStart(imposterId);
+
+    // Author the cover relationship once, on the COVERED FRO's row, so the
+    // admin boards can label it without the flicker that came from writing it
+    // on every heartbeat (a person can be both covered and covering, and one
+    // column cannot hold both). work_as_sessions remains the source of truth;
+    // this is the display hint only.
+    try {
+      await db
+        .from('fro_live_status')
+        .update({ work_as_operator_id: String(imposterId), work_as_operator_name: imposterName || null })
+        .eq('worker_id', String(target.id));
+    } catch (e) {
+      // Non-fatal: the label is cosmetic, the session row is what counts.
     }
 
     const tokenPayload = {
@@ -744,11 +778,73 @@ export const getFroWorkAsStations = async (req, res) => {
   }
 };
 
+// Park an operator's own live row at the moment a cover starts.
+//
+// Their row is about to go quiet, so anything time-derived sitting on it becomes
+// a claim about a period they were not idle in. disposition_due_at is the
+// dangerous one: with idle_since cleared, the deadline-derived fallback in
+// liveIdleSeconds() would treat a lapsed deadline as "idle started then", so
+// returning from a three-hour cover would bill three hours of idle to somebody
+// who worked the whole time.
+//
+// today_idle_seconds is deliberately preserved — that is time genuinely banked
+// before the switch. Only the open, undetermined state is cleared.
+async function parkIdleForCoverStart(operatorId) {
+  const id = String(operatorId ?? '');
+  if (!id) return;
+  try {
+    await db
+      .from('fro_live_status')
+      .update({
+        idle_since: null,
+        disposition_due_at: null,
+        current_donor_id: null,
+        call_started_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('worker_id', id);
+  } catch (e) {
+    // Non-fatal: the freeze in froCoverFreeze still prevents billing a
+    // covered-away FRO, and withoutStaleIdle() clears a same-day lapse on
+    // the next hydrate.
+  }
+}
+
 // Release every active work-as session the caller holds (Exit work-as button).
 export const releaseWorkAs = async (req, res) => {
   try {
     const operatorId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : req.user.id;
+    // Clear the display label on every row this operator was covering, not just
+    // the one currently painted on their token.
+    //
+    // Keying off req.user.id only ever cleared the CURRENT target, so a badge
+    // survived on any earlier target the operator had switched away from — the
+    // label outlived the cover that created it. Read the operator's own sessions
+    // and unbrand all of them, then release.
+    //
+    // The caller's painted id is still cleared afterwards as a belt-and-braces
+    // pass: it is what the token says they were working, and it is a no-op when
+    // the helper already handled it.
+    // Unbrand every target this operator was covering BEFORE releasing. The helper
+    // reads their active sessions to find those targets, so it has to run first —
+    // after release there is nothing left to enumerate.
+    await clearOperatorCoverLabels(operatorId);
     const released = await releaseOperatorSessions(operatorId);
+    // The caller's painted id is cleared afterwards as a belt-and-braces pass: it
+    // is what the token says they were working, and it is a no-op when the helper
+    // already handled it.
+    const targetId = req.user.impersonation ? String(req.user.id) : null;
+    if (targetId) {
+      try {
+        await db
+          .from('fro_live_status')
+          .update({ work_as_operator_id: null, work_as_operator_name: null })
+          .eq('worker_id', targetId)
+          .eq('work_as_operator_id', String(operatorId));
+      } catch (e) {
+        // Non-fatal: cosmetic label only.
+      }
+    }
     return res.json({ message: 'Work-as sessions released', released });
   } catch (error) {
     return res.status(500).json({ message: error.message });

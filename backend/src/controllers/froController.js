@@ -33,6 +33,8 @@ import {
   istDateStr,
   withoutStaleIdle,
   isIdleNow,
+  idleFreezeCutoffMs,
+  IDLE_LIVE_FRESH_MS,
 } from '../utils/froIdle.js';
 import {
   createDonorLog,
@@ -55,10 +57,13 @@ import {
 } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js';
+import { rollCountersForNewDay, writeDailySnapshot } from '../services/froCounterDay.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
+import { splitWorkerContext } from '../utils/workAs.js';
+import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -779,19 +784,24 @@ export const getDashboard = async (req, res) => {
 // team, so the admin performance endpoint is never exposed to FRO users.
 export const getMyPerformance = async (req, res) => {
   try {
-    const workerId = req.user.id;
-    // The strip always paints the FRO whose panel this is. Under work-as that is
-    // the impersonated target — the token subject — because every part of the
-    // strip is about that FRO: their queue, their logs, their leaderboard entry,
-    // their live row. It used to paint the ACTING OPERATOR instead, which
-    // spliced an operator's leaderboard entry onto the target FRO's worked and
-    // idle hours. An operator is not on an FRO board at all, so that half of the
-    // line was always garbage — a rank with no matching calls and 0% performance
-    // — while the hours came from the real FRO's row, putting two different
-    // people on one line.
-    const isWorkAs = !!(req.user.impersonation && req.user.imposter_id != null);
-    const actingOperatorId = isWorkAs ? req.user.imposter_id : null;
-    const identityWorkerId = workerId;
+    // Two identities, previously conflated into one variable.
+    //
+    //   data  -> the painted account: queue, stations, donors, logs being worked.
+    //   human -> the person at the keyboard: card figures, live row, presence.
+    //
+    // They are equal for an ordinary login. Under work-as they differ, and that
+    // difference is the whole point: Priya working as Riya must see PRIYA's rank,
+    // worked, calls, idle and performance, because Priya is the one doing the
+    // work. The strip used to paint the target (req.user.id), so it showed
+    // Riya's numbers to Priya — and because fro_donor_logs are already credited
+    // to the operator during work-as, the calls she actually made were being
+    // counted for nobody.
+    const { data: dataCtx, human: humanCtx, isWorkAs } = splitWorkerContext(req.user);
+    const workerId = dataCtx.id;
+    const metricsWorkerId = humanCtx.id;
+    // `identityWorkerId` is the long-standing name for "who the strip counts",
+    // which is now the human. Every metric below reads through it.
+    const identityWorkerId = metricsWorkerId;
     const worker = await getWorkerBySession(req.user);
     const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const istOffset = 5.5 * 60 * 60 * 1000;
@@ -820,8 +830,11 @@ export const getMyPerformance = async (req, res) => {
 
     const teamConnected = {};
     const teamLogs = {};
-    // Name the FRO being painted, never the operator driving the session.
-    const currentName = worker?.name
+    // Name the HUMAN whose figures the strip paints. Under work-as that is the
+    // operator, not the account on screen — getWorkerBySession() resolves the
+    // target, so it is only the right name when nobody is covering.
+    const currentName = (isWorkAs ? humanCtx.name : null)
+      || worker?.name
       || logs?.find(l => String(l.fro_worker_id) === String(identityWorkerId))?.workers?.name
       || null;
     for (const log of logs || []) {
@@ -868,10 +881,14 @@ export const getMyPerformance = async (req, res) => {
 
     const connected = teamConnected[String(identityWorkerId)] || 0;
     const performance = targetPace > 0 ? Math.round((connected / targetPace) * 1000) / 10 : 0;
+    // The live row is filed under the HUMAN, since updateLiveStatus() writes it
+    // there while a cover is active. Reading the target's row would show the
+    // covered FRO's counters — or, once two people are on screen at once, the
+    // row one of them last overwrote.
     const { data: liveStatus } = await db
       .from('fro_live_status')
       .select('today_idle_seconds, idle_since, disposition_due_at, is_paused, status, today_calls, updated_at, work_as_operator_id')
-      .eq('worker_id', workerId)
+      .eq('worker_id', metricsWorkerId)
       .maybeSingle();
 
     // Worked clock: shift time actually on the clock. It runs from the CRM
@@ -880,14 +897,18 @@ export const getMyPerformance = async (req, res) => {
     // shift end can't inflate the day). Idle is reported separately, not
     // subtracted, so the FRO still sees the full shift they were present for.
     const nowMs = Date.now();
-    const [officeStart, officeEnd] = await Promise.all([getOfficeStart(workerId), getOfficeEnd(workerId)]);
+    // Shift and login anchor belong to the HUMAN on the clock. Asking for the
+    // target's shift credited an operator with the covered FRO's hours window,
+    // and asking for the target's login anchor credited them with a session they
+    // never opened.
+    const [officeStart, officeEnd] = await Promise.all([getOfficeStart(metricsWorkerId), getOfficeEnd(metricsWorkerId)]);
     const officeStartMs = new Date(`${day}T${String(officeStart.hour).padStart(2, '0')}:${String(officeStart.minute).padStart(2, '0')}:00.000+05:30`).getTime();
     const officeEndMs = new Date(`${day}T${String(officeEnd.hour).padStart(2, '0')}:${String(officeEnd.minute).padStart(2, '0')}:00.000+05:30`).getTime();
     let loginAnchorMs = officeStartMs;
     try {
       const { rows } = await db._pool.query(
         `SELECT logged_in_at FROM auth_sessions WHERE user_id = $1`,
-        [String(workerId)]
+        [String(metricsWorkerId)]
       );
       const lgMs = rows?.[0]?.logged_in_at ? new Date(rows[0].logged_in_at).getTime() : NaN;
       if (Number.isFinite(lgMs)) loginAnchorMs = Math.max(officeStartMs, Math.min(nowMs, lgMs));
@@ -895,45 +916,28 @@ export const getMyPerformance = async (req, res) => {
       // auth_sessions may be absent until migration 125 — fall back to shift start.
     }
     const workedEndMs = Math.min(nowMs, officeEndMs);
-    // Worked attribution: live counters accrue on the covered FRO's row — the one
-    // the acting operator's heartbeat writes to — and the strip now paints that
-    // same FRO, so the hours line up with the counters that produced it. An FRO
-    // who is absent and merely being covered by someone else still gets 0 worked:
-    // they must not accrue hours from another person's shift.
-    // "Covered by someone else" has to be judged against the operator driving
-    // THIS session, not against the painted identity. The strip now paints the
-    // target FRO, but while that very operator is the one covering them the work
-    // really is being done and the hours must show. Comparing against
-    // identityWorkerId made every work-as strip look like it was covered by a
-    // stranger and zeroed worked and idle to nothing.
-    const coverOperatorId = liveStatus?.work_as_operator_id;
-    const coveredByOther = coverOperatorId != null
-      && String(coverOperatorId) !== String(actingOperatorId ?? identityWorkerId);
-    const workedSeconds = coveredByOther
-      ? 0
-      : Math.max(0, Math.round((workedEndMs - loginAnchorMs) / 1000));
+    // No coveredByOther suppression here any more, and none is needed: the row
+    // being read is this human's own row, so any time on it is genuinely theirs.
+    // That guard existed to stop an absent covered FRO banking the operator's
+    // shift. Filing the row on the human removes the situation instead of
+    // filtering its symptoms — and keeping the filter would now zero a real
+    // figure whenever the retired work_as_operator_id column held a stale id.
+    const workedSeconds = Math.max(0, Math.round((workedEndMs - loginAnchorMs) / 1000));
     const workedTarget = 8 * 3600;
 
-    // Idle for the FRO's own strip: committed + any period still running,
-    // clamped to their shift — the same effectiveIdleSeconds() the NGO-admin
-    // telecaller table uses for this worker, so the two surfaces cannot show
-    // different numbers for the same person at the same moment.
-    //
-    // The coveredByOther suppression that used to live here is gone on purpose.
-    // It zeroed the figure whenever a third party looked at a covered FRO, so
-    // the strip read 0 while the admin table read the real total for the very
-    // same row. That row is this FRO's own committed counter; the admin screen
-    // already settled the rule ("every row renders its own committed counter
-    // and streak, nothing is inherited from a work-as covered row"), so the
-    // strip follows it rather than keeping a second opinion.
-    const idleShift = await getShiftWindowMs(workerId, nowMs);
+    // Idle: committed + any period still running, clamped to their shift — the
+    // same effectiveIdleSeconds() the NGO-admin telecaller table uses, so the two
+    // surfaces cannot show different numbers for the same person at the same
+    // moment. read as the human's own row, so a cover cannot be charged to the
+    // person being covered.
+    const idleShift = await getShiftWindowMs(metricsWorkerId, nowMs);
     if (liveStatus && !liveStatus.idle_since
       && !liveStatus.is_paused && liveStatus.status !== 'meeting') {
       const dueNow = dispositionDueMs(liveStatus);
       if (Number.isFinite(dueNow) && nowMs >= dueNow
         && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))
         && withinShift(idleShift, nowMs)) {
-        if (await stampLapsedIdle(workerId, nowMs)) {
+        if (await stampLapsedIdle(metricsWorkerId, nowMs)) {
           liveStatus.idle_since = liveStatus.disposition_due_at;
           liveStatus.status = 'idle';
         }
@@ -942,7 +946,13 @@ export const getMyPerformance = async (req, res) => {
     const idleSeconds = effectiveIdleSeconds(liveStatus || {}, idleShift, nowMs);
 
     return res.json({
-      worker: { id: identityWorkerId, name: currentName },
+      // Whose figures these are: the person at the keyboard. Identical to
+      // `data` for an ordinary login.
+      worker: { id: humanCtx.id, name: currentName },
+      // The account being worked (queue, donors, stations). Exposed so the UI can
+      // say so if it ever needs to; deliberately NOT what the card paints.
+      painted_account: { id: dataCtx.id, name: dataCtx.name || currentName },
+      is_work_as: isWorkAs,
       connected,
       target_pace: targetPace,
       elapsed_hours: elapsedHours,
@@ -961,7 +971,7 @@ export const getMyPerformance = async (req, res) => {
       // A lapsed deadline counts as idle even before the next heartbeat has
       // stamped idle_since, so the badge and the number can never disagree.
       // Same helper the panel hydrates with, so the badge and the overlay agree.
-      is_idle: !coveredByOther && isIdleNow(liveStatus, idleShift, nowMs),
+      is_idle: isIdleNow(liveStatus, idleShift, nowMs),
       today_collected: todayCollection[String(identityWorkerId)] || 0,
       monthly_collected: monthCollection[String(identityWorkerId)] || 0,
       daily_target: dailyTargetMap[String(identityWorkerId)] || 0,
@@ -3041,6 +3051,7 @@ export const createDonorLogHandler = async (req, res) => {
         } else if (liveRow?.idle_since) {
           patch.today_idle_seconds = liveIdleSeconds(liveRow, shift, nowMs);
         }
+        patch.stats_date = istDateStr(new Date(nowMs));
 
         // Leave a frozen row (admin pause / company meeting) alone — resetting
         // its status to 'online' would punch through a freeze the admin set.
@@ -3051,14 +3062,14 @@ export const createDonorLogHandler = async (req, res) => {
         }
         await db.from('fro_live_status').upsert(patch, { onConflict: 'worker_id' });
         if (patch.today_idle_seconds !== undefined) {
-          await db._pool.query(
-            `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, updated_at)
-             VALUES ($1, $2::date, GREATEST(0, $3), now())
-             ON CONFLICT (worker_id, stat_date) DO UPDATE SET
-               idle_seconds = GREATEST(fro_daily_stats.idle_seconds, EXCLUDED.idle_seconds),
-               updated_at   = now()`,
-            [workerId, istDateStr(new Date(nowMs)), patch.today_idle_seconds]
-          );
+          await writeDailySnapshot(workerId, istDateStr(new Date(nowMs)), {
+            idle_seconds: patch.today_idle_seconds,
+          }, {
+            extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
+              ? Math.max(0, shift.endMs - shift.startMs)
+              : NaN,
+            dbg: 'disposition',
+          });
         }
         timer = {
           disposition_due_at: due,
@@ -4341,7 +4352,25 @@ export const bookOpenIdleStreak = (workerId) => commitIdleOnExit(String(workerId
 
 export const updateLiveStatus = async (req, res) => {
   try {
-    const workerId = req.user.id;
+    // The row belongs to the HUMAN at the keyboard, not to the account painted on
+    // screen. Under work-as those differ, and the old keying is the root cause of
+    // every work-as reporting bug:
+    //   - Priya covering Riya filed Priya's activity under Riya, so the strip
+    //     showed Riya's numbers and the calls Priya actually logged (already
+    //     credited to her in fro_donor_logs) were counted for nobody.
+    //   - Two people on screen at once — Priya covering Riya while the real Riya
+    //     works her own account — wrote to the SAME row, last write wins. The
+    //     work_as_operator_id marker was cleared by the covered FRO's own
+    //     heartbeat, one person's idle timer cancelled the other's, and
+    //     today_calls / today_talk_seconds merged via the keep-larger rule.
+    //   - It left the operator's own row stale with a lapsed disposition_due_at,
+    //     which stampLapsedIdle() later backdated to the old deadline — hours of
+    //     idle invented for someone who was demonstrably working.
+    // Filing on the human removes all of it at the source: one row per person,
+    // so nothing can overwrite anything, and the cover relationship is carried by
+    // work_as_sessions instead of by a single column on the row.
+    const { human: humanCtx } = splitWorkerContext(req.user);
+    const workerId = humanCtx.id;
 
     // Force-logout enforcement: once an admin logs the FRO out (logged_out_at
     // set), reject the heartbeat with 401 so the client's api() clears the
@@ -4354,13 +4383,18 @@ export const updateLiveStatus = async (req, res) => {
       // the same worker) must not bounce a freshly-issued work-as session — the
       // switch reopens the covered FRO, and the iat guard is the belt-and-
       // suspenders that keeps a direct post-switch force-logout working.
+      // Checked against BOTH identities: the switch reopened the covered FRO's
+      // session, and a force-logout applied to the operator's own account must
+      // still boot the tab driving it.
       const tokenIssuedAt = req.user.iat ? req.user.iat * 1000 : 0;
       const { rows } = await db._pool.query(
-        `SELECT logged_out_at FROM auth_sessions WHERE user_id = $1`,
-        [String(workerId)]
+        `SELECT user_id, logged_out_at FROM auth_sessions WHERE user_id = ANY($1::text[])`,
+        [[String(workerId), String(req.user.id)]]
       );
-      const loggedOutAt = rows?.[0]?.logged_out_at ? new Date(rows[0].logged_out_at).getTime() : 0;
-      if (loggedOutAt > tokenIssuedAt) {
+      const stamped = (rows || []).find(
+        r => r.logged_out_at && new Date(r.logged_out_at).getTime() > tokenIssuedAt
+      );
+      if (stamped) {
         return res.status(401).json({ message: 'Session closed. Please login again.' });
       }
     } catch (e) {
@@ -4388,16 +4422,13 @@ export const updateLiveStatus = async (req, res) => {
       status,
       updated_at: new Date().toISOString(),
     };
-    // Work-as context: when an operator (abc) is covering this FRO's stations,
-    // record who is actually operating. Regular logins must clear any residue
-    // left behind by an earlier work-as session.
-    if (req.user.impersonation && req.user.imposter_id) {
-      payload.work_as_operator_id = String(req.user.imposter_id);
-      payload.work_as_operator_name = req.user.imposter_name || null;
-    } else {
-      payload.work_as_operator_id = null;
-      payload.work_as_operator_name = null;
-    }
+    // This row is now the operator's OWN row, so a "who is operating me" marker on
+    // it would be self-referential. The cover relationship is authored once at
+    // switch/exit in authController (against the covered FRO's row) and read from
+    // work_as_sessions; the column is kept only so an old row written before this
+    // change cannot leave a stale "being worked by" label behind forever.
+    payload.work_as_operator_id = null;
+    payload.work_as_operator_name = null;
     if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
     if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
     // force_counters is a deliberate rollover/clear push from the panel.
@@ -4414,9 +4445,16 @@ export const updateLiveStatus = async (req, res) => {
     let existing = null;
     if (incomingCounters.length > 0) {
       try {
+        // The full row, not just the two counter columns. This read used to
+        // select 'today_calls, today_talk_seconds, updated_at' only, and the
+        // result became `row` for everything below — so whenever the client sent
+        // counters, the rollover check, withoutStaleIdle() and the idle total all
+        // ran against a row with no idle_since, no today_idle_seconds and no
+        // status, i.e. against nothing. The day-rollover fix below is only real if
+        // this read actually returns the state it is supposed to act on.
         const { data } = await db
           .from('fro_live_status')
-          .select('today_calls, today_talk_seconds, updated_at')
+          .select('*')
           .eq('worker_id', workerId)
           .maybeSingle();
         existing = data || null;
@@ -4459,18 +4497,43 @@ export const updateLiveStatus = async (req, res) => {
     const shiftStartMs = shift?.startMs;
     const paused = !!(row?.is_paused);
 
-    // Day rollover: an open idle period from yesterday must not be carried into
-    // today's total, and yesterday's committed total is already snapshotted.
-    // Yesterday's deadline is dropped too — it is always in the past by now, so
-    // keeping it would force the FRO idle the instant they open the next day.
-    // Same rule the login hydrate reads with, so the two cannot disagree.
+    // Day rollover. UNCONDITIONAL, and no longer conditional on idle_since.
+    //
+    // The old code cleared today's counters here only when the worker happened to
+    // be inside an open idle period at the boundary:
+    //
+    //     if (cleaned.idle_since === null && row.idle_since) payload.today_idle_seconds = 0;
+    //
+    // Finish a day with idle_since = NULL — resumed, signed out, or the exit path
+    // already banked the period — and the reset never ran. Yesterday's committed
+    // total stayed in the row, today's idle was added on top, and the daily
+    // snapshot (written with GREATEST, so it can only rise) recorded the running
+    // total as a single day. That is where 52h19m of idle in one row came from.
+    //
+    // The counters now belong to the day in stats_date, full stop. A different day
+    // banks the old numbers against the old date and starts today at zero, so this
+    // cannot be skipped by whatever state the worker left behind.
+    const roll = await rollCountersForNewDay(workerId, row, nowMs, { dbg: 'heartbeat' });
+    if (roll.rolled) {
+      payload.today_idle_seconds = 0;
+      payload.idle_since = null;
+      payload.disposition_due_at = null;
+    }
+    payload.stats_date = roll.statsDate;
+    if (roll.rolled) row = { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null };
+
+    // withoutStaleIdle still clears a stale idle_since/disposition_due_at, but its
+    // counter zeroing is deliberately NOT honoured: the rollover above is now the
+    // only thing that resets a counter, because it is the only thing that knows
+    // which day the counter belongs to. Honouring this one would drop a genuine
+    // same-day total on a row whose idle_since and stats_date happen to disagree.
+    const committedForToday = roll.rolled ? 0 : Number(row?.today_idle_seconds || 0) || 0;
     const cleaned = withoutStaleIdle(row, shift, nowMs);
     if (cleaned !== row) {
       if (cleaned.idle_since === null && row.idle_since) {
         payload.idle_since = null;
-        payload.today_idle_seconds = 0;
       }
-      row = cleaned;
+      row = { ...cleaned, today_idle_seconds: committedForToday };
     }
 
     // Deliberately does NOT open the window. A heartbeat is presence, not work,
@@ -4531,8 +4594,10 @@ export const updateLiveStatus = async (req, res) => {
     if (error) throw error;
 
     // Daily activity snapshot: the live row is a single "today" bucket, so the
-    // previous day's totals are lost without this. Upsert keeping the max seen
-    // (counters only grow within a day). Non-fatal until migration 126.
+    // previous day's totals are lost without this. Routed through the shared
+    // writer so the day-attribution rule and the 24h cap apply here exactly as
+    // they do on the resume and exit paths — this upsert used to be a private copy
+    // that nothing else kept in step with.
     try {
       const istDay = istDateStr(new Date(nowMs));
       const daily = {
@@ -4541,16 +4606,12 @@ export const updateLiveStatus = async (req, res) => {
         idle_seconds: derivedIdle,
       };
       if (Object.values(daily).some(v => v !== undefined)) {
-        await db._pool.query(
-          `INSERT INTO fro_daily_stats (worker_id, stat_date, talk_seconds, calls, idle_seconds, updated_at)
-           VALUES ($1, $2::date, GREATEST(0, COALESCE($3,0)), GREATEST(0, COALESCE($4,0)), GREATEST(0, COALESCE($5,0)), now())
-           ON CONFLICT (worker_id, stat_date) DO UPDATE SET
-             talk_seconds = GREATEST(fro_daily_stats.talk_seconds, COALESCE(EXCLUDED.talk_seconds, 0)),
-             calls        = GREATEST(fro_daily_stats.calls,        COALESCE(EXCLUDED.calls, 0)),
-             idle_seconds = GREATEST(fro_daily_stats.idle_seconds, COALESCE(EXCLUDED.idle_seconds, 0)),
-             updated_at   = now()`,
-          [workerId, istDay, daily.talk_seconds, daily.calls, daily.idle_seconds]
-        );
+        await writeDailySnapshot(workerId, istDay, daily, {
+          extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
+            ? Math.max(0, shift.endMs - shift.startMs)
+            : NaN,
+          dbg: 'heartbeat',
+        });
       }
     } catch (e) {
       // Non-fatal: fro_daily_stats may be absent until migration 126 is applied.
@@ -4601,7 +4662,9 @@ export const updateLiveStatus = async (req, res) => {
 // and hand back a fresh 4-minute disposition window.
 export const resumeOwnIdle = async (req, res) => {
   try {
-    const workerId = req.user.id;
+    // The human's own row, matching where updateLiveStatus() files the heartbeat.
+    const { human: humanCtx } = splitWorkerContext(req.user);
+    const workerId = humanCtx.id;
     const nowMs = Date.now();
     const { data: row } = await db
       .from('fro_live_status')
@@ -4611,7 +4674,15 @@ export const resumeOwnIdle = async (req, res) => {
     if (!row) return res.json({ message: 'Nothing to resume', today_idle_seconds: 0, seconds_left: null });
 
     const shift = await getShiftWindowMs(workerId, nowMs);
-    const total = liveIdleSeconds(row, shift, nowMs);
+
+    // Rollover BEFORE the total is computed. Resuming is exactly the moment a stale
+    // counter gets written back, so doing it afterwards would bank a total that
+    // still had yesterday's committed idle inside it.
+    const roll = await rollCountersForNewDay(workerId, row, nowMs, { dbg: 'resume' });
+    const base = roll.rolled
+      ? { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null }
+      : row;
+    const total = liveIdleSeconds(base, shift, nowMs);
     const due = nextDeadline(shift, nowMs);
 
     const { error } = await db
@@ -4621,6 +4692,7 @@ export const resumeOwnIdle = async (req, res) => {
         status: row.status === 'idle' ? 'online' : (row.status || 'online'),
         idle_since: null,
         today_idle_seconds: total,
+        stats_date: roll.statsDate,
         disposition_due_at: due,
         current_donor_id: null,
         call_started_at: null,
@@ -4628,18 +4700,12 @@ export const resumeOwnIdle = async (req, res) => {
       }, { onConflict: 'worker_id' });
     if (error) throw error;
 
-    try {
-      await db._pool.query(
-        `INSERT INTO fro_daily_stats (worker_id, stat_date, idle_seconds, updated_at)
-         VALUES ($1, $2::date, GREATEST(0, $3), now())
-         ON CONFLICT (worker_id, stat_date) DO UPDATE SET
-           idle_seconds = GREATEST(fro_daily_stats.idle_seconds, EXCLUDED.idle_seconds),
-           updated_at   = now()`,
-        [workerId, istDateStr(new Date(nowMs)), total]
-      );
-    } catch (e) {
-      // Non-fatal: fro_daily_stats may be absent until migration 126 is applied.
-    }
+    await writeDailySnapshot(workerId, roll.statsDate, { idle_seconds: total }, {
+      extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
+        ? Math.max(0, shift.endMs - shift.startMs)
+        : NaN,
+      dbg: 'resume',
+    });
 
     return res.json({
       message: 'Resumed',
@@ -4655,12 +4721,17 @@ export const resumeOwnIdle = async (req, res) => {
 
 // ─── Progress Save/Restore ──────────────────────────────────────
 
+// Panel progress (which tab / batch / donor index the person is on) follows the
+// HUMAN, matching the live row. It is per-person view state, not the account's:
+// two people working the same covered FRO's queue each keep their own cursor
+// rather than overwriting one another on the shared row.
 export const getMyProgress = async (req, res) => {
   try {
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
-      .eq('worker_id', req.user.id)
+      .eq('worker_id', humanCtx.id)
       .maybeSingle();
     return res.json(data || {});
   } catch (error) {
@@ -4670,7 +4741,8 @@ export const getMyProgress = async (req, res) => {
 
 export const saveMyProgress = async (req, res) => {
   try {
-    const workerId = req.user.id;
+    const { human: humanCtx } = splitWorkerContext(req.user);
+    const workerId = humanCtx.id;
     const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
     const payload = {
       current_batch_id: current_batch_id || null,
@@ -4855,17 +4927,17 @@ export const resetAllFroIdle = async (req, res) => {
 // Same row update as the admin resume (plus the converging socket event).
 export const resumeOwnPause = async (req, res) => {
   try {
-    const workerId = req.user.id;
+    // The pause lives on the HUMAN's own row now — the same row the heartbeat
+    // writes and getMyLiveStatus reads — so one row is the whole truth again.
+    //
+    // The old code cleared both the operator's and the covered FRO's rows
+    // because a work-as session wrote the target's row and the read path merged
+    // the two. Both halves of that are gone, so this is a single-row update and
+    // the "resume runs on a loop" failure (the panel re-converging to paused
+    // because the other row was still paused) cannot recur.
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const nowIso = new Date().toISOString();
-
-    // A "work as" session writes its live status onto the impersonated TARGET's
-    // row, and getMyLiveStatus reports the operator as paused when EITHER row is
-    // paused. Clearing only the operator's own row therefore left the target
-    // paused, the panel re-converged to paused on the very next db:change, and
-    // the FRO could never escape — the "resume runs on a loop" report. Clear
-    // every row this session can legitimately be paused on.
-    const ids = [String(workerId)];
-    if (req.user.impersonation && req.user.imposter_id) ids.push(String(req.user.imposter_id));
+    const ids = [String(humanCtx.id)];
 
     // Update, never upsert: a resume must not manufacture a live row for a
     // worker who has never opened the panel (no row already means "not paused").
@@ -4888,36 +4960,32 @@ export const resumeOwnPause = async (req, res) => {
 
 // FRO's own live status row — used to restore today's counters in memory on panel
 // load (the client no longer mirrors these into localStorage).
-// Acting ("work as") session: the panel identifies as the impersonated target,
-// so a pause on the real operator's own row would be invisible. Merge it in —
-// paused if EITHER row is paused (counters stay the target's).
+//
+// Under "work as" this is the OPERATOR's own row, not the covered FRO's: the row
+// is filed on the person at the keyboard, so the timer, deadline and pause state
+// returned here all belong to them.
 export const getMyLiveStatus = async (req, res) => {
   try {
+    // Read the human's own row — the same row updateLiveStatus() writes. Under
+    // work-as this used to read the covered FRO's row, which meant the panel was
+    // hydrated with another person's idle timer, disposition deadline and pause
+    // state, so the Resume overlay and countdown belonged to the wrong person.
+    //
+    // The old "merge the operator's paused flag into the target's row" hack is
+    // gone for the same reason: there is only one row now, so there is nothing
+    // left to merge. A pause on the operator's row is simply read directly.
+    const { human: humanCtx } = splitWorkerContext(req.user);
     const { data } = await db
       .from('fro_live_status')
       .select('*')
-      .eq('worker_id', req.user.id)
+      .eq('worker_id', humanCtx.id)
       .maybeSingle();
-    let row = data || null;
-    if (req.user.impersonation && req.user.imposter_id) {
-      // Operator may be a non-FRO login (admin id, not a workers UUID) — a
-      // type mismatch must never 500 the hydrate, so failures fall through.
-      try {
-        const { data: opRow, error: opErr } = await db
-          .from('fro_live_status')
-          .select('is_paused, paused_by, paused_at')
-          .eq('worker_id', req.user.imposter_id)
-          .maybeSingle();
-        if (!opErr && opRow?.is_paused && !row?.is_paused) {
-          row = { ...(row || {}), is_paused: true, paused_by: opRow.paused_by || null, paused_at: opRow.paused_at || null };
-        }
-      } catch { /* non-FRO operator id — target row stands alone */ }
-    }
+    const row = data || null;
     if (!row) return res.json(null);
     // Rehydrate the panel with the authoritative timer: the deadline, the
     // seconds left on it, and idle time including the period still running.
     const nowMs = Date.now();
-    const shift = await getShiftWindowMs(req.user.id, nowMs);
+    const shift = await getShiftWindowMs(humanCtx.id, nowMs);
     // Sign-in must not inherit yesterday's idle. The heartbeat drops these on
     // its first run, but the panel hydrates before that, so a stale idle_since
     // or an expired deadline would flash the Resume overlay on every login.
@@ -4932,7 +5000,7 @@ export const getMyLiveStatus = async (req, res) => {
       if (Number.isFinite(dueNow) && nowMs >= dueNow
         && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))
         && withinShift(shift, nowMs)) {
-        const stamped = await stampLapsedIdle(req.user.id, nowMs);
+        const stamped = await stampLapsedIdle(humanCtx.id, nowMs);
         if (stamped) row = { ...row, idle_since: row.disposition_due_at, status: 'idle' };
       }
     }
@@ -5060,15 +5128,50 @@ export const getLiveStatuses = async (req, res) => {
       }
     });
 
+    // Cover relationships, from work_as_sessions. This endpoint was work-as blind:
+    // it read each row's own status, so an operator driving a covered panel showed
+    // whatever their own row said (usually offline) while the covered FRO's stale
+    // row still claimed "online". With rows filed on the human, the covered FRO's
+    // row simply goes quiet — which is correct — but the screen has to say WHY,
+    // and must not render a stale status as if the person were still there.
+    let coversByTarget = new Map();
+    try {
+      coversByTarget = await getActiveCoversForTargets(workerIds);
+    } catch (e) {
+      // work_as_sessions unavailable — fall through to the row's display label.
+    }
+
     const nowMs = Date.now();
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
       const dataUsed = stats.contacted + stats.donation_collected;
       const talkSeconds = ls.today_talk_seconds || 0;
       const productivity = talkSeconds > 0 ? 100 : null;
+
+      const coverers = (coversByTarget.get(String(ls.worker_id)) || [])
+        .map(c => c.operatorName).filter(Boolean);
+      const isCoveredFro = coverers.length > 0;
+      const rowFresh = ls.updated_at && (nowMs - new Date(ls.updated_at).getTime()) <= IDLE_LIVE_FRESH_MS;
+      const selfOnline = isWorkerOnline(ls.worker_id);
+      // A covered FRO who is not themselves present is away, not idle-and-present:
+      // their row went quiet because somebody else is working their panel, and
+      // rendering the frozen status would put a person in the "present" column
+      // who is not at their desk.
+      //
+      // Being covered is not the same as being away, so this needs BOTH halves: a
+      // covered FRO at their own desk keeps a fresh row, must stay idle-or-present
+      // like anybody else, and is the chain case (Riya present, covering Meera).
+      // Only the covered-and-quiet combination freezes.
+      const staleStatus = isCoveredFro && !rowFresh && !selfOnline;
+      // Their idle stops at the last moment their own row was written, so neither
+      // the day total nor the running streak keeps climbing for someone who has
+      // already gone home. The period itself is left on the row untouched — it is
+      // their idle to claim if they come back, and the commit guards decide
+      // whether it is ever banked.
+      const frozenAt = staleStatus ? idleFreezeCutoffMs(ls) : NaN;
       // Idle includes the period still running, clamped to the FRO's shift —
       // same number the FRO sees, so the admin view can't disagree with them.
-      const idleSeconds = liveIdleSeconds(ls, shiftMap[ls.worker_id] || shiftFallback, nowMs);
+      const idleSeconds = liveIdleSeconds(ls, shiftMap[ls.worker_id] || shiftFallback, nowMs, frozenAt);
 
       return {
         id: ls.id,
@@ -5076,13 +5179,22 @@ export const getLiveStatuses = async (req, res) => {
         // A lapsed disposition deadline means idle even if the row still says
         // otherwise, and a row still holding idle_since is idle until Resume.
         // A paused or meeting row is exempt — the admin/meeting is holding them.
-        status: (ls.idle_since || deadlinePassed(ls, nowMs)) && !ls.is_paused && ls.status !== 'meeting'
+        // A covered-away row is exempt too and reads offline: a lapsed deadline
+        // on somebody who was never at the desk is not idle, it is the phantom
+        // accrual this whole distinction exists to stop.
+        status: !staleStatus && (ls.idle_since || deadlinePassed(ls, nowMs)) && !ls.is_paused && ls.status !== 'meeting'
           ? 'idle'
-          : ls.status,
+          : (staleStatus ? 'offline' : ls.status),
+        // Who is working this person's stations, from work_as_sessions (with the
+        // live row's display column as a fallback for rows predating the switch).
+        work_as_operator_name: isCoveredFro
+          ? coverers.join(', ')
+          : (ls.work_as_operator_name || null),
+        is_covered: isCoveredFro,
         // Live-socket presence (panel open right now). Admins can prefer this
         // over updated_at age for "offline?" decisions — rows only move on
         // real events now that timer heartbeats are gone.
-        socket_online: isWorkerOnline(ls.worker_id),
+        socket_online: selfOnline,
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,
         paused_at: ls.paused_at || null,
@@ -5117,7 +5229,7 @@ export const getLiveStatuses = async (req, res) => {
           idle_duration_seconds: ls.idle_since
             // Clamped to the FRO's shift like every other idle figure, so a row
             // left idle overnight cannot show an absurd "48h idle" to an admin.
-            ? openIdleSeconds(ls, shiftMap[ls.worker_id] || shiftFallback, nowMs)
+            ? openIdleSeconds(ls, shiftMap[ls.worker_id] || shiftFallback, nowMs, frozenAt)
             : null,
           last_seen: ls.updated_at,
         },

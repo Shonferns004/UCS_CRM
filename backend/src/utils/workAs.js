@@ -42,3 +42,117 @@ export function buildWorkAsByOp(rows, isLiveFresh) {
   }
   return byOperator;
 }
+
+// ---------------------------------------------------------------------------
+// Cover relationships, read from work_as_sessions instead of the live row.
+//
+// The live row's work_as_operator_id is a single slot: one "who is operating
+// me" per person, rewritten by every heartbeat. That cannot express a chain —
+// Riya covered by Priya while Riya herself covers Meera — because one of the two
+// facts overwrites the other and the relationship flickers between screens. It
+// also cannot express two people sharing one laptop profile.
+//
+// work_as_sessions is one row per (operator, covered target), so it holds any
+// number of relationships including a chain. These helpers are the pure core,
+// unit-tested directly, so the model layer stays a thin query wrapper.
+// ---------------------------------------------------------------------------
+
+// target id -> [{ operatorUserId, operatorName }] for every active cover.
+// Several operators may cover the same person, so the value is a list.
+export function indexCovers(sessions) {
+  const byTarget = new Map();
+  for (const s of sessions || []) {
+    const target = String(s?.target_fro_worker_id ?? '');
+    const op = String(s?.operator_user_id ?? '');
+    if (!target || !op) continue;
+    if (!byTarget.has(target)) byTarget.set(target, []);
+    byTarget.get(target).push({ operatorUserId: op, operatorName: s.operator_name || '' });
+  }
+  return byTarget;
+}
+
+// The reverse index: operator id -> [targets they are covering].
+export function groupCoversByOperator(sessions) {
+  const byOperator = new Map();
+  for (const s of sessions || []) {
+    const op = String(s?.operator_user_id ?? '');
+    const target = String(s?.target_fro_worker_id ?? '');
+    if (!target || !op) continue;
+    if (!byOperator.has(op)) byOperator.set(op, []);
+    byOperator.get(op).push(target);
+  }
+  return byOperator;
+}
+
+// Is this person currently being covered by anyone?
+//
+// A covered FRO who is away must not accrue idle: the work on their station is
+// being done by somebody else, so crediting them for sitting still bills them
+// for time they were not present. Note this asks only "does a cover exist", not
+// "is the cover active right now" — the caller owns liveness, because only it
+// knows whether the operator is still refreshing.
+export function isCovered(coversByTarget, targetWorkerId) {
+  const list = coversByTarget?.get(String(targetWorkerId ?? ''));
+  return Array.isArray(list) && list.length > 0;
+}
+
+// Pure form of the "covered and gone quiet" test, so the policy can be tested
+// without a database. `isSelfFresh` says whether the covered FRO's own live row
+// is still being refreshed.
+//
+// This is what keeps a covered-away FRO from being billed idle: their row going
+// quiet means their panel is closed, not that they were sitting idle, and the
+// stale disposition deadline on it would otherwise be backdated into hours of
+// invented idle. A covered FRO who is still refreshing their own row is at the
+// desk and accrues normally, so a cover taken out while the FRO keeps working
+// costs them nothing.
+export function isCoveredAndAway({ coversByTarget, targetWorkerId, isSelfFresh, nowMs = Date.now(), staleMs = 90 * 1000 }) {
+  if (!isCovered(coversByTarget, targetWorkerId)) return false;
+  if (typeof isSelfFresh === 'function') return !isSelfFresh(targetWorkerId, nowMs);
+  return false;
+}
+
+// Which worker id should a live-status write be filed under?
+//
+// This is the core of the reporting fix. While work-as is active the JWT's `id`
+// is the COVERED FRO, so keying the live row on it filed the operator's activity
+// under the covered person. Two people active at once (Priya covering Riya while
+// the real Riya works her own account) then wrote to the SAME row, last write
+// wins: the work_as_operator_id marker got cleared by the covered FRO's own
+// heartbeat, one person's idle timer cancelled the other's, and today_calls /
+// today_talk_seconds merged via the max() keep-larger rule. It also left the
+// operator's own row stale with a lapsed disposition_due_at, which
+// stampLapsedIdle() later backdated — inventing hours of idle for someone who
+// was demonstrably working.
+//
+// Filing on the real human fixes all of it at the source: each person owns one
+// row, so nothing can overwrite anything, and the cover relationship is carried
+// by work_as_sessions rather than by the row.
+//
+// `painted` is the identity the UI is showing (the covered FRO under work-as);
+// `operator` is the human at the keyboard. Non-impersonating users have no
+// operator, so the painted id is used and nothing changes for them.
+export function liveRowWorkerId({ paintedId, operatorId }) {
+  const painted = String(paintedId ?? '');
+  const operator = operatorId == null || operatorId === '' ? '' : String(operatorId);
+  return operator || painted;
+}
+
+// Split a request's worker context into the two identities that were previously
+// conflated. `data` follows the painted account (the queue, donors, stations
+// being worked); `human` follows the person at the keyboard (live counters, card
+// figures, presence). They are equal unless a work-as switch is active.
+export function splitWorkerContext(user) {
+  const { imposterId, imposterName, chained } = resolveOperatorIdentity(user);
+  const paintedId = user?.id;
+  const humanId = liveRowWorkerId({ paintedId, operatorId: imposterId });
+  return {
+    chained,
+    data: { id: paintedId, name: user?.name || '' },
+    human: {
+      id: humanId,
+      name: String(humanId) === String(paintedId) ? (user?.name || '') : (imposterName || ''),
+    },
+    isWorkAs: chained && String(humanId) !== String(paintedId),
+  };
+}

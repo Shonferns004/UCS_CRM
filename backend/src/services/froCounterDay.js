@@ -1,0 +1,203 @@
+import db from '../config/db.js';
+import { getShiftWindowMs, istDateStr, liveIdleSeconds, idlePeriodStartMs } from '../utils/froIdle.js';
+
+/**
+ * Which IST day do a live-status row's counters belong to, and has that changed?
+ *
+ * The bug this exists to end
+ * -------------------------
+ * fro_live_status is ONE row per worker carrying "today" counters, and every idle
+ * write path stores it with GREATEST, so a stored value can only ever rise. The
+ * day rollover used to clear those counters through a condition that only fired
+ * when the worker was in an OPEN idle period at the boundary:
+ *
+ *     if (cleaned.idle_since === null && row.idle_since) payload.today_idle_seconds = 0;
+ *
+ * Finish a day with idle_since = NULL — resume, sign out, or the exit path banking
+ * the period — and the reset never ran. Yesterday's total stayed in the counter,
+ * today's idle was added on top of it, and the daily snapshot captured the running
+ * total as one day. That is how 52h19m of idle ended up in a single row, and
+ * because the snapshot is also GREATEST the value could never be walked back down.
+ *
+ * The rule now
+ * ------------
+ * A counter belongs to the day stamped in stats_date, full stop. If that is not
+ * today, the old counters are snapshotted against the OLD day and the live row
+ * starts today at zero. The rollover no longer consults idle_since at all, so it
+ * cannot be skipped by whichever state the worker happened to leave behind.
+ *
+ * NOTE ON WHAT IS *NOT* DONE HERE. The previous day's counters are banked, not
+ * discarded, because they are real shift time and the monthly salary figure sums
+ * them. Deliberately not fixing up the historical inflation: that is a data
+ * decision, not a code one.
+ */
+
+/** A single day cannot physically contain more than this much idle. */
+export const MAX_IDLE_SECONDS_PER_DAY = 24 * 60 * 60;
+
+const COUNTER_COLUMNS = [
+  'today_idle_seconds',
+  'today_calls',
+  'today_talk_seconds',
+  'today_break_seconds',
+  'today_skipped',
+];
+
+/** IST day a row's counters belong to, falling back to when the row was last written. */
+export function counterDayOf(row) {
+  if (!row) return null;
+  if (row.stats_date) {
+    return row.stats_date instanceof Date
+      ? istDateStr(row.stats_date)
+      : String(row.stats_date).slice(0, 10);
+  }
+  // No stamp (row predates the migration, or was never written). updated_at is the
+  // only evidence of which day this row was last touched; without it we cannot
+  // claim the row belongs to a past day, so treat it as current and let the
+  // normal write path set the stamp.
+  if (row.updated_at) return istDateStr(new Date(row.updated_at));
+  return null;
+}
+
+/** True when the row's counters belong to a day before `nowMs`. */
+export function isCounterDayStale(row, nowMs = Date.now()) {
+  const day = counterDayOf(row);
+  if (!day) return false;
+  return day !== istDateStr(new Date(nowMs));
+}
+
+/**
+ * Hard invariant: a day cannot hold more idle than it has hours.
+ *
+ * Applied on the way into fro_daily_stats so an over-count is unrepresentable
+ * rather than merely unlikely. This is the backstop; the rollover above is what
+ * makes the number right. A caller's own cap (the worker's real shift window)
+ * is honoured when supplied, which is tighter still.
+ */
+export function capIdleSeconds(seconds, extraCapMs = NaN) {
+  let cap = MAX_IDLE_SECONDS_PER_DAY;
+  if (Number.isFinite(extraCapMs) && extraCapMs >= 0) {
+    cap = Math.min(cap, Math.round(extraCapMs / 1000));
+  }
+  return Math.max(0, Math.min(Math.round(Number(seconds) || 0), cap));
+}
+
+/**
+ * The single place fro_daily_stats is written.
+ *
+ * All four idle write paths used to carry their own copy of this upsert. That is
+ * how the cap and the day attribution were able to drift apart — one path got
+ * fixed, three kept writing uncapped totals. One writer, one rule.
+ */
+export async function writeDailySnapshot(workerId, statDate, counters = {}, opts = {}) {
+  const { extraCapMs = NaN, dbg = 'unknown' } = opts;
+  const idle = capIdleSeconds(counters.idle_seconds, extraCapMs);
+  const talk = Math.max(0, Math.round(Number(counters.talk_seconds) || 0));
+  const calls = Math.max(0, Math.round(Number(counters.calls) || 0));
+  const date = typeof statDate === 'string' ? statDate : istDateStr(new Date(statDate || Date.now()));
+
+  try {
+    await db._pool.query(
+      `INSERT INTO fro_daily_stats (worker_id, stat_date, talk_seconds, calls, idle_seconds, updated_at)
+       VALUES ($1, $2::date, $3, $4, $5, now())
+       ON CONFLICT (worker_id, stat_date) DO UPDATE SET
+         talk_seconds = GREATEST(fro_daily_stats.talk_seconds, EXCLUDED.talk_seconds),
+         calls        = GREATEST(fro_daily_stats.calls,        EXCLUDED.calls),
+         idle_seconds = GREATEST(fro_daily_stats.idle_seconds, EXCLUDED.idle_seconds),
+         updated_at   = now()`,
+      [workerId, date, talk, calls, idle]
+    );
+  } catch (e) {
+    // Non-fatal: fro_daily_stats may be absent until migration 126, and the
+    // monthly figure is not worth failing a status update for. Say so loudly,
+    // because a silent failure here is how a multi-day total stayed hidden in
+    // the live row until it finally surfaced as one impossible day.
+    console.warn(`[froCounterDay] daily snapshot failed (${dbg}):`, e?.message || String(e));
+  }
+  return { idle, talk, calls, date };
+}
+
+/**
+ * Bank a live row's counters against the day they actually belong to, and hand
+ * back a zeroed set for today.
+ *
+ * Returns `{ rolled, statsDate, counters }` where `counters` is what the caller
+ * should treat as the live row's counters from now on. When nothing rolled, the
+ * caller's existing values pass through untouched.
+ *
+ * The old day's numbers are snapshotted, not thrown away: they are real shift
+ * time and the monthly salary figure sums them.
+ */
+export async function rollCountersForNewDay(workerId, row, nowMs = Date.now(), opts = {}) {
+  const today = istDateStr(new Date(nowMs));
+  if (!isCounterDayStale(row, nowMs)) {
+    return {
+      rolled: false,
+      statsDate: today,
+      counters: Object.fromEntries(COUNTER_COLUMNS.map((c) => [c, row?.[c] ?? (c === 'today_idle_seconds' ? 0 : 0)])),
+    };
+  }
+
+  const priorDay = counterDayOf(row);
+  // Bank what the row held for its own day, then start today clean.
+  await writeDailySnapshot(
+    workerId,
+    priorDay,
+    {
+      idle_seconds: row?.today_idle_seconds || 0,
+      talk_seconds: row?.today_talk_seconds || 0,
+      calls: row?.today_calls || 0,
+    },
+    { dbg: 'roll-prior-day' }
+  );
+
+  return {
+    rolled: true,
+    priorDay,
+    statsDate: today,
+    counters: Object.fromEntries(COUNTER_COLUMNS.map((c) => [c, 0])),
+  };
+}
+
+/**
+ * Rollover plus a fresh idle total in one call, for the paths that write a live
+ * status row and then snapshot it.
+ *
+ * Order matters. The rollover has to happen BEFORE the idle total is computed,
+ * otherwise liveIdleSeconds() adds today's open period on top of yesterday's
+ * committed counter and the inflated number is what gets written.
+ *
+ * `extraCapMs` is the caller's shift-window cap, forwarded to the snapshot.
+ */
+export async function prepareCountersForWrite(workerId, row, shift, nowMs = Date.now(), opts = {}) {
+  const roll = await rollCountersForNewDay(workerId, row, nowMs, opts);
+
+  // After a rollover the committed part of the live row is zero, so the total is
+  // just whatever period is open now. Before one it is the row's own value plus
+  // the open period, which is exactly what liveIdleSeconds already does.
+  const base = roll.rolled
+    ? { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null }
+    : row;
+  const totalIdle = liveIdleSeconds(base, shift, nowMs);
+
+  return {
+    rolled: roll.rolled,
+    priorDay: roll.priorDay,
+    statsDate: roll.statsDate,
+    totalIdle,
+    openPeriod: Number.isFinite(idlePeriodStartMs(base, nowMs)),
+  };
+}
+
+/** The worker's own shift length in ms, for use as extraCapMs. NaN when unknown. */
+export async function shiftWindowCapMs(workerId, nowMs = Date.now()) {
+  try {
+    const shift = await getShiftWindowMs(workerId, nowMs);
+    if (Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs) && shift.endMs > shift.startMs) {
+      return shift.endMs - shift.startMs;
+    }
+  } catch (_) {
+    // attendance/settings unreadable — the 24h invariant still applies.
+  }
+  return NaN;
+}

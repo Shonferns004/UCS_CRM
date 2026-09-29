@@ -3,6 +3,8 @@ import {
   getShiftWindowMs, liveIdleSeconds, idlePeriodStartMs, istDateStr,
   withinShift, dispositionDueMs,
 } from '../utils/froIdle.js';
+import { isCoveredAway } from './froCoverFreeze.js';
+import { rollCountersForNewDay, writeDailySnapshot, isCounterDayStale } from './froCounterDay.js';
 
 // Committing idle when an FRO session ENDS (manual sign-out or the shift-end
 // auto-logout sweep).
@@ -39,10 +41,20 @@ export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
   const id = String(workerId);
   if (!id) return false;
 
+  // A covered-away FRO must not accrue idle. Someone else is working their
+  // stations, so the fact that their row stopped refreshing says nothing about
+  // whether they were sitting idle — and the disposition deadline left behind
+  // would otherwise be backdated to whenever it lapsed, inventing hours of idle
+  // for someone who was never at the desk.
+  //
+  // Only the away case is frozen. If the covered FRO is themselves refreshing
+  // their own row right now, they are genuinely present and accrues normally.
+  if (await isCoveredAway(id, nowMs)) return false;
+
   let row = null;
   try {
     const { rows } = await db._pool.query(
-      `SELECT today_idle_seconds, idle_since, disposition_due_at, is_paused, status
+      `SELECT today_idle_seconds, idle_since, disposition_due_at, is_paused, status, stats_date
          FROM fro_live_status
         WHERE worker_id = $1
         LIMIT 1`,
@@ -64,6 +76,11 @@ export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
   if (!Number.isFinite(due) || nowMs < due) return false;
   // A deadline from a previous IST day is stale, not an open period today.
   if (istDateStr(new Date(due)) !== istDateStr(new Date(nowMs))) return false;
+  // A row whose COUNTERS belong to a previous day is likewise not a row we should
+  // be back-dating today's deadline into: idle_since is set to disposition_due_at,
+  // so stamping it while the counters still describe another day is how a stale
+  // total and a fresh period get welded into one figure.
+  if (isCounterDayStale(row, nowMs)) return false;
 
   try {
     const shift = await getShiftWindowMs(id, nowMs);
@@ -76,11 +93,12 @@ export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
     await db._pool.query(
       `UPDATE fro_live_status
           SET idle_since = disposition_due_at,
+              stats_date = $2::date,
               status = 'idle',
               updated_at = now()
         WHERE worker_id = $1
           AND idle_since IS NULL`,
-      [id]
+      [id, istDateStr(new Date(nowMs))]
     );
     return true;
   } catch (e) {
@@ -97,7 +115,7 @@ export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = nul
   try {
     const { rows } = await db._pool.query(
       `SELECT today_idle_seconds, idle_since, disposition_due_at, is_paused, status,
-              today_calls, today_talk_seconds
+              today_calls, today_talk_seconds, stats_date
          FROM fro_live_status
         WHERE worker_id = $1
         LIMIT 1`,
@@ -109,6 +127,24 @@ export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = nul
     return null;
   }
   if (!row) return null;
+
+  // Do not bank an open period for a covered-away FRO: the tail belongs to
+  // someone else now, and this is the other half of the phantom-idle guard in
+  // stampLapsedIdle(). Their own already-committed total is left untouched, so
+  // nothing they genuinely sat through is lost.
+  if (await isCoveredAway(id, nowMs)) return null;
+
+  // Rollover BEFORE the total is computed. A sign-out is the single most likely
+  // moment for a stale counter to be written back: the row is read, the day's
+  // total is derived from it and written to the ledger with GREATEST. If the row
+  // still held yesterday's committed idle — which it did whenever the worker ended
+  // the previous day with idle_since = NULL, because the old reset was gated on
+  // that — then today's ledger row inherited the whole running total. That is the
+  // 52h19m figure.
+  const roll = await rollCountersForNewDay(id, row, nowMs, { dbg: 'exit' });
+  const base = roll.rolled
+    ? { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null }
+    : row;
 
   let endMs = nowMs;
   if (Number.isFinite(capMs)) endMs = Math.min(nowMs, capMs);
@@ -123,44 +159,42 @@ export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = nul
     }
   }
 
-  const total = liveIdleSeconds(row, { startMs: -Infinity, endMs }, nowMs);
-  const calls = Number(row.today_calls || 0);
-  const talk = Number(row.today_talk_seconds || 0);
-  const hadOpen = Number.isFinite(idlePeriodStartMs(row, nowMs));
+  // startMs -Infinity keeps the clamp off the shift START, so a period that began
+  // before the window still banks the part that fell inside it.
+  const total = liveIdleSeconds(base, { startMs: -Infinity, endMs }, nowMs);
+  const calls = roll.rolled ? 0 : Number(base.today_calls || 0);
+  const talk = roll.rolled ? 0 : Number(base.today_talk_seconds || 0);
+  const hadOpen = Number.isFinite(idlePeriodStartMs(base, nowMs));
 
   try {
     // disposition_due_at is cleared too: with it still in the past, the
     // deadline-derived fallback in liveIdleSeconds would re-open a period that
     // we just banked and count the same seconds a second time.
+    //
+    // stats_date is stamped on every write. A row without it cannot be rolled, and
+    // an un-stamped row is precisely the state that let a counter run for days.
     await db._pool.query(
       `UPDATE fro_live_status
-          SET today_idle_seconds = GREATEST(COALESCE(today_idle_seconds, 0), $2::int),
+          SET today_idle_seconds = $2::int,
+              stats_date = $3::date,
               idle_since = NULL,
               disposition_due_at = NULL,
               updated_at = now()
         WHERE worker_id = $1`,
-      [id, Math.max(0, Math.round(total))]
+      [id, Math.max(0, Math.round(total)), roll.statsDate]
     );
   } catch (e) {
     console.warn('[froIdleCommit] live row update failed:', e?.message || String(e));
   }
 
-  // Daily snapshot so the monthly salary total includes the tail. GREATEST on
-  // every counter because these only grow within a day.
-  try {
-    await db._pool.query(
-      `INSERT INTO fro_daily_stats (worker_id, stat_date, talk_seconds, calls, idle_seconds, updated_at)
-       VALUES ($1, $2::date, GREATEST(0, $3::int), GREATEST(0, $4::int), GREATEST(0, $5::int), now())
-       ON CONFLICT (worker_id, stat_date) DO UPDATE SET
-         talk_seconds = GREATEST(fro_daily_stats.talk_seconds, EXCLUDED.talk_seconds),
-         calls        = GREATEST(fro_daily_stats.calls,        EXCLUDED.calls),
-         idle_seconds = GREATEST(fro_daily_stats.idle_seconds, EXCLUDED.idle_seconds),
-         updated_at   = now()`,
-      [id, istDateStr(new Date(nowMs)), talk, calls, Math.max(0, Math.round(total))]
-    );
-  } catch (e) {
-    // Non-fatal: fro_daily_stats may be absent until migration 126.
-  }
+  // Daily snapshot so the monthly salary total includes the tail, and so the
+  // previous day keeps the total it actually earned rather than having it
+  // overwritten by today's. Routed through the shared writer for the 24h cap.
+  await writeDailySnapshot(id, roll.statsDate, {
+    idle_seconds: total,
+    talk_seconds: talk,
+    calls,
+  }, { dbg: 'exit' });
 
-  return { total: Math.max(0, Math.round(total)), hadOpen, calls, talk };
+  return { total: Math.max(0, Math.round(total)), hadOpen, calls, talk, rolled: roll.rolled };
 }

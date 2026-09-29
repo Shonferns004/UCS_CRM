@@ -25,9 +25,20 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
-import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowsMs, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
+import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowsMs, idleFreezeCutoffMs, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
-import { buildWorkAsByOp } from '../utils/workAs.js';
+import { isCovered } from '../utils/workAs.js';
+import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/workAsSessionModel.js';
+
+// Is this live row current — written recently, or held open by a live panel
+// socket? The same "fresh" test the boards use, as a module-level function so
+// helpers that sit outside the big handler (the Productivity Alerts idle roll-up)
+// apply exactly the same rule instead of a looser local approximation.
+const isLiveFreshRow = (s, nowMs) => {
+  const updated = s?.updated_at ? new Date(s.updated_at).getTime() : NaN;
+  return (Number.isFinite(updated) && (nowMs - updated) <= IDLE_LIVE_FRESH_MS)
+    || isWorkerOnline(s?.worker_id);
+};
 
 // FRO workers for NGO-admin reporting. Test accounts (workers.is_test) are
 // excluded from all dashboard stats by default; pass { includeTest: true }
@@ -1325,12 +1336,24 @@ export const getFroDailyStats = async (req, res) => {
       try {
         const { data: liveRows } = await db
           .from('fro_live_status')
-          .select('worker_id, idle_since, today_idle_seconds')
+          .select('worker_id, idle_since, today_idle_seconds, updated_at, work_as_operator_id')
           .in('worker_id', workerIds);
+        // Covers decide which of these rows may keep accruing. A covered-away FRO
+        // is frozen at the last moment their own row was written, so this panel
+        // cannot show a day total still climbing for somebody who is already
+        // being covered — which is how a covered-away FRO ended up at the top of
+        // the very list meant to nudge idle people back to work.
+        const coversByTarget = await getActiveCoversForTargets(workerIds);
         const nowMs = Date.now();
         for (const ls of liveRows || []) {
           const shift = { startMs: -Infinity, endMs: Infinity };
-          liveIdleById[ls.worker_id] = liveIdleSeconds(ls, shift, nowMs);
+          const coveredAway = isCovered(coversByTarget, ls.worker_id) && !isLiveFreshRow(ls, nowMs);
+          liveIdleById[ls.worker_id] = liveIdleSeconds(
+            ls,
+            shift,
+            nowMs,
+            coveredAway ? idleFreezeCutoffMs(ls) : NaN
+          );
         }
       } catch (_) {
         // fro_live_status may be unreadable — the saved snapshot still stands.
@@ -4905,38 +4928,78 @@ export const getTLDashboard = async (req, res) => {
     // paths drifted apart in the first place).
     const LIVE_FRESH_MS = IDLE_LIVE_FRESH_MS;
     const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
+    // One row per worker, and that row belongs to the worker themselves: a
+    // covering operator writes their own row, so the extra "fetch rows whose
+    // work_as_operator_id is in scope" query this used to run is no longer
+    // needed. It existed only to find the operator via the covered row.
     const { data: liveStatus } = await db.from('fro_live_status').select(liveCols).in('worker_id', workerIds);
-    // Operator presence must not depend on the viewing NGO's scope: when an FRO
-    // here works-as someone OUTSIDE these NGOs, the covered row lives on another
-    // worker_id (e.g. Megha works as Deepa in another NGO). Fetch those rows too
-    // so the operator is still recognised as actively working.
-    const { data: opLiveStatus } = workerIds.length > 0
-      ? await db.from('fro_live_status').select(liveCols).in('work_as_operator_id', workerIds)
-      : { data: [] };
-    const allLive = [...(liveStatus || []), ...(opLiveStatus || [])];
     const liveFreshCutoff = new Date(now.getTime() - LIVE_FRESH_MS);
-    // Fresh = recently-written row OR an open panel socket. The socket check
-    // covers both the row's own worker and (for work-as rows) the operator —
-    // whichever side holds the open panel counts as live.
+    // Fresh = recently-written row OR an open panel socket.
     const isLiveFresh = (s) =>
       (s.updated_at && new Date(s.updated_at) >= liveFreshCutoff) ||
-      isWorkerOnline(s.worker_id) ||
-      (s.work_as_operator_id && isWorkerOnline(s.work_as_operator_id));
+      isWorkerOnline(s.worker_id);
     const liveRowByWorker = new Map((liveStatus || []).map(s => [String(s.worker_id), s]));
-    // A work-as row is operated by someone else (abc) — the listed FRO (cbd) is
-    // NOT present, so it never counts as calling/online (it counts offline).
-    const isWorkAs = (s) => s.work_as_operator_id && isLiveFresh(s);
-    // Work-as operator presence: a fresh covered row means the OPERATOR is the
-    // one physically working that panel right now. The operator carries the
-    // presence (online/on_call mirroring the covered row's call state)
-    // while the covered FRO counts offline. Covers case where the operator has
-    // no own live_status/auth_session (e.g. acting via admin/work-as setup).
+
+    // Cover relationships come from work_as_sessions, not from the live row.
     //
-    // Operators routinely cover SEVERAL FROs at once, so "which row represents
-    // this operator" needs a total order — see buildWorkAsByOp for why
-    // first-seen-wins made the operator's row change underneath them.
-    const workAsByOp = buildWorkAsByOp(allLive, isLiveFresh);
-    const isOperatorActive = (wid) => workAsByOp.has(String(wid));
+    // Every live row is now the OWNING HUMAN's row (updateLiveStatus files it
+    // on the person at the keyboard), so a covered FRO's row is no longer
+    // refreshed by the operator working their panel, and an operator has a real
+    // row of their own. The old inference — "a fresh row carrying
+    // work_as_operator_id means the operator is working" — depended on the
+    // operator writing the covered FRO's row and is therefore no longer true.
+    //
+    // work_as_sessions is one row per (operator, covered target) and is already
+    // the authoritative store: it holds a chain, allows several operators on one
+    // target, expires on its own, and is released on exit. Reading it here also
+    // fixes the reported symptom directly — a covered-away FRO's stale row no
+    // longer decides that the operator is "offline".
+    let coversByTarget = new Map();
+    let coversByOperator = new Map();
+    try {
+      coversByTarget = await getActiveCoversForTargets(workerIds);
+      coversByOperator = await getActiveCoversByOperator(workerIds);
+    } catch (e) {
+      // work_as_sessions unavailable — fall back to the row's display label so
+      // the board still renders rather than 500ing.
+    }
+    // Is this worker currently covering anybody?
+    const activeCoverTargets = (wid) => coversByOperator.get(String(wid)) || [];
+    const hasActiveCover = (wid) => activeCoverTargets(wid).length > 0;
+    // Who is covering this worker (may be several)?
+    const operatorsCovering = (wid) => (coversByTarget.get(String(wid)) || []).map(c => c.operatorName).filter(Boolean);
+    // A covered FRO is one somebody else is working, so their own row going quiet
+    // means "away", not "not covered any more".
+    const isWorkAsRow = (s) => isCovered(coversByTarget, s?.worker_id);
+    // Being covered and being away are NOT the same thing, and conflating them
+    // hides a person who is sitting at their own desk.
+    //
+    // The row is now the OWNING human's, so "covering this FRO" says nothing at
+    // all about whether they are present — they are frequently present, working
+    // their own account while somebody else runs a station of theirs. Away means
+    // their own row has gone quiet: no recent write and no open socket.
+    const isCoveredAway = (s) => isWorkAsRow(s) && !isLiveFresh(s);
+    // A covered-away FRO is not "idle" and not "online" — they are off the floor,
+    // which the offline bucket already covers. Excluding them from livePresent
+    // keeps them out of the calling/idle/online tallies instead of letting a
+    // lapsed deadline push them into the idle count.
+    const isWorkAs = (s) => isCoveredAway(s);
+    // An operator is actively working when they are driving a panel: their own
+    // row is fresh, their socket is open, or they hold a cover whose operator is
+    // connected. The last case covers a non-FRO operator (an admin id with no
+    // worker row of its own), who still has to be recognised as working.
+    const isOperatorActive = (wid) => {
+      if (hasActiveCover(wid) && isWorkerOnline(wid)) return true;
+      const lrow = liveRowByWorker.get(String(wid));
+      return !!(lrow && isLiveFresh(lrow));
+    };
+    // The row that represents what this operator is doing right now: their own
+    // live row. Replaces buildWorkAsByOp's covered-row proxy, which handed the
+    // operator another person's counters.
+    const workAsByOp = new Map();
+    for (const s of liveStatus || []) {
+      if (isLiveFresh(s)) workAsByOp.set(String(s.worker_id), s);
+    }
 
     // Login presence: auth_sessions rows recorded on every UCS CRM login and
     // closed on explicit logout. Presence = an open session OR a fresh
@@ -4983,11 +5046,14 @@ export const getTLDashboard = async (req, res) => {
     // Meeting mode: FROs pushed status 'meeting' during a company-wide meeting.
     // They remain present but never count as calling/online/offline.
     const meetingRows = (liveStatus || []).filter(s => s.status === 'meeting' && livePresent(s));
-    // Operators working covered FRO panels carry that panel's call state too —
-    // an operator mid-call on a covered station counts as calling.
+    // An operator mid-call on a covered station counts as calling. Their own row
+    // carries that call state, so this no longer needs a separate "the covered
+    // row says on_call" proxy — and adding both would double-count one person,
+    // since the operator's own row is in callingRows already.
     const opCalling = froWorkers.filter(w => {
       const row = workAsByOp.get(String(w.id));
-      return row && row.status === 'on_call' && !callingRows.some(s => String(s.worker_id) === String(w.id));
+      return row && row.status === 'on_call' && hasActiveCover(w.id)
+        && !callingRows.some(s => String(s.worker_id) === String(w.id));
     });
     const calling = callingRows.length + opCalling.length;
     const meeting = meetingRows.length;
@@ -4998,8 +5064,9 @@ export const getTLDashboard = async (req, res) => {
     const idle = idleRows.length;
     // FROs whose panel is being operated by another worker (work-as) are treated
     // as absent today: the covering operator carries the online/calling state.
-    const workAsCoveredIds = new Set(allLive.filter(s => isLiveFresh(s) && s.work_as_operator_id).map(s => String(s.worker_id)));
-    const coveredOnly = (wid) => workAsCoveredIds.has(String(wid)) && !isOperatorActive(wid);
+    // Driven by work_as_sessions, so a covered FRO is recognised even though
+    // nobody refreshes their row while the cover is running.
+    const coveredOnly = (wid) => isCovered(coversByTarget, wid) && !isOperatorActive(wid);
     // Online requires freshness (recent row write or open panel socket) on
     // top of presence — a machine that is asleep, shut down, or a tab that was
     // closed drops its socket and goes offline within seconds.
@@ -5367,24 +5434,33 @@ export const getTLDashboard = async (req, res) => {
       const ls = liveStatusMap[w.id] || {};
       const claims = claimStatusMap[w.id] || { pending: 0, verified: 0, rejected: 0 };
       const lsFresh = (ls.updated_at && (now - new Date(ls.updated_at)) <= LIVE_FRESH_MS) ||
-        isWorkerOnline(w.id) ||
-        (ls.work_as_operator_id && isWorkerOnline(ls.work_as_operator_id));
-      // Work-as: the row's heartbeat belongs to another operator (abc) covering
-      // this FRO. The listed FRO (cbd) is not present — show offline, but let the
-      // UI annotate "abc work as cbd" via work_as_operator_name.
-      const workAsName = (lsFresh && ls.work_as_operator_id && ls.work_as_operator_name) ? ls.work_as_operator_name : null;
-      // A worker actively operating a covered FRO's panel carries that panel's
-      // presence — they are the one physically working right now (even if their
-      // own live_status row is stale / they have no own auth_session).
+        isWorkerOnline(w.id);
+      // Work-as label, from work_as_sessions first (authoritative, survives a
+      // chain, never flickers) with the live row's display column as a fallback
+      // for rows written before the switch started recording it.
+      const coverers = operatorsCovering(w.id);
+      const workAsName = coverers.length > 0
+        ? coverers.join(', ')
+        : ((ls.work_as_operator_id && ls.work_as_operator_name) ? ls.work_as_operator_name : null);
+      // This worker's OWN live row, now that rows are filed on the human rather
+      // than on the account being covered. It is the authoritative source for
+      // their status, idle and pause — no other person's row is consulted.
       const acting = workAsByOp.get(String(w.id));
-      const workAsLabel = acting ? null : workAsName;
+      // Only label a row as "being worked by" when this person is not themselves
+      // the one at the keyboard covering somebody.
+      const workAsLabel = (acting || isOperatorActive(w.id)) ? null : workAsName;
       // Streak portion only — drives the "Idle Xm" pill. Derived from the
       // server's own disposition deadline rather than from heartbeat freshness,
       // so a FRO whose monitor is off or whose tab was closed still shows the
       // time they have been sitting idle, and a period left over from a previous
       // IST day reads as 0.
       const ownShift = shiftMap[String(w.id)] || null;
-      const idleStreakSeconds = openIdleSeconds(ls, ownShift, now.getTime());
+      // A covered-away FRO's idle stops accruing at the last moment their own row
+      // was written. Both figures below take that cutoff, so the pill, the day
+      // total and the ledger all agree instead of the number quietly climbing for
+      // somebody who has already gone home.
+      const frozenAt = isCoveredAway(ls) ? idleFreezeCutoffMs(ls) : NaN;
+      const idleStreakSeconds = openIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
       // Every row renders ITS OWN committed counter and streak — nothing is
       // inherited from a work-as covered row.
       //
@@ -5405,7 +5481,7 @@ export const getTLDashboard = async (req, res) => {
       // super-admin list for the same FRO at the same moment. The shift is
       // passed so idle accrued outside this FRO's own working hours is not
       // displayed as working-time idle.
-      const rowIdleSeconds = effectiveIdleSeconds(ls, ownShift, now.getTime());
+      const rowIdleSeconds = effectiveIdleSeconds(ls, ownShift, now.getTime(), frozenAt);
 
       // Presence-driven status: an operator actively working a covered panel
       // mirrors that panel's call state. Otherwise online requires presence (an
@@ -5413,13 +5489,28 @@ export const getTLDashboard = async (req, res) => {
       // FRO covered by another operator (work-as) with no panel of their own is
       // absent from the field — show them offline; the covering operator carries
       // the presence.
+      // Presence, decided on this worker's OWN row. `ls` is theirs by
+      // construction now, so there is no covered-row branch to take and no way
+      // for one person's login to overwrite another's figures.
       let status = 'offline';
       if (acting) {
         status = acting.status === 'on_call' ? 'on_call'
           : (acting.idle_since ? 'idle' : (acting.status || 'online'));
-      } else if (isPresent(w.id) && !isWorkAs(ls) && lsFresh) {
+      } else if (isPresent(w.id) && lsFresh) {
+        // Presence is decided on this worker's OWN row and a FRESH one, so a
+        // covered FRO who is actually at their desk reads as online. The old
+        // `!isWorkAsRow(ls)` guard here blanked EVERY covered FRO regardless of
+        // whether they were present — a person covering somebody and working
+        // their own account vanished from the board, which is precisely the chain
+        // case (Riya present, covering Meera) this whole change exists to support.
+        // A covered-away FRO is not fresh, so it never reaches this branch and
+        // stays offline.
+        //
         // A paused or meeting row keeps its own status — the admin/meeting is
         // holding the FRO, so it must not read as idle on the admin board.
+        //
+        // No freeze check is needed here: reaching this branch means the row is
+        // fresh, and a frozen (covered-away) row is by definition not fresh.
         if (ls.idle_since && !ls.is_paused && ls.status !== 'meeting') status = 'idle';
         else if (ls.is_paused) status = 'meeting';
         else status = ls.status === 'on_call' && lsFresh ? 'on_call' : 'online';
@@ -5474,8 +5565,9 @@ export const getTLDashboard = async (req, res) => {
         work_as_operator_name: workAsLabel,
         idleMinutes: Math.floor(idleStreakSeconds / 60),
         today_idle_seconds: rowIdleSeconds,
-        is_paused: acting ? !!acting.is_paused : !!ls.is_paused,
-        paused_by: acting ? (acting.paused_by || null) : (ls.paused_by || null),
+        // `ls` is the worker's own row, so these need no "acting" branch.
+        is_paused: !!ls.is_paused,
+        paused_by: ls.paused_by || null,
         overdue_calls: (overdueByWorker[String(w.id)] || {}).calls || 0,
         overdue_followups: (overdueByWorker[String(w.id)] || {}).followups || 0,
         logout_today: lc.today,
