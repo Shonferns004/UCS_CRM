@@ -3016,6 +3016,13 @@ export default function Dashboard() {
                           (acc, s) => acc + (stationsByFamily.get(panel.pick(s)) || []).reduce((x, r) => x + (Number(r.amount) || 0), 0),
                           0
                         );
+                        // Each section's own total, read once and reused by the
+                        // Total column, so the summary can never drift from the
+                        // columns it is summarising.
+                        const sectionTotals = STATION_SECTIONS.map(s => ({
+                          label: s.label,
+                          total: (stationsByFamily.get(panel.pick(s)) || []).reduce((x, r) => x + (Number(r.amount) || 0), 0),
+                        }));
                         return (
                         <div key={panel.key} className="performance-card station-card station-card-old" style={{ height: 460 }}>
                           <div className="performance-header">
@@ -3032,7 +3039,11 @@ export default function Dashboard() {
                           </div>
 
                           <div className="productivity-table-wrap station-scroll" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
-                            <div className="station-sections" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                            {/* Three coloured sections plus a neutral Total column on
+                                the right, which is the only column whose figure is not
+                                tied to one station family. It carries the panel
+                                grand total, matching the badge in the card header. */}
+                            <div className="station-sections" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(88px, 0.62fr)' }}>
                               {STATION_SECTIONS.map((section, si) => {
                                 const hue = STATION_HUES[section.hue];
                                 const family = panel.pick(section);
@@ -3076,14 +3087,48 @@ export default function Dashboard() {
                                   </div>
                                 );
                               })}
+
+                              {/* Total column. Deliberately neutral grey rather than a
+                                  fourth section colour, so it reads as a summary of
+                                  the three beside it and not as another area.
+
+                                  Built as a flex column, not a table, because the
+                                  three sections have different station counts and so
+                                  their rows cannot line up. The per-section subtotals
+                                  sit under the header bands, the grand total is
+                                  pushed to the bottom of the card, and the header
+                                  band heights (34/28/26) are repeated so the bands
+                                  still align with the three tables beside it. */}
+                              <div className="station-section station-section-total" style={{ minWidth: 0, borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ height: 34, padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', color: '#ffffff', background: '#334155', borderBottom: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
+                                  Total
+                                </div>
+                                <div style={{ height: 28, padding: '0 10px', display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', color: '#334155', background: '#e2e8f0', borderBottom: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
+                                  All
+                                </div>
+                                <div style={{ height: 26, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', fontSize: 11, fontWeight: 700, color: '#64748B', borderBottom: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
+                                  Total
+                                </div>
+
+                                <div style={{ flex: 1, minHeight: 0 }}>
+                                  {sectionTotals.map(s => (
+                                    <div key={s.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '8px 10px', borderBottom: '1px solid #f8fafc', boxSizing: 'border-box' }}>
+                                      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>{formatRupees(s.total)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', color: '#0f172a', background: '#f1f5f9', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap', boxSizing: 'border-box' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                                  {formatRupees(panelTotal)}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
                         );
                       })}
                     </div>
-
-                    {/* Money that is not attributable to a family column. Kept below
 
                     {/* Money that is not attributable to a family column. Kept below
                         the three sections and inside the same total, so the card
@@ -3148,6 +3193,11 @@ export default function Dashboard() {
                   border-radius: 999px; border: 1px solid; white-space: nowrap;
                 }
                 .station-card-old { background: #fafbfc; }
+
+                /* The Total column must not pick up a section tint from the
+                   nth-child rules above, so it opts out explicitly. It is a
+                   summary of the other three, not a fourth area. */
+                .station-section-total { --sec: #f1f5f9; --sec-rule: #e2e8f0; }
 
                 /* Vertical scrollbar hidden on request. The element keeps
                    overflow-y: auto, so the list still scrolls by wheel, trackpad
