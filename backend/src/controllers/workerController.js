@@ -247,6 +247,7 @@ export const getWorkers = async (req, res) => {
         pincode: w.pincode,
         permanent_address: w.permanent_address,
         photo_url: w.photo_url,
+        signature_url: w.signature_url,
         is_active: w.is_active,
         is_test: !!w.is_test,
         employment_status: w.employment_status || 'active',
