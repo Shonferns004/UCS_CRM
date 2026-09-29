@@ -13,6 +13,9 @@ import {
   settleMonthlyLoanDeductions,
 } from '../models/loanModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
+import { monthStartOf, normalizeMonth as normalizeMonthValue, termError as loanTermError } from '../utils/loanTerm.js';
+
+const currentMonthStart = () => monthStartOf();
 
 export const apply = async (req, res) => {
   try {
@@ -86,6 +89,11 @@ export const createLoan = async (req, res) => {
     }
     if (!isRecurring && monthly > total) {
       return res.status(400).json({ message: 'monthly_deduction cannot exceed total_amount' });
+    }
+
+    const termMessage = loanTermError(start_month, end_month);
+    if (termMessage) {
+      return res.status(400).json({ message: termMessage });
     }
 
     // Recurring: keeps remaining_amount constant and never auto-closes. Non-recurring:
@@ -280,8 +288,27 @@ export const updateLoanRecord = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ message: 'Loan record not found' });
     }
-    if (!['pending', 'active'].includes(existing.status)) {
+    if (!['pending', 'active', 'overdue'].includes(existing.status)) {
       return res.status(400).json({ message: `Cannot edit a ${existing.status} loan` });
+    }
+
+    // Clear a retired loan. Both reasons zero the balance and close the loan;
+    // the label is kept in hr_remark so the history still says why.
+    const resolveAs = typeof req.body.resolve === 'string' ? req.body.resolve : null;
+    if (resolveAs) {
+      if (!['repaid', 'written_off'].includes(resolveAs)) {
+        return res.status(400).json({ message: "resolve must be 'repaid' or 'written_off'" });
+      }
+      if (existing.status === 'pending') {
+        return res.status(400).json({ message: 'A pending request has no balance to resolve. Approve or reject it first.' });
+      }
+      const result = await updateLoan(id, {
+        remaining_amount: 0,
+        status: 'closed',
+        closed_at: new Date().toISOString(),
+        hr_remark: `${existing.hr_remark ? `${existing.hr_remark} | ` : ''}${resolveAs === 'repaid' ? 'Marked repaid' : 'Written off'} on ${new Date().toISOString().slice(0, 10)}`,
+      });
+      return res.json({ message: `Loan ${resolveAs === 'repaid' ? 'marked repaid' : 'written off'}`, loan: result });
     }
 
     const updates = {};
@@ -318,15 +345,31 @@ export const updateLoanRecord = async (req, res) => {
     if (req.body.remaining_amount !== undefined) {
       updates.remaining_amount = Math.max(0, parseFloat(req.body.remaining_amount));
     }
-    const normalizeMonth = (v) => {
-      if (v && /^\d{4}-\d{2}$/.test(String(v))) return `${v}-01`;
-      return v || null;
-    };
     if (req.body.start_month !== undefined) {
-      updates.start_month = normalizeMonth(req.body.start_month);
+      updates.start_month = normalizeMonthValue(req.body.start_month);
     }
     if (req.body.end_month !== undefined && req.body.stop_recurring !== true) {
-      updates.end_month = normalizeMonth(req.body.end_month);
+      updates.end_month = normalizeMonthValue(req.body.end_month);
+    }
+
+    // Extending an overdue loan past the current month brings it back into the
+    // live set, so the next settlement run can deduct it again. Without this a
+    // retired loan could only ever be written off, never rescheduled.
+    if (updates.end_month && updates.end_month >= currentMonthStart() && existing.status === 'overdue') {
+      updates.status = 'active';
+    }
+
+    // Only validate the term when end_month is actually being changed. An
+    // overdue loan carries an end_month in the past by definition, so
+    // re-validating an untouched value would block every other edit to it.
+    if (updates.end_month !== undefined && updates.end_month && updates.end_month !== existing.end_month) {
+      const termMessage = loanTermError(
+        updates.start_month !== undefined ? updates.start_month : existing.start_month,
+        updates.end_month
+      );
+      if (termMessage) {
+        return res.status(400).json({ message: termMessage });
+      }
     }
 
     // Validation: recurring loans may deduct the full amount monthly (rent),
