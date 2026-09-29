@@ -332,7 +332,7 @@ export default function EventHeadPanel() {
             <Route path="reports" element={<EventReports />} />
             <Route path="approvals" element={<ApprovalWorkflow />} />
             <Route path="notifications" element={<NotificationsPage />} />
-            <Route path="my-tickets" element={<TechnicalTickets panel="event_head" />} />
+            <Route path="my-tickets" element={<TechnicalTickets panel="event_head" category="digital_team" department="event_head" canResolve />} />
             <Route path="all-tickets" element={<AllTicketsDashboard />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
