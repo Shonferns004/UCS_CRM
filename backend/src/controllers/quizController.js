@@ -1,9 +1,11 @@
-import groq from '../config/groq.js';
+import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import db from '../config/db.js';
 import { appendQuizResult } from '../services/googleSheets.js';
 import { GK_BANK } from '../services/quizBank.js';
 
-const QUIZ_MODEL = 'llama-3.1-8b-instant';
+// Was llama-3.1-8b-instant, which the Groq account no longer has either
+// (404 on every question). Now shared with the rest of the app.
+const QUIZ_MODEL = GROQ_CHAT_MODEL;
 const PASS_PERCENT = 70;
 
 const ROLE_MAP = {

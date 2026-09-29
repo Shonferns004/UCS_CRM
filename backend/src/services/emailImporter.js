@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import groq from '../config/groq.js';
+import groq, { GROQ_CHAT_MODEL } from '../config/groq.js';
 import emailConfig from '../config/emailConfig.js';
 import db from '../config/db.js';
 import { isEmailProcessed, logImport } from '../models/emailImportLogModel.js';
@@ -196,7 +196,7 @@ Rules:
         },
         { role: 'user', content: textToAnalyze },
       ],
-      model: 'llama-3.3-70b-versatile',
+      model: GROQ_CHAT_MODEL,
       max_tokens: 200,
       temperature: 0.1,
     });
@@ -215,7 +215,7 @@ Rules:
             { role: 'system', content: 'Extract payment details as JSON: {amount, payment_id, transaction_date, sender_name, payment_source, confidence}' },
             { role: 'user', content: textToAnalyze },
           ],
-          model: 'llama-3.3-70b-versatile',
+          model: GROQ_CHAT_MODEL,
           max_tokens: 200,
           temperature: 0.1,
         });
