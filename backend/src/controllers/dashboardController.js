@@ -5,7 +5,9 @@ import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import db from '../config/db.js';
-import { istDateStr } from '../utils/froIdle.js';
+import { istDateStr, effectiveIdleSeconds, idleFreezeCutoffMs } from '../utils/froIdle.js';
+import { isCovered } from '../utils/workAs.js';
+import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
 
 function calcDateRange(period) {
   const now = new Date();
@@ -1488,13 +1490,32 @@ export const getSuperAdminAlerts = async (req, res) => {
       // counter reads 0 mid-period and an FRO idle for hours would never trip
       // this alert. effectiveIdleSeconds() adds the still-running period, which
       // is derived from the deadline — no heartbeat required.
-      const { data: idleFros } = await db
-        .from('fro_live_status')
-        .select('worker_id, today_idle_seconds, today_calls, is_active, idle_since, updated_at')
-        .eq('is_active', true);
+        const { data: idleFros } = await db
+          .from('fro_live_status')
+          .select('worker_id, today_idle_seconds, today_calls, is_active, idle_since, updated_at')
+          .eq('is_active', true);
 
-      const idleByWorker = {};
-      for (const f of idleFros || []) idleByWorker[f.worker_id] = effectiveIdleSeconds(f);
+        // A covered-away FRO's idle is frozen, here as everywhere else.
+        //
+        // This is the alert that pages somebody about an FRO being idle for more
+        // than half their working day, and a covered-away FRO is the single most
+        // likely person to trip it: their row goes quiet the moment somebody else
+        // takes their stations, the deadline lapses against nobody, and the
+        // still-open period keeps being added on read. Without the freeze the
+        // alert escalates about someone who is legitimately being covered, and
+        // the only way to silence it is to make them look busy.
+        let coversByTarget = new Map();
+        try {
+          coversByTarget = await getActiveCoversForTargets((idleFros || []).map(f => f.worker_id));
+        } catch (e) {
+          // work_as_sessions unavailable — fall back to the unfrozen figure.
+        }
+        const nowMs = Date.now();
+        const idleByWorker = {};
+        for (const f of idleFros || []) {
+          const frozenAt = isCovered(coversByTarget, f.worker_id) ? idleFreezeCutoffMs(f) : NaN;
+          idleByWorker[f.worker_id] = effectiveIdleSeconds(f, null, nowMs, frozenAt);
+        }
 
       const highIdle = (idleFros || []).filter(f =>
         idleByWorker[f.worker_id] > workHoursSeconds * 0.5 &&

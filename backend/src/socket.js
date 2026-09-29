@@ -69,6 +69,14 @@ export function initRealtime(server) {
     // Without this, pause/resume emits silently go nowhere.
     const wid = socket.user && (socket.user.workerId || socket.user.id);
     if (wid) socket.join(`worker:${wid}`);
+    // Work-as: the token's `id` is the COVERED FRO, so this socket's presence
+    // lands in the covered worker's room and isWorkerOnline() reports the person
+    // who is not at the keyboard as the one online. Join the operator's room too
+    // — their own live row is the one that now carries their presence, and it is
+    // checked with isWorkerOnline(operator). Without this the covering operator
+    // reads as offline on every board.
+    const opWid = socket.user && socket.user.impersonation && socket.user.imposter_id;
+    if (opWid) socket.join(`worker:${opWid}`);
     // Presence: an open authenticated socket means the panel is open, no
     // heartbeat timer needed. Multi-tab = multiple socket ids, one entry.
     trackPresence(socket);

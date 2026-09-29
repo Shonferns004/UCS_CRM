@@ -246,7 +246,7 @@ export function idlePeriodStartMs(row, nowMs = Date.now()) {
  * crash or a powered-off monitor cannot lose the time — the row keeps the open
  * period until someone commits it.
  */
-export function liveIdleSeconds(row, shift, nowMs = Date.now()) {
+export function liveIdleSeconds(row, shift, nowMs = Date.now(), frozenAtMs = NaN) {
   const from = idlePeriodStartMs(row, nowMs);
   // An open period left over from a previous IST day must never be credited to
   // today: the committed total it would be added to belongs to yesterday.
@@ -255,8 +255,47 @@ export function liveIdleSeconds(row, shift, nowMs = Date.now()) {
     ? Number(row?.today_idle_seconds || 0) || 0
     : 0;
   const lo = Math.max(from, Number.isFinite(shift?.startMs) ? shift.startMs : -Infinity);
-  const hi = Math.min(nowMs, Number.isFinite(shift?.endMs) ? shift.endMs : nowMs);
+  // `frozenAtMs` caps accrual instead of nulling the period, so a frozen worker
+  // keeps the idle they genuinely racked up before they left and banks nothing
+  // after — see frozenIdleSeconds.
+  const hi = Math.min(
+    nowMs,
+    Number.isFinite(shift?.endMs) ? shift.endMs : nowMs,
+    Number.isFinite(frozenAtMs) ? frozenAtMs : nowMs
+  );
   return committed + (hi > lo ? Math.round((hi - lo) / 1000) : 0);
+}
+
+/**
+ * The last instant we have EVIDENCE this worker was still at their desk: the
+ * moment their own live row was last written.
+ *
+ * That is the honest freeze point for someone who is being covered and has gone
+ * quiet. A quiet row means "not at the desk", and the last write is the last
+ * moment that was untrue. Everything after it is time this person was not
+ * present and must not be billed as idle.
+ *
+ * A row that does not exist at all has no evidence of presence whatsoever, so the
+ * cutoff is 0 and only already-committed idle survives.
+ */
+export function idleFreezeCutoffMs(row) {
+  const updatedAt = toMs(row?.updated_at);
+  return Number.isFinite(updatedAt) ? updatedAt : 0;
+}
+
+/**
+ * Idle seconds for a covered-away worker: the open period stops accruing at the
+ * last moment their own row was written.
+ *
+ * The commit guard in froIdleCommit already stops the total being WRITTEN, but
+ * without this the read paths still counted the open period — an admin board, a
+ * status list and the FRO's own strip each added the still-running minutes on top
+ * of the committed total, so the number kept climbing for someone who had already
+ * gone home. Clamping at read time is what makes "frozen" mean frozen everywhere,
+ * not just in the ledger.
+ */
+export function frozenIdleSeconds(row, shift, nowMs = Date.now()) {
+  return liveIdleSeconds(row, shift, nowMs, idleFreezeCutoffMs(row));
 }
 
 /**
@@ -265,13 +304,20 @@ export function liveIdleSeconds(row, shift, nowMs = Date.now()) {
  * right now" — distinct from the day total that includes earlier, banked
  * stretches. Returns 0 when there is no usable open period.
  */
-export function openIdleSeconds(row, shift, nowMs = Date.now()) {
+export function openIdleSeconds(row, shift, nowMs = Date.now(), frozenAtMs = NaN) {
   const from = idlePeriodStartMs(row, nowMs);
   if (!Number.isFinite(from)) return 0;
   // A period left over from a previous IST day is stale, not "currently idle".
   if (istDateStr(new Date(from)) !== istDateStr(new Date(nowMs))) return 0;
+  // Frozen and the period only began after the freeze point: nothing is accruing,
+  // so the "how long have they been idle right now" answer is 0.
+  if (Number.isFinite(frozenAtMs) && from > frozenAtMs) return 0;
   const lo = Math.max(from, Number.isFinite(shift?.startMs) ? shift.startMs : -Infinity);
-  const hi = Math.min(nowMs, Number.isFinite(shift?.endMs) ? shift.endMs : nowMs);
+  const hi = Math.min(
+    nowMs,
+    Number.isFinite(shift?.endMs) ? shift.endMs : nowMs,
+    Number.isFinite(frozenAtMs) ? frozenAtMs : nowMs
+  );
   return hi > lo ? Math.round((hi - lo) / 1000) : 0;
 }
 
@@ -283,8 +329,8 @@ export function openIdleSeconds(row, shift, nowMs = Date.now()) {
  * `shift` is optional. Pass it wherever the FRO's own working hours are known,
  * so idle accrued outside the shift is not displayed as working-time idle.
  */
-export function effectiveIdleSeconds(row, shift = null, nowMs = Date.now()) {
-  return liveIdleSeconds(row, shift, nowMs);
+export function effectiveIdleSeconds(row, shift = null, nowMs = Date.now(), frozenAtMs = NaN) {
+  return liveIdleSeconds(row, shift, nowMs, frozenAtMs);
 }
 
 /**
@@ -374,10 +420,18 @@ export function withoutStaleIdle(row, shift, nowMs = Date.now()) {
  * decides this everywhere: a stamp from a previous IST day does not count, an
  * already-lapsed deadline does, and a paused or meeting FRO never does.
  */
-export function isIdleNow(row, shift, nowMs = Date.now()) {
+export function isIdleNow(row, shift, nowMs = Date.now(), frozenAtMs = NaN) {
   if (!withinShift(shift, nowMs)) return false;
   if (row?.is_paused || row?.status === 'meeting') return false;
-  return Number.isFinite(idlePeriodStartMs(row, nowMs));
+  const from = idlePeriodStartMs(row, nowMs);
+  if (!Number.isFinite(from)) return false;
+  // Frozen: an open period that began before the freeze point is real idle, but
+  // one that only started after it is not. Without this a covered-away worker
+  // whose deadline lapsed after they left would still show an Idle badge, and the
+  // FRO's own panel would park a blocking Resume overlay on somebody who is
+  // already covering somebody else.
+  if (Number.isFinite(frozenAtMs) && from > frozenAtMs) return false;
+  return true;
 }
 
 export function secondsLeft(row, nowMs = Date.now()) {

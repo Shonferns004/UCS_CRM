@@ -1,1 +1,6 @@
 .vercel
+
+# Generated report output. These are read-only audits of production and contain
+# real employee names and performance figures, so they are review artefacts, not
+# source. Keep them local (or on the server) and out of the repository.
+/reports/
