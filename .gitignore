@@ -12,6 +12,7 @@ backend/stop-local-db-tunnel.ps1
 ucs crm/dist/
 /MetroPadCare/
 others/hr form/dist/
+others/submitted form/dist/
 *.log
 backend/backend-log.txt
 .DS_Store
