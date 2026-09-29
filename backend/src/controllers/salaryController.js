@@ -24,6 +24,8 @@ import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
 import { getSetting, upsertSetting } from '../models/settingsModel.js';
+import { getWorkerAttendanceReport } from '../models/attendanceReportModel.js';
+import { renderAttendanceReportDocx, reportFileName, DOCX_MIME } from '../services/attendanceReportDocx.js';
 
 const salaryCodeKey = (userId) => `accounts_access_code_${userId}`;
 const codeToStr = (v) => String(v ?? '').trim();
@@ -395,6 +397,28 @@ export const getPagarExport = async (req, res) => {
     if (!month) return res.status(400).json({ message: 'month query param is required (YYYY-MM)' });
     const data = await getPagarExportData(month);
     return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Per-worker attendance + deduction report as a downloadable .docx.
+// Figures come from the payroll paid-day engine (utils/salaryDays.js), so they
+// match the Salary File export for the same month.
+export const downloadAttendanceReport = async (req, res) => {
+  try {
+    const month = req.query.month || null;
+    if (month && !/^\d{4}-\d{2}$/.test(String(month))) {
+      return res.status(400).json({ message: 'month must be formatted as YYYY-MM' });
+    }
+    const report = await getWorkerAttendanceReport(req.params.workerId, month);
+    if (!report) return res.status(404).json({ message: 'Worker not found' });
+
+    const buffer = renderAttendanceReportDocx(report);
+    res.setHeader('Content-Type', DOCX_MIME);
+    res.setHeader('Content-Disposition', `attachment; filename="${reportFileName(report)}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -33,5 +33,8 @@ export async function getMergedDailyAmounts(workerId, startDate, endDate, ranges
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export const sumDailyAmounts = (daily) => daily.reduce((sum, r) => sum + r.amount, 0);
-export const sumDailyAKI = (daily) => daily.reduce((sum, r) => sum + r.aki, 0);
+// Number(x) || 0 guards both null and non-numeric DB strings. A raw `sum + r.amount`
+// yields NaN for a non-numeric string, and JSON.stringify serialises NaN as null,
+// which crashes the client on `.toLocaleString()`.
+export const sumDailyAmounts = (daily) => daily.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+export const sumDailyAKI = (daily) => daily.reduce((sum, r) => sum + (Number(r.aki) || 0), 0);
