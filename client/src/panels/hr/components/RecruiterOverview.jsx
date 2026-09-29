@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useHR } from '../store';
+import { DISPLAY_NAME, isActiveRecruiter } from '../recruiterFilters';
 import { Users, Check, Clock, Bell, Cal } from '../icons';
 
 const RCOLORS = ['#5B6B4E','#1565C0','#7A5C7E','#B5603A','#C08A2E','#00838F','#6A1B9A','#2E7D32','#E65100','#4F6472'];
@@ -18,11 +19,7 @@ const STATUS_COLORS = {
   wrong_number: '#9E3B2E', invalid: '#9E3B2E', not_interested: '#9E3B2E',
 };
 
-const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
-const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel', 'Riddhi Trivedi']);
-
-function AnimatedNum({ to, suffix = '' }) {
-  const [v, setV] = useState(0);
+function AnimatedNum({ to, suffix = '' }) {  const [v, setV] = useState(0);
   const ref = useRef(null);
   useEffect(() => {
     if (!ref.current) return;
@@ -185,12 +182,17 @@ export default function RecruiterOverview() {
 
       return {
         id: r.id, name: r.name, department: r.department,
+        // Must stay in step with the row shape the leaderboard filters on, which
+        // is recruiterStats and not the raw worker record. Dropping these two
+        // left the panel with no employment status to filter on, so every
+        // recruiter was rejected and the leaderboard rendered empty.
+        is_active: r.is_active, employment_status: r.employment_status,
         leadsCount: total, scheduled, pending, interviewed, joined, rejected, followUp,
         conversionRate, todayLeads, lastActivity, avgResponseTime, byStatus,
       };
     });
 
-    const totalRecruiters = recruiters.filter((r) => !HIDDEN.has(r.name)).length;
+    const totalRecruiters = recruiters.filter(isActiveRecruiter).length;
     const totalLeads = filteredLeads.length;
     const totalScheduled = filteredLeads.filter((l) => l.status === 'scheduled').length;
     const totalPending = filteredLeads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
@@ -252,7 +254,7 @@ export default function RecruiterOverview() {
 
   const leaderboard = useMemo(() => {
     return [...filteredRecruiters]
-      .filter(r => !HIDDEN.has(r.name))
+      .filter(isActiveRecruiter)
       .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
       .sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount);
   }, [filteredRecruiters]);
