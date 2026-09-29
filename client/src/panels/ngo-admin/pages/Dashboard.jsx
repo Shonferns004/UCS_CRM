@@ -7,19 +7,25 @@ import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
 import { formatDuration } from '../../../utils/formatDuration';
 
-// Station-wise Collection layout: two panels side by side, OLD and NEW.
+// Station-wise Collection layout: two sibling cards, OLD on the left and NEW on
+// the right, in the same two-column grid that holds Hourly Performance and FRO
+// Status above.
 //
-// Each of the three team sections has exactly one station family in each panel:
+// Each of the three team sections has exactly one station family per card:
 //   BSCT  old BOD  / new BFD
 //   AFLF  old AOD  / new AFD
 //   MANN  old MOD  / new MFD
 // The old families are the pre-rename station codes, the new ones the codes the
-// bulk station rename produced for the same area. Showing them as two panels
+// bulk station rename produced for the same area. Splitting them across two cards
 // lets an admin see, per area, what the old code collected against what the same
 // area collects now.
 //
 // A station lands in a column purely on the prefix before the dash, so 'BOD-3'
 // is an old BSCT station and 'BFD-1' is the new BSCT one.
+const STATION_PANELS = [
+  { key: 'old', title: 'OLD Stations', sub: 'Pre-rename codes', pick: s => s.old },
+  { key: 'new', title: 'NEW Stations', sub: 'Current codes', pick: s => s.fresh },
+];
 const STATION_SECTIONS = [
   { label: 'BSCT', hue: 'blue', old: 'BOD', fresh: 'BFD' },
   { label: 'AFLF', hue: 'purple', old: 'AOD', fresh: 'AFD' },
@@ -2925,8 +2931,8 @@ export default function Dashboard() {
                 logged amount_collected, so this card agrees with the Collection card
                 above it instead of contradicting it. Full width: it holds three
                 team sections side by side, so it needs the whole page. */}
-            <div className="productivity-alerts station-collection-card" style={{ width: '100%', minWidth: 0, height: 460, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div className="station-collection-wrap" style={{ width: '100%', minWidth: 0, marginBottom: 16 }}>
+              <div style={{ padding: '0 4px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-flex', flexShrink: 0 }} />
                   Station-wise Collection
@@ -2946,17 +2952,26 @@ export default function Dashboard() {
               {(() => {
                 if (stationLoading && !stationCollection) {
                   return (
-                    <div style={{ padding: '8px 24px 20px' }} aria-label="Loading station collection">
-                      {STATION_SECTIONS.map(section => (
-                        <div key={section.label} style={{ flex: 1, minWidth: 0, padding: '0 12px', borderLeft: '1px solid #f1f5f9' }}>
-                          <div style={{ height: 12, width: '60%', background: '#eef2f6', borderRadius: 6, marginBottom: 12 }} />
-                          {[0, 1, 2, 3].map(i => (
-                            <div key={i} style={{ display: 'flex', gap: 10, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-                              <div style={{ width: 56, height: 12, background: '#eef2f6', borderRadius: 6 }} />
-                              <div style={{ flex: 1 }} />
-                              <div style={{ width: 60, height: 12, background: '#eef2f6', borderRadius: 6 }} />
-                            </div>
-                          ))}
+                    <div className="performance-sections" style={{ marginBottom: 0 }} aria-label="Loading station collection">
+                      {STATION_PANELS.map(panel => (
+                        <div key={panel.key} className="performance-card" style={{ height: 460 }}>
+                          <div className="performance-header">
+                            <div style={{ height: 14, width: 120, background: '#eef2f6', borderRadius: 6 }} />
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', padding: '0 8px 16px' }}>
+                            {STATION_SECTIONS.map(section => (
+                              <div key={section.label} style={{ minWidth: 0, padding: '0 8px', borderLeft: '1px solid #f1f5f9' }}>
+                                <div style={{ height: 12, width: '60%', background: '#eef2f6', borderRadius: 6, marginBottom: 12 }} />
+                                {[0, 1, 2, 3].map(i => (
+                                  <div key={i} style={{ display: 'flex', gap: 10, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                    <div style={{ width: 56, height: 12, background: '#eef2f6', borderRadius: 6 }} />
+                                    <div style={{ flex: 1 }} />
+                                    <div style={{ width: 60, height: 12, background: '#eef2f6', borderRadius: 6 }} />
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2964,7 +2979,7 @@ export default function Dashboard() {
                 }
                 if (!stationCollection) {
                   return (
-                    <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                    <div className="performance-card" style={{ height: 460, justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>Could not load station collection.</div>
                       <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Change the month or try again.</div>
                     </div>
@@ -2975,10 +2990,10 @@ export default function Dashboard() {
                 // 2026-06 both have a zero total and land here.
                 if ((stationCollection.total || 0) <= 0) {
                   return (
-                    <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                    <div className="performance-card" style={{ height: 460, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '0 24px' }}>
                       <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>No station collected in this month.</div>
-                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different month above. Stations that were active are still listed, with nothing collected.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different month above.</div>
                     </div>
                   );
                 }
@@ -2988,66 +3003,87 @@ export default function Dashboard() {
                 // pinned at exact offsets and never overlap each other.
                 const thBase = { fontSize: 11, fontWeight: 700, color: '#64748B', background: '#ffffff', boxSizing: 'border-box' };
                 return (
-                  <div className="productivity-table-wrap station-scroll" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
-                    {/* Two panels, OLD and NEW. Each holds the three team sections,
-                        and each section shows one station family: the old code on
-                        the left panel, the new code for the same area on the right. */}
-                    <div className="station-panels">
-                    {[
-                      { key: 'old', title: 'OLD', sub: 'Pre-rename station codes', pick: s => s.old },
-                      { key: 'new', title: 'NEW', sub: 'Current station codes', pick: s => s.fresh },
-                    ].map(panel => (
-                      <div key={panel.key} className={`station-panel station-panel-${panel.key}`} style={{ minWidth: 0, flex: '1 1 0', display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-                        <div style={{ gridColumn: '1 / -1', padding: '6px 12px', fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', color: panel.key === 'old' ? '#64748B' : '#1d4ed8', background: panel.key === 'old' ? '#e2e8f0' : '#dbeafe', borderBottom: '1px solid #e2e8f0' }}>
-                          {panel.title}
-                          <span style={{ fontWeight: 600, letterSpacing: 0, color: '#64748B', marginLeft: 8 }}>{panel.sub}</span>
-                        </div>
-                        {STATION_SECTIONS.map((section, si) => {
-                          const hue = STATION_HUES[section.hue];
-                          const family = panel.pick(section);
-                          const list = stationsByFamily.get(family) || [];
-                          const sum = list.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-                          // No background here on purpose: the section tint comes from
-                          // CSS, so recolouring a section is a one-rule change. An
-                          // inline background would win over it.
-                          const familyCell = { fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', height: 28, padding: '0 10px', textAlign: 'left', color: hue.head, borderBottom: '1px solid #e2e8f0' };
-                          return (
-                            <div key={section.label} className={`station-section station-section-${panel.key}`} style={{ minWidth: 0, borderLeft: si > 0 ? '1px solid #e2e8f0' : 'none' }}>
-                              <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
-                                <thead>
-                                  <tr>
-                                    <th colSpan={2} style={{ ...thBase, height: 34, padding: '0 12px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: hue.head, borderBottom: '1px solid #e2e8f0' }}>
-                                      {section.label}
-                                    </th>
-                                  </tr>
-                                  <tr>
-                                    <th colSpan={2} className="station-family-a" style={{ ...familyCell }}>{family}</th>
-                                  </tr>
-                                  <tr>
-                                    <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
-                                    <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {list.length === 0 && (
-                                    <tr>
-                                      <td colSpan={2} style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>No {family} collection this month</td>
-                                    </tr>
-                                  )}
-                                  {list.map(r => (
-                                    <tr key={r.station} className="station-row">
-                                      <td title={r.station} style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#17233C', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.station}</td>
-                                      <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 700, color: hue.head, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{formatRupees(r.amount)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                  <>
+                    {/* OLD on the left, NEW on the right, as two sibling cards in
+                        the same two-column grid that holds Hourly Performance and
+                        FRO Status above. Each card carries the three team sections,
+                        and each section shows one station family: the pre-rename
+                        code on the OLD card, the current code for the same area on
+                        the NEW one. */}
+                    <div className="performance-sections" style={{ marginBottom: 0 }}>
+                      {STATION_PANELS.map(panel => {
+                        const panelTotal = STATION_SECTIONS.reduce(
+                          (acc, s) => acc + (stationsByFamily.get(panel.pick(s)) || []).reduce((x, r) => x + (Number(r.amount) || 0), 0),
+                          0
+                        );
+                        return (
+                        <div key={panel.key} className="performance-card station-card station-card-old" style={{ height: 460 }}>
+                          <div className="performance-header">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                              <span className={`station-card-icon station-card-icon-${panel.key}`}><Users size={18} /></span>
+                              <div style={{ minWidth: 0 }}>
+                                <h3 className="performance-title" style={{ color: '#17233C' }}>{panel.title}</h3>
+                                <div style={{ fontSize: 11, color: '#64748B', lineHeight: 1.3 }}>{panel.sub}</div>
+                              </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    ))}
+                            <span className="station-card-total" style={{ color: panel.key === 'old' ? '#475569' : '#1d4ed8', background: panel.key === 'old' ? '#f1f5f9' : '#eff6ff', borderColor: panel.key === 'old' ? '#e2e8f0' : '#dbeafe' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                              {formatRupees(panelTotal)}
+                            </span>
+                          </div>
+
+                          <div className="productivity-table-wrap station-scroll" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
+                            <div className="station-sections" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                              {STATION_SECTIONS.map((section, si) => {
+                                const hue = STATION_HUES[section.hue];
+                                const family = panel.pick(section);
+                                const list = stationsByFamily.get(family) || [];
+                                const sum = list.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+                                // No background here on purpose: the section tint comes
+                                // from CSS, so recolouring a section is a one-rule
+                                // change. An inline background would win over it.
+                                const familyCell = { fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', height: 28, padding: '0 10px', textAlign: 'left', color: hue.head, borderBottom: '1px solid #e2e8f0' };
+                                return (
+                                  <div key={section.label} className="station-section" style={{ minWidth: 0, borderLeft: si > 0 ? '1px solid #e2e8f0' : 'none' }}>
+                                    <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
+                                      <thead>
+                                        <tr>
+                                          <th colSpan={2} style={{ ...thBase, height: 34, padding: '0 12px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: hue.head, borderBottom: '1px solid #e2e8f0' }}>
+                                            {section.label}
+                                          </th>
+                                        </tr>
+                                        <tr>
+                                          <th colSpan={2} className="station-family-a" style={{ ...familyCell }}>{family}</th>
+                                        </tr>
+                                        <tr>
+                                          <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
+                                          <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {list.length === 0 && (
+                                          <tr>
+                                            <td colSpan={2} style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>No {family} collection this month</td>
+                                          </tr>
+                                        )}
+                                        {list.map(r => (
+                                          <tr key={r.station} className="station-row">
+                                            <td title={r.station} style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#17233C', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.station}</td>
+                                            <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 700, color: hue.head, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{formatRupees(r.amount)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                        );
+                      })}
                     </div>
+
+                    {/* Money that is not attributable to a family column. Kept below
 
                     {/* Money that is not attributable to a family column. Kept below
                         the three sections and inside the same total, so the card
@@ -3070,7 +3106,7 @@ export default function Dashboard() {
                         )}
                       </div>
                     )}
-                  </div>
+                  </>
                 );
               })()}
 
@@ -3088,8 +3124,8 @@ export default function Dashboard() {
                 .station-collection-table thead tr:nth-child(3) th { position: sticky; top: 62px; z-index: 4; box-shadow: inset 0 -1px 0 #e2e8f0; }
 
                 /* Section tinting. The hue rides on a custom property so one rule
-                   paints a section, and the OLD panel can be muted as a group by
-                   overriding a single value rather than restyling every cell. */
+                   paints a section, so recolouring BSCT/AFLF/MANN is a single
+                   edit per section rather than a per-cell one. */
                 .station-section { --sec: #dbeafe; --sec-rule: #bfdbfe; }
                 .station-section:nth-child(2) { --sec: #ede9fe; --sec-rule: #ddd6fe; }
                 .station-section:nth-child(3) { --sec: #fce7f3; --sec-rule: #fbcfe8; }
@@ -3097,14 +3133,21 @@ export default function Dashboard() {
                 .station-section tbody tr:nth-child(odd) td { background: #fcfdff; }
                 .station-section tbody tr:hover td { background: var(--sec); }
 
-                /* The OLD panel sits beside NEW for comparison, so it is given a
-                   slightly greyed ground to read as the reference side. Only the
-                   background changes; the section hues stay identical so BSCT still
-                   matches BSCT across the two panels. */
-                .station-panel-old { background: #f8fafc; }
-                .station-panel-new { background: #ffffff; }
-                .station-panels { display: flex; gap: 0; width: 100%; align-items: flex-start; }
-                .station-panels > .station-panel + .station-panel { border-left: 2px solid #e2e8f0; }
+                /* Card header furniture, matching the icon-and-total treatment on
+                   Hourly Performance. The OLD card is greyed to read as the
+                   reference side of the comparison; the section hues inside it
+                   stay identical, so BSCT still matches BSCT across the two. */
+                .station-card-icon {
+                  width: 36px; height: 36px; border-radius: 50%;
+                  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+                }
+                .station-card-icon-old { background: #f1f5f9; color: #475569; }
+                .station-card-icon-new { background: #dbeafe; color: #1d4ed8; }
+                .station-card-total {
+                  font-size: 13px; font-weight: 800; padding: 4px 12px;
+                  border-radius: 999px; border: 1px solid; white-space: nowrap;
+                }
+                .station-card-old { background: #fafbfc; }
 
                 /* Vertical scrollbar hidden on request. The element keeps
                    overflow-y: auto, so the list still scrolls by wheel, trackpad
