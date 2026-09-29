@@ -1,12 +1,17 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { daysLeft, formatDate, dayLabel, dayClass, autoExpiryDate, SIM_VALIDITY_DAYS } from './helpers';
+import { daysLeft, formatDate, dayLabel, dayClass, autoExpiryDate, SIM_VALIDITY_DAYS, simBrandOf } from './helpers';
 import { toast } from '../../../components/Toast';
 import { ConfirmDialog } from './ImportModal';
 
 export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', 'Damaged', 'Inactive'];
 const SIM_TYPES = ['Standard', 'Micro', 'Nano', 'eSIM', 'Other'];
+
+/* Order the Mobile ID picker groups the phones in. Nokia first because a SIM
+   going into a UFS handset is the common case in the Locker. */
+const PHONE_SECTIONS = ['Nokia', 'Android', 'Other'];
+const PHONE_SECTION_CAP = 40;
 
 /* Copy for the three Locker tabs. Unassigned holds the spare SIMs waiting to be
    handed out, Assigned holds the ones already sitting in a phone, and
@@ -51,7 +56,7 @@ function daysFor(item) {
 }
 
 function AddSimModal({ open, onClose, onSaved }) {
-  const [form, setForm] = useState({ sim_name: '', sim_number: '', owner_name: '', sim_type: 'Standard', provider: '', location: '', issue_date: '', status: 'Available' });
+  const [form, setForm] = useState({ sim_name: '', sim_number: '', owner_name: '', sim_type: 'Standard', issue_date: '', status: 'Available' });
   const [customExpiry, setCustomExpiry] = useState(false);
   const [customExpiryDate, setCustomExpiryDate] = useState('');
   const [saving, setSaving] = useState(false);
@@ -89,8 +94,6 @@ function AddSimModal({ open, onClose, onSaved }) {
         sim_number: form.sim_number.trim(),
         assigned_to: String(form.owner_name || '').trim() || null,
         sim_type: form.sim_type,
-        provider: String(form.provider || '').trim() || null,
-        location: String(form.location || '').trim() || null,
         status: form.status,
         issue_date: form.issue_date || null,
         expiry_date: expiry,
@@ -130,14 +133,6 @@ function AddSimModal({ open, onClose, onSaved }) {
               <select value={form.sim_type} onChange={(e) => set('sim_type', e.target.value)}>
                 {SIM_TYPES.map((s) => <option key={s}>{s}</option>)}
               </select>
-            </div>
-            <div className="form-row">
-              <label>Provider / Network</label>
-              <input value={form.provider} onChange={(e) => set('provider', e.target.value)} />
-            </div>
-            <div className="form-row">
-              <label>Location</label>
-              <input value={form.location} onChange={(e) => set('location', e.target.value)} />
             </div>
             <div className="form-row">
               <label>SIM Card Issue Date</label>
@@ -192,6 +187,7 @@ export function AssignSimModal({ open, item, onClose, onSaved }) {
   }));
   const [phoneSearch, setPhoneSearch] = useState('');
   const [phoneOpen, setPhoneOpen] = useState(false);
+  const [phoneBrand, setPhoneBrand] = useState('');
   const [saving, setSaving] = useState(false);
 
   /* Real phones are the sim_cards rows already in the shared store. The server
@@ -214,13 +210,30 @@ export function AssignSimModal({ open, item, onClose, onSaved }) {
       .sort((a, b) => a.mobile_id.localeCompare(b.mobile_id, undefined, { numeric: true }));
   }, [cards]);
 
-  const phoneMatches = useMemo(() => {
+  /* Phones are split into Nokia and Android lists rather than left in one
+     alphabetical run: "android 1" sorts before "UFS 1", so a single capped list
+     filled up with Android phones and the Nokia ones never appeared at all.
+     An empty phoneBrand means "show both", which is the default. */
+  const brandCounts = useMemo(() => {
+    const counts = { Nokia: 0, Android: 0, Other: 0 };
+    phones.forEach((p) => { const b = simBrandOf(p.mobile_id); counts[b || 'Other'] += 1; });
+    return counts;
+  }, [phones]);
+
+  const phoneSections = useMemo(() => {
     const s = phoneSearch.trim().toLowerCase();
-    const pool = !s
-      ? phones
-      : phones.filter((p) => p.mobile_id.toLowerCase().includes(s) || (p.device_model || '').toLowerCase().includes(s));
-    return pool.slice(0, 40);
-  }, [phones, phoneSearch]);
+    const matches = (p) => p.mobile_id.toLowerCase().includes(s) || (p.device_model || '').toLowerCase().includes(s);
+    const inBrand = (p) => (phoneBrand === 'Other' ? !simBrandOf(p.mobile_id) : simBrandOf(p.mobile_id) === phoneBrand);
+    const pool = phones.filter((p) => (!s || matches(p)) && (!phoneBrand || inBrand(p)));
+    const groups = {
+      Android: pool.filter((p) => simBrandOf(p.mobile_id) === 'Android'),
+      Nokia: pool.filter((p) => simBrandOf(p.mobile_id) === 'Nokia'),
+    };
+    /* Anything that is neither pattern still has to be selectable, since
+       handleSave only accepts a mobile_id that is in the full phone list. */
+    groups.Other = pool.filter((p) => !simBrandOf(p.mobile_id));
+    return groups;
+  }, [phones, phoneSearch, phoneBrand]);
 
   if (!open || !item) return null;
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -233,6 +246,7 @@ export function AssignSimModal({ open, item, onClose, onSaved }) {
       imei: p.imei || prev.imei || '',
       team: p.team || prev.team || '',
     }));
+    setPhoneBrand(simBrandOf(p.mobile_id) || 'Other');
     setPhoneOpen(false);
     setPhoneSearch('');
   }
@@ -282,32 +296,65 @@ export function AssignSimModal({ open, item, onClose, onSaved }) {
                 <input value={form.mobile_id} onChange={(e) => set('mobile_id', e.target.value)} placeholder="e.g. Android 1" />
               ) : (
                 <div className="locker-picker">
+                  <div className="locker-brand-toggle" role="group" aria-label="Phone brand">
+                    {PHONE_SECTIONS.filter((n) => brandCounts[n] > 0).map((name) => (
+                      <button
+                        type="button"
+                        key={name}
+                        className={`lb-brand b-${name.toLowerCase()}${phoneBrand === name ? ' is-on' : ''}`}
+                        onClick={() => setPhoneBrand((v) => (v === name ? '' : name))}
+                      >
+                        {name === 'Other' ? 'Other' : name}
+                        <span className="lb-brand-n">{brandCounts[name]}</span>
+                      </button>
+                    ))}
+                  </div>
                   <input
                     value={phoneOpen ? phoneSearch : form.mobile_id}
                     onChange={(e) => { setPhoneOpen(true); setPhoneSearch(e.target.value); }}
                     onFocus={() => { setPhoneOpen(true); setPhoneSearch(''); }}
                     onBlur={() => setTimeout(() => setPhoneOpen(false), 150)}
-                    placeholder="Search phone by Mobile ID or model"
+                    placeholder={phoneBrand
+                      ? `Search ${phoneBrand === 'Other' ? 'other' : phoneBrand} phones by Mobile ID or model`
+                      : 'Pick a brand, then search by Mobile ID or model'}
                   />
                   {phoneOpen && (
                     <div className="locker-picker-menu">
-                      {phoneMatches.length === 0 ? (
+                      {PHONE_SECTIONS.every((name) => phoneSections[name].length === 0) ? (
                         <div className="locker-picker-none">No matching phone</div>
                       ) : (
-                        phoneMatches.map((p) => (
-                          <button
-                            type="button"
-                            key={p.mobile_id}
-                            className={`locker-picker-opt${form.mobile_id === p.mobile_id ? ' is-on' : ''}`}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => choosePhone(p)}
-                          >
-                            <span className="lp-id">{p.mobile_id}</span>
-                            <span className="lp-meta">
-                              {p.device_model || '—'}{p.imei ? ` · IMEI ${p.imei}` : ''}
-                            </span>
-                          </button>
-                        ))
+                        PHONE_SECTIONS.map((name) => {
+                          const list = phoneSections[name];
+                          if (list.length === 0) return null;
+                          const shown = list.slice(0, PHONE_SECTION_CAP);
+                          return (
+                            <div className="locker-picker-sec" key={name}>
+                              <div className={`locker-picker-sechead b-${name.toLowerCase()}`}>
+                                <span>{name} Phones</span>
+                                <span className="lp-count">{list.length}</span>
+                              </div>
+                              {shown.map((p) => (
+                                <button
+                                  type="button"
+                                  key={p.mobile_id}
+                                  className={`locker-picker-opt${form.mobile_id === p.mobile_id ? ' is-on' : ''}`}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => choosePhone(p)}
+                                >
+                                  <span className="lp-id">{p.mobile_id}</span>
+                                  <span className="lp-meta">
+                                    {p.device_model || '—'}{p.imei ? ` · IMEI ${p.imei}` : ''}
+                                  </span>
+                                </button>
+                              ))}
+                              {list.length > shown.length && (
+                                <div className="locker-picker-none">
+                                  Showing {shown.length} of {list.length} — search to narrow it down
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   )}
@@ -321,10 +368,6 @@ export function AssignSimModal({ open, item, onClose, onSaved }) {
             <div className="form-row">
               <label>IMEI No.</label>
               <input value={form.imei} onChange={(e) => set('imei', e.target.value)} />
-            </div>
-            <div className="form-row">
-              <label>Team</label>
-              <input value={form.team} onChange={(e) => set('team', e.target.value)} />
             </div>
             <div className="form-row">
               <label>Assignment Date</label>
