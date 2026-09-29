@@ -253,6 +253,8 @@ export const getWorkers = async (req, res) => {
         ngo_id: w.ngo_id,
         created_at: w.created_at,
         salary: salaryMap[w.id],
+        documents_submitted: !!w.documents_submitted,
+        documents_value: w.documents_value || null,
         late_grace_minutes: w.late_grace_minutes ?? null,
         father_husband_name: w.father_husband_name,
         marital_status: w.marital_status,

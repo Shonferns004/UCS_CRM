@@ -240,19 +240,18 @@ function DispositionTimer() {
   // Idle counts UP and replaces the countdown: once the window is gone there is
   // nothing left to count down, and the useful number is how long they have been
   // idle. It ticks live between heartbeats, and the server commits the same
-  // figure into today's idle total the moment they record a disposition or
-  // press Resume.
+  // figure into today's idle total the moment they record any activity.
   const display = isIdle ? formatClock(idleLiveSeconds) : (armed ? formatClock(value) : '—:—');
 
   const tip = isIdle
-    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record a disposition or press Resume to clear it.`
+    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record any activity to clear it.`
     : !armed
       ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
       : held
         ? 'On hold — the 4-minute window is frozen while you are paused or in a meeting.'
         : !inShift
           ? 'Off shift, so the window is not running. It opens with your first action of the day.'
-          : 'Time left to record a disposition. Every disposition resets this to 4:00.';
+          : 'Time left to record an activity. Every activity resets this to 4:00.';
 
   // Fraction of the window still remaining, for the bar underneath. While idle
   // the bar is full-width: the countdown is over, this is an accrual now.
@@ -315,22 +314,16 @@ function DispositionTimer() {
 // was press Resume, which handed back another 4 minutes, looping forever.
 // It is now a non-blocking banner: the panel stays fully usable, idle keeps
 // accruing, and recording a disposition clears it on its own.
+//
+// There is deliberately no way to clear idle from this banner. Recording a
+// disposition is the only exit, so idle costs the same whether or not the FRO
+// reacts to it: the server back-dates the charge to the moment the window
+// expired, not to the moment the disposition was submitted. Signing out is the
+// only other exit (commitIdleOnExit banks the seconds and clears the flag).
+// Do not add a resume affordance here without changing that rule on the server
+// too, or the cost of idling becomes optional again.
 function IdleGate() {
-  const { isIdle, resumeIdle, idleSecondsToday, fmt } = useCall();
-  const [resuming, setResuming] = useState(false);
-  const [error, setError] = useState(null);
-  const onResume = async () => {
-    if (resuming) return;
-    setResuming(true);
-    setError(null);
-    try {
-      await resumeIdle();
-    } catch (e) {
-      setError(e?.message || 'Resume failed. Please try again.');
-    } finally {
-      setResuming(false);
-    }
-  };
+  const { isIdle, idleSecondsToday, fmt } = useCall();
   if (!isIdle) return null;
   // Portalled for the same reason as the clock: inline, a page overlay such as
   // the detailed donor view would bury the banner and the FRO would not even
@@ -367,22 +360,10 @@ function IdleGate() {
           You are idle
         </div>
         <div style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45 }}>
-          Record a disposition to clear it
+          Record any activity to clear it
           {idleSecondsToday > 0 ? <> · idle today {fmt(idleSecondsToday)}</> : null}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onResume}
-        disabled={resuming}
-        aria-label="Resume work"
-        style={{ flex: '0 0 auto', padding: '9px 14px', borderRadius: 10, border: 'none', background: '#16A34A', color: '#fff', fontSize: 13.5, fontWeight: 800, fontFamily: 'inherit', cursor: resuming ? 'wait' : 'pointer' }}
-      >
-        {resuming ? 'Resuming…' : 'Resume'}
-      </button>
-      {error && (
-        <div role="alert" style={{ position: 'absolute', left: 14, bottom: -20, fontSize: 11.5, fontWeight: 600, color: '#DC2626' }}>{error}</div>
-      )}
     </div>,
     document.body,
   );

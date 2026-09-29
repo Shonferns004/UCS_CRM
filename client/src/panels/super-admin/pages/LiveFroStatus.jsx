@@ -446,7 +446,7 @@ export default function LiveFroStatus() {
                     read as "some idle earlier" when it is happening right now. */}
                 {idleRun != null && idleRun > 0 && (
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#D92D20', marginTop: 4 }}>
-                    Idle {Math.floor(idleRun / 60)}m now · waiting on Resume
+                    Idle {Math.floor(idleRun / 60)}m now · awaiting disposition
                   </div>
                 )}
                 <div className="lfs-seen">Last seen: {fs.updated_at ? new Date(fs.updated_at).toLocaleTimeString('en-IN') : '—'}</div>
