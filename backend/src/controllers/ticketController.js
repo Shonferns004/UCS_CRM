@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { getSenderPanel, getSenderName } from '../utils/panel.js';
+import { isEventTeam } from '../middleware/authMiddleware.js';
 
 export const listTickets = async (req, res) => {
   try {
@@ -43,7 +44,7 @@ export const listMyTickets = async (req, res) => {
     const workerId = req.user.id;
     const { data, error } = await db
       .from('support_tickets')
-      .select('*')
+      .select('*, ticket_replies(count)')
       .eq('raised_by', workerId)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -71,9 +72,11 @@ export const getTicket = async (req, res) => {
       .order('created_at', { ascending: true });
     if (replyError) throw replyError;
 
-    // Feedback/conversation is visible to the person who raised the ticket and
-    // to the accounts team who resolves it.
-    const isResolverTeam = req.user.role === 'accounts' || req.user.role === 'super_admin';
+    // Feedback/conversation is visible to the person who raised the ticket, to
+    // the accounts team who resolves it, and to the UFS / Event Manager team
+    // working its own queue — otherwise a responder sees "No replies yet" for
+    // the thread it is replying in.
+    const isResolverTeam = ['accounts', 'super_admin'].includes(req.user.role) || isEventTeam(req.user);
     const visibleReplies = (isResolverTeam || req.user.id === ticket.raised_by) ? (replies || []) : [];
 
     return res.json({ ...ticket, replies: visibleReplies });
@@ -117,12 +120,32 @@ export const updateTicket = async (req, res) => {
     const { id } = req.params;
     const { status, resolution, department, category, priority } = req.body;
 
+    // The UFS / Event Manager team may only action tickets routed to its own
+    // queue, and only their status/resolution — never re-route or re-categorise
+    // an accounts/HR ticket. isEventTeam is the same rule the route guard uses,
+    // so the guard and the scope can never disagree.
+    const eventTeam = isEventTeam(req.user);
+    if (eventTeam) {
+      const { data: owned, error: ownedError } = await db
+        .from('support_tickets')
+        .select('department')
+        .eq('id', id)
+        .maybeSingle();
+      if (ownedError) throw ownedError;
+      if (!owned) return res.status(404).json({ message: 'Ticket not found' });
+      if (owned.department !== 'event_head') {
+        return res.status(403).json({ message: 'You can only update tickets routed to your team' });
+      }
+    }
+
     const updates = {};
     if (status !== undefined) updates.status = status;
     if (resolution !== undefined) updates.resolution = resolution;
-    if (department !== undefined) updates.department = department;
-    if (category !== undefined) updates.category = category;
-    if (priority !== undefined) updates.priority = priority;
+    if (!eventTeam) {
+      if (department !== undefined) updates.department = department;
+      if (category !== undefined) updates.category = category;
+      if (priority !== undefined) updates.priority = priority;
+    }
     if (status === 'resolved' || status === 'closed') {
       // resolved_by is FK'd to users(id). Accounts staff may authenticate as
       // workers (id lives in workers, not users) and super admin auth uses
