@@ -79,6 +79,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [salaries, setSalaries] = useState([]);
   const [salaryForm, setSalaryForm] = useState({ salary: '' });
   const [salarySubmitting, setSalarySubmitting] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
   const [salaryNgoCount, setSalaryNgoCount] = useState(1);
   const [salaryNgo1, setSalaryNgo1] = useState('');
   const [salaryNgo2, setSalaryNgo2] = useState('');
@@ -220,6 +221,30 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
         .catch((err) => { console.error('API error:', err.message); setSalaryHoldData({ held:false, reason:'', held_at:null }); });
     }
   }, [viewingMonthKey, worker.id, data?.department]);
+
+  // Downloads the backend-rendered Word report for the month being viewed.
+  // The report figures come from the payroll paid-day engine on the server, not
+  // from the client-side calculator below, so they match the Salary File export.
+  const handlerDownloadReport = async () => {
+    if (!worker?.id || reportBusy) return;
+    setReportBusy(true);
+    try {
+      const res = await api(`/salary/worker/${worker.id}/attendance-report?month=${encodeURIComponent(effectiveMonthKey)}`, { _prefix: 'ucs', raw: true });
+      const blob = await res.blob();
+      const name = (data?.name || 'volunteer').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${name || 'volunteer'}-attendance-deduction-${effectiveMonthKey}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch (e) {
+      alert(e.message || 'Could not generate the report.');
+    } finally {
+      setReportBusy(false);
+    }
+  };
 
   const handlerHoldSalary = async () => {
     setHoldBusy(true);
@@ -1055,6 +1080,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               <div className="card" style={{ marginBottom:16 }}>
                 <div className="card-head">
                   <h3>Salary</h3>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                   <Dropdown value={effectiveMonthKey} onChange={val => setViewingMonthKey(val?.target?.value ?? val)}
                     style={{ fontSize:13, padding:'4px 8px' }}
                     renderValue={opt => opt?.label || ''}
@@ -1072,6 +1098,22 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           };
                         })
                     ]} />
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline no-print"
+                    disabled={reportBusy}
+                    title={`Download the attendance and deduction report for ${new Date(effectiveMonthKey + '-01').toLocaleDateString('en-GB', { month:'long', year:'numeric' })} as a Word document`}
+                    onClick={() => {
+                      // Figures are masked while salary is locked, so gate the
+                      // export behind the same access code.
+                      if (isSalaryUnlocked) handlerDownloadReport();
+                      else promptUnlock(handlerDownloadReport);
+                    }}
+                    style={{ fontSize:11, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5, whiteSpace:'nowrap' }}
+                  >
+                    {reportBusy ? 'Preparing…' : '📄 Download Word'}
+                  </button>
+                  </div>
                 </div>
                 <div className="card-pad">
                   {/* Hold / Released status for the viewing month */}
@@ -2125,10 +2167,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         {incSummary.monthlyTargetMet ? '✓ Target Met' : '✗ Target Not Met — AKI forfeited'}
                       </div>
                       <div style={{ fontSize:12, color:'var(--ink-soft)' }}>
-                        Achieved: ₹{incSummary.monthlyAchievement.toLocaleString('en-IN')} / ₹{incSummary.monthlyTarget.toLocaleString('en-IN')}
-                        {' | '}AKI Payout: ₹{incSummary.akiPayout.toLocaleString('en-IN')} ({incSummary.isNewJoiner ? 'Full' : 'Half'})
-                        {' | '}Monthly: ₹{incSummary.monthlyIncentive.toLocaleString('en-IN')}
-                        {' | '}<strong style={{ color: incSummary.monthlyTargetMet ? '#16a34a' : '#ef4444' }}>Total: ₹{incSummary.totalIncentive.toLocaleString('en-IN')}</strong>
+                        Achieved: ₹{(incSummary.monthlyAchievement || 0).toLocaleString('en-IN')} / ₹{(incSummary.monthlyTarget || 0).toLocaleString('en-IN')}
+                        {' | '}AKI Payout: ₹{(incSummary.akiPayout || 0).toLocaleString('en-IN')} ({incSummary.isNewJoiner ? 'Full' : 'Half'})
+                        {' | '}Monthly: ₹{(incSummary.monthlyIncentive || 0).toLocaleString('en-IN')}
+                        {' | '}<strong style={{ color: incSummary.monthlyTargetMet ? '#16a34a' : '#ef4444' }}>Total: ₹{(incSummary.totalIncentive || 0).toLocaleString('en-IN')}</strong>
                       </div>
                     </div>
                   )}

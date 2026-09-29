@@ -372,8 +372,14 @@ function IdleGate() {
 // Live status pill for the top bar — mirrors the backend fro_live_status value.
 // Rendered inside <CallProvider> so useCall() is available.
 function FroStatusPill() {
-  const { status } = useCall();
-  const key = status === 'offline' ? 'offline' : status === 'idle' ? 'idle' : 'active';
+  // The pill must agree with the countdown, so it is driven by the derived
+  // `isIdle` (the same value the timer widget flips to at 0:00), never by the
+  // raw status column. A stale/heartbeat-raced row can say status='idle' while
+  // the deadline is still open — trusting that here made the header show Idle
+  // while the countdown still read 3:00. Offline stays column-driven since no
+  // derivation covers it.
+  const { status, isIdle } = useCall();
+  const key = status === 'offline' ? 'offline' : (isIdle ? 'idle' : 'active');
   const cfg = {
     active: { label: 'Active', bg: '#e7f3ec', border: '#bce5cd', color: '#15803d', dot: '#16a34a' },
     idle: { label: 'Idle', bg: '#FEE2E2', border: '#FCA5A5', color: '#B91C1C', dot: '#DC2626' },
