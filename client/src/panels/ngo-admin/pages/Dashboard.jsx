@@ -55,6 +55,29 @@ const formatRupees = (n) => {
   return `₹${v.toLocaleString('en-IN')}`;
 };
 
+// Stations are listed in code order, not by amount: BOD-1, BOD-2, BOD-3. The
+// number after the dash decides, and it is compared numerically so BOD-10
+// sorts after BOD-9 instead of before it as a plain string would. Falls back to
+// the raw code when there is no number, then to a plain string compare, so
+// odd codes like 'BOD-1A' or 'BOD-OLD' still order deterministically rather than
+// being dropped.
+const stationOrderKey = (station) => {
+  const code = String(station ?? '');
+  const m = code.match(/^(.*?)-(\d+)(.*)$/);
+  if (!m) return [1, code, 0, code];
+  return [0, m[1], Number(m[2]), m[3]];
+};
+
+const stationOrderCompare = (a, b) => {
+  const ka = stationOrderKey(a);
+  const kb = stationOrderKey(b);
+  return ka[0] - kb[0]
+    || ka[1].localeCompare(kb[1])
+    || ka[2] - kb[2]
+    || ka[3].localeCompare(kb[3])
+    || String(a).localeCompare(String(b));
+};
+
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
   busy: 'Busy', ringing: 'Ringing', call_waiting: 'Call Waiting', unreachable: 'Unreachable',
@@ -1062,7 +1085,10 @@ export default function Dashboard() {
       if (map.has(f)) map.get(f).push(r);
     }
     for (const list of map.values()) {
-      list.sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0) || String(a.station).localeCompare(String(b.station)));
+      // Station-code order, so a family reads BOD-1, BOD-2, BOD-3. Amount is no
+      // longer the sort key: ranking by collection made the row positions shift
+      // between sections, which cannot be reconciled into a per-row total.
+      list.sort((a, b) => stationOrderCompare(a.station, b.station));
     }
     return map;
   }, [stationCollection]);
@@ -3012,17 +3038,45 @@ export default function Dashboard() {
                         the NEW one. */}
                     <div className="performance-sections" style={{ marginBottom: 0 }}>
                       {STATION_PANELS.map(panel => {
-                        const panelTotal = STATION_SECTIONS.reduce(
-                          (acc, s) => acc + (stationsByFamily.get(panel.pick(s)) || []).reduce((x, r) => x + (Number(r.amount) || 0), 0),
-                          0
-                        );
-                        // Each section's own total, read once and reused by the
-                        // Total column, so the summary can never drift from the
-                        // columns it is summarising.
-                        const sectionTotals = STATION_SECTIONS.map(s => ({
-                          label: s.label,
-                          total: (stationsByFamily.get(panel.pick(s)) || []).reduce((x, r) => x + (Number(r.amount) || 0), 0),
-                        }));
+                        // Rows are keyed on the station NUMBER, not on list
+                        // position. BOD-1, AOD-1 and MOD-1 share row 1; BOD-10,
+                        // AOD-10 and MOD-10 share row 10. Zipping by position
+                        // instead would put BOD-10 on row 3 beside AOD-3, whenever
+                        // a family is missing a station in the middle.
+                        //
+                        // A number is the union of the numbers present in any of
+                        // the three sections, so a row exists if any one section
+                        // has it. The sections that do not have it render blank,
+                        // and those blanks contribute nothing to the row total.
+                        const byNumber = STATION_SECTIONS.map(s => {
+                          const list = stationsByFamily.get(panel.pick(s)) || [];
+                          const map = new Map();
+                          const unnumbered = [];
+                          for (const r of list) {
+                            const parsed = stationOrderKey(r.station);
+                            // stationOrderKey returns [kind, prefix, num, tail];
+                            // kind 0 means a real number was found.
+                            if (parsed[0] === 0) map.set(parsed[2], r);
+                            else unnumbered.push(r);
+                          }
+                          return { map, unnumbered };
+                        });
+                        const numbers = [...new Set(byNumber.flatMap(ix => [...ix.map.keys()]))].sort((a, b) => a - b);
+                        // Codes with no number ('BOD-OLD', 'M-2') cannot join a
+                        // numbered row, so they are listed after them rather than
+                        // being dropped or shoved onto row 1.
+                        const stray = [];
+                        byNumber.forEach((ix, si) => ix.unnumbered.forEach(r => stray.push({ si, r })));
+                        stray.sort((a, b) => stationOrderCompare(a.r.station, b.r.station));
+                        const rows = [
+                          ...numbers.map(n => ({ key: `n${n}`, label: String(n), cells: byNumber.map(ix => ix.map.get(n) || null) })),
+                          ...stray.map((s, i) => ({ key: `s${i}`, label: '', cells: byNumber.map((_, si) => (si === s.si ? s.r : null)) })),
+                        ];
+                        const depth = rows.length;
+                        const rowTotal = (i) => rows[i].cells.reduce((sum, c) => sum + (Number(c?.amount) || 0), 0);
+                        // Sum of the row totals, so the grand total is the same
+                        // arithmetic as the column beneath it and cannot disagree.
+                        const panelTotal = rows.reduce((acc, _, i) => acc + rowTotal(i), 0);
                         return (
                         <div key={panel.key} className="performance-card station-card station-card-old" style={{ height: 460 }}>
                           <div className="performance-header">
@@ -3071,57 +3125,91 @@ export default function Dashboard() {
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {list.length === 0 && (
+                                        {depth === 0 && (
                                           <tr>
                                             <td colSpan={2} style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>No {family} collection this month</td>
                                           </tr>
                                         )}
-                                        {list.map(r => (
-                                          <tr key={r.station} className="station-row">
-                                            <td title={r.station} style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#17233C', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.station}</td>
-                                            <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 700, color: hue.head, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }}>{formatRupees(r.amount)}</td>
-                                          </tr>
-                                        ))}
+                                        {/* One row per station NUMBER across all three
+                                            sections. A section that has no station for
+                                            that number renders a blank cell, so a gap
+                                            in one column never shifts the others. */}
+                                        {rows.map(row => {
+                                          const r = row.cells[si];
+                                          const cell = { padding: '8px 10px', fontSize: 12, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' };
+                                          return (
+                                            <tr key={`${family}-${row.key}`} className="station-row">
+                                              <td title={r?.station} style={{ ...cell, fontWeight: 700, color: r ? '#17233C' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r?.station || ''}</td>
+                                              <td style={{ ...cell, textAlign: 'right', fontWeight: 700, color: r ? hue.head : '#cbd5e1' }}>{r ? formatRupees(r.amount) : ''}</td>
+                                            </tr>
+                                          );
+                                        })}
                                       </tbody>
                                     </table>
                                   </div>
                                 );
                               })}
 
-                              {/* Total column. Deliberately neutral grey rather than a
-                                  fourth section colour, so it reads as a summary of
-                                  the three beside it and not as another area.
+                              {/* Total column. A per-row addition, not a list of
+                                  subtotals: row 1 is BOD-1 + AOD-1 + MOD-1, row 2 is
+                                  BOD-2 + AOD-2 + MOD-2, and so on.
 
-                                  Built as a flex column, not a table, because the
-                                  three sections have different station counts and so
-                                  their rows cannot line up. The per-section subtotals
-                                  sit under the header bands, the grand total is
-                                  pushed to the bottom of the card, and the header
-                                  band heights (34/28/26) are repeated so the bands
-                                  still align with the three tables beside it. */}
-                              <div className="station-section station-section-total" style={{ minWidth: 0, borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ height: 34, padding: '0 12px', display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', color: '#ffffff', background: '#334155', borderBottom: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
-                                  Total
-                                </div>
-                                <div style={{ height: 28, padding: '0 10px', display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', color: '#334155', background: '#e2e8f0', borderBottom: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
-                                  All
-                                </div>
-                                <div style={{ height: 26, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', fontSize: 11, fontWeight: 700, color: '#64748B', borderBottom: '1px solid #e2e8f0', boxSizing: 'border-box' }}>
-                                  Total
-                                </div>
+                                  Correct only because rows are keyed on the station
+                                  NUMBER, not on list position. If BOD-10 and AOD-10
+                                  exist but MOD-10 does not, row 10 shows those two
+                                  and a blank cell for MOD, and the row total adds
+                                  just the two that exist.
 
-                                <div style={{ flex: 1, minHeight: 0 }}>
-                                  {sectionTotals.map(s => (
-                                    <div key={s.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '8px 10px', borderBottom: '1px solid #f8fafc', boxSizing: 'border-box' }}>
-                                      <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-                                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>{formatRupees(s.total)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-
-                                <div style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', color: '#0f172a', background: '#f1f5f9', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap', boxSizing: 'border-box' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
-                                  {formatRupees(panelTotal)}
-                                </div>
+                                  Neutral grey rather than a fourth section colour, so
+                                  it reads as the sum of the three beside it. */}
+                              <div className="station-section station-section-total" style={{ minWidth: 0, borderLeft: '1px solid #e2e8f0' }}>
+                                <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
+                                  <thead>
+                                    <tr>
+                                      <th style={{ ...thBase, height: 34, padding: '0 10px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: '#334155', borderBottom: '1px solid #e2e8f0' }}>
+                                        Total
+                                      </th>
+                                    </tr>
+                                    <tr>
+                                      <th className="station-family-a" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', height: 28, padding: '0 10px', textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>
+                                        All
+                                      </th>
+                                    </tr>
+                                    <tr>
+                                      <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title="Sum of the three sections on this row">Row Total</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {depth === 0 && (
+                                      <tr>
+                                        <td style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>Nothing to add</td>
+                                      </tr>
+                                    )}
+                                    {rows.map((row, i) => {
+                                      const t = rowTotal(i);
+                                      // A row where every section is blank adds to
+                                      // nothing, so it stays blank rather than
+                                      // showing a misleading ₹0. A partial row still
+                                      // shows its total, and the tooltip spells out
+                                      // which stations went into it.
+                                      const present = row.cells.filter(Boolean);
+                                      return (
+                                        <tr key={`total-${row.key}`} className="station-row">
+                                          <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
+                                            {present.length ? formatRupees(t) : ''}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr>
+                                      <td style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', color: '#0f172a', background: '#f1f5f9', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                                        {formatRupees(panelTotal)}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
                               </div>
                             </div>
                           </div>
