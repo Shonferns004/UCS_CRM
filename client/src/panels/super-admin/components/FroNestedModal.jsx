@@ -50,7 +50,7 @@ function FroNestedDetail({ fro }) {
       {fro.status === 'idle' && idleTimer && (
         <div style={{ padding: '8px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fca5a5', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#b91c1c' }}>timer_off</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#991b1b', flex: 1 }}>Idle — disposition timer expired, awaiting Resume</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#991b1b', flex: 1 }}>Idle — disposition timer expired, awaiting disposition</span>
           <span style={{ fontSize: 18, fontWeight: 800, color: '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>{idleTimer}</span>
         </div>
       )}

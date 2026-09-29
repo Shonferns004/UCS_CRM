@@ -9,7 +9,7 @@ Architecture:
 - Core workflow: FRO logs in → views dashboard with live status → receives donor assignments → calls donors → records dispositions → uploads payment evidence → manages follow-ups → clocks out
 - Dual WhatsApp system: Two separate WhatsApp integrations exist. The older QR-code-based system uses WhatsApp Web (puppeteer-based) for session management. The newer Meta API-based system uses the Backend Express API (froWhatsAppController) with bcrypt-based custom auth separate from the main CRM login.
 - Real-time updates: Dashboard auto-refreshes every 30 seconds. FRO status (online/on_call/idle/offline/meeting) is tracked server-side.
-- Disposition timer: every FRO gets a 4-minute window to record a disposition, shown as a countdown in the top bar on every page. It starts at login and resets on each recorded disposition, and it runs whether or not a call is in progress. When it runs out the FRO is marked idle and stays idle — and idle time keeps accruing — until they press Resume, which banks the elapsed time into the day and opens a fresh window. Idle only counts between the FRO's own shift start and end. An admin pause or company-wide meeting freezes the window. The counter survives a page refresh, and it keeps running even if the FRO switches the monitor off, closes the tab, or the machine crashes: the open period is derived from the stored deadline, not from the browser, so the time is only ever lost if they never come back AND the end-of-shift sweep cannot reach them.
+- Disposition timer: every FRO gets a 4-minute window to record a disposition, shown as a countdown in the top bar on every page. It starts at login and resets on each recorded disposition, and it runs whether or not a call is in progress. When it runs out the FRO is marked idle and stays idle — and idle time keeps accruing — until they record a disposition, which banks the elapsed time into the day and opens a fresh window. There is no button or endpoint that lifts idle without that: signing out is the only other exit. Idle only counts between the FRO's own shift start and end. An admin pause or company-wide meeting freezes the window. The counter survives a page refresh, and it keeps running even if the FRO switches the monitor off, closes the tab, or the machine crashes: the open period is derived from the stored deadline, not from the browser, so the time is only ever lost if they never come back AND the end-of-shift sweep cannot reach them.
 - OCR pipeline: Payment screenshots are uploaded and processed server-side using OCR to extract UPI transaction IDs, amounts, and donor names.
 - Target system: Monthly targets with AKI incentive calculation based on achievement percentage.
 - Disposition state machine: Donor assignments go through a strict state machine: new → seen → contacted → disposition_recorded → lead_done/rejected/callback.`,
@@ -93,29 +93,17 @@ Architecture:
           workflow: [{ actor: 'FRO', action: 'Opens the panel and hydrates the timer', api: 'GET /api/fro/status/me' }],
         },
         {
-          name: 'Resume Idle',
-          description: 'Lift idle after the disposition timer ran out.',
-          apis: [{
-            method: 'POST',
-            path: '/api/fro/status/resume-idle',
-            auth: 'Bearer token (fro/worker)',
-            description: 'Banks the elapsed idle time into the FRO\'s IST day total, clears the open period, and returns a fresh 4-minute window. This is the only action that ends idle — the panel cannot be dismissed any other way.',
-            curl: 'curl -X POST "https://ucs-crm-backend.vercel.app/api/fro/status/resume-idle" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d "{}"',
-            requestBody: {},
-            responseBody: {
-              success: true,
-              message: 'Resumed',
-              today_idle_seconds: 1840,
-              disposition_due_at: '2026-07-13T11:04:00.000Z',
-              seconds_left: 240,
-              is_idle: false,
-            },
-          }],
+          name: 'No Idle-Resume Endpoint',
+          description: 'Idle is ended only by recording a disposition. There is no API that lifts it.',
+          apis: [],
           businessRules: [
+            'A former POST /api/fro/status/resume-idle was removed: it returned a fresh 4-minute window without the FRO recording anything, which made the cost of missing the window a button press instead of a disposition',
             'Idle time is clamped to the FRO\'s shift, so time outside working hours is never banked',
+            'A disposition recorded after the window lapsed is still charged from the moment it expired, not from when it was submitted',
             'Repeated idle periods on the same day accumulate',
+            'Signing out is the only other exit: it banks the open period into the IST day and clears the flag for the next session',
           ],
-          workflow: [{ actor: 'FRO', action: 'Presses Resume in the idle overlay', api: 'POST /api/fro/status/resume-idle' }],
+          workflow: [{ actor: 'FRO', action: 'Records a disposition, which banks the idle period, returns them to Active and opens a fresh 4-minute window', api: 'POST /api/fro/donor-logs (disposition action)' }],
         },
         {
           name: 'Update Live Status',
@@ -1034,7 +1022,7 @@ Agent assignment is managed by Accounts admins via WhatsAppAccountsManager/Whats
   businessRules: [
     'Every FRO gets a 4-minute disposition window from login, shown as a countdown in the top bar on every FRO page; recording a disposition resets it to a full 4 minutes',
     'The window runs whether or not a call is in progress — an FRO with no active call is still expected to disposition',
-    'When the window lapses the FRO becomes idle and idle time keeps accruing until they press Resume; only Resume ends idle, and it banks the elapsed time into that IST day',
+    'When the window lapses the FRO becomes idle and idle time keeps accruing until they record a disposition; only a disposition ends idle, and it banks the elapsed time into that IST day charged from the moment the window expired',
     'Idle time counts only between the FRO\'s own shift start and end (attendance punch-in/punch-out when present, otherwise the configured shift)',
     'Idle keeps counting if the FRO closes the tab, refreshes, or turns the monitor off — the open period is derived from the stored deadline, not from the browser',
     'Idle time is banked into the day on Resume, on sign-out, and at the automatic shift-end logout, so the monthly salary total never misses a tail',

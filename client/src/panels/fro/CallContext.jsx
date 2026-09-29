@@ -32,9 +32,9 @@ export function CallProvider({ children, userId, operatorId }) {
 
   // ── Disposition timer ────────────────────────────────────────
   // The FRO gets 4 minutes from their first action of the day, and 4 more after
-  // every disposition. When it runs out they are idle until they record
-  // something or press Resume. All of that is decided on the server; these
-  // values are its answers, mirrored so the chip and banner can render.
+  // every disposition. When it runs out they are idle until they record a
+  // disposition. All of that is decided on the server; these values are its
+  // answers, mirrored so the chip and banner can render.
   const [dispositionDueAt, setDispositionDueAt] = useState(null)
   const [secondsLeft, setSecondsLeft] = useState(null)
   const [isIdle, setIsIdle] = useState(false)
@@ -383,21 +383,10 @@ export function CallProvider({ children, userId, operatorId }) {
     return () => clearInterval(iv)
   }, [dispositionDueAt, syncAllStats, persistTimer])
 
-  // Resume: the FRO acknowledges the idle state. The server commits the elapsed
-  // seconds into today and hands back a fresh 4-minute window.
-  const resumeIdle = useCallback(async () => {
-    try {
-      const res = await api('/fro/status/resume-idle', { method: 'POST', body: JSON.stringify({}) })
-      adoptTimer(res)
-      setLiveStatus(res?.status || 'online')
-      setElapsed(0)
-      callPausedMsRef.current = 0
-      return res
-    } catch (err) {
-      console.error('Resume failed:', err.message)
-      throw err
-    }
-  }, [adoptTimer])
+  // There is no resumeIdle. Idle is cleared only by recording a disposition,
+  // which is the one action that produces something real; the endpoint that used
+  // to hand back a free 4-minute window was removed rather than left callable.
+  // See IdleGate in FROPanel.jsx for why that matters.
 
   // ---------- Stats sync & status transitions ----------
   useEffect(() => {
@@ -695,7 +684,7 @@ export function CallProvider({ children, userId, operatorId }) {
       paused, pausedBy, resumeSelf,
       // Disposition timer / idle
       dispositionDueAt, secondsLeft, isIdle, idleSecondsToday, idleLiveSeconds, inShift,
-      resumeIdle, adoptTimer, adoptOptimisticDisposition, DISPOSITION_WINDOW,
+      adoptTimer, adoptOptimisticDisposition, DISPOSITION_WINDOW,
     }}>
       {children}
     </CallContext.Provider>
