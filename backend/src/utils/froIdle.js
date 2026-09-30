@@ -4,9 +4,13 @@ import { getSetting } from '../models/settingsModel.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-// The disposition deadline. From login the FRO gets this long to record a
-// disposition; recording one resets it. When it lapses the FRO is idle until
-// they press Resume.
+// The disposition deadline. Once armed, the FRO gets this long to record a
+// disposition; recording one resets it. When it lapses the FRO is idle, and idle
+// is cleared only by recording activity — the resume endpoint was removed
+// because it made missing the window cost a button press instead of a
+// disposition. The window is armed by the server itself: on the first heartbeat
+// after the settle-in grace runs out (see SETTLE_SECONDS), and again by every
+// successful disposition.
 export const DISPOSITION_WINDOW_SECONDS = 240;
 
 // How stale a live-status row may be before a read that has no other way to
@@ -428,6 +432,115 @@ export function nextDeadline(shift, nowMs = Date.now()) {
 
 export function dispositionDueMs(row) {
   return toMs(row?.disposition_due_at);
+}
+
+/**
+ * The one-time settle-in grace, in seconds, granted on first panel presence of
+ * the IST day.
+ *
+ * WHY. The disposition window used to be opened by the FRO's first recorded
+ * action, so signing in and sitting on the panel cost nothing at all: with no
+ * deadline on the row there was no lapse for any reader to derive an idle
+ * period from, and the FRO only started being billed once they had already done
+ * the work. Three minutes to settle is now granted on login, and the ordinary
+ * 4-minute window arms by itself the moment that grace runs out.
+ *
+ * This is a grace BEFORE the window, not a shorter window.
+ * DISPOSITION_WINDOW_SECONDS is deliberately unchanged.
+ */
+export const SETTLE_SECONDS = 180;
+
+/**
+ * The row's settle-in deadline in epoch ms, but only when it is usable right
+ * now: stamped on today's IST day.
+ *
+ * Staleness is judged by IST day rather than by clearing the column on rollover,
+ * which is the same rule withoutStaleIdle already applies to idle_since. A
+ * leftover from yesterday therefore reads as "no grace granted" without the write
+ * paths having to know this column exists, which is what keeps a panel left open
+ * across midnight from carrying yesterday's spent grace into today.
+ */
+export function settleUntilMs(row, nowMs = Date.now()) {
+  const until = toMs(row?.settle_until);
+  if (!Number.isFinite(until)) return NaN;
+  if (istDateStr(new Date(until)) !== istDateStr(new Date(nowMs))) return NaN;
+  return until;
+}
+
+/**
+ * Seconds left on the settle-in grace, or null when there is none to show.
+ *
+ * Null rather than 0 is deliberate: 0 would be indistinguishable from a grace
+ * that has just expired, and the two want different things on screen.
+ */
+export function settleSecondsLeft(row, nowMs = Date.now()) {
+  const until = settleUntilMs(row, nowMs);
+  if (!Number.isFinite(until)) return null;
+  return Math.max(0, Math.round((until - nowMs) / 1000));
+}
+
+/**
+ * Is this row in a state where the server may hand out clock time on its own?
+ *
+ * Both the settle grant and the window arm stand down for the same reasons, and
+ * each one is a way this change would otherwise become a billing bug rather than
+ * a fix:
+ *
+ *  - the shift is closed. There is no window to open, and idle accrues outside
+ *    the shift regardless.
+ *  - the FRO is held (meeting or admin pause). They are not at the desk, and the
+ *    existing freeze logic already hands back a full window when it lifts.
+ *    Arming during a freeze would start a countdown against a frozen row.
+ *  - an idle period is already open, or a live deadline is already on the row.
+ *    The first is an FRO being billed idle right now, who must not be quietly
+ *    re-armed. The second already has a window, and re-arming would slide it
+ *    forward on every heartbeat — exactly the "timer resets itself to 4:00"
+ *    behaviour this change exists to close.
+ */
+function canStartWindow(row, shift, nowMs) {
+  if (!withinShift(shift, nowMs)) return false;
+  if (row?.is_paused || row?.status === 'meeting') return false;
+  if (Number.isFinite(idlePeriodStartMs(row, nowMs))) return false;
+  // A deadline from a previous IST day is a leftover, not a live window.
+  // withoutStaleIdle normally clears it before this runs, so this only matters on
+  // a path that skipped it — and it must not block a legitimate grant.
+  const dueMs = dispositionDueMs(row);
+  if (Number.isFinite(dueMs)
+    && istDateStr(new Date(dueMs)) === istDateStr(new Date(nowMs))) return false;
+  return true;
+}
+
+/**
+ * Grant the one-time settle-in grace. Returns the ISO deadline to store, or null
+ * when this heartbeat must not touch it.
+ *
+ * Once per IST day, not once per session: a session-scoped grace could be farmed
+ * by closing and reopening the panel, which would relocate the original free hour
+ * to a different key rather than close it.
+ */
+export function settleGrant(row, shift, nowMs = Date.now()) {
+  if (!canStartWindow(row, shift, nowMs)) return null;
+  // Already granted today, whether spent or still running. Never regrant.
+  if (Number.isFinite(settleUntilMs(row, nowMs))) return null;
+  return new Date(nowMs + SETTLE_SECONDS * 1000).toISOString();
+}
+
+/**
+ * Arm the ordinary disposition window now that the grace has run out. Returns
+ * the ISO deadline to store, or null when nothing should change.
+ *
+ * The deadline is measured from the grace's own expiry rather than from now, so a
+ * heartbeat that lands late cannot shorten the window the FRO was promised. An
+ * FRO who closes the panel during the grace and comes back an hour later is
+ * therefore armed with a deadline that is already in the past and is billed from
+ * it: reopening the panel buys no time.
+ */
+export function settleWindowArm(row, shift, nowMs = Date.now()) {
+  if (!canStartWindow(row, shift, nowMs)) return null;
+  const until = settleUntilMs(row, nowMs);
+  // No grace on the row, or it has not run out yet.
+  if (!Number.isFinite(until) || nowMs < until) return null;
+  return new Date(until + DISPOSITION_WINDOW_SECONDS * 1000).toISOString();
 }
 
 /**
