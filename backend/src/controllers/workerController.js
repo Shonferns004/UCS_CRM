@@ -18,6 +18,10 @@ import {
 } from '../models/workerNgoAllocationModel.js';
 import { updateWorkerPersonalDetails, getFullWorkerProfile } from '../models/onboardingModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
+import {
+  parseDocumentsValue,
+  serializeDocuments,
+} from '../utils/documentsValue.js';
 
 const generateLoginId = async (name) => {
   const parts = name.trim().split(/\s+/);
@@ -256,6 +260,9 @@ export const getWorkers = async (req, res) => {
         salary: salaryMap[w.id],
         documents_submitted: !!w.documents_submitted,
         documents_value: w.documents_value || null,
+        // Sent raw so each surface can parse the legacy/array forms itself via
+        // parseDocumentsValue, rather than being handed one pre-joined string.
+        documents_other: w.documents_other || null,
         late_grace_minutes: w.late_grace_minutes ?? null,
         father_husband_name: w.father_husband_name,
         marital_status: w.marital_status,
@@ -341,6 +348,7 @@ export const getWorker = async (req, res) => {
       onboarding_completed: p.onboarding_completed,
       documents_submitted: p.documents_submitted,
       documents_value: p.documents_value,
+      documents_other: p.documents_other,
       ngo_id: p.ngo_id,
       created_at: p.created_at,
       father_husband_name: p.father_husband_name,
@@ -391,6 +399,7 @@ export const editWorker = async (req, res) => {
       is_test,
       documents_submitted,
       documents_value,
+      documents_other,
       late_grace_minutes,
     } = req.body;
     const updates = {};
@@ -404,10 +413,16 @@ export const editWorker = async (req, res) => {
     if (team !== undefined) updates.team = team != null && String(team).trim() !== '' ? String(team).trim().toUpperCase() : null;
     if (is_test !== undefined) updates.is_test = !!is_test;
     if (documents_submitted !== undefined) updates.documents_submitted = !!documents_submitted;
+    // Accepts a JSON array string, a real array, or a legacy single value, and
+    // always stores the array form. documents_other carries the "Other" name, and
+    // a null selection clears both so no orphaned name is left behind.
     if (documents_value !== undefined) {
-      const val = String(documents_value || '').trim();
-      updates.documents_value = val || null;
-      updates.documents_submitted = !!val;
+      const parsed = parseDocumentsValue(documents_value, documents_other);
+      const written = serializeDocuments(parsed.selected, parsed.otherText);
+      const hasAny = parsed.selected.length > 0;
+      updates.documents_value = hasAny ? written.documents_value : null;
+      updates.documents_other = written.documents_other;
+      updates.documents_submitted = hasAny;
     }
     if (address !== undefined) updates.address = address;
     if (city !== undefined) updates.city = city;
@@ -584,6 +599,21 @@ export const updateMyProfile = async (req, res) => {
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    // Which documents the volunteer handed over. Not in `allowed` because it needs
+    // normalising and it also derives documents_submitted, mirroring editWorker.
+    // The submitted form writes this straight from checkboxes, so it may arrive as
+    // an array, an array string, or a legacy single value; all three are accepted.
+    // Unrecognised entries are dropped rather than rejected, because this is
+    // self-service and a volunteer must never be locked out of signing over a
+    // stray value — an empty selection is simply ignored.
+    if (req.body.documents_value !== undefined) {
+      const parsed = parseDocumentsValue(req.body.documents_value, req.body.documents_other);
+      const written = serializeDocuments(parsed.selected, parsed.otherText);
+      const hasAny = parsed.selected.length > 0;
+      updates.documents_value = hasAny ? written.documents_value : null;
+      updates.documents_other = written.documents_other;
+      updates.documents_submitted = hasAny;
     }
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ message: 'No valid fields to update' });

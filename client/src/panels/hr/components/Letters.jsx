@@ -3,11 +3,12 @@ import { useHR, apiGet } from '../store';
 import { api } from '../../../api/auth';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Dropdown } from './ui';
+import { safeImgSrc, isSignatureSigned, SIG_LINE_FALLBACK } from '../signatureUtils';
 import { FileTxt, WhatsApp } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import { deptLabel } from '../../../lib/labels';
-
+import { deptLabel, DOC_OPTIONS, OTHER_DOC } from '../../../lib/labels';
+import { parseDocumentsValue, resolveDocumentLabels, joinDocumentLabels, emptyDocRows, buildDocumentRows, sameDocRows } from '../../../lib/documents';
 const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','NOBSD2','ODAR','Doc Submitted','Volunteer Termination Letter','Blank Letter'];
 
 const HR_MESSAGES = [
@@ -87,20 +88,25 @@ const HAS_LH = (k) => k === 'BSCT' || k === 'AFLF' || k === 'MANN';
 
 function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-function safeImgSrc(url) {
-  const s = String(url ?? '').trim();
-  if (!/^https?:\/\//i.test(s)) return '';
-  if (/["'<>\\s`]/.test(s)) return '';
-  return s;
-}
-
-const SIG_LINE_FALLBACK = '_______________________';
-
-function signatureImgHtml(url) {
+function signatureImgHtml(url, isODAR) {
   const src = safeImgSrc(url);
-  return src
-    ? `<img src="${src}" alt="" style="height:34px;vertical-align:middle;max-width:190px;object-fit:contain" />`
-    : SIG_LINE_FALLBACK;
+  if (!src) return SIG_LINE_FALLBACK;
+  // ODAR prints the volunteer signature 1.5x larger. Height and max-width are
+  // scaled by the same factor, so the max-width ceiling behaves exactly as
+  // before and object-fit:contain still letterboxes rather than stretches, so
+  // the signature keeps its original aspect ratio at either size. Kept as local
+  // maths rather than module constants: the letter harness evaluates this
+  // function on its own, so it must not depend on outer scope.
+  const k = isODAR ? 1.5 : 1;
+  const height = 34 * k;
+  const maxWidth = 190 * k;
+  // data-sig marks the one image the PDF is allowed to darken, so the letterhead
+  // logo is left alone. It is emitted for ODAR only, so the darkening does not
+  // reach the same signature in the other letter types. It must stay the LAST
+  // attribute: the letter harness matches on `<img src="..."` and on this
+  // literal style string.
+  const sigAttr = isODAR ? ' data-sig="1"' : '';
+  return `<img src="${src}" alt="" style="height:${height}px;vertical-align:middle;max-width:${maxWidth}px;object-fit:contain"${sigAttr} />`;
 }
 
 function waitForImage(img) {
@@ -112,7 +118,16 @@ function waitForImage(img) {
   });
 }
 
-function imgToDataUrl(src) {
+// The letter is rasterised by html2canvas before it reaches the PDF, and
+// html2canvas does not implement CSS filters. A filter in the markup would
+// therefore look bolder on screen and then vanish from the downloaded file.
+// Applying the contrast to the canvas pixels instead means both agree. Only the
+// signature passes this: the letterhead logo goes through the same code path
+// unfiltered. Deliberately no CSS filter on the builder markup, or the PDF would
+// darken twice; the on-screen preview uses a matching filter of its own.
+const SIG_PIXEL_FILTER = 'contrast(1.4) brightness(0.9)';
+
+function imgToDataUrl(src, pixelFilter) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -120,7 +135,9 @@ function imgToDataUrl(src) {
       const c = document.createElement('canvas');
       c.width = img.naturalWidth;
       c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
+      const ctx = c.getContext('2d');
+      if (pixelFilter) ctx.filter = pixelFilter;
+      ctx.drawImage(img, 0, 0);
       resolve(c.toDataURL('image/png'));
     };
     img.onerror = reject;
@@ -565,8 +582,13 @@ ${body}
 </div>`;
 }
 
-function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, docRows = []) {
+function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, docRows = [], isODAR = false, documentsNeeded = [], documentsOther = '') {
   const rows = docRows && docRows.length ? docRows : [{sr:1,doc:'',original:false,returned:false,remarks:''},{sr:2,doc:'',original:false,returned:false,remarks:''},{sr:3,doc:'',original:false,returned:false,remarks:''}];
+  // "Documents Submitted" prints the selected names, with "Other" already resolved
+  // to the volunteer's own words. The caller resolves the stored record into this
+  // argument, so an explicitly empty selection really does print the blank rule
+  // rather than falling back to a stale value still on the worker object.
+  const neededSummary = joinDocumentLabels(documentsNeeded, documentsOther);
   const rowsHtml = rows.map(r => `
 <tr>
 <td style="border:1px solid #999;padding:10px 8px;text-align:center">${esc(r.sr)}</td>
@@ -590,7 +612,7 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
 <div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Volunteer Details</div>
 <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
 <tr><td style="padding:4px 0;width:50%"><strong>Volunteer Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Department:</strong> ${d}</td></tr>
-<tr><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td><td style="padding:4px 0"><strong>Date of Joining:</strong> ${joiningDate}</td></tr>
+<tr><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td><td style="padding:4px 0"><strong>Date of Joining:</strong> ${joiningDate}</td></tr>${isODAR ? `<tr><td style="padding:4px 0" colspan="2"><strong>Documents Submitted:</strong> ${esc(neededSummary || '__________')}</td></tr>` : ''}
 </table>
 <div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Original Documents Submitted</div>
 <table style="width:100%;border-collapse:collapse">
@@ -607,7 +629,7 @@ ${rowsHtml}
 <p style="margin:0 0 8px 0"><strong>Volunteer Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
 </div>
 <table style="width:100%;border-collapse:collapse;margin-top:8px">
-<tr><td style="padding:4px 0"><strong>Volunteer Signature:</strong> ${signatureImgHtml(w.signature_url)}</td></tr>
+<tr><td style="padding:4px 0"><strong>Volunteer Signature:</strong> ${signatureImgHtml(isSignatureSigned(w) ? w.signature_url : '', isODAR)}</td></tr>
 </table>
 <div style="margin:18px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Acknowledgement</div>
@@ -617,7 +639,7 @@ ${rowsHtml}
 <div style="margin:14px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">Document Return Acknowledgement <span style="font-weight:400;text-transform:none">(To be filled at the time of return)</span></div>
 <div>I confirm that I have received all my original documents listed above in good condition.</div>
-<div style="margin-top:6px"><strong>Volunteer Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+<div style="margin-top:6px"><strong>Volunteer Signature:</strong> ${isODAR ? signatureImgHtml(isSignatureSigned(w) ? w.signature_url : '', true) : '________________'} &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
 <div style="margin-top:6px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
 </div>
 </div>`;
@@ -661,7 +683,7 @@ function BSCTLetterheadPreview({ children }) {
   return <LetterheadPreview ngoKey="BSCT">{children}</LetterheadPreview>;
 }
 
-function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows, editing, onToggleEdit, onDocRowChange, onAddDocRow, onRemoveDocRow }) {
+function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows, editing, onToggleEdit, onDocRowChange, onAddDocRow, onRemoveDocRow, isODAR, onDocumentsChange, onDocumentsOtherChange, documentsNeeded = [], documentsOther = '', docsBusy }) {
   const ngo = getNgo(ngoKey);
   const r = deptLabel(w.role || w.department) || 'Team Member';
   const d = deptLabel(w.dept || w.department) || 'General';
@@ -676,6 +698,12 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
   const isBSCT = ngoKey === 'BSCT';
   const isAFLF = ngoKey === 'AFLF';
   const isMANN = ngoKey === 'MANN';
+  // True when the document names came from the saved Documents Submitted selection
+  // rather than being typed by hand. The Sr. No. and Document Name cells are
+  // then read-only — they are derived from the record — while
+  // Original/Returned/Remarks stay editable, since the return half of the table
+  // is still filled in by hand.
+  const rowsFromSelection = isODAR && resolveDocumentLabels(documentsNeeded, documentsOther).length > 0;
   const subjMargin = (isBSCT || isAFLF || isMANN) ? '0 0 6px' : '20px 0 6px';
   const bodyWrap = (
       <>
@@ -692,6 +720,40 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
         <tbody>
           <tr><td style={{ padding: '4px 0', width: '50%' }}><strong>Volunteer Name:</strong> {w.name}</td><td style={{ padding: '4px 0' }}><strong>Department:</strong> {d}</td></tr>
           <tr><td style={{ padding: '4px 0' }}><strong>Designation:</strong> {r}</td><td style={{ padding: '4px 0' }}><strong>Date of Joining:</strong> {joiningDate}</td></tr>
+          {isODAR && (
+            <tr>
+              <td style={{ padding: '4px 0' }} colSpan={2}>
+                <strong>Documents Submitted:</strong>{' '}
+                {editing ? (
+                  <select
+                    value={documentsNeeded[0] || ''}
+                    onChange={e => onDocumentsChange(e.target.value)}
+                    style={{ ...inputStyle, width: 'auto', minWidth: 170, display: 'inline-block', verticalAlign: 'middle', fontSize: 12 }}
+                  >
+                    <option value="">— Select —</option>
+                    {DOC_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                ) : (
+                  (joinDocumentLabels(documentsNeeded, documentsOther) || '__________')
+                )}
+                {editing && documentsNeeded.includes(OTHER_DOC) && (
+                  <div style={{ marginTop: 6 }}>
+                    <label style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      Specify document:
+                      <input
+                        type="text"
+                        value={documentsOther}
+                        onChange={e => onDocumentsOtherChange(e.target.value)}
+                        placeholder="e.g. Passport"
+                        style={{ ...inputStyle, width: 'auto', minWidth: 170, display: 'inline-block', fontSize: 12 }}
+                      />
+                    </label>
+                  </div>
+                )}
+                {docsBusy && <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 8 }}>Saving…</span>}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontWeight: 700, color: '#134987', margin: '14px 0 6px 0' }}>
@@ -712,12 +774,12 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
           {docRows.map((row, i) => (
             <tr key={i}>
               <td style={td}>
-                {editing
+                {editing && !rowsFromSelection
                   ? <input type="number" value={row.sr} onChange={e => onDocRowChange(i, { sr: e.target.value })} style={{ ...inputStyle, width: 56, textAlign: 'center' }} />
                   : row.sr}
               </td>
               <td style={tdL}>
-                {editing
+                {editing && !rowsFromSelection
                   ? <input type="text" value={row.doc} placeholder="Document name" onChange={e => onDocRowChange(i, { doc: e.target.value })} style={inputStyle} />
                   : (row.doc || '')}
               </td>
@@ -740,7 +802,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
           ))}
         </tbody>
       </table>
-      {editing && (
+      {editing && !rowsFromSelection && (
         <div style={{ margin: '8px 0', display: 'flex', gap: 8 }}>
           <button type="button" onClick={onAddDocRow} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #999', background: '#fff', color: '#134987', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>+ Add row</button>
           {docRows.length > 1 && (
@@ -753,7 +815,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
         <tbody>
-          <tr><td style={{ padding: '4px 0' }}><strong>Volunteer Signature:</strong> {(() => { const src = safeImgSrc(w.signature_url); return src ? <img src={src} alt="" style={{ height: 34, verticalAlign: 'middle', maxWidth: 190, objectFit: 'contain' }} /> : SIG_LINE_FALLBACK; })()}</td></tr>
+          <tr><td style={{ padding: '4px 0' }}><strong>Volunteer Signature:</strong> {(() => { const src = isSignatureSigned(w) ? safeImgSrc(w.signature_url) : ''; return src ? <img src={src} alt="" style={{ height: isODAR ? 51 : 34, verticalAlign: 'middle', maxWidth: isODAR ? 285 : 190, objectFit: 'contain', ...(isODAR ? { filter: SIG_PIXEL_FILTER } : null) }} /> : SIG_LINE_FALLBACK; })()}</td></tr>
         </tbody>
       </table>
       <div style={{ margin: '18px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
@@ -764,7 +826,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
       <div style={{ margin: '14px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
         <div style={{ fontWeight: 700, color: '#134987', textTransform: 'uppercase', marginBottom: 8 }}>Document Return Acknowledgement <span style={{ fontWeight: 400, textTransform: 'none' }}>(To be filled at the time of return)</span></div>
         <div>I confirm that I have received all my original documents listed above in good condition.</div>
-        <div style={{ marginTop: 6 }}><strong>Volunteer Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+        <div style={{ marginTop: 6 }}><strong>Volunteer Signature:</strong>{' '}{isODAR ? (() => { const src = isSignatureSigned(w) ? safeImgSrc(w.signature_url) : ''; return src ? <img src={src} alt="" style={{ height: 51, verticalAlign: 'middle', maxWidth: 285, objectFit: 'contain', filter: SIG_PIXEL_FILTER }} /> : SIG_LINE_FALLBACK; })() : '________________'}{' '}&nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
         <div style={{ marginTop: 6 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
       </div>
       </div>
@@ -1016,7 +1078,7 @@ ${watermark}
 }
 
 export default function Letters() {
-  const { fetchWorkers } = useHR();
+  const { fetchWorkers, updateWorker } = useHR();
   const { isSalaryUnlocked, promptUnlock } = useSalaryPrivacy();
   const [workers, setWorkers] = useState([]);
   const [ngo, setNgo] = useState('BSCT');
@@ -1043,7 +1105,22 @@ export default function Letters() {
     { sr: 3, doc: '', original: false, returned: false, remarks: '' },
   ]);
   const [editDocs, setEditDocs] = useState(false);
+  // "Documents Submitted" is a real worker field (workers.documents_value), not letter
+  // state, so it survives a reload and stays in step with the profile card. Held
+  // locally too so the preview and the exported PDF reflect a change immediately,
+  // before the refetch lands.
+  // The selected document names, and the custom name for the "Other" option.
+  // Both are held locally as well as on the volunteer record so the preview and
+  // the exported PDF reflect a change immediately, before the refetch lands.
+  const [docNeeded, setDocNeeded] = useState([]);
+  const [docOther, setDocOther] = useState('');
+  const [docsBusy, setDocsBusy] = useState(false);
   const [sopSel, setSopSel] = useState('');
+
+  // A pending "Documents Submitted" choice belongs to one volunteer. Drop it when the
+  // selection moves so it cannot bleed into the next person's form; generate() then
+  // re-seeds from that volunteer's own workers.documents_value.
+  useEffect(() => { setDocNeeded([]); setDocOther(''); }, [name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1088,7 +1165,7 @@ export default function Letters() {
     await Promise.all(imgs.map(async (img) => {
       const raw = img.getAttribute('src') || '';
       if (!/^https?:\/\//i.test(raw)) return;
-      try { img.src = await imgToDataUrl(raw); } catch (_) { /* fall back to CORS-less render */ }
+      try { img.src = await imgToDataUrl(raw, img.getAttribute('data-sig') ? SIG_PIXEL_FILTER : ''); } catch (_) { /* fall back to CORS-less render */ }
     }));
     await Promise.all(imgs.map(waitForImage));
     const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
@@ -1141,8 +1218,32 @@ export default function Letters() {
     } else if (type === 'ODAR' || type === 'Doc Submitted') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildODARDocumentHTML(w, dateText, hrNameText, subject, ngo, docRows);
-      odar = { w, dateText, hrNameText, subject, ngo };
+      // Both letter types share this builder; the new fields are ODAR-only so
+      // "Doc Submitted" output stays byte-for-byte what it is today.
+      const isODAR = type === 'ODAR';
+      // The letter reads the volunteer's SAVED record, not transient form state:
+      // Documents Submitted -> saved on the worker -> read back here -> used as the
+      // "Original Documents Submitted" table. parseDocumentsValue accepts a legacy
+      // single value as well as a JSON array, so existing rows need no migration.
+      // A record can hold more than one (the profile card allows it) and every one
+      // of them is rendered; the dropdown only ever writes one.
+      const stored = parseDocumentsValue(w.documents_value, w.documents_other);
+      const needed = isODAR ? (docNeeded.length ? docNeeded : stored.selected) : [];
+      const neededOther = isODAR ? (docNeeded.includes(OTHER_DOC) ? docOther : stored.otherText) : '';
+      if (isODAR) { setDocNeeded(needed); setDocOther(neededOther); }
+      // Same derivation for the letter body and for the editable preview, so the
+      // PDF and the on-screen table can never disagree. Doc Submitted is left on
+      // docRows untouched.
+      const rows = isODAR ? buildDocumentRows(needed, neededOther, docRows) : docRows;
+      if (isODAR) {
+        // docRows is a dependency of the effect that calls generate(), so writing
+        // an equal-but-new array here would schedule another generate, forever.
+        // Comparing by content and keeping the old reference makes the second pass
+        // a no-op.
+        setDocRows(prev => (sameDocRows(prev, rows) ? prev : rows));
+      }
+      body = buildODARDocumentHTML(w, dateText, hrNameText, subject, ngo, rows, isODAR, needed, neededOther);
+      odar = { w, dateText, hrNameText, subject, ngo, isODAR, documentsNeeded: needed, documentsOther: neededOther };
       today = dateText;
     } else if (type === 'Joining letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
@@ -1245,6 +1346,16 @@ export default function Letters() {
     if (showDownload) setShowDownload(false);
   }, [name, type, letterDate, hrName, subject, docRows, bsd2Amount, remarks, ctcMonthly, joiningDateInput]);
 
+  // The table is derived from the saved selection for ODAR, but Doc Submitted
+  // keeps the blank hand-entered rows it has always had. Clearing on a type or
+  // volunteer change stops an ODAR's generated rows carrying across into a Doc
+  // Submitted generated afterwards in the same session. docRows is deliberately
+  // not a dependency here — it is rewritten by generate(), and depending on it
+  // would clear the table the moment a selection derived rows into it.
+  useEffect(() => {
+    setDocRows(emptyDocRows());
+  }, [name, type]);
+
   useEffect(() => {
     if (!workers.length) return;
     const t = setTimeout(generate, 400);
@@ -1254,6 +1365,60 @@ export default function Letters() {
   const updateDocRow = (i, patch) => setDocRows(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addDocRow = () => setDocRows(rows => [...rows, { sr: rows.length + 1, doc: '', original: false, returned: false, remarks: '' }]);
   const removeDocRow = (i) => setDocRows(rows => rows.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, sr: idx + 1 })));
+
+  // Persist to the volunteer record via the same updateWorker path the profile
+  // card uses, so both surfaces read one value. Clearing the selection stores an
+  // empty string, which the backend turns back into null. The already-captured
+  // PDF is re-rendered here too, otherwise a download would carry the value from
+  // generate-time rather than the one just chosen.
+  // Both columns are written together: the selection and the custom "Other"
+  // name, so an unticked Other can never leave a stale name behind. The
+  // already-captured PDF is re-rendered here too, otherwise a download would
+  // carry the value from generate-time rather than the one just chosen.
+  const persistDocuments = async (selected, otherText) => {
+    const o = out?.odar;
+    if (!o || !o.isODAR) return;
+    const labels = resolveDocumentLabels(selected, otherText);
+    const rows = buildDocumentRows(selected, otherText, docRows);
+    setDocRows(rows);
+    if (o.w?.id) {
+      setDocsBusy(true);
+      try {
+        await updateWorker(o.w.id, {
+          documents_value: JSON.stringify(selected),
+          documents_other: selected.includes(OTHER_DOC) ? otherText : '',
+        });
+      } catch (err) {
+        console.error('Documents Submitted save failed:', err?.message);
+      } finally {
+        setDocsBusy(false);
+      }
+    }
+    const body = buildODARDocumentHTML(o.w, o.dateText, o.hrNameText, o.subject, ngo, rows, true, selected, otherText);
+    setOut(prev => (prev ? { ...prev, body, odar: { ...o, documentsNeeded: selected, documentsOther: otherText } } : prev));
+    await capturePdf(body, type, true);
+    // The document table now reflects this choice, so the shared state that fed
+    // the letter has moved; re-run the generator's dependency so nothing stale
+    // is left behind.
+    return labels;
+  };
+
+  // Single-select. The stored column is still a JSON array, so a choice is
+  // written as a one-element array and the rest of the pipeline (parser, document
+  // table, PDF) is untouched.
+  const selectDocument = (value) => {
+    const next = value ? [value] : [];
+    setDocNeeded(next);
+    // Moving off "Other" drops the custom name, so it cannot resurface later.
+    const nextOther = value === OTHER_DOC ? docOther : '';
+    if (value !== OTHER_DOC) setDocOther('');
+    persistDocuments(next, nextOther);
+  };
+
+  const changeDocumentsOther = (text) => {
+    setDocOther(text);
+    persistDocuments(docNeeded, text);
+  };
 
   return (
     <div className="card">
@@ -1346,6 +1511,11 @@ export default function Letters() {
                 onDocRowChange={updateDocRow}
                 onAddDocRow={addDocRow}
                 onRemoveDocRow={removeDocRow}
+                onDocumentsChange={selectDocument}
+                onDocumentsOtherChange={changeDocumentsOther}
+                documentsNeeded={docNeeded}
+                documentsOther={docOther}
+                docsBusy={docsBusy}
               />
             ) : (
               <div style={{ whiteSpace: 'normal' }} dangerouslySetInnerHTML={{ __html: out.body }} />

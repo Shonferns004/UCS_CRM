@@ -15,6 +15,11 @@ const avatarColorLocal = (name) => {
 };
 const tint = (hex) => hex + '22';
 
+// A stored signature counts as complete only once it is committed; see
+// signatureUtils.js. Kept out of the check list's rendering path deliberately â€”
+// an unsigned volunteer must drop below 100% and appear in "Incomplete forms".
+import { isSignatureSigned, signatureStatusPill, safeImgSrc, signatureSourceLabel } from '../signatureUtils';
+
 function formCompletion(w) {
   const val = (v) => v && typeof v === 'string' && v.trim() !== '';
   const edu = (w.education || [])[0] || {};
@@ -36,6 +41,9 @@ function formCompletion(w) {
     val(edu.degree),
     val(edu.institution),
     val(fam.name),
+    // Without this an unsigned volunteer still showed 100% and never appeared in
+    // the "Incomplete forms" count, which is exactly the gap HR could not see.
+    isSignatureSigned(w),
   ];
   const filled = checks.filter(Boolean).length;
   return { pct: Math.round((filled / checks.length) * 100), filled, total: checks.length };
@@ -219,7 +227,7 @@ function EditableField({ label, value, onChange, type = 'text', options, textare
       <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}>{label}</span>
       {options ? (
         <select style={inputStyle} value={value || ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">—</option>
+          <option value="">â€”</option>
           {options.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
@@ -258,6 +266,7 @@ const SECTIONS = [
   { id: 'organizations', label: 'Organizations', icon: <IconOrg /> },
   { id: 'family', label: 'Family', icon: <IconFam /> },
   { id: 'bank', label: 'Bank', icon: <IconBank /> },
+  { id: 'signature', label: 'Signature', icon: <Pencil /> },
 ];
 
 function findNgo(ngos, ngoId) {
@@ -331,6 +340,10 @@ export default function HRForms() {
     setForm(previewData ? JSON.parse(JSON.stringify(previewData)) : null);
     setSaveMsg('');
   };
+
+  // One status lookup for both the card chip and the Declaration section, so
+  // the list and the open form can never disagree about the same volunteer.
+  const formSigStatus = signatureStatusPill(previewData || {});
 
   const setField = (key) => (val) => setForm((f) => ({ ...f, [key]: val }));
 
@@ -469,7 +482,7 @@ export default function HRForms() {
         }
       `}</style>
 
-      {/* ── BOX GRID VIEW ── */}
+      {/* â”€â”€ BOX GRID VIEW â”€â”€ */}
       {!selectedWorker && (
         <div className="card">
           <div className="card-head">
@@ -536,6 +549,7 @@ export default function HRForms() {
                   const name = w.name || 'Unknown';
                   const color = avatarColorLocal(name);
                   const comp = formCompletion(w);
+                  const sigStatus = signatureStatusPill(w);
                   const joinDate = w.created_at ? new Date(w.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '';
                   return (
                     <div key={w.id} className="hrf-card" onClick={() => handleCardClick(w)}>
@@ -572,6 +586,13 @@ export default function HRForms() {
                           {w.phone && <span className="hrf-chip"><IconPhone /><span>{w.phone}</span></span>}
                           {w.email && <span className="hrf-chip"><Mail size={11} /><span>{w.email}</span></span>}
                           {joinDate && <span className="hrf-chip"><span>Joined {joinDate}</span></span>}
+                          <span
+                            className="hrf-chip"
+                            title={sigStatus.title}
+                            style={{ background: sigStatus.chipBg, color: sigStatus.chipFg }}
+                          >
+                            <span>{sigStatus.label}</span>
+                          </span>
                         </div>
                         <button className="btn btn-primary hrf-open" onClick={(e) => { e.stopPropagation(); handleCardClick(w); }}>
                           <Pencil size={14} /> Open Form
@@ -591,7 +612,7 @@ export default function HRForms() {
         </div>
       )}
 
-      {/* ── FORM DETAIL VIEW ── */}
+      {/* â”€â”€ FORM DETAIL VIEW â”€â”€ */}
       {selectedWorker && (
         <div className="card hrf-detail">
           <div className="hrf-detail-top">
@@ -607,8 +628,8 @@ export default function HRForms() {
                 </span>
               )}
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>{f?.name || '—'}</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{deptLabel(f?.department) || '—'}</div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>{f?.name || 'â€”'}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{deptLabel(f?.department) || 'â€”'}</div>
               </div>
             </div>
             <div className="hrf-detail-actions">
@@ -686,7 +707,7 @@ export default function HRForms() {
                     <button className="hrf-add" onClick={addArrayItem('education')}><Plus size={13} /> Add</button>
                   </div>
                   {!f.education || f.education.length === 0 ? (
-                    <div className="hrf-empty">No education entries yet. Click “Add” to include qualification details.</div>
+                    <div className="hrf-empty">No education entries yet. Click â€œAddâ€ to include qualification details.</div>
                   ) : f.education.map((e, i) => (
                     <div key={i} className="hrf-entry">
                       <div className="hrf-entry-head">
@@ -771,13 +792,66 @@ export default function HRForms() {
                     <EditableField label="Account Number" value={f.account_number} onChange={setField('account_number')} />
                   </div>
                 </section>
+
+                {/* HR used to have to open a print preview to discover whether a
+                    volunteer had signed at all. The signature is read-only here:
+                    it is captured by the volunteer, not edited by HR. */}
+                <section className="hrf-section" id="hrf-signature" ref={(el) => (sectionRefs.current['signature'] = el)}>
+                  <div className="hrf-section-title">
+                    <span className="hrf-section-icon"><Pencil /></span>
+                    <h3>Declaration &amp; Signature</h3>
+                    <span className="hrf-section-count" style={{ background: formSigStatus.chipBg, color: formSigStatus.chipFg }}>{formSigStatus.label}</span>
+                  </div>
+                  {d.signature_url ? (
+                    <>
+                      <div
+                        style={{
+                          border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
+                          background: 'var(--sand)', padding: 16, minHeight: 84,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <img
+                          src={safeImgSrc(d.signature_url)}
+                          alt="Volunteer signature"
+                          style={{ maxHeight: 64, maxWidth: '100%', objectFit: 'contain' }}
+                        />
+                      </div>
+                      <div className="hrf-grid" style={{ marginTop: 12 }}>
+                        <div className="detail-field">
+                          <span className="detail-label">Status</span>
+                          <span className="detail-value">{formSigStatus.label}</span>
+                        </div>
+                        <div className="detail-field">
+                          <span className="detail-label">Captured via</span>
+                          <span className="detail-value">{signatureSourceLabel(d.signature_source) || 'Not recorded'}</span>
+                        </div>
+                        <div className="detail-field">
+                          <span className="detail-label">Signed on</span>
+                          <span className="detail-value">
+                            {d.signature_signed_at
+                              ? new Date(d.signature_signed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                              : 'Not recorded'}
+                          </span>
+                        </div>
+                      </div>
+                      {formSigStatus.label === 'Draft' && (
+                        <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-soft)' }}>
+                          Captured but not yet submitted, so it is kept out of printed forms.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="hrf-empty">No signature captured yet.</div>
+                  )}
+                </section>
               </>
             ) : null}
           </div>
         </div>
       )}
 
-      {/* ── PRINT OVERLAY ── */}
+      {/* â”€â”€ PRINT OVERLAY â”€â”€ */}
       {showPrint && previewData && (
         <PrintForms
           data={{
@@ -837,7 +911,9 @@ export default function HRForms() {
             declarationDate: previewData.declaration_date ? previewData.declaration_date.slice(0, 10) : previewData.created_at ? previewData.created_at.slice(0, 10) : '',
             place: previewData.declaration_place || 'Mumbai',
             photo_url: previewData.photo_url || '',
-            signature_url: previewData.signature_url || '',
+            signature_url: isSignatureSigned(previewData) ? (previewData.signature_url || '') : '',
+            signature_signed_at: previewData.signature_signed_at || null,
+            signature_source: previewData.signature_source || null,
             ngoName: findNgo(ngos, previewData.ngo_id)?.name || 'Organization',
             ngoCode: findNgo(ngos, previewData.ngo_id)?.code || '',
           }}
