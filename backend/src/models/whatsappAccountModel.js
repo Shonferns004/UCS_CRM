@@ -72,7 +72,7 @@ export async function getDefaultAccount() {
   return (data || [])[0] || null;
 }
 
-export async function createAccount({ name, project, phone_number_id, access_token, waba_id, template_name, template_language, is_active, is_default }) {
+export async function createAccount({ name, project, phone_number_id, access_token, waba_id, template_name, template_language, hr_letter_template, hr_warning_template, is_active, is_default }) {
   if (!name || !project || !phone_number_id || !access_token || !waba_id) {
     throw new Error('name, project, phone_number_id, access_token, and waba_id are required');
   }
@@ -94,6 +94,8 @@ export async function createAccount({ name, project, phone_number_id, access_tok
       waba_id,
       template_name: template_name || null,
       template_language: template_language || 'en',
+      hr_letter_template: hr_letter_template || null,
+      hr_warning_template: hr_warning_template || null,
       is_active: is_active !== false,
       is_default: !!is_default,
     })
@@ -115,6 +117,10 @@ export async function updateAccount(id, updates) {
   if (updates.waba_id !== undefined) allowed.waba_id = updates.waba_id;
   if (updates.template_name !== undefined) allowed.template_name = updates.template_name || null;
   if (updates.template_language !== undefined) allowed.template_language = updates.template_language;
+  // Meta-approved templates for HR's outbound-only sends. Used when the
+  // recipient is outside the 24-hour window, where a free-form send is refused.
+  if (updates.hr_letter_template !== undefined) allowed.hr_letter_template = updates.hr_letter_template || null;
+  if (updates.hr_warning_template !== undefined) allowed.hr_warning_template = updates.hr_warning_template || null;
   if (updates.is_active !== undefined) allowed.is_active = updates.is_active;
   if (updates.is_default !== undefined) allowed.is_default = updates.is_default;
 
