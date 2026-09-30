@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useHR } from '../store';
+import { DISPLAY_NAME, isActiveRecruiter } from '../recruiterFilters';
 import { Pill, Dropdown, DatePicker, cleanField } from './ui';
 import { Users, Clock, Check, X, Cal, Heart, Plus } from '../icons';
 
@@ -87,8 +88,6 @@ export default function Recruiters() {
   };
 
   const leaderboard = useMemo(() => {
-    const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
-    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel', 'Riddhi Trivedi']);
     return recruiters
       .map(r => {
         const rLeads = leads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);
@@ -97,7 +96,7 @@ export default function Recruiters() {
         const joined = rLeads.filter(l => l.status === 'joined').length;
         return { ...r, leadsCount: total, scheduled, joined };
       })
-      .filter(r => !HIDDEN.has(r.name))
+      .filter(isActiveRecruiter)
       .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
       .sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount);
   }, [recruiters, leads]);

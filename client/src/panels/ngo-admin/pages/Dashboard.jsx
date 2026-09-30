@@ -3153,7 +3153,7 @@ export default function Dashboard() {
                                           // not, so a station number missing from
                                           // this section still reads as a real slot
                                           // in the grid instead of a gap.
-                                          const cell = { padding: '8px 10px', fontSize: 12, whiteSpace: 'nowrap' };
+                                          const cell = { height: 42, boxSizing: 'border-box', padding: '8px 10px', fontSize: 12, whiteSpace: 'nowrap' };
                                           return (
                                             <tr key={`${family}-${row.key}`} className="station-row">
                                               <td title={r?.station} style={{ ...cell, fontWeight: 700, color: r ? '#17233C' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r?.station || ''}</td>
@@ -3212,7 +3212,7 @@ export default function Dashboard() {
                                       const present = row.cells.filter(Boolean);
                                       return (
                                         <tr key={`total-${row.key}`} className="station-row">
-                                          <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
+                                          <td style={{ height: 42, boxSizing: 'border-box', padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
                                             {present.length ? formatRupees(t) : ''}
                                           </td>
                                         </tr>
@@ -3371,4 +3371,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
