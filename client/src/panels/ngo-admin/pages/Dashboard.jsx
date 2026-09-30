@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, get
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
+import { onDbChange } from '../../../lib/socket';
 import { formatDuration } from '../../../utils/formatDuration';
 
 // Station-wise Collection layout: two sibling cards, OLD on the left and NEW on
@@ -184,30 +185,31 @@ const PER_PAGE = 50;
 const toIstDate = (d = new Date()) =>
   new Date(new Date(d).getTime() + ((5 * 60) + 30) * 60000).toISOString().slice(0, 10);
 
+// An entry in `overrides` is a PENDING confirmation marker, never a source of
+// truth. It is written by handleTogglePause only after the pause/resume POST has
+// already resolved, and that same call forces the next poll uncached, so the row
+// that comes back one poll later is fresh by construction and the server has
+// already committed the change. There is therefore no race for the override to
+// paper over, and it must never outrank the server.
+//
+// It used to. A disagreement was read as cache lag, so the local intent was
+// re-asserted for the whole 120s window. When an FRO resumed themselves the
+// server correctly wrote is_paused=false, the admin's poll correctly received
+// it, and this function threw it away and put `true` back — pinning the card on
+// "Paused" for up to two minutes while the FRO worked normally. Yielding to the
+// server instead means a rejected or lost action self-corrects on the next poll
+// rather than lying, and the 120s expiry below is now only a bound on how long a
+// marker can survive without the server ever confirming or contradicting it.
 const mergePauseState = (payload, overrides) => {
   if (!payload || !Array.isArray(payload.performance) || !overrides.size) return payload;
-  let changed = false;
-  const performance = payload.performance.map(row => {
+  for (const row of payload.performance) {
     const key = String(row.fro_id);
     const intent = overrides.get(key);
-    if (!intent) return row;
-    if (intent.expiresAt <= Date.now()) {
-      overrides.delete(key);
-      return row;
-    }
-    if (!!row.is_paused === intent.paused) {
-      overrides.delete(key);
-      return row;
-    }
-    changed = true;
-    return {
-      ...row,
-      is_paused: intent.paused,
-      paused_by: intent.paused ? (row.paused_by || intent.pausedBy || 'Admin') : null,
-      paused_at: intent.paused ? (row.paused_at || intent.pausedAt) : null,
-    };
-  });
-  return changed ? { ...payload, performance } : payload;
+    if (!intent) continue;
+    if (intent.expiresAt <= Date.now()) { overrides.delete(key); continue; }
+    if (!!row.is_paused === intent.paused) overrides.delete(key);
+  }
+  return payload;
 };
 
 const PERIOD_LABELS = { today: 'Today', yesterday: 'Yesterday', weekly: 'This Week', monthly: 'This Month', custom: 'Custom Range' };
@@ -1344,6 +1346,54 @@ export default function Dashboard() {
     };
   }, [selectedNgoId, dashPeriod, customFrom, customTo, selectedFroId, tlRefreshNonce]);
 
+  // fro_live_status is already in REALTIME_TABLES, so every write to it already
+  // broadcasts a global db:change carrying worker_id/is_paused/paused_by (see
+  // config/db.js). The FRO's own resume is just such a write, so the event that
+  // proves the card stale was already on the wire and this panel simply was not
+  // listening — that is the whole reason the card sat on "Paused" for up to two
+  // minutes. No new event or room is needed; this only reads what already ships.
+  //
+  // The guard is load-bearing, not an optimisation: heartbeats rewrite this row
+  // continuously, so refetching on every event would hammer the dashboard. Only
+  // an actual pause-state disagreement triggers a fetch, and the debounce
+  // coalesces a burst into one uncached refetch. A GET never writes the row, so
+  // this cannot feed itself.
+  const tlDataRef = useRef(tlData);
+  useEffect(() => { tlDataRef.current = tlData; }, [tlData]);
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+    const refetchUncached = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!alive) return;
+        tlRequestVersionRef.current += 1;
+        tlForceFreshRef.current = true;
+        setTlRefreshNonce(v => v + 1);
+      }, 300);
+    };
+    const onPauseRowChanged = (next) => {
+      if (!alive || !next || next.is_paused == null) return;
+      const row = (tlDataRef.current?.performance || []).find(p => String(p.fro_id) === String(next.worker_id));
+      if (!row) return;
+      if (!!row.is_paused === !!next.is_paused && (row.paused_by || null) === (next.paused_by || null)) return;
+      // The server has spoken, so any pending marker for this FRO is void.
+      pauseOverridesRef.current.delete(String(next.worker_id));
+      refetchUncached();
+    };
+    const off = onDbChange({
+      table: 'fro_live_status',
+      event: '*',
+      onInsert: onPauseRowChanged,
+      onUpdate: onPauseRowChanged,
+    });
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      if (typeof off === 'function') off();
+    };
+  }, []);
+
   // Per-FRO pause/resume from the Dashboard FRO Status panel (same endpoints
   // as the FRO Status page — NGO-scoped server-side).
   const [pausingFroId, setPausingFroId] = useState(null);
@@ -1357,7 +1407,7 @@ export default function Dashboard() {
     const id = p.fro_id;
     if (!id || pausingFroId) return;
     const pausing = !p.is_paused;
-    if (pausing && !window.confirm(`Pause ${p.fro_name || 'this FRO'}? All their timers stop until you resume them.`)) return;
+    if (pausing && !window.confirm(`Pause ${p.fro_name || 'this FRO'}? Their talk and idle timers stop until you resume them. Worked hours keep counting.`)) return;
     setPausingFroId(id);
     try {
       await apiPost(`/ngo-admin/fro/${id}/${pausing ? 'pause' : 'resume'}`, {});
@@ -3110,6 +3160,19 @@ export default function Dashboard() {
                                 return (
                                   <div key={section.label} className="station-section" style={{ minWidth: 0, borderLeft: si > 0 ? '1px solid #e2e8f0' : 'none' }}>
                                     <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
+                                      {/* Explicit column widths, identical for all
+                                          three sections. Without them the two
+                                          columns are resolved from content, so a
+                                          section whose rows happen to be blank (a
+                                          missing station number) came out narrower
+                                          than its neighbours and the four columns
+                                          stopped lining up. Fixed here so an empty
+                                          cell paints an empty bordered box instead
+                                          of collapsing the column. */}
+                                      <colgroup>
+                                        <col style={{ width: '46%' }} />
+                                        <col style={{ width: '54%' }} />
+                                      </colgroup>
                                       <thead>
                                         <tr>
                                           <th colSpan={2} style={{ ...thBase, height: 34, padding: '0 12px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: hue.head, borderBottom: '1px solid #e2e8f0' }}>
@@ -3121,7 +3184,7 @@ export default function Dashboard() {
                                         </tr>
                                         <tr>
                                           <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
-                                          <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
+                                          <th className="station-rule-right" style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -3136,11 +3199,15 @@ export default function Dashboard() {
                                             in one column never shifts the others. */}
                                         {rows.map(row => {
                                           const r = row.cells[si];
-                                          const cell = { padding: '8px 10px', fontSize: 12, borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' };
+                                          // A visible rule on every cell, blank or
+                                          // not, so a station number missing from
+                                          // this section still reads as a real slot
+                                          // in the grid instead of a gap.
+                                          const cell = { height: 42, boxSizing: 'border-box', padding: '8px 10px', fontSize: 12, whiteSpace: 'nowrap' };
                                           return (
                                             <tr key={`${family}-${row.key}`} className="station-row">
                                               <td title={r?.station} style={{ ...cell, fontWeight: 700, color: r ? '#17233C' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r?.station || ''}</td>
-                                              <td style={{ ...cell, textAlign: 'right', fontWeight: 700, color: r ? hue.head : '#cbd5e1' }}>{r ? formatRupees(r.amount) : ''}</td>
+                                              <td className="station-rule-right" style={{ ...cell, textAlign: 'right', fontWeight: 700, color: r ? hue.head : '#cbd5e1' }}>{r ? formatRupees(r.amount) : ''}</td>
                                             </tr>
                                           );
                                         })}
@@ -3195,7 +3262,7 @@ export default function Dashboard() {
                                       const present = row.cells.filter(Boolean);
                                       return (
                                         <tr key={`total-${row.key}`} className="station-row">
-                                          <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', borderBottom: '1px solid #f8fafc', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
+                                          <td style={{ height: 42, boxSizing: 'border-box', padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
                                             {present.length ? formatRupees(t) : ''}
                                           </td>
                                         </tr>
@@ -3254,7 +3321,16 @@ export default function Dashboard() {
                    fixed band heights set inline (34 / 28 / 26). */
                 .station-collection-table thead tr:nth-child(1) th { position: sticky; top: 0; z-index: 4; }
                 .station-collection-table thead tr:nth-child(2) th { position: sticky; top: 34px; z-index: 4; }
-                .station-collection-table thead tr:nth-child(3) th { position: sticky; top: 62px; z-index: 4; box-shadow: inset 0 -1px 0 #e2e8f0; }
+                .station-collection-table thead tr:nth-child(3) th { position: sticky; top: 62px; z-index: 4; border-bottom: 1px solid #cbd5e1; }
+
+                /* Visible row and column lines. Every cell carries a rule —
+                   including a cell with no station on it — so a gap reads as an
+                   empty slot in the grid rather than the column collapsing.
+                   Drawn from --sec-rule, so each section's lines carry its own
+                   tint and the three still line up with the Total column. */
+                .station-collection-table tbody td { border-bottom: 1px solid var(--sec-rule, #e2e8f0); }
+                .station-collection-table tbody tr:last-child td { border-bottom: 1px solid #94a3b8; }
+                .station-collection-table .station-rule-right { border-left: 1px solid var(--sec-rule, #e2e8f0); }
 
                 /* Section tinting. The hue rides on a custom property so one rule
                    paints a section, so recolouring BSCT/AFLF/MANN is a single
@@ -3345,4 +3421,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
