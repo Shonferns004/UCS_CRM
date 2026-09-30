@@ -101,7 +101,7 @@ export default function CeremonyIntro({ session, department, onDone }) {
         </div>
       )}
 
-      <p className="intro-status">Choose one person from your department. Your vote is anonymous.</p>
+      <p className="intro-status">Choose one person from each department. Your vote is anonymous.</p>
 
       <div className="intro-actions">
         <button className="btn btn-gold" onClick={finish}>

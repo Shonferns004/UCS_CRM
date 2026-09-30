@@ -11,7 +11,7 @@ import Ballot from './components/Ballot'
 import Results from './components/Results'
 import ToastContainer from './components/Toast'
 
-// How often to re-check the turn state. Realtime normally pushes the change
+// How often to re-check the ceremony state. Realtime normally pushes the change
 // immediately; this is the floor that makes the app correct when the socket does
 // not connect, which on venue wifi is often.
 const POLL_MS = 5000
@@ -127,7 +127,7 @@ export default function App() {
           <div className="spacer" />
           <div className="who">
             <div>{user?.name || user?.login_id}</div>
-            <div className="dept">{department?.name || user?.department || '—'}</div>
+            <div className="dept">{user?.department || '—'}</div>
           </div>
           <button
             className="linkish"
