@@ -70,33 +70,6 @@ export const resolveRoster = (memberRows = [], candidates = []) => {
 export const isExplicitRoster = (dept, memberRows = []) =>
   !!dept?.is_locked || memberRows.some((m) => !m.is_excluded);
 
-/**
- * Which group does this voter belong to?
- *
- * Explicit membership wins over a department match, and on a tie the earlier
- * group in ceremony order wins. The result matters for eligibility only — it is
- * never written to a ballot.
- */
-export const resolveVoterDepartmentId = (depts = [], memberRows = [], workerDepartment) => {
-  const ordered = [...depts].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-
-  for (const d of ordered) {
-    if (memberRows.some((m) => Number(m.department_id) === Number(d.id) && !m.is_excluded)) {
-      return d.id;
-    }
-  }
-  for (const d of ordered) {
-    if (deptMatches(d.match_department, workerDepartment)) return d.id;
-  }
-  return null;
-};
-
-// The turn that is legally next: the first still-pending slot in ceremony
-// order. Turns list in order_index order, so the first element that has not
-// been touched is it. Skipping a department closes it pending — the next one
-// then becomes the head.
-export const pickNextTurn = (turns = []) => turns.find((t) => t.status === 'pending') || null;
-
 // ── departments ────────────────────────────────────────────────────────────
 
 export const listDepartments = async () => {
@@ -247,6 +220,18 @@ export const searchWorkers = async (term, limit = 50) => {
   return rows;
 };
 
+/**
+ * How many people are allowed to vote at all.
+ *
+ * Every active employee votes in every department, so this is the denominator
+ * for every department's "x of y voted" — not the size of that department's own
+ * roster, which is now just the number of candidates on its ballot.
+ */
+export const countEligibleVoters = async () => {
+  const { rows } = await db._pool.query(`SELECT count(*)::int AS n FROM workers WHERE ${ACTIVE_WORKERS_WHERE}`);
+  return rows[0]?.n ?? 0;
+};
+
 /** Resolved roster for one group. */
 export const getDepartmentRoster = async (dept) => {
   const memberRows = await listDepartmentMembers(dept.id);
@@ -269,18 +254,6 @@ export const getAllRosters = async () => {
     out.push({ ...d, members: resolveRoster(rows, candidates) });
   }
   return out;
-};
-
-/** The group this voter may vote in, or null if their department is not in the ceremony. */
-export const findVoterDepartment = async (worker) => {
-  if (!worker) return null;
-  const depts = await listDepartments();
-  const memberRows = await listAllDepartmentMembers();
-  const id = resolveVoterDepartmentId(depts, memberRows, worker.department);
-  if (!id) return null;
-  const dept = depts.find((d) => Number(d.id) === Number(id)) || null;
-  if (!dept) return null;
-  return { dept, members: await getDepartmentRoster(dept) };
 };
 
 // ── sessions + turns ───────────────────────────────────────────────────────
@@ -413,40 +386,6 @@ export const getTurn = async (sessionId, departmentId) => {
   return data || null;
 };
 
-/** The turn that is open right now, if any. At most one may be open per session. */
-export const getOpenTurn = async (sessionId) => {
-  const { data, error } = await db
-    .from(TURNS_TABLE)
-    .select('*')
-    .eq('session_id', sessionId)
-    .eq('status', 'open')
-    .maybeSingle();
-  if (error && error.code !== 'PGRST116') throw error;
-  return data || null;
-};
-
-export const openTurn = async ({ sessionId, departmentId, minutes, actor }) => {
-  const now = new Date();
-  const closes = new Date(now.getTime() + minutes * 60 * 1000).toISOString();
-  const { data, error } = await db
-    .from(TURNS_TABLE)
-    .update({
-      status: 'open',
-      opens_at: now.toISOString(),
-      closes_at: closes,
-      opened_by: actor || null,
-      opened_at: now.toISOString(),
-    })
-    .eq('session_id', sessionId)
-    .eq('department_id', departmentId)
-    .select()
-    .single();
-  if (error) throw error;
-
-  await db.from(SESSIONS_TABLE).update({ current_department_id: departmentId, status: 'live' }).eq('id', sessionId);
-  return data;
-};
-
 export const closeTurn = async ({ sessionId, departmentId, actor }) => {
   const now = new Date().toISOString();
   const { data, error } = await db
@@ -458,6 +397,47 @@ export const closeTurn = async ({ sessionId, departmentId, actor }) => {
     .single();
   if (error) throw error;
   return data;
+};
+
+/**
+ * Open every department's ballot at once, all sharing a single window.
+ *
+ * The ceremony is not a relay: every group is votable for the whole of the
+ * ceremony, and every employee may vote in every group. Turns remain as rows
+ * because they are the unit of anonymity (one ballot per turn per person) and
+ * the unit the tally groups by — they just all share one open/close window.
+ */
+export const openAllTurns = async ({ sessionId, minutes, actor }) => {
+  const now = new Date();
+  const stamp = now.toISOString();
+  const closes = new Date(now.getTime() + minutes * 60 * 1000).toISOString();
+
+  const { data, error } = await db
+    .from(TURNS_TABLE)
+    .update({ status: 'open', opens_at: stamp, closes_at: closes, opened_by: actor || null, opened_at: stamp })
+    .eq('session_id', sessionId)
+    .neq('status', 'closed')
+    .select();
+  if (error) throw error;
+
+  await db
+    .from(SESSIONS_TABLE)
+    .update({ status: 'live', started_at: stamp, current_department_id: null })
+    .eq('id', sessionId);
+  return data || [];
+};
+
+/** Shut every still-open ballot. Used by "Finish the ceremony". */
+export const closeAllTurns = async ({ sessionId, actor }) => {
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from(TURNS_TABLE)
+    .update({ status: 'closed', closed_by: actor || null, closed_at: now })
+    .eq('session_id', sessionId)
+    .eq('status', 'open')
+    .select();
+  if (error) throw error;
+  return data || [];
 };
 
 export const updateSession = async (id, patch) => {
@@ -482,6 +462,21 @@ export const getBallot = async (turnId, voterHash) => {
     .maybeSingle();
   if (error && error.code !== 'PGRST116') throw error;
   return data || null;
+};
+
+/**
+ * Which of these turns has this person already voted in?
+ *
+ * Lets the booth show "Vote" vs "Voted ✓" per department so someone walking the
+ * six ballots can see where they are. Only turn ids come back — never a nominee,
+ * never a timestamp — so the response cannot be used to work out a past choice.
+ */
+export const getVotedTurnIds = async (turnIds = [], loginId) => {
+  if (!turnIds.length) return new Set();
+  const hashes = turnIds.map((id) => hashVoterKey(id, loginId));
+  const { data, error } = await db.from(BALLOTS_TABLE).select('turn_id').in('voter_hash', hashes);
+  if (error) throw error;
+  return new Set((data || []).map((r) => Number(r.turn_id)));
 };
 
 export const insertBallot = async (row) => {

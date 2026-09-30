@@ -3,8 +3,8 @@ import { castVote, fetchBallot } from '../api'
 import { accentFor, formatCountdown, initials, secondsUntil } from '../helpers'
 import { toast } from './Toast'
 
-/** Pick exactly one person. The list is only ever populated while the turn is open. */
-export default function Ballot({ onVoted }) {
+/** Pick exactly one person on one department's ballot. */
+export default function Ballot({ department, onDone, onBack }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState(null)
@@ -13,7 +13,7 @@ export default function Ballot({ onVoted }) {
 
   useEffect(() => {
     let alive = true
-    fetchBallot()
+    fetchBallot(department.id)
       .then((d) => {
         if (!alive) return
         setData(d)
@@ -23,7 +23,7 @@ export default function Ballot({ onVoted }) {
     return () => {
       alive = false
     }
-  }, [])
+  }, [department.id])
 
   useEffect(() => {
     if (!data?.turn?.closes_at) return undefined
@@ -36,21 +36,21 @@ export default function Ballot({ onVoted }) {
   // the submit anyway; stopping the button early is a clearer message.
   const expired = left <= 0
 
-  const accent = useMemo(() => accentFor(data?.department?.order_index ?? 0), [data?.department?.order_index])
+  const accent = useMemo(() => accentFor(department?.order_index ?? 0), [department?.order_index])
 
   async function submit() {
     if (!picked || busy) return
     setBusy(true)
     setError('')
     try {
-      await castVote(picked)
+      await castVote(department.id, picked)
       toast('Vote recorded', 'success')
-      onVoted()
+      onDone()
     } catch (e) {
       setError(e.message)
-      // 409 is either "already voted" or "window closed" - in both cases this
-      // screen is finished and the parent needs to re-check the real state.
-      if (e.status === 409) onVoted()
+      // 409 is either "already voted here" or "voting closed" - in both cases
+      // this screen is finished and the parent needs to re-check the real state.
+      if (e.status === 409) onDone()
     } finally {
       setBusy(false)
     }
@@ -60,7 +60,7 @@ export default function Ballot({ onVoted }) {
     return (
       <div className="card">
         <div className="alert alert-error">{error}</div>
-        <button className="btn" onClick={onVoted}>
+        <button className="btn" onClick={onBack}>
           Back
         </button>
       </div>
@@ -77,12 +77,10 @@ export default function Ballot({ onVoted }) {
 
   return (
     <div className="card wide">
-      <div className="eyebrow">
-        {data.session?.award_label} · {data.department?.name}
-      </div>
-      <h1 className="big">{data.session?.title}</h1>
+      <div className="eyebrow">{data.session?.award_label || 'Award Ceremony'}</div>
+      <h1 className="big">{department.name}</h1>
       <p className="lede">
-        Choose the one person you want to recognise from your department. You can select only one, and
+        Choose the one person from {department.name} you want to recognise. You can select only one, and
         your vote cannot be changed afterwards.
       </p>
 
@@ -100,7 +98,7 @@ export default function Ballot({ onVoted }) {
       >
         <div>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--muted)' }}>
-            Time left
+            Voting closes in
           </div>
           <div className="countdown" style={{ fontSize: 26, color: expired ? 'var(--danger)' : 'inherit' }}>
             {expired ? 'Closed' : formatCountdown(left)}
@@ -112,7 +110,7 @@ export default function Ballot({ onVoted }) {
 
       {data.nominees.length === 0 ? (
         <div className="alert alert-warn">
-          There is nobody on your department’s ballot right now. Please tell HR.
+          There is nobody on the {department.name} ballot right now. Please tell HR.
         </div>
       ) : (
         <div className="ballot">
@@ -146,17 +144,21 @@ export default function Ballot({ onVoted }) {
 
       <div className="submit-bar">
         <span className="grow">
-          {expired ? 'The voting window for your department has closed.' : picked ? 'One person selected.' : 'Select one person to continue.'}
+          {expired ? 'Voting has closed.' : picked ? 'One person selected.' : 'Select one person to continue.'}
         </span>
         <button className="btn btn-gold" onClick={submit} disabled={!picked || busy || expired}>
           {busy ? 'Recording…' : expired ? 'Closed' : 'Submit my vote'}
         </button>
       </div>
 
-      <p className="hint">
-        Your vote is anonymous. It is stored as a count against the person you chose — no one, including
-        HR, can see which ballot was yours.
-      </p>
+      <div className="ballot-foot">
+        <button className="linkish" onClick={onBack}>
+          ← Back to all departments
+        </button>
+        <p className="hint">
+          Your vote is anonymous — no one, including HR, can see which ballot was yours.
+        </p>
+      </div>
     </div>
   )
 }

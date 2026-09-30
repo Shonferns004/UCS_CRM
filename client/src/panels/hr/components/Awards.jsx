@@ -263,7 +263,7 @@ function MemberModal({ dept, onClose, onSave }) {
 
 // ── result bar for one department ─────────────────────────────────────────
 
-function DeptCard({ dept, index, onOpen, onClose, busy }) {
+function DeptCard({ dept, index, onClose, busy }) {
   const accent = ACCENTS[index % ACCENTS.length]
   const top = dept.results.reduce((m, r) => Math.max(m, r.votes || 0), 0)
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -281,13 +281,16 @@ function DeptCard({ dept, index, onOpen, onClose, busy }) {
       : null
 
   const isOpen = dept.turn_status === 'open'
+  // `candidates` is how many names are on this ballot; `eligible` is everyone in
+  // the company, because they can all vote here.
+  const candidates = dept.candidates ?? dept.eligible
 
   return (
     <div
       className="card"
       style={{
         borderTop: `3px solid ${accent}`,
-        opacity: dept.eligible === 0 ? 0.6 : 1,
+        opacity: candidates === 0 ? 0.6 : 1,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
@@ -302,7 +305,7 @@ function DeptCard({ dept, index, onOpen, onClose, busy }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14.5 }}>{dept.name}</div>
           <div style={{ fontSize: 11.5, color: 'var(--ink-soft)' }}>
-            {dept.eligible} {dept.eligible === 1 ? 'person' : 'people'} eligible
+            {candidates} {candidates === 1 ? 'person' : 'people'} on the ballot
           </div>
         </div>
         <StatusPill status={dept.turn_status} />
@@ -375,14 +378,15 @@ function DeptCard({ dept, index, onOpen, onClose, busy }) {
         </Note>
       )}
 
-      {dept.turn_status === 'pending' && (
-        <button className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={() => onOpen(dept)} disabled={busy}>
-          Open voting for {dept.name}
-        </button>
+      {dept.turn_status === 'pending' && dept.candidates === 0 && (
+        <Note tone="warn">Nobody is on this ballot, so nobody can win it. Add people or close it.</Note>
+      )}
+      {isOpen && dept.candidates === 0 && (
+        <Note tone="warn">This ballot is open but empty — nobody can win it.</Note>
       )}
       {isOpen && (
         <button className="btn btn-sm" style={{ width: '100%' }} onClick={() => onClose(dept)} disabled={busy}>
-          Close voting now
+          Close this ballot now
         </button>
       )}
     </div>
@@ -394,7 +398,7 @@ function DeptCard({ dept, index, onOpen, onClose, busy }) {
 export default function Awards() {
   const {
     fetchVotingDepartments, saveVotingDepartment, fetchVotingSessions, createVotingSession,
-    fetchVotingBoard, openVotingTurn, closeVotingTurn, completeVotingSession,
+    fetchVotingBoard, startVotingSession, closeVotingTurn, completeVotingSession,
   } = useHR()
 
   const [departments, setDepartments] = useState([])
@@ -472,15 +476,10 @@ export default function Awards() {
   const session = board?.session
   const live = session?.status === 'live'
 
-  const nextUp = useMemo(() => {
-    if (!board) return null
-    return board.departments.find((d) => d.turn_status === 'pending') || null
-  }, [board])
-
   const openUp = board?.departments.find((d) => d.turn_status === 'open') || null
   const closedCount = board?.departments.filter((d) => d.turn_status === 'closed').length || 0
   const totalVotes = board?.departments.reduce((s, d) => s + (d.votes_cast || 0), 0) || 0
-  const emptyGroups = board?.departments.filter((d) => d.eligible === 0) || []
+  const emptyGroups = board?.departments.filter((d) => (d.candidates ?? d.eligible) === 0) || []
 
   async function act(key, fn) {
     setBusy(key)
@@ -500,18 +499,18 @@ export default function Awards() {
       setError('Give the ceremony a title first')
       return
     }
-    const first = departments[0]
-    if (!first) {
+    if (!departments.length) {
       setError('No voting departments are configured')
       return
     }
     act('start', async () => {
-      // A draft already exists for this evening — reuse it so the running order
-      // and any department edits made since are preserved.
+      // A draft already exists for this evening — reuse it so the department
+      // list and any edits made since are preserved.
       const draft = sessions.find((s) => s.status === 'draft')
       const id = draft ? draft.id : (await createVotingSession(form)).session.id
       setSessionId(id)
-      await openVotingTurn(id, first.id, form.turn_minutes)
+      // Opens every department's ballot at once, on one shared timer.
+      await startVotingSession(id, form.turn_minutes)
     })
   }
 
@@ -723,32 +722,22 @@ export default function Awards() {
           {emptyGroups.length > 0 && (
             <Note tone="warn">
               <strong>No one is on the ballot for:</strong> {emptyGroups.map((d) => d.name).join(', ')}.
-              Open that department&rsquo;s turn only if you have added people to it — otherwise the turn
-              will time out with nothing to vote on.
+              Add people to those departments, or close them from their card — otherwise nobody can win them.
             </Note>
           )}
 
-          {openUp && (
-            <Note
-              tone="info"
-              action={
-                <button
-                  className="btn btn-sm"
-                  onClick={() => act('close', () => closeVotingTurn(session.id, openUp.id))}
-                  disabled={busy === 'close'}
-                >
-                  Close voting now
-                </button>
-              }
-            >
-              <strong>{openUp.name}</strong> is voting now — {openUp.votes_cast} of {openUp.eligible} have
-              voted. Closes at {fmtTime(openUp.closes_at)}.
-            </Note>
-          )}
-
-          {!openUp && nextUp && live && (
+          {openUp && live && (
             <Note tone="info">
-              <strong>{nextUp.name}</strong> is next. Open their turn when you are ready to call them up.
+              <strong>Every department is open.</strong> {totalVotes} ballots in so far, and everybody can
+              vote in all {board.departments.length} of them. Voting closes at {fmtTime(openUp.closes_at)} —
+              or press Finish the ceremony whenever you are ready.
+            </Note>
+          )}
+
+          {!live && session.status !== 'completed' && (
+            <Note tone="info">
+              Voting has not started. When you press start, every department&rsquo;s ballot opens at once and
+              stays open for {session.turn_minutes} minutes.
             </Note>
           )}
 
@@ -759,7 +748,6 @@ export default function Awards() {
                 dept={d}
                 index={i}
                 busy={!!busy}
-                onOpen={(x) => act('open', () => openVotingTurn(session.id, x.id, form.turn_minutes))}
                 onClose={(x) => act('close', () => closeVotingTurn(session.id, x.id))}
               />
             ))}
@@ -769,7 +757,7 @@ export default function Awards() {
             <button className="btn" onClick={exportExcel} disabled={!totalVotes}>
               Export results to Excel
             </button>
-            {live && !openUp && (
+            {live && (
               <button
                 className="btn btn-primary"
                 onClick={() => act('complete', () => completeVotingSession(session.id))}
@@ -782,8 +770,8 @@ export default function Awards() {
 
           {session.status === 'completed' && (
             <Hint>
-              Finished at {fmtTime(session.completed_at)}. Export the results above, or start a new
-              ceremony for the next month.
+              Finished at {fmtTime(session.completed_at)}. The winners are now showing on the booths.
+              Export the results above, or start a new ceremony for the next month.
             </Hint>
           )}
 
