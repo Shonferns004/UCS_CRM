@@ -5577,6 +5577,12 @@ export const getTLDashboard = async (req, res) => {
         // `ls` is the worker's own row, so these need no "acting" branch.
         is_paused: !!ls.is_paused,
         paused_by: ls.paused_by || null,
+        // The admin card renders "Paused 12m" from paused_at. It is already
+        // selected in liveCols above but was dropped here, so the duration only
+        // survived a refresh for a pause this browser had just applied (via the
+        // local optimistic row) and read as blank for everyone else — including
+        // after a reload, or when a different admin did the pausing.
+        paused_at: ls.paused_at || null,
         overdue_calls: (overdueByWorker[String(w.id)] || {}).calls || 0,
         overdue_followups: (overdueByWorker[String(w.id)] || {}).followups || 0,
         logout_today: lc.today,
