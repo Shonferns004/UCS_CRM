@@ -5,6 +5,7 @@ const PROJECT_OPTIONS = [
   { value: 'bsct', label: 'Being Sevak' },
   { value: 'mann', label: 'Mann Care' },
   { value: 'aflf', label: 'Ashray' },
+  { value: 'ucs', label: 'Ultimate Consultancy Services' },
 ];
 
 const emptyForm = {
