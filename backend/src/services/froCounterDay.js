@@ -1,5 +1,10 @@
 import db from '../config/db.js';
-import { getShiftWindowMs, istDateStr, liveIdleSeconds, idlePeriodStartMs } from '../utils/froIdle.js';
+import { getShiftWindowMs, istDateStr, liveIdleSeconds, idlePeriodStartMs, counterDayOf, isCounterDayStale } from '../utils/froIdle.js';
+
+// Which day a row's counters belong to is asked by the WRITE paths here and by
+// every READ path in froIdle, so the rule lives with the readers and is
+// re-exported for the existing importers.
+export { counterDayOf, isCounterDayStale };
 
 /**
  * Which IST day do a live-status row's counters belong to, and has that changed?
@@ -43,28 +48,8 @@ const COUNTER_COLUMNS = [
   'today_skipped',
 ];
 
-/** IST day a row's counters belong to, falling back to when the row was last written. */
-export function counterDayOf(row) {
-  if (!row) return null;
-  if (row.stats_date) {
-    return row.stats_date instanceof Date
-      ? istDateStr(row.stats_date)
-      : String(row.stats_date).slice(0, 10);
-  }
-  // No stamp (row predates the migration, or was never written). updated_at is the
-  // only evidence of which day this row was last touched; without it we cannot
-  // claim the row belongs to a past day, so treat it as current and let the
-  // normal write path set the stamp.
-  if (row.updated_at) return istDateStr(new Date(row.updated_at));
-  return null;
-}
-
-/** True when the row's counters belong to a day before `nowMs`. */
-export function isCounterDayStale(row, nowMs = Date.now()) {
-  const day = counterDayOf(row);
-  if (!day) return false;
-  return day !== istDateStr(new Date(nowMs));
-}
+// counterDayOf and isCounterDayStale now live in froIdle.js — see the note at
+// the top of this file.
 
 /**
  * Hard invariant: a day cannot hold more idle than it has hours.

@@ -4927,7 +4927,12 @@ export const getTLDashboard = async (req, res) => {
     // the same 3 minutes; two constants that must stay equal is how the read
     // paths drifted apart in the first place).
     const LIVE_FRESH_MS = IDLE_LIVE_FRESH_MS;
-    const liveCols = 'worker_id, status, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
+    // stats_date is not optional here: it is the authoritative answer to "which day
+    // do this row's today-counters belong to", and without it the stale-idle test
+    // has to fall back to updated_at. That fallback happens to work for a row nobody
+    // has touched since yesterday, but it cannot tell a row that was written today
+    // while still holding yesterday's numbers.
+    const liveCols = 'worker_id, status, stats_date, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
     // One row per worker, and that row belongs to the worker themselves: a
     // covering operator writes their own row, so the extra "fetch rows whose
     // work_as_operator_id is in scope" query this used to run is no longer

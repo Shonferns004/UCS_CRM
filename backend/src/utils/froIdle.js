@@ -33,6 +33,42 @@ function toMs(v) {
 }
 
 /**
+ * Which IST day do a live-status row's "today" counters belong to?
+ *
+ * fro_live_status is one row per worker carrying counters labelled "today", and
+ * the day they describe is stamped in stats_date. That stamp is the only thing
+ * that can answer it: the counters themselves are bare integers with no day of
+ * their own, and idle_since / disposition_due_at are ruled out because
+ * idlePeriodStartMs already guarantees a returned period start is on today.
+ *
+ * A row predating the stamp falls back to updated_at, the only evidence of which
+ * day it was last written. With neither, the row cannot be claimed to belong to
+ * a past day, so it is treated as current — the safe direction, since trusting
+ * one stale row is recoverable and zeroing real idle for every existing worker
+ * is not.
+ *
+ * Lives here rather than in froCounterDay because the READ paths need it too,
+ * and this module is the one they all already import.
+ */
+export function counterDayOf(row) {
+  if (!row) return null;
+  if (row.stats_date) {
+    return row.stats_date instanceof Date
+      ? istDateStr(row.stats_date)
+      : String(row.stats_date).slice(0, 10);
+  }
+  if (row.updated_at) return istDateStr(new Date(row.updated_at));
+  return null;
+}
+
+/** True when the row's counters belong to a day before `nowMs`. */
+export function isCounterDayStale(row, nowMs = Date.now()) {
+  const day = counterDayOf(row);
+  if (!day) return false;
+  return day !== istDateStr(new Date(nowMs));
+}
+
+/**
  * The FRO's shift window as epoch ms. Attendance is the source of truth: a
  * punch-in anchors the start and a punch-out caps the end. With no attendance
  * row we fall back to the configured shift times (worker's own shift first,
@@ -247,13 +283,23 @@ export function idlePeriodStartMs(row, nowMs = Date.now()) {
  * period until someone commits it.
  */
 export function liveIdleSeconds(row, shift, nowMs = Date.now(), frozenAtMs = NaN) {
+  // Committed idle counts only on the day it was banked.
+  //
+  // The rollover that clears a day's counters lives on the WRITE paths, so a
+  // worker who has not written to their row since yesterday evening still
+  // carries yesterday's numbers. Reads have to notice that themselves, and the
+  // one signal that says so is the row's stats_date.
+  //
+  // This used to be decided the other way round: the day was inferred from
+  // idle_since / disposition_due_at, and only on the path where a period was
+  // open — the committed-only early return below skipped the check entirely.
+  // Since idlePeriodStartMs only ever yields a start on today's IST day, that
+  // check could not have failed anyway, so yesterday's banked total was returned
+  // verbatim by both paths. The first thing the office saw each morning was
+  // yesterday's idle on every row nobody had logged into yet.
+  const committed = isCounterDayStale(row, nowMs) ? 0 : (Number(row?.today_idle_seconds || 0) || 0);
   const from = idlePeriodStartMs(row, nowMs);
-  // An open period left over from a previous IST day must never be credited to
-  // today: the committed total it would be added to belongs to yesterday.
-  if (!Number.isFinite(from)) return Number(row?.today_idle_seconds || 0) || 0;
-  const committed = istDateStr(new Date(from)) === istDateStr(new Date(nowMs))
-    ? Number(row?.today_idle_seconds || 0) || 0
-    : 0;
+  if (!Number.isFinite(from)) return committed;
   const lo = Math.max(from, Number.isFinite(shift?.startMs) ? shift.startMs : -Infinity);
   // `frozenAtMs` caps accrual instead of nulling the period, so a frozen worker
   // keeps the idle they genuinely racked up before they left and banks nothing
