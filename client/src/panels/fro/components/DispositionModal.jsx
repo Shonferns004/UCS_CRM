@@ -72,7 +72,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrFromName, setOcrFromName] = useState('');
   const isOverdue = origScheduledAt && new Date(origScheduledAt) < new Date();
-  const { startCall, endCall, adoptTimer, adoptOptimisticDisposition } = useCall();
+  const { startCall, endCall, adoptTimer, adoptOptimisticDisposition, noteDispositionSaved } = useCall();
 
   useEffect(() => {
     setLoading(true);
@@ -196,6 +196,9 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       // authoritative timer, so adopt it here — the top-bar chip restarts the
       // moment this saves, and any overdue idle is already folded into today.
       if (saved?.timer) adoptTimer(saved.timer);
+      // The server has now banked any idle the officer accrued before saving, so
+      // the performance strip can pick up the new total immediately.
+      noteDispositionSaved();
       endCall();
       const disp = findDisp(selected);
       if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');

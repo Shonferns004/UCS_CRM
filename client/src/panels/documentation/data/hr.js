@@ -9,12 +9,14 @@ Architecture:
 - Worker management: Full CRUD with bulk operations. Workers are the central entity referenced by attendance, leaves, loans, and salary records. Each worker belongs to an NGO via NGO_ID and can be assigned to multiple NGOs via worker_ngo_allocations.
 - Leave system: 4 leave types (full_day, half_day, late, absent) with accrual rules. Leave requests go through HR approval. The system checks for overlapping leave periods and balance availability.
 - Document generation: 6 letter templates rendered via jsPDF with NGO-specific branding (logos, stamps). Templates support variable substitution (worker name, date, salary, etc.).
+- Letter and warning delivery: Letters and warning messages are delivered over the Meta WhatsApp Cloud API using the project's whatsapp_accounts row. Letters go as a PDF document, warnings as text. Meta refuses free-form sends outside a recipient's 24-hour session, so the service checks conversations.last_inbound_at and falls back to an approved template (hr_letter_template for documents, hr_warning_template for text) when the window has closed. A "Manual" button hands the message to the volunteer's own WhatsApp for hand delivery when neither path is available. Every attempt, sent or failed, is recorded in hr_whatsapp_sends; these sends are deliberately kept out of the donor-facing messages/conversations history.
 - QR code system: QR codes encode worker ID + NGO ID + timestamp + geo-location (lat/lng) with Haversine distance validation. The QR expires after a configurable timeout and has a geo-fencing radius check (default 100m).
 - Loan management: Advances are deducted from salary in monthly installments. The system tracks outstanding balance and auto-calculates deduction amounts.`,
   "keyFeatures": [
     "Full worker lifecycle: add, bulk-add, edit, bulk-edit, deactivate",
     "Leave management with approve/reject and 4 leave types",
     "6 letter templates: Experience, Offer, Appointment, Relieving, Salary, Confirmation",
+    "Letter/warning delivery over the Meta WhatsApp Cloud API with 24-hour window detection, approved-template fallback, hand-delivery escape hatch, and a per-send audit log",
     "QR code generation with geo-fencing radius",
     "Loan/advance approval with monthly salary deduction",
     "Attendance correction ticket: verify then forward to Super Admin",

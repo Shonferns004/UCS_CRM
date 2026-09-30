@@ -12,6 +12,7 @@ export function useHR() {
     fetchWorkers, fetchNGOs, addWorker, removeWorker, abscondWorker, offboardWorker, fetchWorkerById, updateWorker, bulkUpdateWorkers,
     fetchAttendance, fetchLeaves, decideLeave,
     fetchTemplates, generateLetter, fetchWorkerLetters, sendNotif,
+    sendHrWhatsAppText, sendHrWhatsAppLetter, fetchHrWhatsAppStatus, fetchHrWhatsAppWindow, fetchHrWhatsAppSends,
     fetchHolidays, addHoliday, removeHoliday,
     fetchLeads, addLead, updateLead, fetchRecruiters, fetchRecruiterStats, fetchRecruiterOverview, fetchLeadsDashboard,
     fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary,
@@ -79,6 +80,17 @@ export const fetchTemplates = () => apiGet('/letters/templates');
 export const generateLetter = (template_id, worker_id, variables = {}) => apiPost('/letters/generate', { template_id, worker_id, variables });
 export const fetchWorkerLetters = (workerId) => apiGet('/letters/generated/worker/' + workerId);
 export const sendNotif = (title, body, worker_id) => apiPost('/admin/notifications/send-now', { title, body, worker_id: worker_id || undefined });
+
+// WhatsApp sends from HR > Letters, out of the "ucs" account. The recipient is
+// sent as worker_id, not just the name: the server looks the phone number up
+// itself, so a request cannot aim a warning letter at an arbitrary number, and
+// using the id means two volunteers who share a name cannot be confused for
+// each other. The name is still sent for the log line and for messages.
+export const sendHrWhatsAppText = (worker_id, worker_name, text, message_key) => apiPost('/hr/whatsapp/text', { worker_id, worker_name, text, message_key });
+export const sendHrWhatsAppLetter = (worker_id, worker_name, letter_type, pdf_base64, caption) => apiPost('/hr/whatsapp/letter', { worker_id, worker_name, letter_type, pdf_base64, caption });
+export const fetchHrWhatsAppStatus = () => apiGet('/hr/whatsapp/account-status');
+export const fetchHrWhatsAppWindow = (phone) => apiGet('/hr/whatsapp/service-window?phone=' + encodeURIComponent(phone || ''));
+export const fetchHrWhatsAppSends = (worker_id) => apiGet('/hr/whatsapp/sends' + (worker_id ? '?worker_id=' + encodeURIComponent(worker_id) : ''));
 export const fetchHolidays = () => apiGet('/holidays');
 export const addHoliday = (h) => apiPost('/holidays', h);
 export const removeHoliday = (id) => apiDelete('/holidays/' + id);

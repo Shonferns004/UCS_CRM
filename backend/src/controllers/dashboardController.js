@@ -5,6 +5,7 @@ import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import db from '../config/db.js';
+import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { istDateStr, effectiveIdleSeconds, idleFreezeCutoffMs } from '../utils/froIdle.js';
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
@@ -1492,7 +1493,7 @@ export const getSuperAdminAlerts = async (req, res) => {
       // is derived from the deadline — no heartbeat required.
         const { data: idleFros } = await db
           .from('fro_live_status')
-          .select('worker_id, today_idle_seconds, today_calls, is_active, idle_since, updated_at')
+          .select(FRO_IDLE_LIVE_COLS)
           .eq('is_active', true);
 
         // A covered-away FRO's idle is frozen, here as everywhere else.

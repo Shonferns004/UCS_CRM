@@ -3,6 +3,12 @@ import * as EventHead from '../models/eventHeadModel.js';
 import { parseActivitySheet, parseEventSheet, canonicalizeSector, normalizeName, isCampaignName } from '../utils/activitySheet.js';
 import db, { getTableColumns } from '../config/db.js';
 import groq from '../config/groq.js';
+import {
+  getObservancesInRange, getObservancesOnDate, mergeCustomObservances,
+  availableYears, allThemes, SUPPORTED_LUNAR_YEARS,
+} from '../utils/observances.js';
+import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
+import { getAllHolidays } from '../models/holidayModel.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
 // must pass through unchanged as a string. sector_id / activity_id are always
@@ -2087,6 +2093,438 @@ export const suggestSectorActivities = async (req, res) => {
     return res.json({ suggestions: suggestions.slice(0, 8) });
   } catch (error) {
     console.error('suggestSectorActivities error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Calendar · important days, festivals & observances (Calendar page) ──────
+// RELIABILITY: the dates come from utils/observances.js, which is deterministic
+// (fixed month/day rules + explicit per-year rows + computed weekday rules).
+// No AI model is involved in producing, correcting or validating a date here.
+// Operator-managed `holidays` rows are merged on top so a correction can be
+// made from the UI without a redeploy.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const todayYmd = () => new Date().toISOString().slice(0, 10);
+const addDaysYmd = (s, n) => new Date(new Date(`${s}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+
+// Never let a bad range produce a 24-hour query or an unbounded scan.
+const DEFAULT_RANGE_DAYS = 62;
+const MAX_RANGE_DAYS = 800;
+
+// The `holidays` table is an optional overlay on the deterministic calendar. When
+// the database is unreachable every attempt costs a full TCP/connect timeout, so
+// the calendar would sit on "Loading…" for ~20s on every month change. Shorten
+// the fuse and remember the outcome: after a few failures we stop trying for a
+// few minutes and serve the curated list, which is the part that actually
+// matters for correctness.
+const HOLIDAY_FETCH_TIMEOUT_MS = 2500;
+const HOLIDAY_FAILURE_BUDGET = 3;
+const HOLIDAY_COOLDOWN_MS = 5 * 60 * 1000;
+const holidayOverlay = { failures: 0, retryAfter: 0, cached: null, cachedAt: 0 };
+const HOLIDAY_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const getHolidaysCached = async () => {
+  if (holidayOverlay.cached && Date.now() - holidayOverlay.cachedAt < HOLIDAY_CACHE_TTL_MS) {
+    return holidayOverlay.cached;
+  }
+  if (Date.now() < holidayOverlay.retryAfter) return [];   // in cooldown, skip the wait
+
+  let timer;
+  try {
+    const rows = await Promise.race([
+      getAllHolidays(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('holidays query timed out')), HOLIDAY_FETCH_TIMEOUT_MS); }),
+    ]);
+    holidayOverlay.failures = 0;
+    holidayOverlay.retryAfter = 0;
+    holidayOverlay.cached = Array.isArray(rows) ? rows : [];
+    holidayOverlay.cachedAt = Date.now();
+    return holidayOverlay.cached;
+  } catch (e) {
+    holidayOverlay.failures += 1;
+    if (holidayOverlay.failures >= HOLIDAY_FAILURE_BUDGET) {
+      holidayOverlay.retryAfter = Date.now() + HOLIDAY_COOLDOWN_MS;
+      console.warn(`listCalendarObservances: holiday overlay disabled for ${HOLIDAY_COOLDOWN_MS / 1000}s after ${holidayOverlay.failures} failures (${e.message || e})`);
+    }
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+export const listCalendarObservances = async (req, res) => {
+  try {
+    const scopeRaw = String(req.query.scope || 'all').toLowerCase();
+    const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
+
+    const end = DATE_RE.test(String(req.query.end || '')) ? String(req.query.end) : addDaysYmd(todayYmd(), DEFAULT_RANGE_DAYS);
+    const start = DATE_RE.test(String(req.query.start || '')) ? String(req.query.start) : addDaysYmd(end, -DEFAULT_RANGE_DAYS);
+    if (end <= start) return res.status(400).json({ message: 'end must be after start' });
+
+    const days = Math.round((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000);
+    if (days > MAX_RANGE_DAYS) {
+      return res.status(400).json({ message: `Date range too large — request at most ${MAX_RANGE_DAYS} days` });
+    }
+
+    const curated = getObservancesInRange(start, end, { scope });
+
+    // Operator holiday rows are a bonus layer; a DB failure must not break or
+    // delay the calendar, so it degrades to the curated list alone.
+    const holidays = await getHolidaysCached();
+    // Merge for EVERY scope (an admin should not lose their custom holiday just
+    // because the view is filtered to India or worldwide), then re-apply the
+    // scope filter since a custom row can carry its own scope.
+    const merged = holidays.length
+      ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
+      : curated;
+
+    // byDate lets the client render a day cell without re-grouping.
+    const byDate = {};
+    for (const o of merged) (byDate[o.date] ||= []).push(o);
+
+    return res.json({
+      start,
+      end,
+      scope,
+      available_years: availableYears(),
+      lunar_years: SUPPORTED_LUNAR_YEARS,
+      themes: allThemes(),
+      count: merged.length,
+      observances: merged,
+      by_date: byDate,
+      // Tells the UI it can trust these dates and label them accordingly.
+      reliability: {
+        dates_source: 'curated-reference-calendar',
+        ai_generated_dates: false,
+        lunar_rows: merged.filter((o) => o.precision === 'lunar').length,
+      },
+    });
+  } catch (error) {
+    console.error('listCalendarObservances error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Calendar · AI program suggestions for one day (Calendar page) ──────────
+// Gemini is used for IDEA GENERATION ONLY. The date and the observance it is
+// anchored to are supplied by this server from the deterministic calendar above
+// and are echoed back verbatim — the model is explicitly told it has no say
+// over dates and its output is scrubbed of any date it tries to invent.
+const SUGGESTION_FORMATS = ['Health Camp', 'Awareness Drive', 'Distribution', 'Workshop', 'Celebration', 'Screening Camp', 'Training', 'Community Meeting', 'Sports / Cultural Event', 'Fundraising / CSR Event'];
+const SUGGESTION_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'];
+
+/* How many suggestions a day is allowed to yield. Both the Create Event form and
+   the calendar modal read this one endpoint, so they share the cap. */
+const SUGGESTION_LIMIT = 10;
+
+/* Render the client's real activities as an id -> name table for the prompt, so
+   the model can only ever choose an activity that actually exists. Truncated to
+   40 entries: beyond that the list itself starts eating the token budget, and the
+   model's alternatives all collapse onto the same handful anyway. */
+const activityOptionsBlock = (activityById, max = 40) => {
+  const rows = [];
+  for (const { id, name } of activityById.values()) {
+    rows.push(`  id=${id} | ${name}`);
+    if (rows.length >= max) break;
+  }
+  return rows.join('\n');
+};
+
+/** Drop any field the model tried to use to smuggle in a date. */
+function stripModelDates(s) {
+  const out = {};
+  for (const [k, v] of Object.entries(s || {})) {
+    if (/^(date|day|when|event_?date|scheduled_?on|year|month|day_?of_?week)$/i.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/* Exact match first, then a "contains" match so a model writing "SUPER-URGENT"
+   still lands on "Urgent" rather than silently becoming "Medium". Always
+   resolves to a value from the controlled vocabulary above. */
+const matchEnum = (value, allowed, fallback) => {
+  const v = String(value || '').trim().toLowerCase();
+  if (v.length < 3) return fallback;
+  return allowed.find((a) => a.toLowerCase() === v)
+    || allowed.find((a) => v.includes(a.toLowerCase()) || a.toLowerCase().includes(v))
+    || fallback;
+};
+
+/* Resolves a model-supplied activity reference against the activity list the
+   client actually sent (real, existing activities for this NGO/sector).
+
+   Returns { id, name } for a genuine match, or null. This is what stops the
+   failure mode where a model invents an activity string like "Health Camp" when
+   the org already has "Community Health Camp" — the Create Event form then
+   preselects the exact existing activity instead of fuzzy-matching a name.
+
+   `byId` is keyed case-insensitively on String(id) so a model echoing the id as
+   a number, a string, or with whitespace still resolves. `aid` is the short key
+   used by the token-budget-conscious prompt; the long aliases are still accepted
+   so an older or Gemini answer with `activity_id` keeps working. */
+const resolveActivity = (raw, byId) => {
+  if (!byId || byId.size === 0) return null;
+  const candidates = [raw?.aid, raw?.activity_id, raw?.activityId, raw?.activity_name_id];
+  for (const c of candidates) {
+    if (c === undefined || c === null || c === '') continue;
+    const hit = byId.get(String(c).trim().toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+};
+
+const cleanSuggestion = (raw, dateYmd, activityById) => {
+  const s = stripModelDates(raw || {});
+  // Long keys take precedence; the single letters are the compact aliases the
+  // prompt uses to stay inside the provider's per-minute output budget.
+  const title = String(s.title || s.name || s.t || '').replace(/^[\d.\-)\s]+/, '').trim().slice(0, 120);
+  if (!title) return null;
+  const format = matchEnum(s.format ?? s.f, SUGGESTION_FORMATS, 'Awareness Drive');
+  const priority = matchEnum(s.priority ?? s.p, SUGGESTION_PRIORITIES, 'Medium');
+  // A verified existing activity always wins over the model's own wording.
+  const real = resolveActivity(raw, activityById);
+  return {
+    title,
+    activityId: real ? real.id : null,
+    activityName: real ? real.name : String(s.activityName || s.activity_name || s.a || '').trim().slice(0, 120) || title,
+    format,
+    priority,
+    audience: String(s.audience || s.beneficiaries || s.u || '').trim().slice(0, 160) || null,
+    duration: String(s.duration || s.d || '').trim().slice(0, 60) || null,
+    objective: String(s.objective || s.aim || s.goal || s.o || '').trim().slice(0, 240) || null,
+    rationale: String(s.rationale || s.why || s.reason || s.r || '').trim().slice(0, 400) || null,
+    materials: Array.isArray(s.materials || s.m)
+      ? (s.materials || s.m).map((m) => String(m || '').trim().slice(0, 60)).filter(Boolean).slice(0, 6)
+      : [],
+    // Anchored server-side. The model never supplies this.
+    date: dateYmd,
+  };
+};
+
+/** Turn an AI transport failure into something an Event Head can act on.
+ *
+ *  Raw provider JSON (and the request URL, which carries the key) never leaks.
+ *
+ *  CLASSIFIES PER PROVIDER, NOT ON THE CONCATENATED STRING. Each failed attempt
+ *  is judged on its own message, then the verdicts are ranked. Concatenating
+ *  first is a real bug: with Gemini denied (403) and Groq merely rate-limited
+ *  (429), the merged text matches the 403 pattern and the user is told access was
+ *  "denied" when the only thing standing in the way is a per-minute token budget
+ *  that clears on its own in a minute. Ranking matters because a retryable
+ *  problem should never be reported as a permanent one.
+ *
+ *  A 403 is described as a *project access* problem, deliberately NOT as a bad
+ *  key: a denied Gemini project still authenticates fine — GET /v1beta/models
+ *  returns 200 with the same key while every generateContent call is refused with
+ *  403 "Your project has been denied access." Telling the user the key is
+ *  "not authorised" sends an admin rotating a perfectly valid key and never
+ *  finds the real cause. */
+const classifyAiAttempt = (message) => {
+  const m = String(message || '');
+  if (/not configured on this server|not set on the server/i.test(m)) return 'unconfigured';
+  // Groq's free tier refuses oversized requests up front with 429
+  // rate_limit_exceeded, which is a budget problem, not an access problem.
+  if (/HTTP 429|rate_limit_exceeded|rate limited|RESOURCE_EXHAUSTED|output tokens per minute|OTPM/i.test(m)) return 'ratelimited';
+  if (/HTTP 5\d\d|UNAVAILABLE|overloaded|fetch failed|ENOTFOUND|ETIMEDOUT|ECONN|network|socket hang up/i.test(m)) return 'unreachable';
+  if (/no usable JSON/i.test(m)) return 'unreadable';
+  if (/HTTP 401|HTTP 400|API_KEY_INVALID|invalid.*key/i.test(m)) return 'badkey';
+  if (/HTTP 403|PERMISSION_DENIED|permission denied|denied access/i.test(m)) return 'denied';
+  return 'unknown';
+};
+
+const userSafeAiReason = (error) => {
+  const attempts = Array.isArray(error?.attempts) ? error.attempts : [];
+  if (!attempts.length) {
+    return classifyAiAttempt(error?.message) === 'unconfigured'
+      ? 'AI suggestions are not configured on this server.'
+      : 'The AI provider did not respond as expected.';
+  }
+
+  const byKind = new Map();
+  for (const a of attempts) {
+    const kind = classifyAiAttempt(a?.message);
+    if (!byKind.has(kind)) byKind.set(kind, []);
+    byKind.get(kind).push(a?.provider).filter(Boolean);
+  }
+  const named = (k) => [...new Set(byKind.get(k) || [])].join(' and ');
+
+  // Most actionable first: something that clears by waiting outranks something
+  // that needs an admin, which outranks a generic unknown failure.
+  if (byKind.has('ratelimited')) {
+    return `${named('ratelimited')} hit its rate limit. Wait a moment and try again.`;
+  }
+  if (byKind.has('denied')) {
+    return `${named('denied')} denied this project's access. The key itself is valid — an admin needs to restore generation access on the provider side.`;
+  }
+  if (byKind.has('badkey')) {
+    return `${named('badkey')} rejected the API key. Ask an admin to check it.`;
+  }
+  if (byKind.has('unreachable')) {
+    return `${named('unreachable')} could not be reached. Try again shortly.`;
+  }
+  if (byKind.has('unreadable')) {
+    return `${named('unreadable')} replied in a format this app could not read. Try again.`;
+  }
+  if (byKind.has('unconfigured')) {
+    return 'AI suggestions are not configured on this server.';
+  }
+  const who = [...new Set(attempts.map((a) => a?.provider).filter(Boolean))].join(' and ');
+  return `${who || 'The AI provider'} did not respond as expected.`;
+};
+
+export const suggestDayPrograms = async (req, res) => {
+  try {
+    const dateYmdReq = String(req.body?.date || '').slice(0, 10);
+    if (!DATE_RE.test(dateYmdReq)) return res.status(400).json({ message: 'date is required as YYYY-MM-DD' });
+
+    // Server-resolved context — the client cannot override these.
+    const observances = getObservancesOnDate(dateYmdReq);
+    const scopeRaw = String(req.body?.scope || 'all').toLowerCase();
+    const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
+    const scoped = observances.filter((o) => scope === 'all' || o.scope === scope);
+    const sectorName = String(req.body?.sector_name || '').slice(0, 120) || null;
+    const sectorId = String(req.body?.sector_id || '').slice(0, 60) || null;
+
+    // Real activities the client actually has for this NGO/sector. Keyed
+    // case-insensitively on String(id) so a model may echo the id as a number or
+    // a string. Only used to *validate* the model's activity choice — the id is
+    // never trusted blindly, and an unmatched id falls back to free text.
+    const activityById = new Map();
+    if (Array.isArray(req.body?.activity_options)) {
+      for (const a of req.body.activity_options) {
+        if (!a || typeof a !== 'object') continue;
+        const id = a.id ?? a.activity_id;
+        const name = String(a.name ?? a.activity_name ?? '').trim().slice(0, 120);
+        if (id === undefined || id === null || !name) continue;
+        activityById.set(String(id).trim().toLowerCase(), { id, name });
+      }
+    }
+    const activityNames = [...new Set([...activityById.values()].map((a) => a.name))];
+
+    const context = {
+      date: dateYmdReq,
+      observances: scoped.map((o) => ({ name: o.name, scope: o.scope, kind: o.kind, themes: o.themes, note: o.note })),
+      ngoName: String(req.body?.ngo_name || '').slice(0, 120) || null,
+      sectors: Array.isArray(req.body?.sectors) ? req.body.sectors.map((s) => String(s).slice(0, 80)).filter(Boolean).slice(0, 15) : [],
+      activities: Array.isArray(req.body?.activities) ? req.body.activities.map((a) => String(a).slice(0, 80)).filter(Boolean).slice(0, 30) : activityNames.slice(0, 30),
+      existingTitles: Array.isArray(req.body?.existing_titles) ? req.body.existing_titles.map((t) => String(t).slice(0, 100)).filter(Boolean).slice(0, 40) : [],
+    };
+
+    // No provider → still return the reliable calendar context so the UI can show
+    // the day, just without AI ideas. Matches the house style of the other
+    // AI endpoints (200 + empty suggestions, never a 500).
+    if (!aiSuggestionsConfigured()) {
+      return res.json({
+        date: dateYmdReq,
+        observances: scoped,
+        suggestions: [],
+        ai: { available: false, reason: 'AI suggestions are not configured on this server' },
+      });
+    }
+
+    const dayLabel = new Date(`${dateYmdReq}T00:00:00Z`).toUTCString().slice(0, 16);
+    const themeList = Array.from(new Set(scoped.flatMap((o) => o.themes || [])));
+
+    // The activity table is emitted as PROSE before the JSON template. Putting it
+    // inside the example would require a `/* */` comment in the sample JSON, which
+    // is invalid and which models reproduce verbatim into their answer.
+    const activityBrief = activityById.size
+      ? [
+          '',
+          'For EVERY suggestion, "aid" must be the id of one of THESE existing activities and "a" must be that activity\'s name copied exactly. Never invent an activity that is not on this list:',
+          activityOptionsBlock(activityById),
+        ].join('\n')
+      : [
+          '',
+          'No existing-activity list was supplied. Set "aid" to null and choose a sensible "a" for each suggestion.',
+        ].join('\n');
+
+    // The JSON object template, with short keys. Emitted once, as prose about
+    // repeating it, never with a `/* */` marker inside the sample — comments are
+    // invalid JSON and models reproduce them verbatim into their answer.
+    const objectTemplate = activityById.size
+      ? `  { "t": "Word1 Word2 Word3 Word4 Word5", "aid": ${[...activityById.values()][0]?.id ?? 'null'}, "a": "${([...activityById.values()][0]?.name ?? 'Activity').replace(/"/g, '')}", "f": "${SUGGESTION_FORMATS[0]}", "p": "Medium", "u": "Five words here now", "d": "Half day", "o": "Ten words of objective text at most here.", "r": "Ten words of rationale text at most here.", "m": ["Two words","Three words"] }`
+      : `  { "t": "Word1 Word2 Word3 Word4 Word5", "aid": null, "a": "A short activity name", "f": "${SUGGESTION_FORMATS[0]}", "p": "Medium", "u": "Five words here now", "d": "Half day", "o": "Ten words of objective text at most here.", "r": "Ten words of rationale text at most here.", "m": ["Two words","Three words"] }`;
+
+    const prompt = [
+      'You plan programmes for a disability-focused Indian NGO. Suggest day-wise programme ideas that build on a specific occasion.',
+      '',
+      `The date is ${dateYmdReq} (${dayLabel}). THIS DATE IS ALREADY CONFIRMED BY THE ORGANISATION — do not state, change, second-guess or re-derive it, and do not output any date field.`,
+      scoped.length
+        ? `The occasion on this day is: ${scoped.map((o) => `${o.name} [${o.scope}/${o.kind}]`).join('; ')}. Build every idea on THIS occasion — that is the whole point of the request.`
+        : 'There is no registered occasion on this day, so do NOT pretend there is one. Propose genuinely useful community-service programmes for an ordinary working day instead, drawn from the sector below.',
+      themeList.length ? `Relevant themes: ${themeList.join(', ')}.` : '',
+      context.ngoName ? `The NGO is ${context.ngoName}.` : '',
+      sectorName ? `Sector: "${sectorName}".` : '',
+      context.sectors.length ? `Its sectors are: ${context.sectors.join('; ')}.` : '',
+      activityBrief,
+      '',
+      `HARD REQUIREMENT: the "suggestions" array must contain EXACTLY ${SUGGESTION_LIMIT} objects. Count as you write: 1, 2, 3, ${Array.from({ length: SUGGESTION_LIMIT - 3 }, (_, i) => i + 4).join(', ')}. Never stop early. Never return fewer.`,
+      `All ${SUGGESTION_LIMIT} must be DIFFERENT ideas. Vary the activity, the format and the audience between them.`,
+      context.existingTitles.length ? `Do not repeat these already-scheduled programmes: ${context.existingTitles.join('; ')}.` : '',
+      '',
+      `HARD TOKEN BUDGET: all ${SUGGESTION_LIMIT} objects together share about 950 output tokens, so every field must be tiny. Measured: verbose fields yield only 6 objects before the response is cut mid-JSON. Word caps, strictly:`,
+      't <= 5 words | u <= 5 words | o <= 10 words | r <= 10 words | m = exactly 2 items, each <= 3 words',
+      'f and p must be copied verbatim from the lists below. No emoji. No markdown. No prose outside the JSON.',
+      '',
+      `f must be one of: ${SUGGESTION_FORMATS.join(' | ')}`,
+      `p must be one of: ${SUGGESTION_PRIORITIES.join(' | ')}`,
+      '',
+      'Return ONLY a JSON object of this exact shape, no markdown, no commentary:',
+      '{ "suggestions": [',
+      objectTemplate,
+      `  , then the same object repeated until there are exactly ${SUGGESTION_LIMIT} of them, with no comma after the last one`,
+      '] }',
+    ].filter(Boolean).join('\n');
+
+    let parsed = null;
+    let usedModel = null;
+    let usedProvider = null;
+    let truncated = false;
+    try {
+      const result = await generateSuggestionJson(prompt, { temperature: 0.6, maxOutputTokens: 4096 });
+      parsed = result?.value ?? null;
+      usedModel = result?.model || null;
+      usedProvider = result?.provider || null;
+      truncated = result?.truncated === true;
+    } catch (error) {
+      // AI is an enhancement, not the point of the endpoint: the verified
+      // calendar for the day is still correct, so degrade instead of failing the
+      // request. Matches the no-provider branch above and the other AI endpoints.
+      console.error('suggestDayPrograms: all AI providers failed:', error.message || error);
+      return res.json({
+        date: dateYmdReq,
+        observances: scoped,
+        suggestions: [],
+        ai: { available: false, reason: userSafeAiReason(error) },
+      });
+    }
+
+    const rawList = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+    const seen = new Set(context.existingTitles.map((t) => t.toLowerCase()));
+    const out = [];
+    for (const raw of rawList) {
+      const s = cleanSuggestion(raw, dateYmdReq, activityById);
+      if (!s) continue;
+      const key = s.title.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+      if (out.length >= SUGGESTION_LIMIT) break;
+    }
+
+    return res.json({
+      date: dateYmdReq,
+      observances: scoped,
+      suggestions: out,
+      // truncated=true means the provider hit its output-token ceiling and the
+      // remainder was cut. Whatever came back is complete and usable; the client
+      // says so rather than implying these are all the ideas there are.
+      ai: { available: true, model: usedModel, provider: usedProvider, dates_from_ai: false, truncated, requested: SUGGESTION_LIMIT },
+    });
+  } catch (error) {
+    console.error('suggestDayPrograms error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };
