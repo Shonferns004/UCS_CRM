@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, suggestDayPrograms, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
+import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, suggestDayPrograms, observancesOnDate, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
 import { PageHeader } from '../components/ui'
 import VoluntaryPicker from '../components/VoluntaryPicker'
 import ActivitySelect from '../components/ActivitySelect'
@@ -238,6 +238,13 @@ export default function CreateEvent() {
   }, [allActivities, ngoId, sectorId])
 
   const canSuggestForDate = Boolean(form.date && form.sector_id)
+
+  /* Which festival / important day the chosen date actually carries. Read from
+     the bundled reference calendar, so it is correct the instant the date is
+     picked — no API call, no AI, nothing to wait for. Shows EVERY observance on
+     that date, because one date can carry three (e.g. Akshaya Tritiya +
+     Ambedkar Jayanti + World Parkinson's Day). */
+  const dayObservances = useMemo(() => (form.date ? observancesOnDate(form.date) : []), [form.date])
 
   const runFestivalSuggestions = () => {
     if (!canSuggestForDate || festLoading) return
@@ -609,6 +616,11 @@ export default function CreateEvent() {
           </div>
           <div className="eh-section-body">
             {section('Program')}
+            {/* Field order follows the order the form is actually filled in: pick the
+                NGO, then the date (which decides the festival), then the sector, then
+                the activity. Keeping the date up here means the festival is already
+                known before the sector and activity are chosen, and the suggestion
+                panel below lands exactly where the activity gets picked. */}
             <div className="form-row">
               <div className="field"><label>NGO *</label>
                 <select name="ngo_id" value={form.ngo_id} onChange={handleChange} ref={registerField('ngo_id')} style={fieldStyle('ngo_id')}>
@@ -617,6 +629,12 @@ export default function CreateEvent() {
                 </select>
                 {fieldError('ngo_id')}
               </div>
+              <div className="field"><label>Event Date *</label>
+                <input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />
+                {fieldError('date')}
+              </div>
+            </div>
+            <div className="form-row">
               <div className="field"><label>Sector *</label>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <select name="sector_id" value={form.sector_id} onChange={handleChange} disabled={!ngoId} ref={registerField('sector_id')} style={{ flex: 1, ...fieldStyle('sector_id') }}>
@@ -635,35 +653,42 @@ export default function CreateEvent() {
                 {sectorNote && <div style={{ marginTop: 6, fontSize: 12, color: sectorNoteError ? '#b91c1c' : '#16a34a' }}>{sectorNote}</div>}
                 {fieldError('sector_id')}
               </div>
-            </div>
-            <div className="form-row">
-              <div className="field"><label>Activity</label>
-                <ActivitySelect
-                  value={form.activityName || ''}
-                  onChange={pickActivity}
-                  activities={allActivities}
-                  sectors={sectors}
-                  ngoId={ngoId}
-                  selectedSectorId={form.sector_id}
-                />
-                {inlineSuggestion('activityName')}
-              </div>
-              <div className="field"><label>Category</label>
-                <input name="category" value={form.category} onChange={handleChange} list="cat-list" placeholder="Type or pick a category" />
-                <datalist id="cat-list">{CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
-                {inlineSuggestion('category')}
+              <div className="field"><label>This day is</label>
+                {!form.date ? (
+                  <div style={{ fontSize: 12, color: 'var(--eh-muted,#64748b)', paddingTop: 6 }}>Choose an event date above to see which day it falls on.</div>
+                ) : dayObservances.length ? (
+                  /* Every observance on the date, not just the first — one day can carry
+                     three. Colours match the calendar chips so the two views agree. */
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 4 }}>
+                    {dayObservances.map(o => (
+                      <span
+                        key={o.name}
+                        title={`${o.name} — ${o.scope === 'india' ? 'India' : 'Worldwide'}${o.precision === 'lunar' ? ' · lunar date, confirm against the gazette' : ''}`}
+                        style={{
+                          fontSize: 12, fontWeight: 600, padding: '4px 9px', borderRadius: 7,
+                          borderLeft: `2.5px solid ${o.kind === 'religious' ? '#8b5cf6' : o.kind === 'festival' ? '#16a34a' : o.kind === 'national' ? '#f59e0b' : '#0ea5e9'}`,
+                          background: `color-mix(in srgb, ${o.kind === 'religious' ? '#8b5cf6' : o.kind === 'festival' ? '#16a34a' : o.kind === 'national' ? '#f59e0b' : '#0ea5e9'} 12%, #fff)`,
+                          color: 'var(--eh-ink,#111827)',
+                        }}
+                      >
+                        {o.scope === 'india' ? '🇮🇳' : '🌍'} {o.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--eh-muted,#64748b)', paddingTop: 6 }}>
+                    No festival or important day on {form.date} — a normal working day.
+                  </div>
+                )}
               </div>
             </div>
 
-            {section('Event Details')}
-            <div className="form-row">
-              <div className="field"><label>Event Date *</label><input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />{fieldError('date')}</div>
-            </div>
-
-            {/* Festival / day programme suggestions. Placed directly under the date
-                it reasons about, so the user fills date -> sector -> asks, without
-                scrolling back and forth. */}
-            <div style={{ margin: '2px 0 6px' }}>
+            {/* AI programme suggestions. Sits between Sector and Activity on purpose:
+                the date and the sector are both known here, and the Activity field
+                right below it is exactly what these ideas help the user choose.
+                Festival dates themselves are never the model's job — the day above
+                already shows them, straight from the reference calendar. */}
+            <div style={{ margin: '4px 0 14px' }}>
               {!canSuggestForDate ? (
                 <div style={{ fontSize: 12, color: 'var(--eh-muted,#64748b)' }}>
                   Set an <strong>Event Date</strong> and a <strong>Sector</strong> to get programme suggestions for that day.
@@ -753,6 +778,26 @@ export default function CreateEvent() {
               )}
             </div>
 
+            <div className="form-row">
+              <div className="field"><label>Activity</label>
+                <ActivitySelect
+                  value={form.activityName || ''}
+                  onChange={pickActivity}
+                  activities={allActivities}
+                  sectors={sectors}
+                  ngoId={ngoId}
+                  selectedSectorId={form.sector_id}
+                />
+                {inlineSuggestion('activityName')}
+              </div>
+              <div className="field"><label>Category</label>
+                <input name="category" value={form.category} onChange={handleChange} list="cat-list" placeholder="Type or pick a category" />
+                <datalist id="cat-list">{CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
+                {inlineSuggestion('category')}
+              </div>
+            </div>
+
+            {section('Event Details')}
             <div className="form-row">
               <div className="field"><label>Start Time</label><input type="time" name="start_time" value={form.start_time} onChange={handleChange} /></div>
               <div className="field"><label>End Time</label><input type="time" name="end_time" value={form.end_time} onChange={handleChange} /></div>

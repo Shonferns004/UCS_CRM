@@ -4,6 +4,7 @@ import {
   availableYears,
   allThemes,
   SUPPORTED_LUNAR_YEARS,
+  getObservancesOnDate,
 } from '@observances'
 export const apiGet = (path) => api(path, { _prefix: 'ucs' })
 export const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
@@ -342,6 +343,15 @@ export const fetchCalendarEvents = (params = {}) => {
   return apiGet('/event-head/events/calendar' + (q ? '?' + q : ''))
 }
 export const fetchEventsByNgo = (ngoId) => apiGet('/event-head/events/ngo/' + ngoId)
+
+/* Observances falling on ONE day, read straight from the bundled reference
+   calendar. No API call, no AI, no wait: the Create Event form uses this to tell
+   the user which festival / important day their chosen date actually carries the
+   moment they pick it. Returns every observance on that date, not just the first,
+   and [] for an empty/invalid date or a year the calendar does not cover. */
+export const observancesOnDate = (date) => {
+  try { return getObservancesOnDate(date) } catch { return [] }
+}
 
 /* ── Calendar · important days, festivals & observances ────────────────────────
    Dates are computed by a deterministic reference calendar (fixed month/day
