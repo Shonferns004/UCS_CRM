@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
@@ -33,6 +34,10 @@ import {
   withoutStaleIdle,
   isIdleNow,
   idleFreezeCutoffMs,
+  isCounterDayStale,
+  settleGrant,
+  settleWindowArm,
+  settleSecondsLeft,
   IDLE_LIVE_FRESH_MS,
 } from '../utils/froIdle.js';
 import {
@@ -887,7 +892,7 @@ export const getMyPerformance = async (req, res) => {
     // row one of them last overwrote.
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('today_idle_seconds, idle_since, disposition_due_at, is_paused, status, today_calls, updated_at, work_as_operator_id')
+      .select(FRO_IDLE_LIVE_COLS)
       .eq('worker_id', metricsWorkerId)
       .maybeSingle();
 
@@ -968,6 +973,30 @@ export const getMyPerformance = async (req, res) => {
       today_calls: connected,
       idle_seconds: idleSeconds,
       idle_minutes: Math.floor(idleSeconds / 60),
+      // TEMPORARY diagnostic echo.
+      //
+      // Idle is derived from four stored values and a shift window, and when the
+      // strip and the panel timer disagree there is no way to tell from the number
+      // alone WHICH input was wrong. A missing column is the usual culprit: it does
+      // not error, it just arrives as undefined and quietly zeroes the figure. This
+      // echoes the raw inputs so one network-tab glance settles it instead of a
+      // round of guessing. Deliberately carries no name or identifying detail —
+      // only the worker's own row. Remove once the idle discrepancy is closed.
+      debug_idle: {
+        banked: liveStatus ? Number(liveStatus.today_idle_seconds || 0) : 0,
+        running_since: liveStatus?.idle_since || null,
+        deadline_at: liveStatus?.disposition_due_at || null,
+        counters_day: liveStatus?.stats_date || null,
+        last_written_at: liveStatus?.updated_at || null,
+        frozen_at: liveStatus?.frozen_at || null,
+        is_paused: !!liveStatus?.is_paused,
+        status: liveStatus?.status || null,
+        shift_start: idleShift?.startMs ? new Date(idleShift.startMs).toISOString() : null,
+        shift_end: idleShift?.endMs ? new Date(idleShift.endMs).toISOString() : null,
+        has_attendance: !!idleShift?.hasAttendance,
+        derived_total: idleSeconds,
+        server_now: new Date(nowMs).toISOString(),
+      },
       // A lapsed deadline counts as idle even before the next heartbeat has
       // stamped idle_since, so the badge and the number can never disagree.
       // Same helper the panel hydrates with, so the badge and the overlay agree.
@@ -4469,6 +4498,11 @@ export const updateLiveStatus = async (req, res) => {
       payload.today_idle_seconds = 0;
       payload.idle_since = null;
       payload.disposition_due_at = null;
+      // Yesterday's grace is spent, and the grant below re-issues today's on the
+      // same beat when the FRO is on shift. settleUntilMs already rejects a
+      // previous-day value at read time, so this is hygiene rather than
+      // correctness — but it keeps the row describing only the day it holds.
+      payload.settle_until = null;
     }
     payload.stats_date = roll.statsDate;
     if (roll.rolled) row = { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null };
@@ -4487,11 +4521,16 @@ export const updateLiveStatus = async (req, res) => {
       row = { ...cleaned, today_idle_seconds: committedForToday };
     }
 
-    // Deliberately does NOT open the window. A heartbeat is presence, not work,
-    // so arming the clock here re-started the 4 minutes seconds after login and
-    // trapped the FRO in the idle overlay before they could log anything. The
-    // window is opened by the first logged action of the day, and from then on
-    // every disposition resets it.
+    // The window is NOT armed here directly. A heartbeat is presence, not work,
+    // so arming on raw presence restarted the 4 minutes seconds after login and
+    // trapped the FRO in the idle overlay before they could log anything.
+    //
+    // What replaced it is two handshakes further down (see the settle block): a
+    // one-time 3-minute grace on first presence of the day, and then the ordinary
+    // window arms itself. The overlay is also no longer blocking, so the original
+    // lockout no longer exists — but arming the full window immediately on login
+    // would still start the clock before the FRO had settled in, which is what the
+    // grace is for. From then on every disposition resets the window.
 
     if (status === 'on_call' && current_donor_name) {
       payload.call_started_at = new Date().toISOString();
@@ -4566,6 +4605,36 @@ export const updateLiveStatus = async (req, res) => {
       // would only paint the forbidden "idle + 4:00" state.
       if (!Number.isFinite(idlePeriodStartMs(row, nowMs))) {
         payload.disposition_due_at = nextDeadline(shift, nowMs);
+      }
+    }
+
+    // Settle-in grace, then the window arms on its own.
+    //
+    // The window used to open only on the FRO's first recorded action, so the
+    // clock stayed frozen until then and logging in to sit on the panel was free:
+    // with no deadline on the row there was no lapse for any reader to derive an
+    // idle period from. Three minutes to settle are granted on first presence of
+    // the day, and the first heartbeat at or after they run out arms the ordinary
+    // 4-minute window. Seven minutes from login before any idle can accrue.
+    //
+    // Placed after the freeze block so a held row is settled first: settleGrant and
+    // settleWindowArm both stand down while paused or in a meeting, and the lift
+    // above has already handed back a full window by then.
+    //
+    // The payload check covers that lift: a FRO who froze before ever being granted
+    // a grace is handed a full window when the freeze lifts, so granting one here
+    // would burn the day's only grace on a row that already has a clock.
+    //
+    // These are otherwise mutually exclusive in one heartbeat. A grant writes
+    // settle_until, which settleWindowArm reads off `row` — still without it — so
+    // the window cannot arm in the same beat that the grace is handed out.
+    if (!nowFrozen && !payload.disposition_due_at) {
+      const grant = settleGrant(row, shift, nowMs);
+      if (grant) {
+        payload.settle_until = grant;
+      } else {
+        const armed = settleWindowArm(row, shift, nowMs);
+        if (armed) payload.disposition_due_at = armed;
       }
     }
 
@@ -4667,6 +4736,13 @@ export const updateLiveStatus = async (req, res) => {
       status: fresh?.status ?? status ?? null,
       disposition_due_at: fresh?.disposition_due_at ?? null,
       seconds_left: secondsLeft(fresh, Date.now()),
+      // The settle-in grace, if one is running. Informational only: it never
+      // touches idle, and the client's job is just to show it counting down so
+      // the FRO knows when the real window starts. settle_until comes back even
+      // once it has run out, which is what stops a spent grace from being granted
+      // a second time mid-session.
+      settle_until: fresh?.settle_until ?? null,
+      settle_seconds_left: settleSecondsLeft(fresh || {}, Date.now()),
       // Derived from the row, not from the status column. A client pushing
       // 'online' while its own deadline has lapsed must still read back as idle,
       // and outside the shift nothing reads idle at all.
@@ -4995,18 +5071,19 @@ export const getMyLiveStatus = async (req, res) => {
         if (stamped) row = { ...row, idle_since: row.disposition_due_at, status: 'idle' };
       }
     }
-    // The clock is NOT armed here. Signing in is not work, so handing out a
-    // 4-minute window on load meant the countdown started before the FRO had
-    // done anything — and the overlay that fires when it expires locked them out
-    // of the very screen they needed to record a disposition on. The window is
-    // now opened by the first logged action of the day (see createDonorLogHandler)
-    // and only ever re-armed by the server inside the shift.
+    // The clock is NOT armed here. This endpoint is read-only, and the panel
+    // hydrates a moment before the first heartbeat anyway — which is where the
+    // settle-in grace is granted and where the window arms itself once that grace
+    // has run out (see updateLiveStatus). Arming on load would mean a GET decided
+    // billing state. All this needs to do is report the grace truthfully so the
+    // countdown is correct the instant the panel paints.
     const due = row.disposition_due_at || null;
     const totalIdle = liveIdleSeconds(row, shift, nowMs);
     return res.json({
       ...row,
       disposition_due_at: due,
       seconds_left: secondsLeft({ disposition_due_at: due }, nowMs),
+      settle_seconds_left: settleSecondsLeft(row, nowMs),
       in_shift: withinShift(shift, nowMs),
       today_idle_seconds: totalIdle,
       idle_seconds_total: totalIdle,
@@ -5136,7 +5213,15 @@ export const getLiveStatuses = async (req, res) => {
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
       const dataUsed = stats.contacted + stats.donation_collected;
-      const talkSeconds = ls.today_talk_seconds || 0;
+      // Talk and Calls are "today" counters on the same row, so a row nobody has
+      // logged into since yesterday is still holding yesterday's figures. liveIdleSeconds
+      // now drops the idle half of that; these two need the same treatment or the
+      // board mixes a stale idle with a stale talk time and the productivity share
+      // is computed from two different days. Read-only: the rollover belongs to the
+      // write paths, and an admin refreshing a page must not reset anyone's ledger.
+      const staleDay = isCounterDayStale(ls, nowMs);
+      const talkSeconds = staleDay ? 0 : (ls.today_talk_seconds || 0);
+      const callCount = staleDay ? 0 : (ls.today_calls || 0);
       const productivity = talkSeconds > 0 ? 100 : null;
 
       const coverers = (coversByTarget.get(String(ls.worker_id)) || [])
@@ -5203,7 +5288,7 @@ export const getLiveStatuses = async (req, res) => {
           department: ls.workers?.department || '',
         },
         performance: {
-          today_calls: ls.today_calls || 0,
+          today_calls: callCount,
           today_talk_seconds: talkSeconds,
           today_idle_seconds: idleSeconds,
           idle_minutes: Math.floor(idleSeconds / 60),

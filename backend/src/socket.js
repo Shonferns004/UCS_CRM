@@ -81,6 +81,12 @@ export function initRealtime(server) {
     // heartbeat timer needed. Multi-tab = multiple socket ids, one entry.
     trackPresence(socket);
 
+    // Award ceremony voting: every logged-in employee needs "your turn is open"
+    // and "the ceremony just started" pushes, but the payloads carry no ballot
+    // detail - only counts and state. One shared room is correct here, and is
+    // deliberately NOT a db:change broadcast.
+    socket.join('voting');
+
     // Community Chat: join one room per conversation this identity participates
     // in, so typing frames reach the right people. A direct conversation is only
     // ever joined by its two participants, so a read-only role structurally
