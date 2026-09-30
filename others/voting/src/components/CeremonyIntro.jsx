@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { accentFor } from '../helpers'
+import { useEffect, useState } from 'react'
+import trophyUrl from '../assets/images/transparent.png'
+
+// The trophy composition (cup + star + laurel + pedestal) as a single
+// transparent PNG. Used verbatim - never stretched, cropped or rebuilt from
+// separate icons - so the aspect ratio below is the contract with the artwork.
+const TROPHY_ASPECT = 1536 / 1024
 
 // Deterministic pseudo-random from a seed, so the sparkle field is stable across
 // re-renders instead of jumping every time the component re-mounts.
@@ -8,18 +13,68 @@ function seeded(i) {
   return x - Math.floor(x)
 }
 
-const SPARKLES = Array.from({ length: 26 }, (_, i) => ({
-  left: `${4 + seeded(i) * 92}%`,
-  bottom: `${-10 + seeded(i + 50) * 40}%`,
-  delay: `${seeded(i + 100) * 6}s`,
-  duration: `${5 + seeded(i + 150) * 5}s`,
-  size: 2 + seeded(i + 200) * 2,
-}))
+// Restrained on purpose: a few warm gold points low in the frame and a handful
+// of dim white ones higher up. Enough to read as atmosphere, not as confetti.
+const SPARKLES = Array.from({ length: 18 }, (_, i) => {
+  const gold = i < 11
+  return {
+    left: `${5 + seeded(i) * 90}%`,
+    top: `${8 + seeded(i + 50) * 74}%`,
+    delay: `${(seeded(i + 100) * 7).toFixed(2)}s`,
+    duration: `${(6 + seeded(i + 150) * 5).toFixed(2)}s`,
+    size: gold ? 2 + seeded(i + 200) * 2 : 1.5 + seeded(i + 200) * 1.5,
+    gold,
+  }
+})
+
+const FEATURES = [
+  { icon: 'mask', title: 'Anonymous Voting', sub: 'Your identity is safe' },
+  { icon: 'ballot', title: 'One Vote Per Department', sub: 'Fair and transparent' },
+  { icon: 'shield', title: 'Secure & Reliable', sub: 'Powered by UCS' },
+]
+
+/** Small gold outline marks for the feature row. Decorative only. */
+function FeatureIcon({ name }) {
+  const common = {
+    width: 26,
+    height: 26,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.6,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+    focusable: 'false',
+  }
+  if (name === 'mask') {
+    return (
+      <svg {...common}>
+        <path d="M3 7c3-1.6 5-1.6 8 0 3-1.6 5-1.6 8 0v4c0 5-3.6 8-8 9-4.4-1-8-4-8-9V7Z" />
+        <path d="M3.6 12.5c2.2 1 4 1 5.6.2M20.4 12.5c-2.2 1-4 1-5.6.2" />
+      </svg>
+    )
+  }
+  if (name === 'ballot') {
+    return (
+      <svg {...common}>
+        <path d="M6 3h9l4 4v14H6z" />
+        <path d="M15 3v4h4" />
+        <path d="M9.5 12.5l1.8 1.8 3.4-3.6" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...common}>
+      <path d="M12 3l7 3v6c0 4.4-2.9 7.9-7 9-4.1-1.1-7-4.6-7-9V6l7-3Z" />
+      <path d="M9.4 12.2l1.9 1.9 3.5-3.8" />
+    </svg>
+  )
+}
 
 /** Runs the ceremony and hands control back to the app when it is dismissed. */
-export default function CeremonyIntro({ session, department, onDone }) {
+export default function CeremonyIntro({ session, onDone }) {
   const [leaving, setLeaving] = useState(false)
-  const accent = useMemo(() => accentFor(department?.order_index ?? 0), [department?.order_index])
 
   function finish() {
     setLeaving(true)
@@ -40,74 +95,106 @@ export default function CeremonyIntro({ session, department, onDone }) {
   }, [])
 
   return (
-    <div className={`intro${leaving ? ' leaving' : ''}`} role="dialog" aria-label="Award ceremony">
-      <button className="intro-skip" onClick={finish}>
-        Skip
-      </button>
-
-      <div className="spot left" aria-hidden="true" />
-      <div className="spot right" aria-hidden="true" />
-      {SPARKLES.map((s, i) => (
-        <span
-          key={i}
-          className="spark"
-          aria-hidden="true"
-          style={{ left: s.left, bottom: s.bottom, animationDelay: s.delay, animationDuration: s.duration, width: s.size, height: s.size }}
-        />
-      ))}
-
-      <div className="trophy" aria-hidden="true">
-        <div className="shine" />
-        <svg viewBox="0 0 100 122" fill="none">
-          <defs>
-            <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#f6dc9a" />
-              <stop offset="45%" stopColor="#e8b64c" />
-              <stop offset="100%" stopColor="#a9781f" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M32 16h36v20c0 15-8 24-18 24s-18-9-18-24V16Z"
-            fill="url(#gold)"
-            stroke="#8a6218"
-            strokeWidth="1.6"
-          />
-          <path d="M32 20H20a12 12 0 0 0 12 18" stroke="url(#gold)" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <path d="M68 20h12a12 12 0 0 1-12 18" stroke="url(#gold)" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <rect x="46" y="60" width="8" height="18" fill="url(#gold)" />
-          <rect x="32" y="78" width="36" height="9" rx="2.5" fill="url(#gold)" stroke="#8a6218" strokeWidth="1.4" />
-          <rect x="24" y="87" width="52" height="11" rx="3" fill="url(#gold)" stroke="#8a6218" strokeWidth="1.4" />
-          <path d="M42 24l3.4 6.9 7.6 1.1-5.5 5.4 1.3 7.6-6.8-3.6-6.8 3.6 1.3-7.6-5.5-5.4 7.6-1.1L42 24Z" fill="#fff8e6" opacity="0.85" />
-        </svg>
-      </div>
-
-      <div className="intro-kicker">Award Ceremony</div>
-      <h1 className="intro-title">{session?.title || 'Celebrating our stars'}</h1>
-      {session?.tagline && <p className="intro-tagline">{session.tagline}</p>}
-
-      {department && (
-        <div className="turn-badge">
-          <span
-            className="pip"
-            style={{ background: `hsl(${accent.hue} 78% 62%)` }}
-          >
-            {department.order_index + 1}
+    <div className={`intro${leaving ? ' leaving' : ''}`}   role="dialog" aria-modal="true" aria-label="Award ceremony">
+      {/* ── top navigation ─────────────────────────────────────────────── */}
+      <header className="intro-bar">
+        <div className="intro-brand">
+          <span className="intro-mark" aria-hidden="true">
+            U
           </span>
-          <span>
-            <span className="lbl">Voting is now open for</span>
-            <br />
-            <span className="who">{department.name}</span>
+          <span className="intro-names">
+            <span className="intro-app-title">Award Ceremony Voting</span>
+            <span className="intro-app-sub">Every vote is anonymous</span>
           </span>
         </div>
-      )}
-
-      <p className="intro-status">Choose one person from each department. Your vote is anonymous.</p>
-
-      <div className="intro-actions">
-        <button className="btn btn-gold" onClick={finish}>
-          {department ? 'Go to my ballot' : 'Enter'}
+        <button className="intro-skip" onClick={finish}>
+          Skip
         </button>
-      </div>
+      </header>
+
+      {/* ── hero ────────────────────────────────────────────────────────── */}
+      <main className="intro-hero">
+        {/* Decorative atmosphere: hidden from assistive tech, stilled under
+            prefers-reduced-motion. */}
+        <div className="spot left" aria-hidden="true" />
+        <div className="spot right" aria-hidden="true" />
+        <div className="corners" aria-hidden="true">
+          <span className="corner left" />
+          <span className="corner right" />
+        </div>
+        {SPARKLES.map((s, i) => (
+          <span
+            key={i}
+            className={`spark${s.gold ? ' gold' : ''}`}
+            aria-hidden="true"
+            style={{
+              left: s.left,
+              top: s.top,
+              animationDelay: s.delay,
+              animationDuration: s.duration,
+              width: s.size,
+              height: s.size,
+            }}
+          />
+        ))}
+
+        <div className="intro-content">
+          <div className="trophy">
+            <div className="trophy-halo" aria-hidden="true" />
+            <img
+              src={trophyUrl}
+              alt=""
+              width="1536"
+              height="1024"
+              /* Reserves the box before the 1.7 MB PNG decodes, so nothing shifts. */
+              style={{ aspectRatio: TROPHY_ASPECT }}
+              fetchPriority="high"
+              decoding="async"
+              draggable="false"
+            />
+          </div>
+
+          <p className="intro-eyebrow">Monthly</p>
+          <h1 className="intro-title">
+            Award <span className="gold-word">Ceremony</span>
+          </h1>
+          <p className="intro-copy">
+            {session?.tagline || 'Recognising the people who made the difference this month.'}
+          </p>
+
+          <ul className="features">
+            {FEATURES.map((f) => (
+              <li key={f.title} className="feature">
+                <span className="feature-icon">
+                  <FeatureIcon name={f.icon} />
+                </span>
+                <span className="feature-title">{f.title}</span>
+                <span className="feature-sub">{f.sub}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="intro-actions">
+            <button className="intro-enter" onClick={finish}>
+              Enter
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M5 12h13M12.5 6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </main>
     </div>
   )
 }
