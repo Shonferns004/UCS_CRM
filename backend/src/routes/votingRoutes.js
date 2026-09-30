@@ -22,8 +22,8 @@ import { authenticate, authenticateRole } from '../middleware/authMiddleware.js'
 
 const router = Router();
 
-// Every employee votes through their own department's turn. The ballot rows
-// carry no voter identity, but the endpoints that read them are still gated.
+// Every employee votes in every department. The ballot rows carry no voter
+// identity, but the endpoints that read them are still gated.
 const ANY_AUTH = authenticate;
 
 // HR runs the ceremony. `admin` covers the NGO Admin / accounts staff who are
@@ -52,7 +52,9 @@ router.post('/sessions', canManage, startSession);
 router.get('/sessions/:id/board', canManage, getBoard);
 router.get('/sessions/:id/audit', canManage, getSessionAudit);
 router.get('/sessions/:id/turns/:deptId/progress', canManage, getTurnProgress);
-router.post('/sessions/:id/turns/:deptId/open', canManage, openTurn);
+// One action opens every department's ballot at once; closing a single one is
+// only for the odd group with nobody on it.
+router.post('/sessions/:id/start', canManage, openTurn);
 router.post('/sessions/:id/turns/:deptId/close', canManage, closeTurn);
 router.post('/sessions/:id/complete', canManage, completeSession);
 

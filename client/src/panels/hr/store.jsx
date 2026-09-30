@@ -30,7 +30,7 @@ export function useHR() {
     fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport, fetchNgoSalaryReportFallback,
     fetchSalaryHold, setSalaryHold, releaseSalaryHold,
     fetchVotingDepartments, fetchVotingDepartment, saveVotingDepartment, saveVotingMembers, searchVotingWorkers,
-    fetchVotingSessions, createVotingSession, fetchVotingBoard, openVotingTurn, closeVotingTurn, completeVotingSession,
+    fetchVotingSessions, createVotingSession, fetchVotingBoard, startVotingSession, closeVotingTurn, completeVotingSession,
   }
 }
 
@@ -196,7 +196,9 @@ export const searchVotingWorkers = (q) => apiGet('/voting/workers?q=' + encodeUR
 export const fetchVotingSessions = () => apiGet('/voting/sessions');
 export const createVotingSession = (body) => apiPost('/voting/sessions', body);
 export const fetchVotingBoard = (sessionId) => apiGet('/voting/sessions/' + sessionId + '/board');
-export const openVotingTurn = (sessionId, deptId, minutes) =>
-  apiPost('/voting/sessions/' + sessionId + '/turns/' + deptId + '/open', { minutes });
+// One action opens every department's ballot at once — there is no running
+// order, every employee votes in every department.
+export const startVotingSession = (sessionId, minutes) =>
+  apiPost('/voting/sessions/' + sessionId + '/start', { minutes });
 export const closeVotingTurn = (sessionId, deptId) => apiPost('/voting/sessions/' + sessionId + '/turns/' + deptId + '/close');
 export const completeVotingSession = (sessionId) => apiPost('/voting/sessions/' + sessionId + '/complete');

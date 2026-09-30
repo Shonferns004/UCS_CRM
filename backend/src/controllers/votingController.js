@@ -7,7 +7,7 @@ import {
   searchWorkers,
   getDepartmentRoster,
   getAllRosters,
-  findVoterDepartment,
+  countEligibleVoters,
   getWorkerByLoginId,
   createSession,
   listSessions,
@@ -17,18 +17,18 @@ import {
   getPublicStatus,
   listTurns,
   getTurn,
-  getOpenTurn,
-  openTurn as openTurnModel,
+  openAllTurns,
+  closeAllTurns,
   closeTurn as closeTurnModel,
   updateSession,
   getBallot,
+  getVotedTurnIds,
   insertBallot,
   tallyResults,
   countBallotsForTurn,
   addAudit,
   listAudit,
   hashVoterKey,
-  pickNextTurn,
 } from '../models/votingModel.js';
 import { emitRealtime } from '../socket.js';
 
@@ -130,8 +130,12 @@ export const getStatus = async (req, res) => {
 
 /**
  * Everything a voter needs to know where they stand, in one call.
- * Deliberately carries no vote counts and no other department's detail — a
- * ballot is anonymous and this is the endpoint every voter can call.
+ *
+ * There is no "your turn" any more. Every department's ballot is open for the
+ * whole ceremony and every employee may vote in every department, so this
+ * returns the list of ballots with one flag each — have I voted here yet — and
+ * nothing else. Deliberately no vote counts and no nominee detail: that would
+ * either leak the running result or be wasted work on the grid.
  */
 export const getCeremony = async (req, res) => {
   try {
@@ -169,18 +173,35 @@ export const getCeremony = async (req, res) => {
       return res.json(withServerNow({ session: null, state: 'no_ceremony', department: null, turn: null }));
     }
 
-    const membership = await findVoterDepartment(worker);
-    const depts = await listDepartments();
-    const turns = await listTurns(session.id);
-    const myTurn = membership ? turns.find((t) => Number(t.department_id) === Number(membership.dept.id)) : null;
-    const voted = myTurn ? await getBallot(myTurn.id, hashVoterKey(myTurn.id, req.user.login_id)) : null;
+    const [depts, turns] = await Promise.all([listDepartments(), listTurns(session.id)]);
+    const votedTurnIds = await getVotedTurnIds(
+      turns.map((t) => t.id),
+      req.user.login_id,
+    );
+    const now = new Date();
+    const live = session.status === 'live';
 
-    let state = 'waiting';
-    if (!membership) state = 'not_in_ceremony';
-    else if (voted) state = 'voted';
-    else if (myTurn?.status === 'closed') state = 'missed';
-    else if (isTurnLive(myTurn)) state = 'voting';
-    else if (session.status !== 'live') state = 'not_started';
+    // Every open ballot shares one window, so any of their closes_at is the
+    // ceremony's deadline. Fall back to the earliest so an odd row cannot make
+    // the countdown jump around.
+    const closesAt =
+      turns
+        .filter((t) => isTurnLive(t, now))
+        .map((t) => t.closes_at)
+        .sort()[0] || null;
+
+    const departments = depts.map((d) => {
+      const t = turns.find((x) => Number(x.department_id) === Number(d.id)) || null;
+      const open = live && isTurnLive(t, now);
+      return {
+        id: d.id,
+        name: d.name,
+        order_index: d.order_index,
+        open,
+        voted: !!t && votedTurnIds.has(Number(t.id)),
+        closes_at: t?.closes_at || null,
+      };
+    });
 
     return res.json(
       withServerNow({
@@ -192,33 +213,14 @@ export const getCeremony = async (req, res) => {
           status: session.status,
           turn_minutes: session.turn_minutes,
           started_at: session.started_at,
+          closes_at: closesAt,
         },
-        state,
-        department: membership ? shapeDepartment(membership.dept) : null,
-        roster_size: membership ? membership.members.length : 0,
-        turn: myTurn
-          ? {
-              id: myTurn.id,
-              status: isTurnLive(myTurn) ? 'open' : myTurn.status === 'open' ? 'expired' : myTurn.status,
-              opens_at: myTurn.opens_at,
-              closes_at: myTurn.closes_at,
-            }
-          : null,
-        already_voted: !!voted,
-        // Turn state per group so a voter can see who is up before them. State
-        // only — no vote counts, which stay on the HR board.
-        departments: depts.map((d) => {
-          const t = turns.find((x) => Number(x.department_id) === Number(d.id));
-          return {
-            id: d.id,
-            name: d.name,
-            order_index: d.order_index,
-            turn_status: t
-              ? isTurnLive(t) ? 'open' : t.status === 'open' ? 'expired' : t.status
-              : 'pending',
-            closes_at: t?.closes_at || null,
-          };
-        }),
+        state: live ? 'voting' : 'not_started',
+        closes_at: closesAt,
+        department: null,
+        turn: null,
+        already_voted: departments.length > 0 && departments.every((d) => d.voted),
+        departments,
       }),
     );
   } catch (error) {
@@ -226,7 +228,31 @@ export const getCeremony = async (req, res) => {
   }
 };
 
-/** The nominee list for the caller, only while their own turn is genuinely open. */
+/**
+ * Resolve the department whose ballot is being voted on.
+ *
+ * Any department in the ceremony is fair game for any signed-in employee, so
+ * this is a lookup rather than a membership test. The only gate is that the
+ * ballot is genuinely open right now.
+ */
+const resolveOpenBallot = async (session, departmentId, worker) => {
+  const dept = await getDepartment(departmentId);
+  if (!dept) return { error: { status: 404, message: 'That department is not in this ceremony' } };
+
+  const turn = await getTurn(session.id, dept.id);
+  if (!isTurnLive(turn)) {
+    return { error: { status: 409, message: 'Voting is not open right now' } };
+  }
+
+  const members = await getDepartmentRoster(dept);
+  const nominees = members
+    .filter((m) => session.allow_self_vote || String(m.id) !== String(worker.id))
+    .map((m) => ({ id: m.id, name: m.name, employee_id: m.employee_id, department: m.department, team: m.team, photo_url: m.photo_url }));
+
+  return { dept, turn, members, nominees };
+};
+
+/** The nominee list for one department's ballot, only while that ballot is open. */
 export const getMyBallot = async (req, res) => {
   try {
     const worker = await requireWorker(req, res);
@@ -235,24 +261,16 @@ export const getMyBallot = async (req, res) => {
     const session = await getActiveSession();
     if (!session) return res.status(404).json({ message: 'There is no ceremony running right now' });
 
-    const membership = await findVoterDepartment(worker);
-    if (!membership) {
-      return res.status(403).json({ message: 'Your department is not part of this ceremony' });
-    }
+    const departmentId = String(req.query?.department_id || '').trim();
+    if (!departmentId) return res.status(400).json({ message: 'Which department?' });
 
-    const turn = await getTurn(session.id, membership.dept.id);
-    if (!isTurnLive(turn)) {
-      return res.status(409).json({ message: 'Voting is not open for your department' });
-    }
-
-    const nominees = membership.members
-      .filter((m) => session.allow_self_vote || String(m.id) !== String(worker.id))
-      .map((m) => ({ id: m.id, name: m.name, employee_id: m.employee_id, department: m.department, team: m.team, photo_url: m.photo_url }));
+    const { error, dept, turn, nominees } = await resolveOpenBallot(session, departmentId, worker);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     return res.json(
       withServerNow({
         session: { id: session.id, title: session.title, award_label: session.award_label },
-        department: shapeDepartment(membership.dept),
+        department: shapeDepartment(dept),
         turn: { id: turn.id, closes_at: turn.closes_at },
         nominees,
       }),
@@ -263,7 +281,7 @@ export const getMyBallot = async (req, res) => {
 };
 
 /**
- * Cast one vote.
+ * Cast one vote, in one department's ballot.
  *
  * The response is a bare confirmation — it deliberately does not echo the
  * nominee back, so a shared screen cannot reveal what anyone picked.
@@ -276,32 +294,30 @@ export const castVote = async (req, res) => {
     const nomineeId = String(req.body?.nominee_id || '').trim();
     if (!nomineeId) return res.status(400).json({ message: 'Please select one person' });
 
+    const departmentId = String(req.body?.department_id || '').trim();
+    if (!departmentId) return res.status(400).json({ message: 'Which department?' });
+
     const session = await getActiveSession();
     if (!session) return res.status(404).json({ message: 'There is no ceremony running right now' });
 
-    const membership = await findVoterDepartment(worker);
-    if (!membership) return res.status(403).json({ message: 'Your department is not part of this ceremony' });
+    const { error, dept, turn, members } = await resolveOpenBallot(session, departmentId, worker);
+    if (error) return res.status(error.status).json({ message: error.message });
 
-    const turn = await getTurn(session.id, membership.dept.id);
-    if (!isTurnLive(turn)) return res.status(409).json({ message: 'Voting is not open for your department' });
-
-    const nominees = membership.members.filter(
-      (m) => session.allow_self_vote || String(m.id) !== String(worker.id),
-    );
-    if (!nominees.some((m) => String(m.id) === nomineeId)) {
-      return res.status(400).json({ message: 'That person is not on your department ballot' });
+    const allowed = members.filter((m) => session.allow_self_vote || String(m.id) !== String(worker.id));
+    if (!allowed.some((m) => String(m.id) === nomineeId)) {
+      return res.status(400).json({ message: 'That person is not on this department’s ballot' });
     }
 
     const voterHash = hashVoterKey(turn.id, req.user.login_id);
     if (await getBallot(turn.id, voterHash)) {
-      return res.status(409).json({ message: 'You have already voted' });
+      return res.status(409).json({ message: 'You have already voted in this department' });
     }
 
     try {
       await insertBallot({
         session_id: session.id,
         turn_id: turn.id,
-        department_id: membership.dept.id,
+        department_id: dept.id,
         nominee_id: nomineeId,
         voter_hash: voterHash,
       });
@@ -309,12 +325,12 @@ export const castVote = async (req, res) => {
       // 23505 = unique_violation. Two taps, or two tabs, raced each other past
       // the check above. The constraint is the real guarantee, so report it as
       // "already voted" rather than a server error.
-      if (e?.code === '23505') return res.status(409).json({ message: 'You have already voted' });
+      if (e?.code === '23505') return res.status(409).json({ message: 'You have already voted in this department' });
       throw e;
     }
 
-    await addAudit(session.id, 'vote_cast', null, { department_id: membership.dept.id });
-    broadcast(session.id, 'vote_cast', { department_id: membership.dept.id });
+    await addAudit(session.id, 'vote_cast', null, { department_id: dept.id });
+    broadcast(session.id, 'vote_cast', { department_id: dept.id });
 
     return res.status(201).json({ message: 'Your vote has been recorded', server_now: new Date().toISOString() });
   } catch (error) {
@@ -402,11 +418,11 @@ export const startSession = async (req, res) => {
 };
 
 /**
- * Open the next turn.
+ * Start the ceremony: open every department's ballot at once.
  *
- * The order is enforced, not advisory: the target must be the first still-pending
- * turn in ceremony order, and no other turn may be open. That is what makes the
- * ceremony strictly one department at a time rather than six simultaneous races.
+ * There is no running order any more. All six ballots share one window, every
+ * employee may vote in all six, and nobody waits for anybody — so "start" is a
+ * single action rather than six.
  */
 export const openTurn = async (req, res) => {
   try {
@@ -414,49 +430,21 @@ export const openTurn = async (req, res) => {
     if (!session) return res.status(404).json({ message: 'Ceremony not found' });
     if (session.status === 'completed') return res.status(409).json({ message: 'This ceremony has already finished' });
 
-    const alreadyOpen = await getOpenTurn(session.id);
-    if (alreadyOpen) {
-      return res.status(409).json({ message: 'Another department is voting right now. Close it first.' });
-    }
-
-    const turns = await listTurns(session.id);
-    // Strictly the head of the queue. Anything else would let HR run the
-    // departments out of order, which is the one thing the ceremony cannot do.
-    const next = pickNextTurn(turns);
-    if (!next) return res.status(409).json({ message: 'Every department has already voted' });
-
-    if (Number(next.department_id) !== Number(req.params.deptId)) {
-      return res.status(409).json({
-        message: `Not yet — department #${next.order_index + 1} votes first.`,
-        expected_department_id: next.department_id,
-      });
-    }
-
     const minutes = Math.min(Math.max(Number(req.body?.minutes) || session.turn_minutes || 5, 1), 120);
-    const turn = await openTurnModel({
-      sessionId: session.id,
-      departmentId: next.department_id,
-      minutes,
-      actor: actorOf(req),
-    });
+    const turns = await openAllTurns({ sessionId: session.id, minutes, actor: actorOf(req) });
 
-    await updateSession(session.id, {
-      status: 'live',
-      current_department_id: next.department_id,
-      started_at: session.started_at || new Date().toISOString(),
-    });
-    await addAudit(session.id, 'turn_opened', actorOf(req), { department_id: next.department_id, minutes });
-    broadcast(session.id, 'turn_opened', { department_id: next.department_id });
+    await addAudit(session.id, 'ceremony_started', actorOf(req), { minutes, departments: turns.length });
+    broadcast(session.id, 'ceremony_started', { minutes });
 
-    return res.json({ message: 'Voting is now open', turn });
+    return res.json({ message: 'Voting is now open in every department', turns, minutes });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
 
 /**
- * Close a turn. Closing a turn that never opened is how HR skips a department
- * (for example one with nobody on the roster) without breaking the order.
+ * Close one department's ballot early — for example a group with nobody on it.
+ * The rest of the ceremony carries on; use Finish to end the whole thing.
  */
 export const closeTurn = async (req, res) => {
   try {
@@ -467,54 +455,42 @@ export const closeTurn = async (req, res) => {
     if (!turn) return res.status(404).json({ message: 'That department is not in this ceremony' });
     if (turn.status === 'closed') return res.status(409).json({ message: 'That department is already closed' });
 
-    const skipped = turn.status === 'pending';
-    if (skipped) {
-      // Skipping is only allowed at the head, otherwise the running order
-      // quietly stops being the order everyone was told to expect.
-      const turns = await listTurns(session.id);
-      const next = pickNextTurn(turns);
-      if (next && Number(next.department_id) !== Number(turn.department_id)) {
-        return res.status(409).json({
-          message: `Not yet — department #${next.order_index + 1} comes first.`,
-          expected_department_id: next.department_id,
-        });
-      }
-    }
-
     await closeTurnModel({ sessionId: session.id, departmentId: turn.department_id, actor: actorOf(req) });
 
-    // Leaving the session pointing at a finished turn makes the waiting room
-    // tell voters the wrong department is on, so clear it.
-    if (Number(session.current_department_id) === Number(turn.department_id)) {
-      await updateSession(session.id, { current_department_id: null });
-    }
-
-    await addAudit(session.id, skipped ? 'turn_skipped' : 'turn_closed', actorOf(req), { department_id: turn.department_id });
+    await addAudit(session.id, 'turn_closed', actorOf(req), { department_id: turn.department_id });
     broadcast(session.id, 'turn_closed', { department_id: turn.department_id });
 
-    return res.json({ message: skipped ? 'Department skipped' : 'Voting closed' });
+    return res.json({ message: 'Voting closed' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
 
+/**
+ * Finish the ceremony.
+ *
+ * Shuts every still-open ballot and marks the session complete, which is what
+ * flips the booth to the results reveal. This used to refuse while any turn was
+ * open, which made the button impossible to use — closing the ballots is the
+ * obvious part of finishing, not a prerequisite for it.
+ */
 export const completeSession = async (req, res) => {
   try {
     const session = await getSession(req.params.id);
     if (!session) return res.status(404).json({ message: 'Ceremony not found' });
+    if (session.status === 'completed') return res.status(409).json({ message: 'This ceremony has already finished' });
 
-    const open = await getOpenTurn(session.id);
-    if (open) return res.status(409).json({ message: 'Close the open turn before finishing' });
+    const closed = await closeAllTurns({ sessionId: session.id, actor: actorOf(req) });
 
     await updateSession(session.id, {
       status: 'completed',
       completed_at: new Date().toISOString(),
       current_department_id: null,
     });
-    await addAudit(session.id, 'ceremony_completed', actorOf(req));
+    await addAudit(session.id, 'ceremony_completed', actorOf(req), { closed_turns: closed.length });
     broadcast(session.id, 'ceremony_completed');
 
-    return res.json({ message: 'Ceremony complete' });
+    return res.json({ message: 'Ceremony complete — results are now showing on the booths', closed_turns: closed.length });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -531,7 +507,7 @@ export const getBoard = async (req, res) => {
 
     const rosters = await getAllRosters();
     const turns = await listTurns(session.id);
-    const tally = await tallyResults(session.id);
+    const [tally, eligibleVoters] = await Promise.all([tallyResults(session.id), countEligibleVoters()]);
     const now = new Date();
 
     const departments = rosters.map((d) => {
@@ -548,7 +524,11 @@ export const getBoard = async (req, res) => {
         closes_at: turn?.closes_at || null,
         votes_cast: votes,
         ballots: votes,
-        eligible: d.members.length,
+        // Every employee may vote in every department, so the denominator for
+        // "x of y voted" is the whole company. `candidates` is how many names
+        // are on this department's ballot.
+        eligible: eligibleVoters,
+        candidates: d.members.length,
         results: rows.map((r) => ({
           nominee_id: r.nominee_id,
           name: r.nominee_name,

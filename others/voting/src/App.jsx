@@ -6,8 +6,8 @@ import { introSeenFor, markIntroSeen } from './helpers'
 import Login from './components/Login'
 import CeremonyIntro from './components/CeremonyIntro'
 import WaitingRoom from './components/WaitingRoom'
+import DepartmentGrid from './components/DepartmentGrid'
 import Ballot from './components/Ballot'
-import VoteSuccess from './components/VoteSuccess'
 import Results from './components/Results'
 import ToastContainer from './components/Toast'
 
@@ -22,6 +22,8 @@ export default function App() {
   const [loading, setLoading] = useState(isAuthed)
   const [error, setError] = useState('')
   const [intro, setIntro] = useState(null)
+  // Which department's ballot is open, if any. null means the grid is showing.
+  const [activeDept, setActiveDept] = useState(null)
 
   // Kept in a ref so the poll and the socket handler always call the latest
   // version without re-subscribing on every render.
@@ -72,27 +74,35 @@ export default function App() {
 
   const state = ceremony?.state
   const session = ceremony?.session
-  const department = ceremony?.department
-  const turn = ceremony?.turn
+  const departments = ceremony?.departments || []
 
-  // The intro plays when the ceremony opens and again when this person's turn
-  // opens. Keyed on the turn (falling back to the session) and remembered, so a
-  // refresh mid-vote does not throw someone back to the ceremony. `introSeenFor`
-  // is per-key, so a later department's turn still gets its own intro.
-  const introKey =
-    state === 'voting' && turn?.id ? `turn-${turn.id}` : session?.id ? `session-${session.id}` : null
+  // The intro plays once, when the ceremony opens. There is no per-department
+  // turn any more, so there is nothing to replay it for.
+  const introKey = session?.id ? `session-${session.id}` : null
 
   useEffect(() => {
     if (!session || session.status !== 'live' || !introKey) return
     if (intro) return
     if (introSeenFor(introKey)) return
-    setIntro({ key: introKey, session, department })
+    setIntro({ key: introKey, session, department: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [introKey, session?.status])
 
   function closeIntro() {
     if (intro) markIntroSeen(intro.key)
     setIntro(null)
+  }
+
+  // Clicking a department opens its ballot. Voting in one drops the voter
+  // straight into the next department they have not voted in yet, so the whole
+  // ceremony is tap, pick, submit, repeat.
+  function openBallot(dept) {
+    setActiveDept(dept)
+  }
+
+  function advanceAfterVote() {
+    const next = (ceremony?.departments || []).find((d) => !d.voted && d.open)
+    setActiveDept(next || null)
   }
 
   if (!isAuthed) {
@@ -144,10 +154,17 @@ export default function App() {
             </div>
           ) : state === 'results' ? (
             <Results ceremony={ceremony} />
-          ) : state === 'voted' ? (
-            <VoteSuccess ceremony={ceremony} />
           ) : state === 'voting' ? (
-            <Ballot onVoted={refresh} />
+            activeDept ? (
+              <Ballot
+                key={activeDept.id}
+                department={activeDept}
+                onDone={advanceAfterVote}
+                onBack={() => setActiveDept(null)}
+              />
+            ) : (
+              <DepartmentGrid ceremony={ceremony} onVote={openBallot} />
+            )
           ) : (
             <WaitingRoom ceremony={ceremony} state={state} />
           )}

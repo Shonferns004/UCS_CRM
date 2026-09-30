@@ -98,25 +98,25 @@ export const fetchStatus = () => get('/voting/status')
 // ── voter ─────────────────────────────────────────────────────────────────
 
 export const fetchCeremony = () => get('/voting/ceremony')
-export const fetchBallot = () => get('/voting/ballot')
+export const fetchBallot = (departmentId) => get(`/voting/ballot?department_id=${encodeURIComponent(departmentId)}`)
 
 /**
- * Cast a vote. The server's reply deliberately does not echo the nominee, so
- * nothing here can reveal the choice to someone looking over a shoulder.
+ * Cast a vote in one department's ballot. The server's reply deliberately does
+ * not echo the nominee, so nothing here can reveal the choice to someone looking
+ * over a shoulder.
  */
-export const castVote = (nomineeId) => post('/voting/ballot', { nominee_id: nomineeId })
+export const castVote = (departmentId, nomineeId) =>
+  post('/voting/ballot', { department_id: departmentId, nominee_id: nomineeId })
 
 // ── ceremony control (used by the HR panel; exposed here for the results view) ──
 
 export const fetchBoard = (sessionId) => get(`/voting/sessions/${sessionId}/board`)
-export const listDepartments = () => get('/voting/departments')
 export const inspectDepartment = (id) => get(`/voting/departments/${id}`)
 export const saveDepartment = (id, patch) => put(`/voting/departments/${id}`, patch)
 export const saveDepartmentMembers = (id, body) => put(`/voting/departments/${id}/members`, body)
 export const searchWorkers = (q) => get(`/voting/workers?q=${encodeURIComponent(q || '')}`)
 export const listSessions = () => get('/voting/sessions')
 export const createSession = (body) => post('/voting/sessions', body)
-export const openTurn = (sessionId, deptId, minutes) =>
-  post(`/voting/sessions/${sessionId}/turns/${deptId}/open`, { minutes })
+export const startSession = (sessionId, minutes) => post(`/voting/sessions/${sessionId}/start`, { minutes })
 export const closeTurn = (sessionId, deptId) => post(`/voting/sessions/${sessionId}/turns/${deptId}/close`)
 export const completeSession = (sessionId) => post(`/voting/sessions/${sessionId}/complete`)

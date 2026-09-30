@@ -310,6 +310,97 @@ p.lede { color: var(--muted); font-size: 14px; margin: 0 0 18px; line-height: 1.
 
 .center { text-align: center; }
 
+/* ── department grid (the whole voting flow) ──────────────────────────────── */
+
+.grid-timer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--gold-soft, hsl(42 70% 97%));
+  border: 1px solid var(--line);
+  margin: 18px 0 20px;
+}
+.grid-timer .countdown { font-size: 30px; }
+.grid-timer .eyebrow { margin-bottom: 2px; }
+
+.grid-progress { flex: 1; min-width: 180px; }
+.grid-progress-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-align: right;
+}
+.bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gold-deep, hsl(38 60% 45%));
+  transition: width 0.35s ease;
+}
+
+.dept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.dept-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 14px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--gold-deep);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.dept-tile:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+.dept-tile:disabled { cursor: default; }
+
+.dept-tile-name { font-weight: 800; font-size: 16px; line-height: 1.25; }
+.dept-tile-state {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gold-deep, hsl(38 60% 45%));
+}
+
+/* Already voted: ticked off, not a button any more. */
+.dept-tile.done {
+  background: hsl(150 40% 96%);
+  border-color: hsl(150 35% 82%);
+  border-top-color: hsl(150 40% 45%);
+}
+.dept-tile.done .dept-tile-state { color: hsl(150 45% 32%); }
+
+.ballot-foot {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  text-align: center;
+}
+.ballot-foot .hint { margin: 0; }
+
 /* ── results (end of ceremony) ──────────────────────────────────────────── */
 
 .results {
