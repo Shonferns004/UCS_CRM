@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useContext } from 'react';
 import { useHR, avatarColor, avatarTint, initials, DEPTS } from '../store';
 import { UcsContext } from '../../../store';
-import { deptLabel } from '../../../lib/labels';
+import { deptLabel, DOC_OPTIONS, OTHER_DOC } from '../../../lib/labels';
+import { parseDocumentsValue, joinDocumentLabels } from '../../../lib/documents';
 import { useTeams } from '../../../components/useTeams';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { api } from '../../../api/auth';
@@ -9,10 +10,11 @@ import usePasteImage from '../../../utils/usePasteImage';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
 import { API_BASE } from '../../../lib/apiBase';
+import { safeImgSrc, signatureSourceLabel, signatureStatusPill } from '../signatureUtils';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
-const DOC_OPTIONS = ['10th', '12th', 'Degree', 'Marriage Certificate', 'Voter ID', 'Others'];
+// DOC_OPTIONS now lives in lib/labels so the ODAR form shares the same list.
 
 // Per-person late policy mirrors backend/src/utils/latePolicy.js:
 // only the grace is stored per worker; half/full limits scale proportionally.
@@ -91,7 +93,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [holdBusy, setHoldBusy] = useState(false);
   const [docsBusy, setDocsBusy] = useState(false);
   const [docModal, setDocModal] = useState(false);
-  const [docValue, setDocValue] = useState('');
+  const [docValue, setDocValue] = useState([]);
+  const [docOther, setDocOther] = useState('');
   const [holdModal, setHoldModal] = useState(false);
   const [holdReason, setHoldReason] = useState('');
   const [currentTarget, setCurrentTarget] = useState(null);
@@ -274,15 +277,23 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     }
   };
 
+  // documents_value may be a JSON array (current) or a legacy single value, so
+  // it is always parsed rather than read directly.
   const openDocsModal = () => {
-    setDocValue(data.documents_value || '');
+    const parsed = parseDocumentsValue(data.documents_value, data.documents_other);
+    setDocValue(parsed.selected);
+    setDocOther(parsed.otherText);
     setDocModal(true);
   };
 
   const saveDocs = async () => {
     setDocsBusy(true);
     try {
-      await updateWorker(worker.id, { documents_value: docValue });
+      await updateWorker(worker.id, {
+        documents_value: JSON.stringify(docValue),
+        // Untick clears the name, matching the ODAR form and the backend.
+        documents_other: docValue.includes(OTHER_DOC) ? docOther : '',
+      });
       const fresh = await fetchWorkerById(worker.id);
       setData(fresh);
       setDocModal(false);
@@ -372,6 +383,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   if (!data) return <div className="empty">Volunteer not found.</div>;
 
   const color = avatarColor(data.name);
+
+  // 'signed' | 'draft' | null — the same normalisation the panel uses elsewhere,
+  // so a signature captured before migration 159 (status NULL) is not shown as
+  // a draft that still needs submitting.
+  const sigState = data.signature_url
+    ? ((data.signature_status || 'signed') === 'signed' ? 'signed' : 'draft')
+    : null;
+  const sigStatus = signatureStatusPill(data);
 
   const empAttendance = attendance.filter(a => a.worker_id === worker.id);
   const filteredAttendance = attStatus ? empAttendance.filter(a => a.status === attStatus) : empAttendance;
@@ -704,7 +723,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               <h3 style={{ marginTop:12, fontSize:17, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
                 {data.name}
                 {data.documents_submitted && (
-                  <span title={`Documents submitted: ${data.documents_value || 'Yes'}`} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
+                  <span title={`Documents submitted: ${joinDocumentLabels(parseDocumentsValue(data.documents_value, data.documents_other).selected, data.documents_other) || 'Yes'}`} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ display:'block' }}>
                       <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -741,7 +760,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
             <SideField label="Gender" value={data.gender || '\u2014'} />
             <SideField label="Date of Birth" value={data.dob || '\u2014'} />
             <SideField label="Joined" value={data.created_at ? new Date(data.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '\u2014'} />
-            <SideField label="Document Submitted" value={data.documents_value || '\u2014'} />
+            {/* Resolved so the profile never shows a raw JSON array string. */}
+            <SideField label="Documents Submitted" value={joinDocumentLabels(parseDocumentsValue(data.documents_value, data.documents_other).selected, data.documents_other) || '\u2014'} />
           </div>
           </div>
         </div>
@@ -842,6 +862,66 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
               </div>
 
               <Field label="Onboarding" value={data.onboarding_completed ? 'Completed' : 'Pending'} />
+
+              {/* The signature used to be invisible on the volunteer record, so
+                  HR had to generate a letter to discover whether one existed.
+                  Laid out like the rest of the panel: icon-led card head, status
+                  pill on the right, token-coloured image well, .empty fallback. */}
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="card-head">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+                        background: 'var(--sage-soft)', color: 'var(--sage)',
+                      }}
+                    >
+                      <Pencil width={17} />
+                    </span>
+                    <h3 style={{ margin: 0, fontSize: 15 }}>Signature</h3>
+                  </div>
+                  <span className={`pill ${sigStatus.cls}`}>{sigStatus.label}</span>
+                </div>
+                <div className="card-pad">
+                  {data.signature_url ? (
+                    <>
+                      <div
+                        style={{
+                          border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
+                          background: 'var(--sand)', padding: 14, minHeight: 76,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <img
+                          src={safeImgSrc(data.signature_url)}
+                          alt="Volunteer signature"
+                          style={{ maxHeight: 60, maxWidth: '100%', objectFit: 'contain' }}
+                        />
+                      </div>
+                      <div className="detail-grid" style={{ marginTop: 12 }}>
+                        <Field
+                          label="Captured via"
+                          value={signatureSourceLabel(data.signature_source) || 'Not recorded'}
+                        />
+                        <Field
+                          label="Signed on"
+                          value={data.signature_signed_at ? new Date(data.signature_signed_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not recorded'}
+                        />
+                      </div>
+                      {sigState === 'draft' && (
+                        <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-soft)' }}>
+                          Captured but not yet submitted. It stays out of printed forms until it is signed.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="empty" style={{ padding: 20 }}>
+                      No signature captured yet. Ask the volunteer to sign in the HR Form or the Online Form.
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {[data.aadhar_front_url, data.aadhar_back_url, data.pan_card_url, data.bank_proof_url, data.light_bill_url].some(Boolean) && (
                 <div className="card" style={{ marginTop:16 }}>
@@ -2489,17 +2569,45 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Documents Submitted</div>
             <div style={{ fontSize:12, color:'var(--ink-soft)', marginBottom:14 }}>
-              {data?.name || 'Volunteer'} — which document has been submitted?
+              {data?.name || 'Volunteer'} — which documents have been submitted?
             </div>
             <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>
-              Document
+              Documents
             </div>
-            <Dropdown
-              value={docValue}
-              onChange={e => setDocValue(e.target.value)}
-              style={{ width:'100%' }}
-              options={[{ value:'', label:'None / Not submitted' }, ...DOC_OPTIONS.map(d => ({ value:d, label:d }))]}
-            />
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {DOC_OPTIONS.map(d => (
+                <label key={d} style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}>
+                  <input
+                    type="checkbox"
+                    style={{ width:14, height:14, margin:0, cursor:'pointer' }}
+                    checked={docValue.includes(d)}
+                    onChange={e => setDocValue(e.target.checked
+                      ? DOC_OPTIONS.filter(o => o === d || docValue.includes(o))
+                      : docValue.filter(o => o !== d))}
+                  />
+                  <span>{d}</span>
+                </label>
+              ))}
+            </div>
+            {docValue.includes(OTHER_DOC) && (
+              <div style={{ marginTop:12 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>
+                  Specify document
+                </div>
+                <input
+                  type="text"
+                  value={docOther}
+                  onChange={e => setDocOther(e.target.value)}
+                  placeholder="e.g. Passport"
+                  style={{ width:'100%', padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)' }}
+                />
+              </div>
+            )}
+            {docValue.length === 0 && (
+              <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:10 }}>
+                Nothing ticked — this is saved as not submitted.
+              </div>
+            )}
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:16 }}>
               <button className="btn btn-sm" onClick={() => setDocModal(false)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveDocs} disabled={docsBusy}>

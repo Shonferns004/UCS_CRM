@@ -88,6 +88,11 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
   if (details.family_details !== undefined) updates.family_details = details.family_details;
   if (details.reference_details !== undefined) updates.reference_details = details.reference_details;
   if (details.signature_url !== undefined) updates.signature_url = details.signature_url;
+  // The signature_status / _signed_at / _ip / _source / _policy_id columns are
+  // deliberately NOT accepted here. They are written only by
+  // saveSignatureRecord / commitSignature, which enforce the draft->signed lock
+  // and stamp the audit metadata. Letting callers set them through this generic
+  // updater would create a second path around that lock.
 
   const { data, error } = await db
     .from('workers')
@@ -97,6 +102,114 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
     .single();
   if (error) throw error;
   return data;
+};
+
+// ---- Signature state (two-phase: draft -> signed) ----
+
+// Columns added by migration 159. Kept in one place so the graceful-degrade
+// retry below can strip exactly the right keys if the migration has not been
+// applied yet on a given host.
+const SIGNATURE_AUDIT_KEYS = [
+  'signature_status',
+  'signature_signed_at',
+  'signature_ip',
+  'signature_source',
+  'signature_policy_id',
+  'signature_previous_url',
+];
+
+const missingColumn = (err) =>
+  /column .* does not exist|42703/i.test(String(err?.message || err));
+
+export const getSignatureState = async (workerId) => {
+  const { data, error } = await db
+    .from('workers')
+    .select('signature_url, signature_status, signature_signed_at, signature_source')
+    .eq('id', workerId)
+    .maybeSingle();
+  if (error) {
+    // Pre-migration host: fall back to the one column that always exists.
+    if (missingColumn(error)) {
+      const { data: legacy, error: legacyErr } = await db
+        .from('workers')
+        .select('signature_url')
+        .eq('id', workerId)
+        .maybeSingle();
+      if (legacyErr) throw legacyErr;
+      return { signature_url: legacy?.signature_url ?? null, signature_status: null };
+    }
+    throw error;
+  }
+  return {
+    signature_url: data?.signature_url ?? null,
+    signature_status: data?.signature_status ?? null,
+    signature_signed_at: data?.signature_signed_at ?? null,
+    signature_source: data?.signature_source ?? null,
+  };
+};
+
+// Stores the image URL plus its audit metadata. The audit columns are written in
+// the same statement as signature_url, so on a host where migration 159 has not
+// landed the whole UPDATE would fail and the volunteer's signature would be lost
+// again. Rather than lose it, retry once without the audit keys: the signature
+// still persists, and only the metadata is missing until the migration is applied.
+export const saveSignatureRecord = async (workerId, record) => {
+  const payload = { signature_url: record.signature_url };
+  for (const key of SIGNATURE_AUDIT_KEYS) {
+    if (record[key] !== undefined) payload[key] = record[key];
+  }
+
+  const run = async (updates) => {
+    const { data, error } = await db
+      .from('workers')
+      .update(updates)
+      .eq('id', workerId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  };
+
+  try {
+    return await run(payload);
+  } catch (err) {
+    if (!missingColumn(err)) throw err;
+    console.warn('[signature] audit columns missing, storing signature without metadata');
+    const { signature_url, ...withoutAudit } = payload;
+    return run({ signature_url });
+  }
+};
+
+// Final submit: flips a stored draft to 'signed' and stamps the moment it was
+// committed. No-op if the signature is already signed, so a double submit or a
+// retry from a flaky connection cannot rewrite the signed date.
+export const commitSignature = async (workerId, meta = {}) => {
+  const payload = {
+    signature_status: 'signed',
+    signature_signed_at: meta.signedAt || new Date().toISOString(),
+  };
+  if (meta.ip !== undefined) payload.signature_ip = meta.ip;
+  if (meta.source !== undefined) payload.signature_source = meta.source;
+  if (meta.policyId !== undefined) payload.signature_policy_id = meta.policyId;
+
+  const run = async (updates) => {
+    const { data, error } = await db
+      .from('workers')
+      .update(updates)
+      .eq('id', workerId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  };
+
+  try {
+    return await run(payload);
+  } catch (err) {
+    if (!missingColumn(err)) throw err;
+    console.warn('[signature] cannot commit — migration 159 not applied on this host');
+    return null;
+  }
 };
 
 // ---- Complete onboarding submission ----
