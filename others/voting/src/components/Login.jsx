@@ -1,5 +1,109 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { fetchStatus, login } from '../api'
+import AppHeader from './AppHeader'
+
+/**
+ * The sign-in card, driven purely by props. Split out from the wrapper that
+ * polls the status endpoint, so both the open and the "not open yet" branches
+ * can be rendered and checked without a server behind them.
+ */
+export function LoginCard({
+  open,
+  checking,
+  unreachable,
+  busy,
+  error,
+  identifier,
+  password,
+  onIdentifier,
+  onPassword,
+  onSubmit,
+  idId,
+  pwId,
+  errorId,
+}) {
+  return (
+    <main className="shell-main">
+      <form className="panel panel-narrow" onSubmit={onSubmit}>
+        <div className="panel-center">
+          <span className="eyebrow">{open ? 'Sign in to vote' : 'Not open yet'}</span>
+          <h1 className="panel-title">
+            {open ? 'Monthly Award Ceremony' : 'The ceremony has not started'}
+          </h1>
+        </div>
+
+        {checking ? (
+          <div className="spinner dark" />
+        ) : open ? (
+          <p className="lede">
+            Use the same login ID and password you use for the UCS CRM. You will be able to vote in every
+            department while voting is open.
+          </p>
+        ) : (
+          <>
+            <p className="lede">
+              Voting opens when HR starts the award ceremony. Leave this page open — it will activate on its
+              own — or come back when you are called.
+            </p>
+            {unreachable && (
+              <div className="alert alert-error">Could not reach the server. Check your connection.</div>
+            )}
+          </>
+        )}
+
+        {error && (
+          <div className="alert alert-error" id={errorId} role="alert">
+            {error}
+          </div>
+        )}
+
+        <fieldset className="fieldset" disabled={!open}>
+          <div className="field">
+            <label className="field-label" htmlFor={idId}>
+              Login ID
+            </label>
+            <input
+              id={idId}
+              className="field-input"
+              value={identifier}
+              onChange={(e) => onIdentifier(e.target.value)}
+              placeholder="firstname.surname@ufs"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-describedby={error ? errorId : undefined}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor={pwId}>
+              Password
+            </label>
+            <input
+              id={pwId}
+              className="field-input"
+              type="password"
+              value={password}
+              onChange={(e) => onPassword(e.target.value)}
+              autoComplete="current-password"
+              aria-describedby={error ? errorId : undefined}
+            />
+          </div>
+
+          <button className="btn btn-gold btn-block btn-tall" disabled={busy || !open}>
+            {busy ? 'Signing in…' : open ? 'Sign in' : 'Waiting for HR to start'}
+          </button>
+        </fieldset>
+
+        <p className="hint hint-privacy">
+          We record only which person you voted for — never who cast the vote. One ballot per person, and it
+          cannot be changed or undone.
+        </p>
+      </form>
+    </main>
+  )
+}
 
 /**
  * Sign-in is only offered while a ceremony is actually running — the booth exists
@@ -13,6 +117,9 @@ export default function Login() {
   const [error, setError] = useState('')
   const [status, setStatus] = useState(null)
   const [checking, setChecking] = useState(true)
+  const idId = useId()
+  const pwId = useId()
+  const errorId = useId()
 
   // Re-checked on an interval because HR often sets the ceremony up well before
   // people sit down, and a page left open should light up by itself.
@@ -58,81 +165,23 @@ export default function Login() {
   }
 
   return (
-    <div className="app">
-      <div className="topbar">
-        <div className="mark">U</div>
-        <div>
-          <div className="title">Award Ceremony Voting</div>
-          <div className="sub">Every vote is anonymous</div>
-        </div>
-      </div>
-
-      <div className="body">
-        <form className="card" onSubmit={submit}>
-          <div className="eyebrow">{open ? 'Sign in to vote' : 'Not open yet'}</div>
-          <h1 className="big">
-            {open ? status.title || 'Your ballot is waiting' : 'The ceremony has not started'}
-          </h1>
-
-          {checking ? (
-            <div className="spinner dark" />
-          ) : open ? (
-            <p className="lede">
-              Use the same login ID and password you use for the UCS CRM. You will be able to vote in
-              every department while voting is open.
-            </p>
-          ) : (
-            <>
-              <p className="lede">
-                Voting opens when HR starts the award ceremony. Leave this page open — it will activate on
-                its own — or come back when you are called.
-              </p>
-              {status?.unreachable && (
-                <div className="alert alert-error">Could not reach the server. Check your connection.</div>
-              )}
-            </>
-          )}
-
-          {error && <div className="alert alert-error">{error}</div>}
-
-          <fieldset
-            disabled={!open}
-            style={{ border: 0, padding: 0, margin: 0, opacity: open ? 1 : 0.45 }}
-          >
-            <label className="field">
-              <span>Login ID</span>
-              <input
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="firstname.surname@ufs"
-                autoComplete="username"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-            </label>
-
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </label>
-
-            <button className="btn btn-gold btn-block" disabled={busy || !open}>
-              {busy ? 'Signing in…' : open ? 'Sign in' : 'Waiting for HR to start'}
-            </button>
-          </fieldset>
-
-          <p className="hint">
-            We record only which person you voted for — never who cast the vote. One ballot per person,
-            and it cannot be changed or undone.
-          </p>
-        </form>
-      </div>
+    <div className="shell">
+      <AppHeader />
+      <LoginCard
+        open={open}
+        checking={checking}
+        unreachable={!!status?.unreachable}
+        busy={busy}
+        error={error}
+        identifier={identifier}
+        password={password}
+        onIdentifier={setIdentifier}
+        onPassword={setPassword}
+        onSubmit={submit}
+        idId={idId}
+        pwId={pwId}
+        errorId={errorId}
+      />
     </div>
   )
 }

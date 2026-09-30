@@ -147,7 +147,7 @@ export default function CeremonyIntro({ session, onDone }) {
               width="1536"
               height="1024"
               /* Reserves the box before the 1.7 MB PNG decodes, so nothing shifts. */
-              style={{ aspectRatio: TROPHY_ASPECT }}
+              style={{ aspectRatio: TROPHY_ASPECT, objectFit: 'contain' }}
               fetchPriority="high"
               decoding="async"
               draggable="false"

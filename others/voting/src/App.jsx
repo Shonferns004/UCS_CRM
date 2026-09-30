@@ -1,13 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchCeremony, logout } from './api'
 import { useAuth } from './store'
 import { onVotingUpdate } from './socket'
-import { introSeenFor, markIntroSeen } from './helpers'
+import {
+  allDepartmentsVoted,
+  introSeenFor,
+  markIntroSeen,
+  nextDepartment,
+  withDepartmentVoted,
+} from './helpers'
+import AppHeader from './components/AppHeader'
 import Login from './components/Login'
 import CeremonyIntro from './components/CeremonyIntro'
 import WaitingRoom from './components/WaitingRoom'
 import DepartmentGrid from './components/DepartmentGrid'
 import Ballot from './components/Ballot'
+import VoteSubmitted from './components/VoteSubmitted'
+import AllComplete from './components/AllComplete'
 import Results from './components/Results'
 import ToastContainer from './components/Toast'
 
@@ -24,6 +33,10 @@ export default function App() {
   const [intro, setIntro] = useState(null)
   // Which department's ballot is open, if any. null means the grid is showing.
   const [activeDept, setActiveDept] = useState(null)
+  // Set briefly after a vote lands, to show the confirmation screen instead of
+  // jumping straight to the next ballot. Holds the department just voted in so
+  // the confirmation can name it.
+  const [justVoted, setJustVoted] = useState(null)
 
   // Kept in a ref so the poll and the socket handler always call the latest
   // version without re-subscribing on every render.
@@ -93,17 +106,41 @@ export default function App() {
     setIntro(null)
   }
 
-  // Clicking a department opens its ballot. Voting in one drops the voter
-  // straight into the next department they have not voted in yet, so the whole
-  // ceremony is tap, pick, submit, repeat.
+  function signOut() {
+    logout()
+    setSession(null)
+  }
+
+  // Clicking a department opens its ballot.
   function openBallot(dept) {
+    setJustVoted(null)
     setActiveDept(dept)
   }
 
-  function advanceAfterVote() {
-    const next = (ceremony?.departments || []).find((d) => !d.voted && d.open)
-    setActiveDept(next || null)
+  // A vote landed. Mark it locally the moment it succeeds, so the confirmation
+  // screen and its "next department" choice are correct even if the catch-up
+  // refresh is slow or fails; the next poll replaces this with server truth.
+  async function onVoteSubmitted(dept) {
+    setCeremony((c) => withDepartmentVoted(c, dept.id))
+    setJustVoted({ department: dept })
+    setActiveDept(null)
+    await refresh()
   }
+
+  // Leaving a ballot without voting, or after the server rejected the submit
+  // (409 - already voted here, or voting closed). Both mean this screen is
+  // finished, so the department must be closed as well as refreshed; otherwise
+  // a rejected vote strands the voter on a ballot they can no longer use.
+  function closeBallot() {
+    setActiveDept(null)
+    return refresh()
+  }
+
+  // By the time this is reachable, the department just voted for is already
+  // marked voted in state.
+  const nextDept = useMemo(() => nextDepartment(departments), [departments])
+
+  const allVoted = allDepartmentsVoted(departments)
 
   if (!isAuthed) {
     return (
@@ -117,37 +154,19 @@ export default function App() {
   return (
     <>
       <ToastContainer />
-      <div className="app">
-        <div className="topbar">
-          <div className="mark">U</div>
-          <div>
-            <div className="title">Award Ceremony Voting</div>
-            <div className="sub">Votes are anonymous</div>
-          </div>
-          <div className="spacer" />
-          <div className="who">
-            <div>{user?.name || user?.login_id}</div>
-            <div className="dept">{user?.department || '—'}</div>
-          </div>
-          <button
-            className="linkish"
-            onClick={() => {
-              logout()
-              setSession(null)
-            }}
-          >
-            Sign out
-          </button>
-        </div>
+      <div className="shell">
+        <AppHeader user={user} onSignOut={signOut} />
 
-        <div className="body">
+        <main className="shell-main">
           {loading ? (
-            <div className="card">
+            <div className="panel">
               <div className="spinner dark" />
             </div>
           ) : error && !ceremony ? (
-            <div className="card">
-              <div className="alert alert-error">{error}</div>
+            <div className="panel">
+              <div className="alert alert-error" role="alert">
+                {error}
+              </div>
               <button className="btn" onClick={refresh}>
                 Try again
               </button>
@@ -159,16 +178,26 @@ export default function App() {
               <Ballot
                 key={activeDept.id}
                 department={activeDept}
-                onDone={advanceAfterVote}
+                onDone={closeBallot}
                 onBack={() => setActiveDept(null)}
+                onSubmitted={onVoteSubmitted}
               />
+            ) : justVoted ? (
+              <VoteSubmitted
+                ceremony={ceremony}
+                lastDepartment={justVoted.department}
+                nextDepartment={allVoted ? null : nextDept}
+                onNext={openBallot}
+              />
+            ) : allVoted ? (
+              <AllComplete ceremony={ceremony} />
             ) : (
               <DepartmentGrid ceremony={ceremony} onVote={openBallot} />
             )
           ) : (
             <WaitingRoom ceremony={ceremony} state={state} />
           )}
-        </div>
+        </main>
       </div>
 
       {intro && <CeremonyIntro session={intro.session} department={intro.department} onDone={closeIntro} />}
