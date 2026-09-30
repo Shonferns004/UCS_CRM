@@ -85,6 +85,7 @@ import reportRoutes from './routes/reportRoutes.js';
 import operatorRoutes from './routes/operatorRoutes.js';
 import aadhaarRoutes from './aadhaar/routes.js';
 import metropadRouter from './metropad/router.js';
+import votingRoutes from './routes/votingRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { startMemoryWatchdog } from './services/memoryWatchdog.js';
 import { authenticate } from './middleware/authMiddleware.js';
@@ -105,6 +106,7 @@ import { ensureSimInventorySchema } from './bootstrap/ensureSimInventorySchema.j
 import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
+import { ensureVotingSchema } from './bootstrap/ensureVotingSchema.js';
 
 dotenv.config();
 
@@ -132,6 +134,7 @@ const accountsDist = path.resolve(__dirname, '../../accounts-panel/dist');
 const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
 const databaseDist = path.resolve(__dirname, '../../database/dist');
 const recruitDist = path.resolve(__dirname, '../../recruit-quizz/dist');
+const votingDist = path.resolve(__dirname, '../../others/voting/dist');
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 let gitCommit = 'unknown';
@@ -275,6 +278,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/operator', operatorRoutes);
 app.use('/api/aadhaar', aadhaarRoutes);
 app.use('/api/metropad', metropadRouter);
+app.use('/api/voting', votingRoutes);
 
 app.get('/api/deploy-test', (req, res) => {
   res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });
@@ -782,7 +786,7 @@ if (fs.existsSync(databaseDist)) {
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database|voting).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
@@ -812,6 +816,16 @@ if (fs.existsSync(recruitDist)) {
   app.use('/recruit-quizz/assets', express.static(path.join(recruitDist, 'assets')));
   app.get('/recruit-quizz*', (req, res) => {
     res.sendFile(path.join(recruitDist, 'index.html'));
+  });
+}
+
+// Award ceremony voting booth. Served from the same origin as the API so the
+// app can talk to /api/voting without a cross-origin preflight, mirroring the
+// recruit-quizz mount above.
+if (fs.existsSync(votingDist)) {
+  app.use('/voting/assets', express.static(path.join(votingDist, 'assets')));
+  app.get('/voting*', (req, res) => {
+    res.sendFile(path.join(votingDist, 'index.html'));
   });
 }
 
@@ -945,6 +959,7 @@ if (!process.env.VERCEL) {
     await ensureNotificationLogTypes().catch(e => console.error('ensureNotificationLogTypes failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
     await ensureOperatorSchema().catch(e => console.error('ensureOperatorSchema failed:', e?.message || e));
+    await ensureVotingSchema().catch(e => console.error('ensureVotingSchema failed:', e?.message || e));
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     await ensureChatSchema().catch(e => console.error('ensureChatSchema failed:', e?.message || e));
     await ensureSimInventorySchema().catch(e => console.error('ensureSimInventorySchema failed:', e?.message || e));

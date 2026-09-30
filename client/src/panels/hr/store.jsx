@@ -29,6 +29,8 @@ export function useHR() {
     fetchPayments, createPayment, updatePaymentStatus,
     fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport, fetchNgoSalaryReportFallback,
     fetchSalaryHold, setSalaryHold, releaseSalaryHold,
+    fetchVotingDepartments, fetchVotingDepartment, saveVotingDepartment, saveVotingMembers, searchVotingWorkers,
+    fetchVotingSessions, createVotingSession, fetchVotingBoard, openVotingTurn, closeVotingTurn, completeVotingSession,
   }
 }
 
@@ -183,3 +185,18 @@ export const fetchAllTickets = () => apiGet('/attendance-corrections/all');
 export const fetchTicketCount = () => apiGet('/attendance-corrections/pending-count');
 export const verifyTicket = (id, hr_remark) => apiPut('/attendance-corrections/' + id + '/verify', { hr_remark });
 export const rejectTicket = (id, remark) => apiPut('/attendance-corrections/' + id + '/reject', { remark });
+
+// Award ceremony voting. Employees vote in the standalone booth at /voting;
+// these are the ceremony-control calls HR drives from this page.
+export const fetchVotingDepartments = () => apiGet('/voting/departments');
+export const fetchVotingDepartment = (id) => apiGet('/voting/departments/' + id);
+export const saveVotingDepartment = (id, patch) => apiPut('/voting/departments/' + id, patch);
+export const saveVotingMembers = (id, body) => apiPut('/voting/departments/' + id + '/members', body);
+export const searchVotingWorkers = (q) => apiGet('/voting/workers?q=' + encodeURIComponent(q || ''));
+export const fetchVotingSessions = () => apiGet('/voting/sessions');
+export const createVotingSession = (body) => apiPost('/voting/sessions', body);
+export const fetchVotingBoard = (sessionId) => apiGet('/voting/sessions/' + sessionId + '/board');
+export const openVotingTurn = (sessionId, deptId, minutes) =>
+  apiPost('/voting/sessions/' + sessionId + '/turns/' + deptId + '/open', { minutes });
+export const closeVotingTurn = (sessionId, deptId) => apiPost('/voting/sessions/' + sessionId + '/turns/' + deptId + '/close');
+export const completeVotingSession = (sessionId) => apiPost('/voting/sessions/' + sessionId + '/complete');
