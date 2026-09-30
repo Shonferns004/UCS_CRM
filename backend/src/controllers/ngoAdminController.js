@@ -25,6 +25,7 @@ import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollecti
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
+import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, getShiftWindowMs, getShiftWindowsMs, idleFreezeCutoffMs, deadlinePassed, dispositionDueMs, nextDeadline, IDLE_LIVE_FRESH_MS } from '../utils/froIdle.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
@@ -1336,7 +1337,7 @@ export const getFroDailyStats = async (req, res) => {
       try {
         const { data: liveRows } = await db
           .from('fro_live_status')
-          .select('worker_id, idle_since, today_idle_seconds, updated_at, work_as_operator_id')
+          .select(FRO_IDLE_LIVE_COLS)
           .in('worker_id', workerIds);
         // Covers decide which of these rows may keep accruing. A covered-away FRO
         // is frozen at the last moment their own row was written, so this panel
@@ -4932,7 +4933,14 @@ export const getTLDashboard = async (req, res) => {
     // has to fall back to updated_at. That fallback happens to work for a row nobody
     // has touched since yesterday, but it cannot tell a row that was written today
     // while still holding yesterday's numbers.
-    const liveCols = 'worker_id, status, stats_date, today_talk_seconds, today_idle_seconds, updated_at, idle_since, work_as_operator_id, work_as_operator_name, is_paused, paused_at, paused_by';
+    //
+    // frozen_at was missing here, as it was on the FRO's own strip, which let this
+    // table and the FRO's panel timer show two different idle totals for the same
+    // person at the same moment: the panel caps an already-open period at the
+    // moment a meeting or admin pause began, and these two reads did not.
+    //
+    // Now shared, so the three surfaces cannot drift apart again.
+    const liveCols = FRO_IDLE_LIVE_COLS;
     // One row per worker, and that row belongs to the worker themselves: a
     // covering operator writes their own row, so the extra "fetch rows whose
     // work_as_operator_id is in scope" query this used to run is no longer

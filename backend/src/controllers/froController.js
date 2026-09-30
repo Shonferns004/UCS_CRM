@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { FRO_IDLE_LIVE_COLS } from '../utils/froIdleCols.js';
 import { emitRealtime, isWorkerOnline } from '../socket.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
@@ -891,7 +892,7 @@ export const getMyPerformance = async (req, res) => {
     // row one of them last overwrote.
     const { data: liveStatus } = await db
       .from('fro_live_status')
-      .select('today_idle_seconds, idle_since, disposition_due_at, is_paused, status, today_calls, updated_at, work_as_operator_id')
+      .select(FRO_IDLE_LIVE_COLS)
       .eq('worker_id', metricsWorkerId)
       .maybeSingle();
 
@@ -972,6 +973,30 @@ export const getMyPerformance = async (req, res) => {
       today_calls: connected,
       idle_seconds: idleSeconds,
       idle_minutes: Math.floor(idleSeconds / 60),
+      // TEMPORARY diagnostic echo.
+      //
+      // Idle is derived from four stored values and a shift window, and when the
+      // strip and the panel timer disagree there is no way to tell from the number
+      // alone WHICH input was wrong. A missing column is the usual culprit: it does
+      // not error, it just arrives as undefined and quietly zeroes the figure. This
+      // echoes the raw inputs so one network-tab glance settles it instead of a
+      // round of guessing. Deliberately carries no name or identifying detail —
+      // only the worker's own row. Remove once the idle discrepancy is closed.
+      debug_idle: {
+        banked: liveStatus ? Number(liveStatus.today_idle_seconds || 0) : 0,
+        running_since: liveStatus?.idle_since || null,
+        deadline_at: liveStatus?.disposition_due_at || null,
+        counters_day: liveStatus?.stats_date || null,
+        last_written_at: liveStatus?.updated_at || null,
+        frozen_at: liveStatus?.frozen_at || null,
+        is_paused: !!liveStatus?.is_paused,
+        status: liveStatus?.status || null,
+        shift_start: idleShift?.startMs ? new Date(idleShift.startMs).toISOString() : null,
+        shift_end: idleShift?.endMs ? new Date(idleShift.endMs).toISOString() : null,
+        has_attendance: !!idleShift?.hasAttendance,
+        derived_total: idleSeconds,
+        server_now: new Date(nowMs).toISOString(),
+      },
       // A lapsed deadline counts as idle even before the next heartbeat has
       // stamped idle_since, so the badge and the number can never disagree.
       // Same helper the panel hydrates with, so the badge and the overlay agree.

@@ -280,7 +280,22 @@ export function CallProvider({ children, userId, operatorId }) {
       seconds_left: DISPOSITION_WINDOW,
       is_idle: false,
     });
+    // The performance strip polls on its own 30s interval, so without this the
+    // officer records a disposition and the strip they are looking at still
+    // shows the pre-disposition figures until the next tick lands. Same event
+    // convention as the receipts pages.
+    window.dispatchEvent(new CustomEvent('ucs:fro-perf-refresh'));
   }, [adoptTimer])
+
+  // Announce that a disposition has actually been stored, so surfaces that show
+  // derived totals can refresh now rather than waiting out their poll interval.
+  // Kept separate from adoptOptimisticDisposition because that one fires at submit
+  // time, before the server has banked the idle stretch — the refetch it triggers
+  // can therefore still return the pre-disposition figures. Call this once the
+  // response has landed, alongside adopting the server's timer.
+  const noteDispositionSaved = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('ucs:fro-perf-refresh'))
+  }, [])
 
   // Stats are server-authoritative: the client keeps today's counters in memory
   // only (never localStorage) and pushes them on every change. statsOverride lets
@@ -758,7 +773,7 @@ export function CallProvider({ children, userId, operatorId }) {
       // run out on the beat before the window arms); the panel prefers the
       // disposition countdown whenever one exists.
       settleSecondsLeft,
-      adoptTimer, adoptOptimisticDisposition, DISPOSITION_WINDOW,
+      adoptTimer, adoptOptimisticDisposition, noteDispositionSaved, DISPOSITION_WINDOW,
     }}>
       {children}
     </CallContext.Provider>

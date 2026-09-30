@@ -49,7 +49,15 @@ function PersonalPerformance() {
       .catch(() => {});
     load();
     const timer = setInterval(load, 30000);
-    return () => { cancelled = true; clearInterval(timer); };
+    // Refetch as soon as a disposition is recorded. The server banks the idle
+    // stretch the moment the save lands, so the strip should show that without
+    // waiting out the remainder of the poll interval. Fired twice on purpose:
+    // once at submit time for instant feedback, and again once the response has
+    // come back, which is the point at which the banked total actually exists.
+    // The 30s interval stays as a backstop for every other kind of change.
+    const onSaved = () => load();
+    window.addEventListener('ucs:fro-perf-refresh', onSaved);
+    return () => { cancelled = true; clearInterval(timer); window.removeEventListener('ucs:fro-perf-refresh', onSaved); };
   }, []);
 
   const levelHigh = data?.level === 'high';

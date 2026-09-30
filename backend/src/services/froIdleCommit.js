@@ -115,7 +115,7 @@ export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = nul
   try {
     const { rows } = await db._pool.query(
       `SELECT today_idle_seconds, idle_since, disposition_due_at, is_paused, status,
-              today_calls, today_talk_seconds, stats_date
+              today_calls, today_talk_seconds, stats_date, frozen_at
          FROM fro_live_status
         WHERE worker_id = $1
         LIMIT 1`,
