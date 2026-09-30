@@ -289,6 +289,7 @@ export async function sendDirect(req, res) {
 
     let documentUrl = null;
     let displayName = null;
+    let uploadError = null;
     if (pdfBase64) {
       try {
         const buffer = Buffer.from(pdfBase64, 'base64');
@@ -296,24 +297,33 @@ export async function sendDirect(req, res) {
         displayName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`
         const storagePath = `receipts/${receiptNo || Date.now()}.pdf`;
         let { error: upErr } = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
-        if (upErr && upErr.message?.includes('bucket')) {
+        if (upErr) {
           await db.storage.createBucket('receipts', { public: true });
           const retry = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
           upErr = retry.error;
         }
-        if (!upErr) {
+        if (upErr) {
+          uploadError = upErr.message || 'PDF upload failed';
+        } else {
           const { data: pub } = db.storage.from('receipts').getPublicUrl(storagePath);
           documentUrl = pub?.publicUrl || null;
+          if (!documentUrl) uploadError = 'PDF upload returned no public URL';
         }
       } catch (e) {
-        console.error('Failed to store PDF:', e.message);
+        uploadError = e.message;
       }
+      if (uploadError) console.error('Failed to store PDF:', uploadError);
+    } else {
+      uploadError = 'no receipt PDF was supplied';
     }
 
-    const components = [];
-    if (documentUrl) {
-      components.push({ type: 'header', parameters: [{ type: 'document', document: { link: documentUrl, filename: displayName || 'receipt.pdf' } }] });
+    if (!documentUrl) {
+      return res.status(400).json({ message: `Receipt PDF is required by template "${tpl}" but is unavailable: ${uploadError}` });
     }
+
+    const components = [
+      { type: 'header', parameters: [{ type: 'document', document: { link: documentUrl, filename: displayName || 'receipt.pdf' } }] },
+    ];
 
     const apiBase = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${account.phone_number_id}/messages`;
     const msgRes = await fetch(apiBase, {
