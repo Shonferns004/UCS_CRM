@@ -1,20 +1,31 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   plugins: [
     react(),
+    // Build-time Tailwind. This used to be served at runtime by the
+    // cdn.tailwindcss.com Play CDN, which meant the built CSS shipped zero
+    // utilities: the entire layout depended on a remote request that a PWA
+    // service worker cannot cache, and the page showed unstyled until it
+    // resolved. Compiling here makes the styles deterministic and offline-safe.
+    tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['apple-touch-icon.png'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'Submitted Form',
         short_name: 'Submitted Form',
         description: 'UCS worker document submission form',
         lang: 'en',
-        theme_color: '#2563eb',
-        background_color: '#ffffff',
+        // These must match the --sage / --sand tokens in src/index.css and the
+        // <meta name="theme-color"> in index.html. They live in three places
+        // with no shared source, so scripts/test-css-layer.mjs asserts they
+        // agree rather than trusting a human to remember.
+        theme_color: '#5B6B4E',
+        background_color: '#F3EFE7',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
@@ -32,5 +43,5 @@ export default defineConfig({
       },
     }),
   ],
-  server: { port: 3002 },
+  server: { port: 3002, strictPort: true },
 })

@@ -107,6 +107,8 @@ import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTyp
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
 import { ensureVotingSchema } from './bootstrap/ensureVotingSchema.js';
+import { ensureSignatureSchema } from './bootstrap/ensureSignatureSchema.js';
+import { ensureDocumentsSchema } from './bootstrap/ensureDocumentsSchema.js';
 
 dotenv.config();
 
@@ -963,6 +965,8 @@ if (!process.env.VERCEL) {
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     await ensureChatSchema().catch(e => console.error('ensureChatSchema failed:', e?.message || e));
     await ensureSimInventorySchema().catch(e => console.error('ensureSimInventorySchema failed:', e?.message || e));
+    await ensureSignatureSchema().catch(e => console.error('ensureSignatureSchema failed:', e?.message || e));
+    await ensureDocumentsSchema().catch(e => console.error('ensureDocumentsSchema failed:', e?.message || e));
     import('./services/notificationScheduler.js');
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');

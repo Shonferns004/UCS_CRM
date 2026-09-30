@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import db, { sql } from '../config/db.js';
-import { getWorkerByLoginId, getWorkerById, updateWorker } from '../models/workerModel.js';
+import { getWorkerByLoginId, getWorkerByEmail, getWorkerById, updateWorker } from '../models/workerModel.js';
 import { getBnfOperatorByLoginId, getBnfOperatorById, updateBnfOperator } from '../models/bnfOperatorModel.js';
 import { getUserByEmail, getUserByName, getUserById, updateUser } from '../models/userModel.js';
 import { getHRByEmail, getHRById, updateHR } from '../models/hrModel.js';
@@ -379,6 +379,43 @@ export const unifiedLogin = async (req, res) => {
           token,
           role: wRole,
           user: { id: workerByLogin.id, name: workerByLogin.name, email: workerByLogin.email, login_id: workerByLogin.login_id, ngo_id: workerByLogin.ngo_id, department: workerByLogin.department },
+          message: 'Login successful',
+        });
+      }
+
+      // Volunteers on the Online Form do not have a UFS id — their login_id is
+      // usually something like "shawn@ufs" while the address they remember is the
+      // one on their record. Last in the chain, so users/hrs/NGO-admin logins
+      // above keep winning exactly as before.
+      const workerByEmail = await getWorkerByEmail(identifier);
+      if (workerByEmail) {
+        if (workerByEmail.is_active === false || workerByEmail.employment_status === 'terminated') {
+          return res.status(403).json({ message: 'Account is deactivated' });
+        }
+        const isMatch = await bcrypt.compare(password, workerByEmail.password);
+        if (!isMatch) {
+          return res.status(401).json({ message: 'Invalid password' });
+        }
+        const eDept = (workerByEmail.department || '').toLowerCase().trim();
+        let eRole;
+        if (eDept === 'hr') eRole = 'hr';
+        else if (eDept.includes('recruit')) eRole = 'recruiter';
+        else if (eDept === 'admin') eRole = 'accounts';
+        else if (eDept === 'fro') eRole = 'fro';
+        else if (eDept === 'ngo admin') eRole = 'admin';
+        else if (eDept === 'digital' || eDept.includes('develop')) eRole = 'digital';
+        else if (eDept.includes('event')) eRole = 'event_head';
+        else eRole = 'worker';
+        const token = jwt.sign(
+          { id: workerByEmail.id, login_id: workerByEmail.login_id, ngo_id: workerByEmail.ngo_id, name: workerByEmail.name, role: eRole, department: workerByEmail.department },
+          process.env.JWT_SECRET,
+          signOptions
+        );
+        await recordCrmLogin(workerByEmail.id, workerByEmail.name, eRole, req.route?.path);
+        return res.json({
+          token,
+          role: eRole,
+          user: { id: workerByEmail.id, name: workerByEmail.name, email: workerByEmail.email, login_id: workerByEmail.login_id, ngo_id: workerByEmail.ngo_id, department: workerByEmail.department },
           message: 'Login successful',
         });
       }
