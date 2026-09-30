@@ -11,6 +11,7 @@ const PROJECT_OPTIONS = [
 const emptyForm = {
   name: '', project: 'bsct', phone_number_id: '', access_token: '',
   waba_id: '', template_name: '', template_language: 'en',
+  hr_letter_template: '', hr_warning_template: '',
   is_active: true, is_default: false,
 };
 
@@ -74,6 +75,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
           waba_id: form.waba_id,
           template_name: form.template_name || null,
           template_language: form.template_language,
+          hr_letter_template: form.hr_letter_template || null,
+          hr_warning_template: form.hr_warning_template || null,
           is_active: form.is_active,
           is_default: form.is_default,
         };
@@ -108,6 +111,8 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
       waba_id: acc.waba_id,
       template_name: acc.template_name || '',
       template_language: acc.template_language || 'en',
+      hr_letter_template: acc.hr_letter_template || '',
+      hr_warning_template: acc.hr_warning_template || '',
       is_active: acc.is_active,
       is_default: acc.is_default,
     });
@@ -221,6 +226,36 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
               <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Template Language</span>
               <input value={form.template_language} onChange={e => setForm(p => ({ ...p, template_language: e.target.value }))} placeholder="en" style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
             </label>
+            <label className="field" style={{ flex: '1 1 160px', marginBottom: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>HR Letter Template</span>
+              <input
+                list={editing ? `tpl-${editing.id}` : undefined}
+                value={form.hr_letter_template}
+                onChange={e => setForm(p => ({ ...p, hr_letter_template: e.target.value }))}
+                placeholder="e.g. ucs_hr_letter (optional)"
+                title="Approved template used by HR > Letters when the volunteer is outside the 24-hour window. Must declare a DOCUMENT header plus a {{1}} body."
+                style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+            </label>
+            <label className="field" style={{ flex: '1 1 160px', marginBottom: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>HR Warning Template</span>
+              <input
+                list={editing ? `tpl-${editing.id}` : undefined}
+                value={form.hr_warning_template}
+                onChange={e => setForm(p => ({ ...p, hr_warning_template: e.target.value }))}
+                placeholder="e.g. ucs_hr_warning (optional)"
+                title="Approved template used by HR > Letters for the warning-message templates when the volunteer is outside the 24-hour window. Must declare a single {{1}} body."
+                style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+            </label>
+            {/* Suggestions from this WABA's approved templates, so the HR template
+                names can be picked rather than typed from memory. Populated by
+                "Fetch templates" below. */}
+            {editing && (
+              <datalist id={`tpl-${editing.id}`}>
+                {(templateOptions[editing.id] || []).map(t => (
+                  <option key={`${t.name}-${t.language}`} value={t.name}>{t.language}</option>
+                ))}
+              </datalist>
+            )}
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.is_active} onChange={() => toggleField('is_active')} /> Active

@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { useHR, apiGet } from '../store';
+import { useHR, apiGet, sendHrWhatsAppLetter, sendHrWhatsAppText } from '../store';
 import { api } from '../../../api/auth';
 import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Dropdown } from './ui';
-import { FileTxt, WhatsApp } from '../icons';
+import { FileTxt, WhatsApp, Send } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { deptLabel } from '../../../lib/labels';
+import { toast } from '../../../components/Toast';
 
 const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','NOBSD2','ODAR','Volunteer Termination Letter','Blank Letter'];
 
@@ -1003,6 +1004,9 @@ export default function Letters() {
   ]);
   const [editDocs, setEditDocs] = useState(false);
   const [sopSel, setSopSel] = useState('');
+  // '' | 'text' | 'pdf' — which send is in flight, so both buttons disable
+  // instead of letting a double-click fire the same warning twice.
+  const [sending, setSending] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -1180,13 +1184,80 @@ export default function Letters() {
     return d;
   };
 
-  const shareWhatsApp = () => {
+  const selectedWorker = workers.find(x => x.name === name) || null;
+
+  // The message text is identical to what the page has always composed for the
+  // wa.me link: heading, then label, then subject, then the body, with the
+  // volunteer's name substituted.
+  const buildMessageText = () => {
     const sel = HR_MESSAGES.find(m => m.key === sopSel);
-    const worker = workers.find(x => x.name === name);
-    const number = cleanPhone(worker?.phone) || '918879136938';
-    let text = 'hey';
-    if (sel) text = [sel.heading, sel.label, sel.subject, sel.body].filter(Boolean).join('\n\n').replace(/\[Volunteer Name\]/g, name || '[Volunteer Name]');
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
+    if (!sel) return '';
+    return [sel.heading, sel.label, sel.subject, sel.body]
+      .filter(Boolean)
+      .join('\n\n')
+      .replace(/\[Volunteer Name\]/g, name || '[Volunteer Name]');
+  };
+
+  // Manual escape hatch: the same text, handed to the volunteer's own WhatsApp
+  // so HR can send it by hand when the API is blocked by the 24-hour window.
+  const openManualWhatsApp = () => {
+    const number = cleanPhone(selectedWorker?.phone);
+    if (!number) { toast(`${name} has no phone number on record`, 'error'); return; }
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(buildMessageText() || ' ')}`, '_blank');
+  };
+
+  const sendWarningText = async () => {
+    if (!sopSel) { toast('Pick a Volunteer Message first', 'error'); return; }
+    if (!selectedWorker) return;
+    if (sending) return;
+    setSending('text');
+    try {
+      const res = await sendHrWhatsAppText(selectedWorker.id, selectedWorker.name, buildMessageText(), sopSel);
+      const label = HR_MESSAGES.find(m => m.key === sopSel)?.label || 'Message';
+      toast(res.send_mode === 'template'
+        ? `${label} sent (approved template)`
+        : `${label} sent to ${selectedWorker.name}`, 'success');
+    } catch (err) {
+      // hr_outside_window / hr_template_missing are not bugs, they are the
+      // documented limit of the Cloud API. Offer the manual link in that case.
+      if (err.code === 'hr_outside_window' || err.code === 'hr_template_missing') {
+        toast(`${err.message} Use the "Manual" button to send it by hand.`, 'error');
+      } else if (err.code === 'hr_phone_missing') {
+        toast(err.message, 'error');
+      } else {
+        toast(err.message || 'Could not send the message', 'error');
+      }
+    } finally {
+      setSending('');
+    }
+  };
+
+  const sendLetterPdf = async () => {
+    if (!selectedWorker) return;
+    if (!pdfDocRef.current) { toast('Generate the letter first', 'error'); return; }
+    if (sending) return;
+    setSending('pdf');
+    try {
+      // jsPDF's datauristring is base64 with a data: prefix, which is not what
+      // the endpoint expects.
+      const base64 = String(pdfDocRef.current.output('datauristring') || '').split(',')[1] || '';
+      if (!base64) throw new Error('The letter PDF came back empty');
+      const caption = buildMessageText();
+      const res = await sendHrWhatsAppLetter(selectedWorker.id, selectedWorker.name, type, base64, caption);
+      toast(res.send_mode === 'template'
+        ? `${type} sent to ${selectedWorker.name} (approved template)`
+        : `${type} sent to ${selectedWorker.name}`, 'success');
+    } catch (err) {
+      if (err.code === 'hr_outside_window' || err.code === 'hr_template_missing') {
+        toast(`${err.message} Download the PDF and send it from WhatsApp by hand.`, 'error');
+      } else if (err.code === 'hr_phone_missing') {
+        toast(err.message, 'error');
+      } else {
+        toast(err.message || 'Could not send the letter', 'error');
+      }
+    } finally {
+      setSending('');
+    }
   };
 
   useEffect(() => {
@@ -1278,9 +1349,15 @@ export default function Letters() {
           </label>
           )}
           <label className="field btn-field"><span>&nbsp;</span>{showDownload && (
-            <span style={{ display: 'inline-flex', gap: 8 }}>
-              <button className="btn btn-primary" onClick={downloadPdf} title="Download PDF" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><FileTxt size={18}/></button>
-              <button className="btn btn-primary" onClick={shareWhatsApp} title="Send via WhatsApp" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={downloadPdf} disabled={!!sending} title="Download PDF" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><FileTxt size={18}/></button>
+              {sopSel ? (
+                <button className="btn btn-primary" onClick={sendWarningText} disabled={!!sending} title="Send the selected message" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
+              ) : (
+                <button className="btn btn-primary" onClick={sendLetterPdf} disabled={!!sending} title={`Send the ${type} as a PDF`} style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><Send size={18}/></button>
+              )}
+              <button className="btn" onClick={openManualWhatsApp} disabled={!!sending} title="Open WhatsApp to send by hand" style={{ border:'1px solid var(--line)', background:'var(--paper)', color:'var(--ink)', padding:'9px 11px' }}>Manual</button>
+              {sending && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Sending…</span>}
             </span>
           )}</label>
         </div>
