@@ -1,0 +1,425 @@
+/* Sign-in page — the only page a person sees before they have a session.
+   Every rule here is scoped under .signin so none of it can reach the intro,
+   dashboard, ballot, submitted or completed screens, which keep the cooler
+   functional palette in base.css.
+
+   Tokens are declared on .signin rather than :root on purpose. base.css already
+   owns names like --gold, --muted and --border for the rest of the booth, and
+   redefining those globally would recolour pages this file must not touch. */
+
+.signin {
+  --ivory: #fbfaf7;
+  --ivory-warm: #f8f3e9;
+  --cream: #fff8eb;
+  --si-gold: #e4a51f;
+  --si-gold-light: #ffd66a;
+  --si-gold-dark: #bd7d12;
+  --si-gold-ink: #8a6412;
+  --si-navy: #101b33;
+  --si-muted: #718096;
+  --si-border: #dce5f0;
+  --si-line: #e6ecf4;
+  --si-white: #ffffff;
+
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  background: var(--ivory);
+  /* The decorative shapes bleed past the edges; without this they would force
+     a horizontal scrollbar on narrow phones. */
+  overflow-x: hidden;
+}
+
+/* ── decorative background ──────────────────────────────────────────────── */
+
+/* One layer of soft overlapping curves plus fine gold contour lines and a few
+   sparkles, all in a single inline SVG so there is no extra request. Painted
+   behind the card via z-index, and clipped by the .signin overflow above. */
+.signin-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.signin-bg::before,
+.signin-bg::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  /* Very low contrast on purpose — the card has to stay the focus. */
+  filter: blur(0.5px);
+}
+
+/* Cream shape entering from the lower left. */
+.signin-bg::before {
+  width: 62vw;
+  height: 62vw;
+  min-width: 520px;
+  min-height: 520px;
+  left: -22vw;
+  bottom: -30vw;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 248, 235, 0.95) 0%, rgba(255, 248, 235, 0) 68%);
+}
+
+/* Pale gold shape entering from the upper right, behind the brand mark. */
+.signin-bg::after {
+  width: 54vw;
+  height: 54vw;
+  min-width: 460px;
+  min-height: 460px;
+  right: -18vw;
+  top: -24vw;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 214, 106, 0.2) 0%, rgba(255, 214, 106, 0) 70%);
+}
+
+/* Gold contour lines and sparkles, drawn as a background image. */
+.signin-bg {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 900' preserveAspectRatio='xMidYMid slice'%3E%3Cg fill='none' stroke='%23e4a51f' stroke-opacity='.18' stroke-width='1'%3E%3Cpath d='M-120 742C260 596 470 826 828 700s556-196 760-72'/%3E%3Cpath d='M-120 806C280 660 500 890 860 762s548-198 742-74'/%3E%3Cpath d='M-120 678C240 532 440 762 798 636s566-194 770-70'/%3E%3Cpath d='M-120 300C300 176 520 392 880 268s540-186 700-64'/%3E%3C/g%3E%3Cg fill='%23e4a51f' fill-opacity='.3'%3E%3Cpath d='M262 196c3 12 8 17 20 20-12 3-17 8-20 20-3-12-8-17-20-20 12-3 17-8 20-20Z'/%3E%3Cpath d='M1206 604c2.5 10 7 14 17 17-10 2.5-14.5 7-17 17-2.5-10-7-14.5-17-17 10-2.5 14.5-7 17-17Z'/%3E%3Cpath d='M1044 132c2 8 5 11 13 13-8 2-11 5-13 13-2-8-5-11-13-13 8-2 11-5 13-13Z'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='.85'%3E%3Cpath d='M676 132c2 8 5 11 13 13-8 2-11 5-13 13-2-8-5-11-13-13 8-2 11-5 13-13Z'/%3E%3Cpath d='M1338 792c2 8 5 11 13 13-8 2-11 5-13 13-2-8-5-11-13-13 8-2 11-5 13-13Z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
+}
+
+/* A slow, shallow drift keeps the page from feeling frozen. Disabled entirely
+   under prefers-reduced-motion below. */
+@media (prefers-reduced-motion: no-preference) {
+  .signin-bg::before { animation: signin-drift 34s ease-in-out infinite alternate; }
+  .signin-bg::after { animation: signin-drift 44s ease-in-out infinite alternate-reverse; }
+}
+
+@keyframes signin-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(2.5%, -2%, 0) scale(1.06); }
+}
+
+/* ── brand mark ─────────────────────────────────────────────────────────── */
+
+/* The only brand element on the page. Fixed to the top-right corner rather than
+   laid out in flow, so the card can be centred independently of it. */
+.signin-mark {
+  position: absolute;
+  top: 22px;
+  right: 28px;
+  z-index: 2;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fbe3a4 0%, var(--si-gold) 52%, var(--si-gold-dark) 100%);
+  color: #2a1d05;
+  font-size: 25px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(228, 165, 31, 0.3);
+}
+
+/* ── card ───────────────────────────────────────────────────────────────── */
+
+/* margin:auto rather than align-items:center, so a card taller than the viewport
+   is still fully reachable instead of having its top clipped. */
+.signin-stage {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  /* The top padding clears the brand mark. It is relaxed at >=1024px below,
+     where the centred card is nowhere near the top-right corner. */
+  padding: 92px 24px 44px;
+  padding-left: calc(24px + env(safe-area-inset-left));
+  padding-right: calc(24px + env(safe-area-inset-right));
+}
+
+.signin-card {
+  margin: auto;
+  width: min(665px, calc(100% - 48px));
+  background: var(--si-white);
+  border: 1px solid #efece2;
+  border-radius: 29px;
+  box-shadow: 0 26px 64px rgba(16, 27, 51, 0.1), 0 2px 8px rgba(16, 27, 51, 0.04);
+  padding: 48px;
+  text-align: center;
+}
+
+/* ── trophy ─────────────────────────────────────────────────────────────── */
+
+.signin-trophy {
+  display: flex;
+  justify-content: center;
+  /* Deliberate gap between the pedestal and the eyebrow. */
+  margin-bottom: 18px;
+}
+
+/* 330px of element width puts the visible cup at ~252px, because the artwork
+   carries ~12% transparent margin on each side. */
+.signin-trophy img {
+  width: 330px;
+  max-width: 100%;
+  height: auto;
+  /* contain, so the artwork can never be cropped or distorted. */
+  object-fit: contain;
+}
+
+/* ── eyebrow + title ────────────────────────────────────────────────────── */
+
+.signin-head { text-align: center; }
+
+.signin-eyebrow {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  /* Optical centring: trailing letter-space pushes centred text left. */
+  text-indent: 0.3em;
+  text-transform: uppercase;
+  color: var(--si-gold-ink);
+  margin-bottom: 7px;
+}
+
+.signin-title {
+  font-size: clamp(28px, 4.6vw, 37px);
+  font-weight: 800;
+  line-height: 1.14;
+  letter-spacing: -0.02em;
+  margin: 0;
+  /* Keeps a long word from forcing horizontal overflow at 320px. */
+  overflow-wrap: break-word;
+}
+
+.signin-title-navy { color: var(--si-navy); }
+.signin-title-gold { color: var(--si-gold); }
+
+/* ── supporting copy ────────────────────────────────────────────────────── */
+
+.signin-lede {
+  color: var(--si-muted);
+  font-size: 16.5px;
+  line-height: 1.5;
+  margin: 14px auto 0;
+  /* Fills the card's inner width. Narrowing this is what pushes the sentence to
+     three lines, where the reference has two. */
+  max-width: 100%;
+}
+
+.signin-spinner { margin: 34px auto 30px; }
+
+.signin-note {
+  margin: 16px auto 0;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--cream);
+  border: 1px solid #f0e2c4;
+  color: var(--si-gold-ink);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.signin-error {
+  margin: 20px 0 0;
+  padding: 12px 15px;
+  border-radius: 13px;
+  background: #fdeeec;
+  border: 1px solid #f2c6c1;
+  color: #a3322b;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* ── fields ─────────────────────────────────────────────────────────────── */
+
+.signin-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 20px 0 0;
+  text-align: left;
+}
+
+/* Matches the old .fieldset:disabled treatment, so a closed ceremony reads as
+   unavailable without hiding the form's shape. */
+.signin-fieldset:disabled { opacity: 0.55; }
+
+.signin-field { margin-bottom: 16px; }
+
+.signin-label {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--si-navy);
+  margin-bottom: 7px;
+}
+
+.signin-input {
+  display: block;
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  font-size: 15.5px;
+  color: var(--si-navy);
+  background: var(--si-white);
+  border: 1px solid var(--si-border);
+  border-radius: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.signin-input::placeholder { color: #9fb0c6; }
+
+.signin-input:hover { border-color: #c6d4e6; }
+
+.signin-input:focus {
+  outline: none;
+  border-color: var(--si-gold);
+  box-shadow: 0 0 0 3px rgba(228, 165, 31, 0.2);
+}
+
+/* ── submit ─────────────────────────────────────────────────────────────── */
+
+.signin-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 59px;
+  margin-top: 4px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #f6d183 0%, var(--si-gold) 48%, #c8901a 100%);
+  color: var(--si-navy);
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(228, 165, 31, 0.28);
+  transition: filter 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
+}
+
+.signin-submit:hover:not(:disabled) {
+  filter: brightness(0.96);
+  box-shadow: 0 8px 20px rgba(228, 165, 31, 0.34);
+}
+
+.signin-submit:active:not(:disabled) { transform: translateY(1px); }
+
+.signin-submit:disabled {
+  cursor: not-allowed;
+  /* Dim rather than flatten, so the gold still reads as the primary action. */
+  filter: grayscale(0.35) brightness(1.06);
+  opacity: 0.75;
+  box-shadow: none;
+}
+
+/* ── divider + privacy note ─────────────────────────────────────────────── */
+
+.signin-divider {
+  height: 1px;
+  border: 0;
+  margin: 20px 0 0;
+  background: var(--si-line);
+}
+
+.signin-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 13px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--si-muted);
+  text-align: left;
+}
+
+.signin-privacy svg {
+  flex: none;
+  color: var(--si-navy);
+  /* Sits on the first line of text rather than floating above it. */
+  margin-top: 2px;
+}
+
+/* ── focus visibility ───────────────────────────────────────────────────── */
+
+.signin button:focus-visible,
+.signin input:focus-visible {
+  outline: 2px solid var(--si-gold-dark);
+  outline-offset: 2px;
+}
+
+.signin-submit:focus-visible { outline-offset: 3px; }
+
+/* ── responsive ─────────────────────────────────────────────────────────── */
+
+/* At 1024px and up the card is centred in a viewport far wider than itself, so
+   it can never reach the top-right brand mark. That frees the top padding. */
+@media (min-width: 1024px) {
+  .signin-stage { padding: 48px 24px 44px; }
+}
+
+@media (max-width: 1023px) {
+  .signin-stage { padding: 92px 20px 44px; }
+  .signin-card {
+    width: min(665px, calc(100% - 40px));
+    padding: 40px 36px;
+  }
+  .signin-trophy { margin-bottom: 18px; }
+  .signin-trophy img { width: 300px; }
+}
+
+@media (max-width: 599px) {
+  .signin-mark {
+    /* Kept clear of the card by the stage's top padding, and out of the notch. */
+    top: calc(14px + env(safe-area-inset-top));
+    right: calc(14px + env(safe-area-inset-right));
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    font-size: 22px;
+  }
+
+  .signin-stage { padding: 86px 16px 34px; }
+
+  .signin-card {
+    width: calc(100% - 32px);
+    border-radius: 24px;
+    padding: 30px 22px 26px;
+  }
+
+  .signin-trophy { margin-bottom: 18px; }
+  .signin-trophy img { width: 236px; }
+
+  /* The eyebrow keeps its 13-14px size; only the tracking eases off so
+     "SIGN IN TO VOTE" still clears the card edges at 320px. */
+  .signin-eyebrow { letter-spacing: 0.24em; text-indent: 0.24em; }
+  .signin-title { font-size: clamp(26px, 7.4vw, 30px); }
+  .signin-lede { font-size: 15.5px; margin-top: 13px; }
+  .signin-fieldset { margin-top: 22px; }
+  .signin-field { margin-bottom: 15px; }
+  .signin-privacy { font-size: 13.5px; }
+}
+
+/* 320px is the tightest case the checklist calls out. */
+@media (max-width: 359px) {
+  .signin-stage { padding: 84px 12px 28px; }
+  .signin-card { width: calc(100% - 24px); padding: 24px 18px 22px; border-radius: 20px; }
+  .signin-trophy img { width: 208px; }
+  .signin-eyebrow { font-size: 13px; letter-spacing: 0.2em; text-indent: 0.2em; }
+  .signin-title { font-size: 25px; }
+  .signin-lede { font-size: 15px; }
+  .signin-label { font-size: 14px; }
+  .signin-input { height: 50px; padding: 0 14px; font-size: 15px; }
+  .signin-privacy { font-size: 13px; }
+}
+
+/* Short viewports (laptop with the browser chrome open, landscape phones):
+   let the page scroll rather than crushing the card. */
+@media (max-height: 720px) {
+  .signin-stage { padding-top: 84px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signin-bg::before,
+  .signin-bg::after { animation: none; }
+  .signin-input,
+  .signin-submit { transition: none; }
+}
