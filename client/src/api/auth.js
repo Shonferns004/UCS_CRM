@@ -70,6 +70,11 @@ export async function api(path, options = {}) {
       if (msg.toLowerCase().includes('required fields are missing')) return { message: msg }
       const e = new Error(msg)
       e.status = res.status
+      // Carry the server's machine-readable code through. Endpoints that can fail
+      // for distinct actionable reasons (e.g. the HR WhatsApp send returning
+      // hr_outside_window vs hr_send_failed) return a `code`, and callers that
+      // need to branch on it can only do so if it survives the throw.
+      if (err.code) e.code = err.code
       // A 404 whose body is not JSON is Express's default "Cannot GET /path":
       // the route is not mounted on this server. That is a deployment problem,
       // not a permissions problem, and the two must be distinguishable. A JSON
