@@ -10,6 +10,12 @@ const CallContext = createContext()
 // this only seeds the chip before the first heartbeat answers.
 export const DISPOSITION_WINDOW = 240
 
+// Mirrors SETTLE_SECONDS on the server: the one-time grace granted on the FRO's
+// first presence of the day, after which DISPOSITION_WINDOW arms by itself. Only
+// used to size the widget's progress bar — the countdown itself is always the
+// server's number.
+export const SETTLE_SECONDS = 180
+
 const ZERO_STATS = { calls: 0, totalSeconds: 0 }
 
 function fmt(seconds) {
@@ -31,10 +37,12 @@ export function CallProvider({ children, userId, operatorId }) {
   const [liveStatus, setLiveStatus] = useState('online')
 
   // ── Disposition timer ────────────────────────────────────────
-  // The FRO gets 4 minutes from their first action of the day, and 4 more after
-  // every recorded activity. When it runs out they are idle until they record
-  // any activity. All of that is decided on the server; these values are its
-  // answers, mirrored so the chip and banner can render.
+  // Logging in buys a one-time 3-minute settle-in grace, and the 4-minute window
+  // then arms by itself — the FRO never has to act first to start being timed.
+  // Every recorded activity buys another 4 minutes. When the window runs out they
+  // are idle until they record any activity. All of that is decided on the
+  // server; these values are its answers, mirrored so the chip and banner can
+  // render.
   const [dispositionDueAt, setDispositionDueAt] = useState(null)
   const [secondsLeft, setSecondsLeft] = useState(null)
   const [isIdle, setIsIdle] = useState(false)
@@ -54,6 +62,22 @@ export function CallProvider({ children, userId, operatorId }) {
   // only ever measures elapsed time on this machine, so a wrong clock cannot
   // affect it.
   const serverSecondsRef = useRef(null)
+  // The settle-in grace: 3 minutes granted on the FRO's first presence of the
+  // day, after which the 4-minute disposition window arms itself. Purely
+  // informational — it never affects idle, and the client must never treat its
+  // expiry as one. Same anchoring rule as serverSecondsRef (a monotonic reading
+  // taken on arrival, counted down from there) so a wrong system clock cannot
+  // corrupt it either.
+  const [settleSecondsLeft, setSettleSecondsLeft] = useState(null)
+  const settleSeedRef = useRef(null)
+  // Nothing runs periodically in this panel, so the server has no way to notice
+  // on its own that a grace ran out. Reaching zero therefore asks it to arm the
+  // window, on the same bounded-retry shape as the idle ask below: a transient
+  // failure must not leave the FRO with no clock at all, and it must not become a
+  // background poll either.
+  const SETTLE_CONFIRM_MAX = 4
+  const SETTLE_CONFIRM_MS = 2500
+  const settleAskRef = useRef({ count: 0, at: 0 })
   // The server's committed idle total plus the monotonic reading taken when it
   // arrived, so the "idle counter" in the clock widget can tick up live between
   // heartbeats instead of sitting frozen for 30s at a time.
@@ -193,6 +217,23 @@ export function CallProvider({ children, userId, operatorId }) {
       serverSecondsRef.current = null
       setSecondsLeft(null)
     }
+    // Settle-in grace. null once it has run out, which is also how the FROPanel
+    // knows the grace is spent and the real window is the only clock on screen.
+    // Deliberately does NOT touch the idle latch above: the grace expiring is not
+    // a missed disposition, so it must not make the chip ask whether they are idle.
+    if (typeof s.settle_seconds_left === 'number') {
+      settleSeedRef.current = { seconds: s.settle_seconds_left, at: performance.now() }
+      setSettleSecondsLeft(s.settle_seconds_left)
+      // A grace still running means this is a live one, so release the ask latch
+      // for it. Deliberately not reset on 0: that is the state the ask is made
+      // from, and re-arming the budget there would retry forever.
+      if (s.settle_seconds_left > 0) {
+        settleAskRef.current = { count: 0, at: 0 }
+      }
+    } else if (s.settle_seconds_left === null) {
+      settleSeedRef.current = null
+      setSettleSecondsLeft(null)
+    }
     if (typeof s.in_shift === 'boolean') {
       setInShift(s.in_shift)
       inShiftRef.current = s.in_shift
@@ -239,7 +280,22 @@ export function CallProvider({ children, userId, operatorId }) {
       seconds_left: DISPOSITION_WINDOW,
       is_idle: false,
     });
+    // The performance strip polls on its own 30s interval, so without this the
+    // officer records a disposition and the strip they are looking at still
+    // shows the pre-disposition figures until the next tick lands. Same event
+    // convention as the receipts pages.
+    window.dispatchEvent(new CustomEvent('ucs:fro-perf-refresh'));
   }, [adoptTimer])
+
+  // Announce that a disposition has actually been stored, so surfaces that show
+  // derived totals can refresh now rather than waiting out their poll interval.
+  // Kept separate from adoptOptimisticDisposition because that one fires at submit
+  // time, before the server has banked the idle stretch — the refetch it triggers
+  // can therefore still return the pre-disposition figures. Call this once the
+  // response has landed, alongside adopting the server's timer.
+  const noteDispositionSaved = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('ucs:fro-perf-refresh'))
+  }, [])
 
   // Stats are server-authoritative: the client keeps today's counters in memory
   // only (never localStorage) and pushes them on every change. statsOverride lets
@@ -315,12 +371,41 @@ export function CallProvider({ children, userId, operatorId }) {
   // fresh window look unreset. The seed is re-taken whenever the panel talks to
   // the server (open, call start/stop, pause, disposition, resume), so drift
   // from a throttled tab or a sleeping laptop is corrected on the next sync.
+  //
+  // A boolean rather than the countdown itself: the value changes every second, and
+  // putting it in the deps would tear down and rebuild the interval 60 times a
+  // minute. This flips twice a day — grace starts, window arms.
+  const settleActive = settleSecondsLeft != null
   useEffect(() => {
-    if (dispositionDueAt == null) {
-      setSecondsLeft(null)
-      return undefined
-    }
+    if (dispositionDueAt == null) setSecondsLeft(null)
+    // A settle-in grace with no disposition deadline yet still has to animate, so
+    // this used to be an early return and had to stop being one. The tick's own
+    // guard is what keeps the disposition countdown and the idle ask untouched
+    // until there is a real window to count.
+    if (dispositionDueAt == null && !settleActive) return undefined
     const tick = () => {
+      // The settle-in grace animates on its own seed.
+      const settle = settleSeedRef.current
+      if (settle) {
+        const sleft = Math.max(0, Math.round(settle.seconds - (performance.now() - settle.at) / 1000))
+        setSettleSecondsLeft(sleft)
+        // Grace spent: ask the server to arm the window. dispositionDueRef is the
+        // guard that stops this after the fact — once the window is armed the ask
+        // has done its job and there is nothing left to request.
+        if (sleft === 0 && !dispositionDueRef.current) {
+          const ask = settleAskRef.current
+          const nowMs = performance.now()
+          if (ask.count === 0) {
+            ask.count = 1
+            ask.at = nowMs
+            syncAllStats()
+          } else if (ask.count < SETTLE_CONFIRM_MAX && nowMs - ask.at >= SETTLE_CONFIRM_MS) {
+            ask.count += 1
+            ask.at = nowMs
+            syncAllStats()
+          }
+        }
+      }
       const seed = serverSecondsRef.current
       if (!seed) return
       const left = Math.max(0, Math.round(seed.seconds - (performance.now() - seed.at) / 1000))
@@ -381,7 +466,7 @@ export function CallProvider({ children, userId, operatorId }) {
     tick()
     const iv = setInterval(tick, 1000)
     return () => clearInterval(iv)
-  }, [dispositionDueAt, syncAllStats, persistTimer])
+  }, [dispositionDueAt, settleActive, syncAllStats, persistTimer])
 
   // There is no resumeIdle. Idle is cleared only by recording a disposition,
   // which is the one action that produces something real; the endpoint that used
@@ -684,7 +769,11 @@ export function CallProvider({ children, userId, operatorId }) {
       paused, pausedBy, resumeSelf,
       // Disposition timer / idle
       dispositionDueAt, secondsLeft, isIdle, idleSecondsToday, idleLiveSeconds, inShift,
-      adoptTimer, adoptOptimisticDisposition, DISPOSITION_WINDOW,
+      // Settle-in grace. Non-null only while the 3 minutes is running (or has just
+      // run out on the beat before the window arms); the panel prefers the
+      // disposition countdown whenever one exists.
+      settleSecondsLeft,
+      adoptTimer, adoptOptimisticDisposition, noteDispositionSaved, DISPOSITION_WINDOW,
     }}>
       {children}
     </CallContext.Provider>

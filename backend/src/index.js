@@ -19,6 +19,7 @@ import ngoRoutes from './routes/ngoRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import hrRoutes from './routes/hrRoutes.js';
 import letterRoutes from './routes/letterRoutes.js';
+import hrWhatsAppRoutes from './routes/hrWhatsAppRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import eventRoutes from './routes/eventRoutes.js';
 import noticeRoutes from './routes/noticeRoutes.js';
@@ -107,10 +108,23 @@ import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTyp
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
 import { ensureVotingSchema } from './bootstrap/ensureVotingSchema.js';
+import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
 
 dotenv.config();
 
 const _log = console.log;
+
+/* Reports which AI provider will answer Event Head suggestions, and in what
+   order. Provider name and model only — never a key, a key length, a prefix or
+   the request URL, all of which would leak the credential into logs.
+
+   Deliberately a module-level statement, not part of the app.listen callback:
+   on Vercel the listen block is skipped entirely (see `if (!process.VERCEL)`),
+   so a cold-start function invocation would never print it. Here it appears in
+   local boots and in the Vercel function log alike, which is the difference
+   between noticing a missing env var immediately and discovering it from a user
+   saying the button does nothing. */
+_log(aiSuggestionsStartupReport());
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -210,6 +224,7 @@ app.use('/api/ngos', ngoRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/hrs', hrRoutes);
 app.use('/api/letters', letterRoutes);
+app.use('/api/hr/whatsapp', hrWhatsAppRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/notices', noticeRoutes);

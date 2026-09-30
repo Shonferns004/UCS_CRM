@@ -294,7 +294,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
   const savedListScrollRef = useRef(0);
-  const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView, adoptTimer, adoptOptimisticDisposition } = useCall();
+  const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView, adoptTimer, adoptOptimisticDisposition, noteDispositionSaved } = useCall();
 
   useEffect(() => {
     let cancelled = false;
@@ -884,6 +884,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         ngo_id: donor.ngo_id,
       }, { timeout: SAVE_TIMEOUT_MS });
       if (saved?.timer) adoptTimer(saved.timer);
+      noteDispositionSaved();
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
@@ -1204,6 +1205,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       // Same as the donation path: take the server's deadline now rather than
       // letting the countdown show stale seconds until the next heartbeat.
       if (saved?.timer) adoptTimer(saved.timer);
+      noteDispositionSaved();
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       // Same-day suppression (backend-authoritative): a donor with ANY
