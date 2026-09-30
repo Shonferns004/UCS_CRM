@@ -24,9 +24,9 @@ export default function WaitingRoom({ ceremony, state }) {
   }
 
   return (
-    <div className="card">
+    <div className="panel panel-narrow">
       <div className="eyebrow">{copy.eyebrow}</div>
-      <h1 className="big">{copy.title}</h1>
+      <h1 className="panel-title">{copy.title}</h1>
       <p className="lede">{copy.body}</p>
       <div className="alert alert-ok">
         {state === 'not_started'

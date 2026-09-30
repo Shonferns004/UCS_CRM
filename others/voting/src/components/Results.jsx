@@ -11,10 +11,10 @@ export default function Results({ ceremony }) {
   const anyWinner = results.some((r) => r.winner)
 
   return (
-    <div className="card wide">
-      <div className="center">
-        <div className="eyebrow">Results</div>
-        <h1 className="big">{session?.title || 'Award Ceremony'}</h1>
+      <div className="panel">
+        <div className="panel-center">
+          <div className="eyebrow">Results</div>
+          <h1 className="panel-title">{session?.title || 'Award Ceremony'}</h1>
         <p className="lede">
           {anyWinner
             ? 'Every department has had its turn and all the time is up. Here is who everyone picked.'
@@ -58,7 +58,7 @@ export default function Results({ ceremony }) {
       ) : null
       }
 
-      <p className="hint center">
+      <p className="hint hint-center">
         Thanks to everyone who voted. Ballots were anonymous, so no one — including HR — can see how any
         single person voted.
       </p>

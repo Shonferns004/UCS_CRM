@@ -295,8 +295,9 @@
   align-items: center;
   gap: 10px;
   border: 1px solid rgba(232, 182, 76, 0.55);
-  background: linear-gradient(180deg, rgba(232, 182, 76, 0.16), rgba(184, 134, 43, 0.1));
-  color: #f6d894;
+  /* Solid gold with dark text, as the reference shows for the primary CTA. */
+  background: linear-gradient(180deg, #f0c56a, #dca943);
+  color: #1b1408;
   border-radius: 999px;
   padding: 13px 34px;
   font-size: clamp(14px, 2.6vw, 16px);
@@ -308,9 +309,9 @@
 .intro-enter svg { transition: transform 0.2s ease; }
 
 .intro-enter:hover {
-  background: linear-gradient(180deg, rgba(232, 182, 76, 0.26), rgba(184, 134, 43, 0.18));
-  border-color: var(--gold);
-  color: #ffe9a8;
+  background: linear-gradient(180deg, #f7d488, #e6b552);
+  border-color: #f7d488;
+  color: #1b1408;
 }
 
 .intro-enter:hover svg { transform: translateX(4px); }
