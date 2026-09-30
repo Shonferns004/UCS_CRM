@@ -22,6 +22,7 @@ import {
   getSalaryHold,
   setSalaryHold,
   releaseSalaryHold,
+  downloadAttendanceReport,
 } from '../controllers/salaryController.js';
 import { authenticateRole, authenticate, authenticateSalary } from '../middleware/authMiddleware.js';
 
@@ -49,6 +50,7 @@ router.put('/:id/pay', adminOrHrOrHo, paySalary);
 router.delete('/:id', adminHrAccounts, removeSalary);
 router.get('/my-breakdown', authenticate, getMySalaryBreakdown);
 router.get('/worker/:workerId/allocations', adminHrAccounts, getWorkerSalaryWithAllocations);
+router.get('/worker/:workerId/attendance-report', adminHrAccounts, downloadAttendanceReport);
 router.get('/pagar-export', adminHrAccounts, getPagarExport);
 router.get('/compensations', authenticateRole('accounts'), getAccountsSalaryCompensations);
 router.get('/hold/:workerId', adminHrAccounts, getSalaryHold);

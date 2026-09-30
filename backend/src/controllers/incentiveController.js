@@ -232,9 +232,17 @@ export const getIncentiveSummary = async (req, res) => {
     const target = await getOrCreateTarget(workerId, worker, startDate);
     if (!target) return res.json({ hasIncentive: false, message: 'No target set for this month' });
 
+    // A manually-entered target can be null/blank. parseFloat() would give NaN,
+    // which JSON.stringify sends as null and the client then chokes on. Bail out
+    // as "no target" instead: coercing to 0 would make every achievement look
+    // target-met and pay out 10% of the whole month's collections.
+    const monthlyTarget = Number(target.target_amount);
+    if (!Number.isFinite(monthlyTarget) || monthlyTarget <= 0) {
+      return res.json({ hasIncentive: false, message: 'No valid target set for this month' });
+    }
+
     const akiPerDay = await getMergedDailyAmounts(workerId, startDate, endDate);
     const monthlyAchievement = sumDailyAmounts(akiPerDay);
-    const monthlyTarget = parseFloat(target.target_amount);
 
     const totalAKI = sumDailyAKI(akiPerDay);
 
@@ -280,9 +288,13 @@ export const getMonthlySummary = async (req, res) => {
       const target = await getTarget(worker.id, startDate);
       if (!target) continue;
 
+      // Same guard as getIncentiveSummary: a null/blank target must not become
+      // NaN (sent as null) and must not count as a met target of zero.
+      const monthlyTarget = Number(target.target_amount);
+      if (!Number.isFinite(monthlyTarget) || monthlyTarget <= 0) continue;
+
       const daily = await getMergedDailyAmounts(worker.id, startDate, endDate);
       const monthlyAchievement = sumDailyAmounts(daily);
-      const monthlyTarget = parseFloat(target.target_amount);
 
       const totalAKI = sumDailyAKI(daily);
 

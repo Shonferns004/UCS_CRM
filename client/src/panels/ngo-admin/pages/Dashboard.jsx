@@ -1,11 +1,82 @@
 ﻿import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck, Megaphone, Zap, Users, Clock, X } from 'lucide-react';
-import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats } from '../api/auth';
+import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import { useMeeting } from '../../../meetingStore';
 import { formatDuration } from '../../../utils/formatDuration';
+
+// Station-wise Collection layout: two sibling cards, OLD on the left and NEW on
+// the right, in the same two-column grid that holds Hourly Performance and FRO
+// Status above.
+//
+// Each of the three team sections has exactly one station family per card:
+//   BSCT  old BOD  / new BFD
+//   AFLF  old AOD  / new AFD
+//   MANN  old MOD  / new MFD
+// The old families are the pre-rename station codes, the new ones the codes the
+// bulk station rename produced for the same area. Splitting them across two cards
+// lets an admin see, per area, what the old code collected against what the same
+// area collects now.
+//
+// A station lands in a column purely on the prefix before the dash, so 'BOD-3'
+// is an old BSCT station and 'BFD-1' is the new BSCT one.
+const STATION_PANELS = [
+  { key: 'old', title: 'OLD Stations', sub: 'Pre-rename codes', pick: s => s.old },
+  { key: 'new', title: 'NEW Stations', sub: 'Current codes', pick: s => s.fresh },
+];
+const STATION_SECTIONS = [
+  { label: 'BSCT', hue: 'blue', old: 'BOD', fresh: 'BFD' },
+  { label: 'AFLF', hue: 'purple', old: 'AOD', fresh: 'AFD' },
+  { label: 'MANN', hue: 'pink', old: 'MOD', fresh: 'MFD' },
+];
+const STATION_FAMILY_LIST = STATION_SECTIONS.flatMap(s => [s.old, s.fresh]);
+const stationFamilyOf = (code) => {
+  const prefix = String(code || '').trim().split('-')[0].toUpperCase();
+  return STATION_FAMILY_LIST.includes(prefix) ? prefix : null;
+};
+
+// One palette per section, declared once so the section band, the family band
+// and the cell accents can never drift out of step with each other.
+const STATION_HUES = {
+  blue: { head: '#1d4ed8', headBg: '#eff6ff', band: '#dbeafe', cell: '#3b82f6', rule: '#bfdbfe' },
+  purple: { head: '#6d28d9', headBg: '#f5f3ff', band: '#ede9fe', cell: '#8b5cf6', rule: '#ddd6fe' },
+  pink: { head: '#be185d', headBg: '#fdf2f8', band: '#fce7f3', cell: '#ec4899', rule: '#fbcfe8' },
+};
+
+// Compact in-rupee display, matching the Collection card above so the two read
+// as the same number rather than looking like different quantities.
+const formatRupees = (n) => {
+  const v = Math.round(Number(n) || 0);
+  if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`;
+  if (v >= 100000) return `₹${(v / 100000).toFixed(2)} L`;
+  if (v >= 1000) return `₹${(v / 1000).toFixed(1)}K`;
+  return `₹${v.toLocaleString('en-IN')}`;
+};
+
+// Stations are listed in code order, not by amount: BOD-1, BOD-2, BOD-3. The
+// number after the dash decides, and it is compared numerically so BOD-10
+// sorts after BOD-9 instead of before it as a plain string would. Falls back to
+// the raw code when there is no number, then to a plain string compare, so
+// odd codes like 'BOD-1A' or 'BOD-OLD' still order deterministically rather than
+// being dropped.
+const stationOrderKey = (station) => {
+  const code = String(station ?? '');
+  const m = code.match(/^(.*?)-(\d+)(.*)$/);
+  if (!m) return [1, code, 0, code];
+  return [0, m[1], Number(m[2]), m[3]];
+};
+
+const stationOrderCompare = (a, b) => {
+  const ka = stationOrderKey(a);
+  const kb = stationOrderKey(b);
+  return ka[0] - kb[0]
+    || ka[1].localeCompare(kb[1])
+    || ka[2] - kb[2]
+    || ka[3].localeCompare(kb[3])
+    || String(a).localeCompare(String(b));
+};
 
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
@@ -896,6 +967,18 @@ export default function Dashboard() {
   const [connTargetMsg, setConnTargetMsg] = useState('');
   const [dailyStats, setDailyStats] = useState([]);
 
+  // Station-wise Collection. The month picker is deliberately independent of the
+  // header dashPeriod: this panel is a monthly revenue breakdown, so a "Today" or
+  // "Last 7 days" header filter would silently narrow it to a partial month and
+  // make the station ranking contradict the Collection card above.
+  const [stationCollection, setStationCollection] = useState(null);
+  const [stationMonth, setStationMonth] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [stationLoading, setStationLoading] = useState(false);
+
   // Global date range (derived from the header filter) used by the table & exports
   const activeRange = useMemo(() => {
     const now = new Date();
@@ -979,6 +1062,36 @@ export default function Dashboard() {
       .catch(() => { if (!cancelled) setDailyStats([]); });
     return () => { cancelled = true; };
   }, [hourlyDate, selectedNgoId]);
+
+  // Station-wise Collection: refetched on month or NGO change only. There is no
+  // client-side filtering, so these are the only two inputs that trigger a fetch.
+  useEffect(() => {
+    let cancelled = false;
+    setStationLoading(true);
+    getStationWiseCollection({ month: stationMonth, ...(selectedNgoId !== 'all' ? { ngo_id: selectedNgoId } : {}) })
+      .then(data => { if (!cancelled) setStationCollection(data); })
+      .catch(() => { if (!cancelled) setStationCollection(null); })
+      .finally(() => { if (!cancelled) setStationLoading(false); });
+    return () => { cancelled = true; };
+  }, [stationMonth, selectedNgoId]);
+
+  // Bucket the month's stations by family, each ranked highest-collecting first.
+  // Every family gets an entry, even one with nothing this month, so its column
+  // still renders with its heading instead of vanishing from the layout.
+  const stationsByFamily = useMemo(() => {
+    const map = new Map(STATION_FAMILY_LIST.map(f => [f, []]));
+    for (const r of (stationCollection?.stations || [])) {
+      const f = r.family || stationFamilyOf(r.station);
+      if (map.has(f)) map.get(f).push(r);
+    }
+    for (const list of map.values()) {
+      // Station-code order, so a family reads BOD-1, BOD-2, BOD-3. Amount is no
+      // longer the sort key: ranking by collection made the row positions shift
+      // between sections, which cannot be reconciled into a per-row total.
+      list.sort((a, b) => stationOrderCompare(a.station, b.station));
+    }
+    return map;
+  }, [stationCollection]);
 
   // Editable "connected calls per day" target — loaded once from server settings
   // (shared by the whole team), falls back to the built-in default (200).
@@ -2838,6 +2951,376 @@ export default function Dashboard() {
               `}</style>
               </div>
             </div>
+
+            {/* Station-wise Collection - monthly actual receipts ranked by station.
+                Amounts come from receipts.amount (money received), not from an FRO's
+                logged amount_collected, so this card agrees with the Collection card
+                above it instead of contradicting it. Full width: it holds three
+                team sections side by side, so it needs the whole page. */}
+            <div className="station-collection-wrap" style={{ width: '100%', minWidth: 0, marginBottom: 16 }}>
+              <div style={{ padding: '0 4px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#17233C', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2F80D9', display: 'inline-flex', flexShrink: 0 }} />
+                  Station-wise Collection
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2F80D9', background: '#eff6ff', border: '1px solid #dbeafe', padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+                    {formatRupees(stationCollection?.total || 0)}
+                  </span>
+                </h3>
+                <input
+                  type="month"
+                  aria-label="Station-wise Collection month"
+                  value={stationMonth}
+                  onChange={e => e.target.value && setStationMonth(e.target.value)}
+                  style={{ height: 34, border: '1px solid #dbe5f1', borderRadius: 8, background: '#ffffff', padding: '0 8px', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: '#17233C' }}
+                />
+              </div>
+
+              {(() => {
+                if (stationLoading && !stationCollection) {
+                  return (
+                    <div className="performance-sections" style={{ marginBottom: 0 }} aria-label="Loading station collection">
+                      {STATION_PANELS.map(panel => (
+                        <div key={panel.key} className="performance-card" style={{ height: 460 }}>
+                          <div className="performance-header">
+                            <div style={{ height: 14, width: 120, background: '#eef2f6', borderRadius: 6 }} />
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', padding: '0 8px 16px' }}>
+                            {STATION_SECTIONS.map(section => (
+                              <div key={section.label} style={{ minWidth: 0, padding: '0 8px', borderLeft: '1px solid #f1f5f9' }}>
+                                <div style={{ height: 12, width: '60%', background: '#eef2f6', borderRadius: 6, marginBottom: 12 }} />
+                                {[0, 1, 2, 3].map(i => (
+                                  <div key={i} style={{ display: 'flex', gap: 10, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                    <div style={{ width: 56, height: 12, background: '#eef2f6', borderRadius: 6 }} />
+                                    <div style={{ flex: 1 }} />
+                                    <div style={{ width: 60, height: 12, background: '#eef2f6', borderRadius: 6 }} />
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                if (!stationCollection) {
+                  return (
+                    <div className="performance-card" style={{ height: 460, justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>Could not load station collection.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Change the month or try again.</div>
+                    </div>
+                  );
+                }
+                // A month with no receipts at all gets the empty state rather than
+                // a grid of empty columns. Verified against production: 2026-07 and
+                // 2026-06 both have a zero total and land here.
+                if ((stationCollection.total || 0) <= 0) {
+                  return (
+                    <div className="performance-card" style={{ height: 460, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: '0 24px' }}>
+                      <div style={{ width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%', background: '#f1f5f9', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Clock size={16} /></div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#17233C' }}>No station collected in this month.</div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Pick a different month above.</div>
+                    </div>
+                  );
+                }
+                const other = stationCollection.other || { amount: 0, count: 0 };
+                const unattributed = stationCollection.unattributed || { amount: 0, count: 0 };
+                // Header band heights are fixed so the three sticky rows can be
+                // pinned at exact offsets and never overlap each other.
+                const thBase = { fontSize: 11, fontWeight: 700, color: '#64748B', background: '#ffffff', boxSizing: 'border-box' };
+                return (
+                  <>
+                    {/* OLD on the left, NEW on the right, as two sibling cards in
+                        the same two-column grid that holds Hourly Performance and
+                        FRO Status above. Each card carries the three team sections,
+                        and each section shows one station family: the pre-rename
+                        code on the OLD card, the current code for the same area on
+                        the NEW one. */}
+                    <div className="performance-sections" style={{ marginBottom: 0 }}>
+                      {STATION_PANELS.map(panel => {
+                        // Rows are keyed on the station NUMBER, not on list
+                        // position. BOD-1, AOD-1 and MOD-1 share row 1; BOD-10,
+                        // AOD-10 and MOD-10 share row 10. Zipping by position
+                        // instead would put BOD-10 on row 3 beside AOD-3, whenever
+                        // a family is missing a station in the middle.
+                        //
+                        // A number is the union of the numbers present in any of
+                        // the three sections, so a row exists if any one section
+                        // has it. The sections that do not have it render blank,
+                        // and those blanks contribute nothing to the row total.
+                        const byNumber = STATION_SECTIONS.map(s => {
+                          const list = stationsByFamily.get(panel.pick(s)) || [];
+                          const map = new Map();
+                          const unnumbered = [];
+                          for (const r of list) {
+                            const parsed = stationOrderKey(r.station);
+                            // stationOrderKey returns [kind, prefix, num, tail];
+                            // kind 0 means a real number was found.
+                            if (parsed[0] === 0) map.set(parsed[2], r);
+                            else unnumbered.push(r);
+                          }
+                          return { map, unnumbered };
+                        });
+                        const numbers = [...new Set(byNumber.flatMap(ix => [...ix.map.keys()]))].sort((a, b) => a - b);
+                        // Codes with no number ('BOD-OLD', 'M-2') cannot join a
+                        // numbered row, so they are listed after them rather than
+                        // being dropped or shoved onto row 1.
+                        const stray = [];
+                        byNumber.forEach((ix, si) => ix.unnumbered.forEach(r => stray.push({ si, r })));
+                        stray.sort((a, b) => stationOrderCompare(a.r.station, b.r.station));
+                        const rows = [
+                          ...numbers.map(n => ({ key: `n${n}`, label: String(n), cells: byNumber.map(ix => ix.map.get(n) || null) })),
+                          ...stray.map((s, i) => ({ key: `s${i}`, label: '', cells: byNumber.map((_, si) => (si === s.si ? s.r : null)) })),
+                        ];
+                        const depth = rows.length;
+                        const rowTotal = (i) => rows[i].cells.reduce((sum, c) => sum + (Number(c?.amount) || 0), 0);
+                        // Sum of the row totals, so the grand total is the same
+                        // arithmetic as the column beneath it and cannot disagree.
+                        const panelTotal = rows.reduce((acc, _, i) => acc + rowTotal(i), 0);
+                        return (
+                        <div key={panel.key} className="performance-card station-card station-card-old" style={{ height: 460 }}>
+                          <div className="performance-header">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                              <span className={`station-card-icon station-card-icon-${panel.key}`}><Users size={18} /></span>
+                              <div style={{ minWidth: 0 }}>
+                                <h3 className="performance-title" style={{ color: '#17233C' }}>{panel.title}</h3>
+                                <div style={{ fontSize: 11, color: '#64748B', lineHeight: 1.3 }}>{panel.sub}</div>
+                              </div>
+                            </div>
+                            <span className="station-card-total" style={{ color: panel.key === 'old' ? '#475569' : '#1d4ed8', background: panel.key === 'old' ? '#f1f5f9' : '#eff6ff', borderColor: panel.key === 'old' ? '#e2e8f0' : '#dbeafe' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                              {formatRupees(panelTotal)}
+                            </span>
+                          </div>
+
+                          <div className="productivity-table-wrap station-scroll" style={{ width: '100%', minWidth: 0, flex: 1, minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
+                            {/* Three coloured sections plus a neutral Total column on
+                                the right, which is the only column whose figure is not
+                                tied to one station family. It carries the panel
+                                grand total, matching the badge in the card header. */}
+                            <div className="station-sections" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(88px, 0.62fr)' }}>
+                              {STATION_SECTIONS.map((section, si) => {
+                                const hue = STATION_HUES[section.hue];
+                                const family = panel.pick(section);
+                                const list = stationsByFamily.get(family) || [];
+                                const sum = list.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+                                // No background here on purpose: the section tint comes
+                                // from CSS, so recolouring a section is a one-rule
+                                // change. An inline background would win over it.
+                                const familyCell = { fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', height: 28, padding: '0 10px', textAlign: 'left', color: hue.head, borderBottom: '1px solid #e2e8f0' };
+                                return (
+                                  <div key={section.label} className="station-section" style={{ minWidth: 0, borderLeft: si > 0 ? '1px solid #e2e8f0' : 'none' }}>
+                                    <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
+                                      {/* Explicit column widths, identical for all
+                                          three sections. Without them the two
+                                          columns are resolved from content, so a
+                                          section whose rows happen to be blank (a
+                                          missing station number) came out narrower
+                                          than its neighbours and the four columns
+                                          stopped lining up. Fixed here so an empty
+                                          cell paints an empty bordered box instead
+                                          of collapsing the column. */}
+                                      <colgroup>
+                                        <col style={{ width: '46%' }} />
+                                        <col style={{ width: '54%' }} />
+                                      </colgroup>
+                                      <thead>
+                                        <tr>
+                                          <th colSpan={2} style={{ ...thBase, height: 34, padding: '0 12px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: hue.head, borderBottom: '1px solid #e2e8f0' }}>
+                                            {section.label}
+                                          </th>
+                                        </tr>
+                                        <tr>
+                                          <th colSpan={2} className="station-family-a" style={{ ...familyCell }}>{family}</th>
+                                        </tr>
+                                        <tr>
+                                          <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'left' }}>Station</th>
+                                          <th className="station-rule-right" style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title={`Total collected by ${family} this month`}>{formatRupees(sum)}</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {depth === 0 && (
+                                          <tr>
+                                            <td colSpan={2} style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>No {family} collection this month</td>
+                                          </tr>
+                                        )}
+                                        {/* One row per station NUMBER across all three
+                                            sections. A section that has no station for
+                                            that number renders a blank cell, so a gap
+                                            in one column never shifts the others. */}
+                                        {rows.map(row => {
+                                          const r = row.cells[si];
+                                          // A visible rule on every cell, blank or
+                                          // not, so a station number missing from
+                                          // this section still reads as a real slot
+                                          // in the grid instead of a gap.
+                                          const cell = { height: 42, boxSizing: 'border-box', padding: '8px 10px', fontSize: 12, whiteSpace: 'nowrap' };
+                                          return (
+                                            <tr key={`${family}-${row.key}`} className="station-row">
+                                              <td title={r?.station} style={{ ...cell, fontWeight: 700, color: r ? '#17233C' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r?.station || ''}</td>
+                                              <td className="station-rule-right" style={{ ...cell, textAlign: 'right', fontWeight: 700, color: r ? hue.head : '#cbd5e1' }}>{r ? formatRupees(r.amount) : ''}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Total column. A per-row addition, not a list of
+                                  subtotals: row 1 is BOD-1 + AOD-1 + MOD-1, row 2 is
+                                  BOD-2 + AOD-2 + MOD-2, and so on.
+
+                                  Correct only because rows are keyed on the station
+                                  NUMBER, not on list position. If BOD-10 and AOD-10
+                                  exist but MOD-10 does not, row 10 shows those two
+                                  and a blank cell for MOD, and the row total adds
+                                  just the two that exist.
+
+                                  Neutral grey rather than a fourth section colour, so
+                                  it reads as the sum of the three beside it. */}
+                              <div className="station-section station-section-total" style={{ minWidth: 0, borderLeft: '1px solid #e2e8f0' }}>
+                                <table className="station-collection-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed' }}>
+                                  <thead>
+                                    <tr>
+                                      <th style={{ ...thBase, height: 34, padding: '0 10px', textAlign: 'left', letterSpacing: '0.1em', fontWeight: 800, fontSize: 12, color: '#ffffff', background: '#334155', borderBottom: '1px solid #e2e8f0' }}>
+                                        Total
+                                      </th>
+                                    </tr>
+                                    <tr>
+                                      <th className="station-family-a" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', height: 28, padding: '0 10px', textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>
+                                        All
+                                      </th>
+                                    </tr>
+                                    <tr>
+                                      <th style={{ ...thBase, height: 26, padding: '0 10px', textAlign: 'right' }} title="Sum of the three sections on this row">Row Total</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {depth === 0 && (
+                                      <tr>
+                                        <td style={{ padding: '14px 10px', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>Nothing to add</td>
+                                      </tr>
+                                    )}
+                                    {rows.map((row, i) => {
+                                      const t = rowTotal(i);
+                                      // A row where every section is blank adds to
+                                      // nothing, so it stays blank rather than
+                                      // showing a misleading ₹0. A partial row still
+                                      // shows its total, and the tooltip spells out
+                                      // which stations went into it.
+                                      const present = row.cells.filter(Boolean);
+                                      return (
+                                        <tr key={`total-${row.key}`} className="station-row">
+                                          <td style={{ height: 42, boxSizing: 'border-box', padding: '8px 10px', fontSize: 12, textAlign: 'right', fontWeight: 800, color: present.length ? '#0f172a' : '#cbd5e1', whiteSpace: 'nowrap' }} title={present.length ? present.map(r => r.station).join(' + ') : 'No stations on this row'}>
+                                            {present.length ? formatRupees(t) : ''}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr>
+                                      <td style={{ padding: '10px', fontSize: 13, fontWeight: 800, textAlign: 'right', color: '#0f172a', background: '#f1f5f9', borderTop: '2px solid #cbd5e1', whiteSpace: 'nowrap' }} title={`Total collected by ${panel.key === 'old' ? 'pre-rename' : 'current'} station codes this month`}>
+                                        {formatRupees(panelTotal)}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Money that is not attributable to a family column. Kept below
+                        the three sections and inside the same total, so the card
+                        still reconciles with the Collection card above. */}
+                    {(other.count > 0 || unattributed.count > 0) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, padding: '10px 16px', background: '#fffbeb', borderTop: '1px solid #fde68a' }}>
+                        {other.count > 0 && (
+                          <div title={`Receipts tied to a pre-rename or unrecognised station code (${other.count} receipts). Counted in the total, because the money is attributed - just to an older station name.`}>
+                            <span style={{ fontSize: 11, color: '#92400E' }}>Other / Legacy Code </span>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: '#92400E' }}>{formatRupees(other.amount)}</span>
+                            <span style={{ fontSize: 10, color: '#b45309' }}> ({other.count} receipts)</span>
+                          </div>
+                        )}
+                        {unattributed.count > 0 && (
+                          <div title={`Receipts whose assignment carries no station (${unattributed.count} receipts). Counted in the total so this card agrees with the Collection card above.`}>
+                            <span style={{ fontSize: 11, color: '#92400E' }}>Unattributed / No Station </span>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: '#92400E' }}>{formatRupees(unattributed.amount)}</span>
+                            <span style={{ fontSize: 10, color: '#b45309' }}> ({unattributed.count} receipts)</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Scoped to this card rather than relying on .productivity-alerts,
+                  whose sticky rule lives in a <style> tag inside the FRO Status
+                  card. Independent, so moving either card cannot break the other. */}
+              <style>{`
+                /* Three stacked header bands per section. borderCollapse is
+                   'separate' because Chromium does not apply position:sticky to
+                   a th inside a collapsed-border table, which is what made the
+                   labels scroll away underneath the rows. Offsets must match the
+                   fixed band heights set inline (34 / 28 / 26). */
+                .station-collection-table thead tr:nth-child(1) th { position: sticky; top: 0; z-index: 4; }
+                .station-collection-table thead tr:nth-child(2) th { position: sticky; top: 34px; z-index: 4; }
+                .station-collection-table thead tr:nth-child(3) th { position: sticky; top: 62px; z-index: 4; border-bottom: 1px solid #cbd5e1; }
+
+                /* Visible row and column lines. Every cell carries a rule —
+                   including a cell with no station on it — so a gap reads as an
+                   empty slot in the grid rather than the column collapsing.
+                   Drawn from --sec-rule, so each section's lines carry its own
+                   tint and the three still line up with the Total column. */
+                .station-collection-table tbody td { border-bottom: 1px solid var(--sec-rule, #e2e8f0); }
+                .station-collection-table tbody tr:last-child td { border-bottom: 1px solid #94a3b8; }
+                .station-collection-table .station-rule-right { border-left: 1px solid var(--sec-rule, #e2e8f0); }
+
+                /* Section tinting. The hue rides on a custom property so one rule
+                   paints a section, so recolouring BSCT/AFLF/MANN is a single
+                   edit per section rather than a per-cell one. */
+                .station-section { --sec: #dbeafe; --sec-rule: #bfdbfe; }
+                .station-section:nth-child(2) { --sec: #ede9fe; --sec-rule: #ddd6fe; }
+                .station-section:nth-child(3) { --sec: #fce7f3; --sec-rule: #fbcfe8; }
+                .station-section .station-family-a { background: var(--sec); }
+                .station-section tbody tr:nth-child(odd) td { background: #fcfdff; }
+                .station-section tbody tr:hover td { background: var(--sec); }
+
+                /* Card header furniture, matching the icon-and-total treatment on
+                   Hourly Performance. The OLD card is greyed to read as the
+                   reference side of the comparison; the section hues inside it
+                   stay identical, so BSCT still matches BSCT across the two. */
+                .station-card-icon {
+                  width: 36px; height: 36px; border-radius: 50%;
+                  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+                }
+                .station-card-icon-old { background: #f1f5f9; color: #475569; }
+                .station-card-icon-new { background: #dbeafe; color: #1d4ed8; }
+                .station-card-total {
+                  font-size: 13px; font-weight: 800; padding: 4px 12px;
+                  border-radius: 999px; border: 1px solid; white-space: nowrap;
+                }
+                .station-card-old { background: #fafbfc; }
+
+                /* The Total column must not pick up a section tint from the
+                   nth-child rules above, so it opts out explicitly. It is a
+                   summary of the other three, not a fourth area. */
+                .station-section-total { --sec: #f1f5f9; --sec-rule: #e2e8f0; }
+
+                /* Vertical scrollbar hidden on request. The element keeps
+                   overflow-y: auto, so the list still scrolls by wheel, trackpad
+                   and keyboard, and the sticky headers still work. Only the bar
+                   itself is invisible. */
+                .station-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+                .station-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
+              `}</style>
+            </div>
           </>
         );
       })()}
@@ -2888,4 +3371,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

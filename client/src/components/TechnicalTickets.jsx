@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/auth';
 import { deptLabel } from '../lib/labels';
-import { routeFor, routeLabel } from '../lib/ticketRouting';
+import { routeFor, routeLabel, categoryLabel } from '../lib/ticketRouting';
 
 const AUTO_REFRESH_MS = 30000;
 
@@ -23,6 +23,7 @@ const CATEGORIES = [
   { value: 'payment_issue', label: 'Payment Issue' },
   { value: 'receipt_issue', label: 'Receipt Issue' },
   { value: 'technical', label: 'Technical' },
+  { value: 'digital_team', label: 'Digital Team' },
   { value: 'hr_issue', label: 'HR Related' },
   { value: 'other', label: 'Other' },
 ];
@@ -52,6 +53,7 @@ const PRIORITY_COLORS = {
 
 const apiGet = (p) => api(p, { _prefix: 'ucs' });
 const apiPost = (p, b) => api(p, { method: 'POST', body: JSON.stringify(b), _prefix: 'ucs' });
+const apiPut = (p, b) => api(p, { method: 'PUT', body: JSON.stringify(b), _prefix: 'ucs' });
 
 const PANELS = [
   { key: 'event_head', label: 'Event Head', color: '#6366f1' },
@@ -94,7 +96,7 @@ function renderPanel(t) {
   );
 }
 
-export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null }) {
+export default function TechnicalTickets({ panel, viewOnly = false, canRaise = true, requireUnlock = false, category = null, department = null, canResolve = false }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -119,6 +121,8 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   });
   const [submitting, setSubmitting] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [savingStatus, setSavingStatus] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [formErrors, setFormErrors] = useState({});
@@ -127,20 +131,39 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
   const [search, setSearch] = useState('');
   const [deskLoading, setDeskLoading] = useState(false);
 
+  const teamQueue = !!(department && category);
+
   const loadTickets = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setRefreshing(true);
     try {
-      const endpoint = viewOnly ? '/tickets' : '/tickets/my';
-      const devEndpoint = viewOnly ? '/developer-tickets' : '/developer-tickets/my';
-      const [regularTickets, devTickets] = await Promise.all([
-        apiGet(endpoint).catch(() => []),
-        apiGet(devEndpoint).catch(() => []),
+      // In team-queue mode the page shows the team's Digital Team inbox *plus*
+      // whatever this user raised themselves, so a ticket raised from the form
+      // here is never invisible on the page it was raised from.
+      const queueEndpoint = teamQueue
+        ? `/tickets?department=${encodeURIComponent(department)}&category=${encodeURIComponent(category)}`
+        : null;
+      const mineEndpoint = teamQueue ? '/tickets/my' : viewOnly ? '/tickets' : '/tickets/my';
+      const devEndpoint = teamQueue ? null : viewOnly ? '/developer-tickets' : '/developer-tickets/my';
+      const [queueTickets, regularTickets, devTickets] = await Promise.all([
+        queueEndpoint ? apiGet(queueEndpoint).catch(() => []) : Promise.resolve([]),
+        apiGet(mineEndpoint).catch(() => []),
+        devEndpoint ? apiGet(devEndpoint).catch(() => []) : Promise.resolve([]),
       ]);
-      const allTickets = [
+      const tagged = [
+        ...(queueTickets || []).map(t => ({ ...t, _source: 'regular' })),
         ...(regularTickets || []).map(t => ({ ...t, _source: 'regular' })),
         ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
-      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      ];
+      const seen = new Set();
+      const allTickets = tagged
+        .filter(t => {
+          const key = `${t._source}:${t.id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setTickets(allTickets);
       setLastUpdated(new Date());
     } catch (err) {
@@ -149,7 +172,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
       setRefreshing(false);
       setLoading(false);
     }
-  }, [viewOnly]);
+  }, [viewOnly, teamQueue, department, category]);
 
   useEffect(() => {
     if (requireUnlock && !gateOpen) return;
@@ -277,7 +300,29 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
     finally { setSendingReply(false); }
   };
 
-  const visibleTickets = category ? tickets.filter(t => t.category === category) : tickets;
+  const handleStatusChange = async (newStatus) => {
+    if (!showDetail) return;
+    if (newStatus === 'resolved' && !resolutionNote.trim()) {
+      alert('Please provide a resolution note before resolving');
+      return;
+    }
+    setSavingStatus(true);
+    try {
+      const payload = { status: newStatus };
+      if (newStatus === 'resolved') payload.resolution = resolutionNote.trim();
+      await apiPut(`/tickets/${showDetail.id}`, payload);
+      const refreshed = await apiGet(`/tickets/${showDetail.id}`).catch(() => null);
+      setShowDetail(refreshed ? { ...refreshed, _source: 'regular' } : null);
+      setResolutionNote('');
+      loadTickets();
+    } catch (err) { alert(err.message); }
+    finally { setSavingStatus(false); }
+  };
+
+  // In team-queue mode the API already restricts the queue fetch, and the page
+// also carries this user's own raised tickets of any category — so the
+// category filter must not run there or those would be hidden.
+const visibleTickets = category && !teamQueue ? tickets.filter(t => t.category === category) : tickets;
 
   const filtered = visibleTickets.filter(t => {
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
@@ -761,7 +806,7 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>Category</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', textTransform: 'capitalize' }}>{CATEGORIES.find(c => c.value === showDetail.category)?.label || showDetail.category}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', textTransform: 'capitalize' }}>{categoryLabel(showDetail.category)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>Created</div>
@@ -816,6 +861,29 @@ export default function TechnicalTickets({ panel, viewOnly = false, canRaise = t
                   </div>
                 )}
               </div>
+
+              {/* Status / resolve controls */}
+              {canResolve && (showDetail.status === 'open' || showDetail.status === 'in_progress') && (
+                <div style={{ marginTop: 14, borderTop: '1px solid #e5e7eb', paddingTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: '#1a1a2e' }}>Update status</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+                    {showDetail.status === 'open' && (
+                      <button className="btn btn-sm" onClick={() => handleStatusChange('in_progress')} disabled={savingStatus}>
+                        Mark In Progress
+                      </button>
+                    )}
+                    <button className="btn btn-sm btn-primary" onClick={() => handleStatusChange('resolved')} disabled={savingStatus || !resolutionNote.trim()}>
+                      {savingStatus ? 'Saving...' : 'Mark Resolved'}
+                    </button>
+                  </div>
+                  <textarea
+                    value={resolutionNote}
+                    onChange={e => setResolutionNote(e.target.value)}
+                    placeholder="Resolution note (required to resolve)... shown to the FRO who raised this ticket"
+                    rows={2}
+                    style={{ width: '100%', padding: '8px 10px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 6, fontFamily: 'inherit', resize: 'vertical' }} />
+                </div>
+              )}
 
               {/* Reply box */}
               {(showDetail.status === 'open' || showDetail.status === 'in_progress') && (
