@@ -1,8 +1,6 @@
-import OrderStrip from './OrderStrip'
-
 /** Shown straight after a successful submit, and whenever a voter has already voted. */
 export default function VoteSuccess({ ceremony }) {
-  const { session, department, departments, roster_size: rosterSize } = ceremony || {}
+  const { session, department } = ceremony || {}
 
   return (
     <div className="card">
@@ -24,17 +22,11 @@ export default function VoteSuccess({ ceremony }) {
 
       <div className="alert alert-ok">
         Your vote is anonymous. It is stored as a count against the person you chose, and no one — including
-        HR — can see which ballot was yours.
+        HR — can see which ballot was yours. The winner is decided only after every department has voted and
+        the time is up.
       </div>
 
       {session?.award_label && <p className="hint">Award: {session.award_label}</p>}
-      {department && rosterSize > 0 && (
-        <p className="hint">
-          {rosterSize} {rosterSize === 1 ? 'person was' : 'people were'} on your department’s ballot.
-        </p>
-      )}
-
-      <OrderStrip departments={departments} myDepartmentId={department?.id} />
     </div>
   )
 }

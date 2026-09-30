@@ -8,6 +8,7 @@ import CeremonyIntro from './components/CeremonyIntro'
 import WaitingRoom from './components/WaitingRoom'
 import Ballot from './components/Ballot'
 import VoteSuccess from './components/VoteSuccess'
+import Results from './components/Results'
 import ToastContainer from './components/Toast'
 
 // How often to re-check the turn state. Realtime normally pushes the change
@@ -141,6 +142,8 @@ export default function App() {
                 Try again
               </button>
             </div>
+          ) : state === 'results' ? (
+            <Results ceremony={ceremony} />
           ) : state === 'voted' ? (
             <VoteSuccess ceremony={ceremony} />
           ) : state === 'voting' ? (

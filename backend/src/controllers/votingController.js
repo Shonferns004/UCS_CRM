@@ -13,6 +13,7 @@ import {
   listSessions,
   getSession,
   getActiveSession,
+  getRecentSession,
   getPublicStatus,
   listTurns,
   getTurn,
@@ -60,6 +61,35 @@ const shapeDepartment = (d) => ({
   is_locked: !!d.is_locked,
   member_count: Array.isArray(d.members) ? d.members.length : undefined,
 });
+
+/**
+ * The final winners, one per department. Shared by the HR board and the booth's
+ * end-of-ceremony reveal so they can never disagree. It only appears once every
+ * turn is done — the votes stay private until then.
+ */
+const buildWinners = (departments, tally) =>
+  departments.map((d) => {
+    const rows = (tally || []).filter((r) => Number(r.department_id) === Number(d.id) && r.nominee_id);
+    const votes = rows.reduce((s, r) => s + (r.votes || 0), 0);
+    const top = rows.reduce((best, r) => (!best || (r.votes || 0) > best.votes ? r : best), null);
+    const tied = top ? rows.filter((r) => r.votes === top.votes).length : 0;
+    return {
+      department: { id: d.id, name: d.name, order_index: d.order_index },
+      votes_cast: votes,
+      winner:
+        top && votes > 0
+          ? {
+              nominee_id: top.nominee_id,
+              name: top.nominee_name,
+              employee_id: top.nominee_employee_id,
+              photo_url: top.nominee_photo_url,
+              votes: top.votes,
+            }
+          : null,
+      is_tie: !!(top && votes > 0 && tied > 1),
+      tied_count: tied,
+    };
+  });
 
 const broadcast = (sessionId, type, extra = {}) => {
   emitRealtime('voting:update', { type, session_id: sessionId, ...extra }, VOTING_ROOM);
@@ -109,7 +139,33 @@ export const getCeremony = async (req, res) => {
     if (!worker) return;
 
     const session = await getActiveSession();
+
+    // No live or draft ceremony? If the last one is finished, the only honest
+    // screen is the results — the winner is decided after everyone has voted
+    // and the time has ended, so that is exactly when this state appears.
     if (!session) {
+      const recent = await getRecentSession();
+      if (recent && recent.status === 'completed') {
+        const [tally, depts] = await Promise.all([tallyResults(recent.id), listDepartments()]);
+        return res.json(
+          withServerNow({
+            session: {
+              id: recent.id,
+              title: recent.title,
+              tagline: recent.tagline,
+              award_label: recent.award_label,
+              status: recent.status,
+              turn_minutes: recent.turn_minutes,
+              started_at: recent.started_at,
+              completed_at: recent.completed_at,
+            },
+            state: 'results',
+            results: buildWinners(depts, tally),
+            department: null,
+            turn: null,
+          }),
+        );
+      }
       return res.json(withServerNow({ session: null, state: 'no_ceremony', department: null, turn: null }));
     }
 

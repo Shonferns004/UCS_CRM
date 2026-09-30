@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 
 import {
   normDept,
+  deptMatches,
   hashVoterKey,
   resolveRoster,
   isExplicitRoster,
@@ -108,7 +109,8 @@ test('isExplicitRoster is false for a plain department match', () => {
 const FRO = { id: 1, name: 'FRO', order_index: 0, match_department: 'FRO' };
 const DIGITAL = { id: 2, name: 'Digital', order_index: 1, match_department: 'Digital' };
 const DEVELOPERS = { id: 3, name: 'Developers', order_index: 2, match_department: null, is_locked: true };
-const DEPTS = [FRO, DIGITAL, DEVELOPERS];
+const HR = { id: 4, name: 'HR', order_index: 3, match_department: 'HR, HR-Recruiter' };
+const DEPTS = [FRO, DIGITAL, DEVELOPERS, HR];
 
 test('resolveVoterDepartmentId matches a plain department', () => {
   const rows = [
@@ -152,6 +154,27 @@ test('resolveVoterDepartmentId does not match a group with no department value',
   // Developers has match_department = null; an unmatched person must not fall
   // into it by accident.
   assert.equal(resolveVoterDepartmentId(DEPTS, [], 'Digital'), 2);
+});
+
+// ── deptMatches: groups spanning several department labels ───────────────────
+
+test('deptMatches matches any of the comma-separated values', () => {
+  // HR is one group covering both the `HR` and `HR-Recruiter` department values.
+  assert.equal(deptMatches('HR, HR-Recruiter', 'HR'), true);
+  assert.equal(deptMatches('HR, HR-Recruiter', 'HR-Recruiter'), true);
+  assert.equal(deptMatches(' HR, HR-Recruiter ', 'HR-Recruiter'), true);
+});
+
+test('deptMatches is false when the department is not in the list', () => {
+  assert.equal(deptMatches('HR, HR-Recruiter', 'FRO'), false);
+  assert.equal(deptMatches('Digital', 'HR-Recruiter'), false);
+  assert.equal(deptMatches(null, 'HR'), false);
+  assert.equal(deptMatches('', 'HR'), false);
+});
+
+test('resolveVoterDepartmentId routes an HR-Recruiter into the HR group', () => {
+  assert.equal(resolveVoterDepartmentId(DEPTS, [], 'HR-Recruiter'), 4);
+  assert.equal(resolveVoterDepartmentId(DEPTS, [], 'hr-recruiter'), 4);
 });
 
 // ── hashVoterKey ──────────────────────────────────────────────────────────

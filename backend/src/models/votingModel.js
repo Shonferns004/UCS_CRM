@@ -19,6 +19,22 @@ function ballotSecret() {
 export const normDept = (v) => String(v ?? '').trim().toLowerCase();
 
 /**
+ * Does a worker's department fall into a group's match list?
+ *
+ * match_department is a comma/newline-separated list (e.g. HR's matches both the
+ * `HR` and `HR-Recruiter` values that exist in the worker dropdown), so a group
+ * can span several department labels without asking HR to hand-pick people.
+ */
+export const deptMatches = (value, workerDepartment) => {
+  const wanted = normDept(workerDepartment);
+  return String(value ?? '')
+    .split(/[,|\n]/)
+    .map(normDept)
+    .filter(Boolean)
+    .includes(wanted);
+};
+
+/**
  * One ballot per person per turn.
  *
  * Deliberately a keyed digest rather than a bare hash of the login_id: a plain
@@ -63,7 +79,6 @@ export const isExplicitRoster = (dept, memberRows = []) =>
  */
 export const resolveVoterDepartmentId = (depts = [], memberRows = [], workerDepartment) => {
   const ordered = [...depts].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-  const wanted = normDept(workerDepartment);
 
   for (const d of ordered) {
     if (memberRows.some((m) => Number(m.department_id) === Number(d.id) && !m.is_excluded)) {
@@ -71,7 +86,7 @@ export const resolveVoterDepartmentId = (depts = [], memberRows = [], workerDepa
     }
   }
   for (const d of ordered) {
-    if (d.match_department && normDept(d.match_department) === wanted) return d.id;
+    if (deptMatches(d.match_department, workerDepartment)) return d.id;
   }
   return null;
 };
@@ -191,12 +206,18 @@ const fetchWorkersByIds = async (ids) => {
 };
 
 const fetchWorkersByDepartment = async (department) => {
-  if (!department) return [];
+  // match_department may be a list ("HR, HR-Recruiter"); split it here so the
+  // roster query and the voter-resolution share the same notion of a group.
+  const matches = String(department || '')
+    .split(/[,|\n]/)
+    .map(normDept)
+    .filter(Boolean);
+  if (!matches.length) return [];
   const { rows } = await db._pool.query(
     `SELECT ${WORKER_COLUMNS} FROM workers
-     WHERE lower(btrim(COALESCE(department, ''))) = lower(btrim($1)) AND ${ACTIVE_WORKERS_WHERE}
+     WHERE lower(btrim(COALESCE(department, ''))) = ANY($1::text[]) AND ${ACTIVE_WORKERS_WHERE}
      ORDER BY lower(name)`,
-    [String(department)],
+    [matches],
   );
   return rows;
 };
@@ -319,6 +340,17 @@ export const getSession = async (id) => {
   const { data, error } = await db.from(SESSIONS_TABLE).select('*').eq('id', id).maybeSingle();
   if (error && error.code !== 'PGRST116') throw error;
   return data || null;
+};
+
+/** The most recent ceremony of any status, used for the after-the-fact results reveal. */
+export const getRecentSession = async () => {
+  const { data, error } = await db
+    .from(SESSIONS_TABLE)
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data || [])[0] || null;
 };
 
 /** The ceremony a voter should be looking at: the live one, else the newest draft. */
