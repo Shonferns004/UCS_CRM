@@ -1,6 +1,14 @@
 import { useEffect, useId, useState } from 'react'
 import { fetchStatus, login } from '../api'
-import AppHeader from './AppHeader'
+import { ArrowRight, Lock } from '../icons'
+import trophyUrl from '../assets/images/transparent.png'
+
+/* The artwork is 1536x1024 with roughly 12% transparent margin on each side, so
+   the box must be wider than the trophy looks for the visible cup to land on the
+   reference's 250-280px. Width and height are set so the browser reserves the
+   correct box before the 1.7 MB PNG decodes. */
+const TROPHY_BOX = 350
+const TROPHY_ASPECT = 1536 / 1024
 
 /**
  * The sign-in card, driven purely by props. Split out from the wrapper that
@@ -23,48 +31,70 @@ export function LoginCard({
   errorId,
 }) {
   return (
-    <main className="shell-main">
-      <form className="panel panel-narrow" onSubmit={onSubmit}>
-        <div className="panel-center">
-          <span className="eyebrow">{open ? 'Sign in to vote' : 'Not open yet'}</span>
-          <h1 className="panel-title">
-            {open ? 'Monthly Award Ceremony' : 'The ceremony has not started'}
+    <main className="signin-stage">
+      <form className="signin-card" onSubmit={onSubmit}>
+        <div className="signin-trophy">
+          <img
+            src={trophyUrl}
+            alt=""
+            width={TROPHY_BOX}
+            height={Math.round(TROPHY_BOX / TROPHY_ASPECT)}
+            style={{ aspectRatio: TROPHY_ASPECT }}
+            fetchPriority="high"
+            decoding="async"
+            draggable="false"
+          />
+        </div>
+
+        <div className="signin-head">
+          <span className="signin-eyebrow">{open ? 'Sign in to vote' : 'Not open yet'}</span>
+          <h1 className="signin-title">
+            {open ? (
+              <>
+                <span className="signin-title-navy">Monthly Award</span>{' '}
+                <span className="signin-title-gold">Ceremony</span>
+              </>
+            ) : (
+              <span className="signin-title-navy">The ceremony has not started</span>
+            )}
           </h1>
         </div>
 
         {checking ? (
-          <div className="spinner dark" />
+          <div className="spinner dark signin-spinner" />
         ) : open ? (
-          <p className="lede">
+          <p className="signin-lede">
             Use the same login ID and password you use for the UCS CRM. You will be able to vote in every
             department while voting is open.
           </p>
         ) : (
           <>
-            <p className="lede">
+            <p className="signin-lede">
               Voting opens when HR starts the award ceremony. Leave this page open — it will activate on its
               own — or come back when you are called.
             </p>
             {unreachable && (
-              <div className="alert alert-error">Could not reach the server. Check your connection.</div>
+              <div className="signin-note" role="status">
+                Could not reach the server. Check your connection.
+              </div>
             )}
           </>
         )}
 
         {error && (
-          <div className="alert alert-error" id={errorId} role="alert">
+          <div className="signin-error" id={errorId} role="alert">
             {error}
           </div>
         )}
 
-        <fieldset className="fieldset" disabled={!open}>
-          <div className="field">
-            <label className="field-label" htmlFor={idId}>
+        <fieldset className="signin-fieldset" disabled={!open}>
+          <div className="signin-field">
+            <label className="signin-label" htmlFor={idId}>
               Login ID
             </label>
             <input
               id={idId}
-              className="field-input"
+              className="signin-input"
               value={identifier}
               onChange={(e) => onIdentifier(e.target.value)}
               placeholder="firstname.surname@ufs"
@@ -76,29 +106,36 @@ export function LoginCard({
             />
           </div>
 
-          <div className="field">
-            <label className="field-label" htmlFor={pwId}>
+          <div className="signin-field">
+            <label className="signin-label" htmlFor={pwId}>
               Password
             </label>
             <input
               id={pwId}
-              className="field-input"
+              className="signin-input"
               type="password"
               value={password}
               onChange={(e) => onPassword(e.target.value)}
+              placeholder="Enter your password"
               autoComplete="current-password"
               aria-describedby={error ? errorId : undefined}
             />
           </div>
 
-          <button className="btn btn-gold btn-block btn-tall" disabled={busy || !open}>
+          <button className="signin-submit" disabled={busy || !open}>
             {busy ? 'Signing in…' : open ? 'Sign in' : 'Waiting for HR to start'}
+            {!busy && open ? <ArrowRight size={18} aria-hidden="true" focusable="false" /> : null}
           </button>
         </fieldset>
 
-        <p className="hint hint-privacy">
-          We record only which person you voted for — never who cast the vote. One ballot per person, and it
-          cannot be changed or undone.
+        <hr className="signin-divider" />
+
+        <p className="signin-privacy">
+          <Lock size={17} aria-hidden="true" focusable="false" />
+          <span>
+            We record only which person you voted for — never who cast the vote. One ballot per person, and
+            it cannot be changed or undone.
+          </span>
         </p>
       </form>
     </main>
@@ -165,8 +202,15 @@ export default function Login() {
   }
 
   return (
-    <div className="shell">
-      <AppHeader />
+    // The signed-out page carries no header bar. The brand mark is a mark, not a
+    // control, so it is a plain decorative span rather than a link or button.
+    <div className="signin">
+      <div className="signin-bg" aria-hidden="true" />
+
+      <span className="signin-mark" aria-hidden="true">
+        U
+      </span>
+
       <LoginCard
         open={open}
         checking={checking}
