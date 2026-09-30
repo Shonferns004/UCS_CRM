@@ -258,10 +258,23 @@ export function liveIdleSeconds(row, shift, nowMs = Date.now(), frozenAtMs = NaN
   // `frozenAtMs` caps accrual instead of nulling the period, so a frozen worker
   // keeps the idle they genuinely racked up before they left and banks nothing
   // after — see frozenIdleSeconds.
+  //
+  // A meeting or admin pause freezes the server's own countdown. When the row
+  // carries frozen_at, an idle period that had already begun when the freeze
+  // started stops accruing there, so the held stretch is work time, not idle.
+  // The cap is keyed on the period's START rather than the row's current status,
+  // so it also keeps capping after the freeze lifts, and is inert for a period
+  // that only began later (its start is past frozen_at). Explicit frozenAtMs (the
+  // covered-away caller) always wins.
+  let cap = frozenAtMs;
+  if (!Number.isFinite(cap)) {
+    const frozenMs = toMs(row?.frozen_at);
+    if (Number.isFinite(frozenMs) && from <= frozenMs) cap = frozenMs;
+  }
   const hi = Math.min(
     nowMs,
     Number.isFinite(shift?.endMs) ? shift.endMs : nowMs,
-    Number.isFinite(frozenAtMs) ? frozenAtMs : nowMs
+    Number.isFinite(cap) ? cap : nowMs
   );
   return committed + (hi > lo ? Math.round((hi - lo) / 1000) : 0);
 }
@@ -309,14 +322,22 @@ export function openIdleSeconds(row, shift, nowMs = Date.now(), frozenAtMs = NaN
   if (!Number.isFinite(from)) return 0;
   // A period left over from a previous IST day is stale, not "currently idle".
   if (istDateStr(new Date(from)) !== istDateStr(new Date(nowMs))) return 0;
+  // Freeze cap: same rule as liveIdleSeconds — a period that began at or before
+  // frozen_at stops accruing there, whether the row is still held or already
+  // lifted. Explicit frozenAtMs (covered-away) always wins.
+  let cap = frozenAtMs;
+  if (!Number.isFinite(cap)) {
+    const frozenMs = toMs(row?.frozen_at);
+    if (Number.isFinite(frozenMs)) cap = frozenMs;
+  }
   // Frozen and the period only began after the freeze point: nothing is accruing,
   // so the "how long have they been idle right now" answer is 0.
-  if (Number.isFinite(frozenAtMs) && from > frozenAtMs) return 0;
+  if (Number.isFinite(cap) && from > cap) return 0;
   const lo = Math.max(from, Number.isFinite(shift?.startMs) ? shift.startMs : -Infinity);
   const hi = Math.min(
     nowMs,
     Number.isFinite(shift?.endMs) ? shift.endMs : nowMs,
-    Number.isFinite(frozenAtMs) ? frozenAtMs : nowMs
+    Number.isFinite(cap) ? cap : nowMs
   );
   return hi > lo ? Math.round((hi - lo) / 1000) : 0;
 }

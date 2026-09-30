@@ -1,13 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useRem } from './store'
-import { CATEGORIES, daysLeft, statusPillClass, categoryLabel, categoryIcon, normalizeCategory } from './helpers'
+import { CATEGORIES, daysLeft, statusPillClass, statusDotClass, categoryLabel, categoryIcon, normalizeCategory } from './helpers'
 import { computeEffectiveDueDate } from './notifications'
 import { Icon } from './components'
 import { toast } from './Toast'
 import './allreminders.css'
 
 
-const STATUS_OPTIONS = ['Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Upcoming', 'Completed', 'Snoozed']
+const STATUS_OPTIONS = ['Overdue', 'Due Today', 'Due Tomorrow', 'Due Soon', 'Upcoming', 'Paid', 'Completed', 'Snoozed']
 const PAGE_SIZE = 20
 
 const VIEW_FILTERS = {
@@ -50,7 +50,7 @@ function matchesView(r, viewKey) {
 function itemStatus(it) {
   if (it._dbStatus) return it._dbStatus
   const due = it.due || ''
-  if (/paid by tenant/i.test(due) || /paid by tenant/i.test(it.notes || '')) return 'Upcoming'
+  if (/paid by tenant/i.test(due) || /paid by tenant/i.test(it.notes || '')) return 'Paid'
   const eff = computeEffectiveDueDate(it)
   if (!eff) return 'Upcoming'
   const dl = daysLeft(eff)
@@ -86,7 +86,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       const normCat = normTxt(normalizeCategory(r.category))
       const normOwner = normTxt(r.owner)
       const normTitle = normTxt(r.title)
-      const key = `${normTitle}||${normCat}||${normOwner}`
+      const key = `${normTitle}||${normCat}||${normOwner}||${normTxt(r.source_section)}`
       if (seenKeys.has(key)) return false
       seenKeys.add(key)
       return true
@@ -98,7 +98,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
       return {
         category: grp,
         _group: grp,
-        _sub: '',
+        _sub: r.source_section || '',
         _dbId: r.id,
         _dbStatus: computed,
         title: r.title || '',
@@ -425,7 +425,7 @@ export default function AllReminders({ onAdd, onEdit, onDelete, onHistory }) {
                     <td data-label="Paid Amount"><span className="ar-val ar-val-amt">{it.paidAmount || '—'}</span></td>
                     <td data-label="Status">
                       <span className="status-badge">
-                        <span className={`status-dot ${status === 'Overdue' ? 'dot-overdue' : status === 'Due Today' || status === 'Due Tomorrow' ? 'dot-due-today' : status === 'Due Soon' ? 'dot-due-soon' : status === 'Completed' ? 'dot-completed' : status === 'Snoozed' ? 'dot-snoozed' : 'dot-upcoming'}`} />
+                        <span className={`status-dot ${statusDotClass(status)}`} />
                         <span className={`pill ${statusPillClass(status)}`}>{status}</span>
                       </span>
                     </td>

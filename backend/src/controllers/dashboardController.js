@@ -1728,10 +1728,21 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 21. Workers with Multiple Active Loans (MEDIUM) ──
     try {
+      // "Active" has to mean live *and* inside its own term. Filtering on status
+      // alone counted loans whose start_month/end_month had already passed —
+      // including loans retired as 'overdue' by a settlement run — so the alert
+      // fired on workers who were in fact carrying nothing. Mirrors the
+      // getActiveLoansByWorker period filter.
+      const loanNow = new Date();
+      const loanMonthStart = `${loanNow.getFullYear()}-${String(loanNow.getMonth() + 1).padStart(2, '0')}-01`;
+      const loanMonthEnd = `${loanNow.getFullYear()}-${String(loanNow.getMonth() + 1).padStart(2, '0')}-31`;
       const { data: activeLoans } = await db
         .from('worker_loans')
         .select('worker_id, id, total_amount, remaining_amount')
-        .eq('status', 'active');
+        .in('status', ['approved', 'active'])
+        .gt('remaining_amount', 0)
+        .lte('start_month', loanMonthEnd)
+        .or(`end_month.is.null,end_month.gte.${loanMonthStart}`);
 
       const loansByWorker = {};
       for (const loan of activeLoans || []) {

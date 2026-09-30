@@ -2620,6 +2620,7 @@
   .panel-hr .field .form-label, .panel-hr .form-label { font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#000; margin-bottom:2px; display:block; }
   .panel-hr .field { margin-bottom:8px; }
   .panel-hr .card-head h3, .panel-hr .card-head .sub { display:none !important; }
+  .panel-hr .no-print { display:none !important; }
 
   .print-header { display:block !important; background:#000; color:#fff; text-align:center; padding:18px 20px; font-size:18px; font-weight:700; letter-spacing:1px; }
   .print-header small { display:block; font-size:11px; font-weight:400; opacity:.8; margin-top:4px; }

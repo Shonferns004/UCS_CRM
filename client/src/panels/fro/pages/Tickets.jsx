@@ -17,6 +17,7 @@ const CATEGORIES = [
   { value: 'payment_issue', label: 'Payment Issue' },
   { value: 'receipt_issue', label: 'Receipt Issue' },
   { value: 'technical', label: 'Technical' },
+  { value: 'digital_team', label: 'Digital Team' },
   { value: 'hr_issue', label: 'HR Related' },
   { value: 'other', label: 'Other' },
 ];
@@ -47,6 +48,10 @@ const PANEL_LABELS = {
 
 const apiGet = (p) => api(p, { _prefix: 'ucs' });
 const apiPost = (p, b) => api(p, { method: 'POST', body: JSON.stringify(b), _prefix: 'ucs' });
+
+const readKey = (workerId) => `fro_ticket_read_${workerId}`;
+const getReadMap = (workerId) => { try { return JSON.parse(localStorage.getItem(readKey(workerId))) || {}; } catch { return {}; } };
+const setReadMap = (workerId, map) => { try { localStorage.setItem(readKey(workerId), JSON.stringify(map)); } catch {} };
 
 export default function FroTickets() {
   const [tickets, setTickets] = useState([]);
@@ -186,7 +191,7 @@ export default function FroTickets() {
       } else {
         await apiPost('/tickets', { ...base, department: route.department });
       }
-      toast('Ticket submitted successfully', 'success');
+      toast(`Ticket raised to ${route.dest}`, 'success');
       closeRaise();
       setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium', desk_number: '', ngo: '' });
       setFormErrors({});
@@ -202,6 +207,14 @@ export default function FroTickets() {
       setShowDetail({ ...data, _source: ticket._source });
       setReplies(data.replies || []);
       setReplyText('');
+      const count = ticket.ticket_replies?.[0]?.count || 0;
+      if (count && ticket.raised_by) {
+        const map = getReadMap(ticket.raised_by);
+        if ((map[ticket.id] || 0) < count) {
+          map[ticket.id] = count;
+          setReadMap(ticket.raised_by, map);
+        }
+      }
     } catch (err) { alert(err.message); }
   };
 
@@ -293,10 +306,22 @@ export default function FroTickets() {
               ) : paginatedTickets.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No tickets on this page</td></tr>
               ) : (
-                paginatedTickets.map(t => (
+                paginatedTickets.map(t => {
+                    const replyCount = t.ticket_replies?.[0]?.count || 0;
+                    const readMap = getReadMap(t.raised_by);
+                    const unread = replyCount > 0 && (readMap[t.id] || 0) < replyCount;
+                    return (
                   <tr key={t.id}>
                     <td>
-                      <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.35 }}>{t.subject}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.35, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {t.subject}
+                        {replyCount > 0 && (
+                          <span className="pill" style={{ background: unread ? '#2563eb' : '#e2e8f0', color: unread ? '#fff' : '#475569', fontSize: 10, fontWeight: 700 }}>
+                            {replyCount} reply{replyCount === 1 ? '' : 's'}
+                          </span>
+                        )}
+                        {unread && <span style={{ width: 8, height: 8, borderRadius: 999, background: '#2563eb', flexShrink: 0 }} />}
+                      </div>
                       {t.reference_id && (
                         <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Ref: {t.reference_id}</div>
                       )}
@@ -329,8 +354,8 @@ export default function FroTickets() {
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+                }))}
             </tbody>
           </table>
         </div>

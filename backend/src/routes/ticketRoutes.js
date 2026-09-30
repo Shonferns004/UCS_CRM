@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticate, authenticateRole, authenticateAccountsOrEventTeam } from '../middleware/authMiddleware.js';
 import {
   listTickets, listMyTickets, getTicket, createTicket, updateTicket, addReply, deleteTicket, getWorkers
 } from '../controllers/ticketController.js';
@@ -12,9 +12,11 @@ router.get('/workers', getWorkers);
 router.get('/my', listMyTickets);
 
 router.post('/', createTicket);
-router.get('/', authenticateRole('accounts', 'super_admin', 'event_head'), listTickets);
+// Accounts/super admin list everything; the Event Manager team lists the same
+// endpoint but the UI only ever asks for its own department + category.
+router.get('/', authenticateAccountsOrEventTeam, listTickets);
 router.get('/:id', getTicket);
-router.put('/:id', authenticateRole('accounts', 'super_admin'), updateTicket);
+router.put('/:id', authenticateAccountsOrEventTeam, updateTicket);
 router.delete('/:id', authenticateRole('accounts', 'super_admin'), deleteTicket);
 router.post('/:id/reply', addReply);
 

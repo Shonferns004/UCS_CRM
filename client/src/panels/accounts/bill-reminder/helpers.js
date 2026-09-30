@@ -9,7 +9,7 @@ export const CATEGORIES = [
   { key: 'WEBSITE_DOMAIN', label: 'Website Domain Renewal', icon: 'globe' },
   { key: 'VEHICLE_INSURANCE', label: 'Vehicle Insurance', icon: 'car' },
   { key: 'ELECTRICITY', label: 'Electricity Bills', icon: 'zap' },
-  { key: 'OTHER_BILL', label: 'Website Services', icon: 'file' },
+  { key: 'OTHER_BILL', label: 'Other Bills', icon: 'file' },
 ]
 
 export const PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
@@ -143,10 +143,18 @@ export function daysLeft(dateStr) {
   return Math.round((target - today) / 86400000)
 }
 
+export function isPaidByTenant(reminder) {
+  if (/paid by tenant/i.test(reminder?.due_date_display || '')) return true
+  if (/paid by tenant/i.test(reminder?.renewal_date_display || '')) return true
+  if (/paid by tenant/i.test(reminder?.notes || '')) return true
+  return false
+}
+
 export function derivedStatus(reminder) {
   if (reminder.completed_at) return 'Completed'
   if (reminder.snooze_until && new Date(reminder.snooze_until) > new Date()) return 'Snoozed'
-  const dl = daysLeft(reminder.due_date)
+  if (isPaidByTenant(reminder)) return 'Paid'
+  const dl = daysLeft(reminder.due_date || reminder.renewal_date)
   if (dl === null) return reminder.status || 'Upcoming'
   if (dl < 0) return 'Overdue'
   if (dl === 0) return 'Due Today'
@@ -162,6 +170,7 @@ export function statusPillClass(status) {
     'Due Tomorrow': 'pill-due-today',
     'Due Soon': 'pill-due-soon',
     Upcoming: 'pill-upcoming',
+    Paid: 'pill-completed',
     Completed: 'pill-completed',
     Snoozed: 'pill-snoozed',
   }
@@ -180,6 +189,7 @@ export function statusDotClass(status) {
     'Due Tomorrow': 'dot-due-today',
     'Due Soon': 'dot-due-soon',
     Upcoming: 'dot-upcoming',
+    Paid: 'dot-completed',
     Completed: 'dot-completed',
     Snoozed: 'dot-snoozed',
   }
@@ -241,13 +251,19 @@ function downloadBlob(content, filename, mime) {
 }
 
 export const EXPORT_COLUMNS = [
-  'Category', 'Reminder / Property / Item', 'Owner', 'Due Date', 'Renewal Date',
-  'Last Paid Date', 'Paid Amount', 'Status',
+  'Category', 'Section', 'Reminder / Property / Item', 'Owner', 'Due Date', 'Renewal Date',
+  'Last Paid Date', 'Paid Amount', 'Status', 'Billing Cycle', 'Transaction ID', 'Notes',
 ]
+
+function billingCycleLabel(r) {
+  if (r.display_frequency) return r.display_frequency
+  return parseFrequencyLabel(r.frequency_type, r.frequency_interval, r.day_of_month, r.month_of_year) || '—'
+}
 
 export function toExportRow(r) {
   return [
     normalizeCategory(r.category) || '—',
+    r.source_section || '—',
     r.title || '—',
     r.owner || '—',
     r.due_date ? formatDate(r.due_date) : '—',
@@ -255,6 +271,9 @@ export function toExportRow(r) {
     r.paid_at ? formatDate(r.paid_at) : '—',
     r.amount ? `₹${r.amount}` : '—',
     derivedStatus(r),
+    billingCycleLabel(r),
+    r.transaction_id || '—',
+    r.notes || '—',
   ]
 }
 
