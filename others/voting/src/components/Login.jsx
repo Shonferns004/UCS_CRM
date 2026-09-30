@@ -78,8 +78,8 @@ export default function Login() {
             <div className="spinner dark" />
           ) : open ? (
             <p className="lede">
-              Use the same login ID and password you use for the UCS CRM. You will only be able to vote
-              while your own department&rsquo;s turn is open.
+              Use the same login ID and password you use for the UCS CRM. You will be able to vote in
+              every department while voting is open.
             </p>
           ) : (
             <>

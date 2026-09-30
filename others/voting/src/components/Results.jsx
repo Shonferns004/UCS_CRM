@@ -1,9 +1,10 @@
 import { accentFor, initials } from '../helpers'
 
 /**
- * The end-of-ceremony reveal. Shown only once every department has voted and the
- * last turn's time is over — through the ceremony itself the booth shows nothing
- * about how the vote is going, because the winner is decided after everyone votes.
+ * The end-of-ceremony reveal. Shown only once the voting window has closed and
+ * HR has finished the ceremony — through the ceremony itself the booth shows
+ * nothing about how the vote is going, because the winner is decided after
+ * everyone has voted.
  */
 export default function Results({ ceremony }) {
   const { session, results = [] } = ceremony || {}
