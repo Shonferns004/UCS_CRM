@@ -19,7 +19,8 @@ const DEFAULT_GROUPS = [
   { name: 'FRO', match: 'FRO' },
   { name: 'Digital', match: 'Digital' },
   { name: 'Developers', match: null, is_locked: true },
-  { name: 'HR', match: 'HR' },
+  // HR-Recruiter people are part of HR and vote in the same group.
+  { name: 'HR', match: 'HR, HR-Recruiter' },
   { name: 'Admin', match: 'Admin' },
   { name: 'Housekeeping', match: 'Housekeeping' },
 ];
@@ -127,6 +128,15 @@ async function seedDepartments() {
       [g.name, i, g.match, !!g.is_locked],
     );
   }
+
+  // Migrate installs seeded before HR-Recruiters joined the HR group. Only the
+  // untouched default ('HR') is rewritten, so a manual HR edit is never clobbered.
+  await db._pool.query(
+    `UPDATE voting_departments
+        SET match_department = 'HR, HR-Recruiter'
+      WHERE lower(btrim(name)) = 'hr'
+        AND lower(btrim(COALESCE(match_department, ''))) = 'hr'`,
+  );
 }
 
 async function seedDeveloperMembers() {

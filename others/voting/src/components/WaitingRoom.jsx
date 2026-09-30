@@ -8,7 +8,7 @@ import OrderStrip from './OrderStrip'
  * chosen by the server from the real turn state.
  */
 export default function WaitingRoom({ ceremony, state }) {
-  const { session, department, departments, turn, already_voted, roster_size: rosterSize } = ceremony || {}
+  const { session, department, departments, turn, already_voted } = ceremony || {}
 
   const [left, setLeft] = useState(() => secondsUntil(turn?.closes_at))
 
@@ -31,7 +31,7 @@ export default function WaitingRoom({ ceremony, state }) {
     waiting: {
       eyebrow: 'Please wait',
       title: department ? `${department.name} has not been called yet` : 'Waiting for your turn',
-      body: `Departments vote one after another. You will be able to vote when ${department?.name || 'your department'} opens — the page updates on its own, so you can leave this open.`,
+      body: 'The page updates on its own — you can leave it open. Nothing to do until your turn.',
     },
     missed: {
       eyebrow: 'Voting closed',
@@ -83,17 +83,7 @@ export default function WaitingRoom({ ceremony, state }) {
         </div>
       )}
 
-      {department && rosterSize > 0 && (
-        <p className="hint">
-          {rosterSize} {rosterSize === 1 ? 'person is' : 'people are'} on your department’s ballot.
-        </p>
-      )}
-
       <OrderStrip departments={departments} myDepartmentId={department?.id} />
-
-      {session?.turn_minutes ? (
-        <p className="hint">Each department gets {session.turn_minutes} minutes.</p>
-      ) : null}
     </div>
   )
 }
