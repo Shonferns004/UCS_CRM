@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
+import { CATEGORIES, PRIORITIES, fetchWorkspaceNgos, fetchSectors, fetchActivities, createEvent, createActivity, createSector, suggestEventSpelling, suggestDayPrograms, uploadEventBanner, CHECKLIST_ITEMS, CHECKLIST_MATERIALS, createChecklistItem } from '../store'
 import { PageHeader } from '../components/ui'
 import VoluntaryPicker from '../components/VoluntaryPicker'
 import ActivitySelect from '../components/ActivitySelect'
@@ -45,6 +45,18 @@ export default function CreateEvent() {
   const [aiUnavailable, setAiUnavailable] = useState(false)
   const [aiDismissed, setAiDismissed] = useState({})
   const [aiRan, setAiRan] = useState(false)
+
+  /* ── Festival / day programme suggestions ──────────────────────────────────
+     A separate concern from the spelling hints above and deliberately NOT
+     auto-fired: it is one AI call that can take 10-60s, so it runs on an explicit
+     click once the Event Date and a Sector are both known. Both are required —
+     the date supplies the occasion and the sector supplies the frame, and
+     prompting without either produced generic ideas. */
+  const [festIdeas, setFestIdeas] = useState([])
+  const [festObservances, setFestObservances] = useState([])
+  const [festLoading, setFestLoading] = useState(false)
+  const [festAi, setFestAi] = useState(null)   // { available, provider, model, reason, truncated, requested }
+  const [festDismissed, setFestDismissed] = useState(false)
   const bannerFileRef = useRef(null)
   const localUrlRef = useRef('')
   const onBannerPaste = usePasteImage(({ file }) => { if (file) uploadBanner(file) })
@@ -212,6 +224,74 @@ export default function CreateEvent() {
     }
     return list
   }, [sectors, allActivities, ngoId, sectorId, form.sector_id])
+
+  /* Activities for the chosen NGO+sector. Sending only these (rather than every
+     activity the org has) keeps the model inside the sector the user actually
+     picked, and keeps the request small enough for the provider's token budget. */
+  const sectorActivities = useMemo(() => {
+    if (!ngoId || !sectorId) return []
+    return allActivities
+      .filter(a => String(a.sector_id) === sectorId)
+      .filter(a => a.ngo_id == null || String(a.ngo_id) === ngoId)
+      .map(a => ({ id: a.id ?? a.activity_id, name: a.name }))
+      .filter(a => a.id !== undefined && a.id !== null && a.name)
+  }, [allActivities, ngoId, sectorId])
+
+  const canSuggestForDate = Boolean(form.date && form.sector_id)
+
+  const runFestivalSuggestions = () => {
+    if (!canSuggestForDate || festLoading) return
+    setFestLoading(true)
+    setFestDismissed(false)
+    const sectorName = sectors.find(s => String(s.id) === String(form.sector_id))?.name || ''
+    const ngoName = ngos.find(n => String(n.id) === ngoId)?.name || ''
+    suggestDayPrograms({
+      date: form.date,
+      scope: 'all',
+      ngoName,
+      sectorId: form.sector_id,
+      sectorName,
+      sectors: sectorName ? [sectorName] : [],
+      activityOptions: sectorActivities,
+      existingTitles: [],
+    })
+      .then(data => {
+        setFestIdeas(Array.isArray(data?.suggestions) ? data.suggestions : [])
+        setFestObservances(Array.isArray(data?.observances) ? data.observances : [])
+        setFestAi(data?.ai || { available: false, reason: 'No response from the server.' })
+      })
+      .catch(err => {
+        setFestIdeas([])
+        setFestObservances([])
+        setFestAi({ available: false, reason: 'Could not reach the server. Try again in a moment.' })
+        console.warn('festival suggestions failed:', err?.message || err)
+      })
+      .finally(() => setFestLoading(false))
+  }
+
+  /* Fill the form from a suggestion. Nothing is saved — the user still presses
+     Create Event, so every field stays reviewable and editable.
+
+     Only fields that genuinely exist on this form are written. The suggestion
+     also carries objective/rationale/audience/duration/materials, which this form
+     has nowhere to store; they are shown in the card for the user to read and
+     copy, rather than being crammed into an unrelated field. */
+  const applyFestivalSuggestion = (idea) => {
+    setForm(prev => {
+      const next = { ...prev }
+      if (idea.title) next.name = String(idea.title).slice(0, 120)
+      // A validated activity id is already one of the org's real activities, so
+      // writing its exact name is safe: pickActivity will not create a duplicate.
+      if (idea.activityName) next.activityName = String(idea.activityName).slice(0, 120)
+      if (idea.format) next.category = String(idea.format).slice(0, 60)
+      if (idea.priority) {
+        // The form offers a fixed priority list; only adopt a value it has.
+        const match = PRIORITIES.find(p => p.toLowerCase() === String(idea.priority).toLowerCase())
+        if (match) next.priority = match
+      }
+      return next
+    })
+  }
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -577,9 +657,102 @@ export default function CreateEvent() {
 
             {section('Event Details')}
             <div className="form-row">
-              <div className="field"><label>Event Name *</label><input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Community Health Camp" required ref={registerField('name')} style={fieldStyle('name')} />{fieldError('name')}{inlineSuggestion('name')}</div>
               <div className="field"><label>Event Date *</label><input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />{fieldError('date')}</div>
             </div>
+
+            {/* Festival / day programme suggestions. Placed directly under the date
+                it reasons about, so the user fills date -> sector -> asks, without
+                scrolling back and forth. */}
+            <div style={{ margin: '2px 0 6px' }}>
+              {!canSuggestForDate ? (
+                <div style={{ fontSize: 12, color: 'var(--eh-muted,#64748b)' }}>
+                  Set an <strong>Event Date</strong> and a <strong>Sector</strong> to get programme suggestions for that day.
+                </div>
+              ) : !festIdeas.length && !festLoading && !festAi ? (
+                <button type="button" className="btn" onClick={runFestivalSuggestions}
+                  style={{ fontSize: 12, padding: '6px 12px' }}>
+                  ✨ Suggest programmes for {form.date}
+                </button>
+              ) : null}
+
+              {festLoading && (
+                <div style={{ fontSize: 12, color: 'var(--eh-muted,#64748b)', padding: '8px 0' }}>
+                  Thinking about {form.date}… this can take up to a minute.
+                </div>
+              )}
+
+              {festAi && !festLoading && festAi.available === false && (
+                <div style={{ fontSize: 12, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px', margin: '6px 0' }}>
+                  {festAi.reason}
+                  <button type="button" className="btn" onClick={runFestivalSuggestions}
+                    style={{ marginLeft: 10, fontSize: 11, padding: '2px 8px' }}>Try again</button>
+                </div>
+              )}
+
+              {/* The provider answered but every idea was rejected by validation
+                  (e.g. all of them duplicated the titles already scheduled). Saying
+                  so beats showing an empty box with no explanation. */}
+              {festAi && !festLoading && festAi.available !== false && festIdeas.length === 0 && (
+                <div style={{ fontSize: 12, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px', margin: '6px 0' }}>
+                  The provider returned no usable suggestion for this date. Try “New set”.
+                  <button type="button" className="btn" onClick={runFestivalSuggestions}
+                    style={{ marginLeft: 10, fontSize: 11, padding: '2px 8px' }}>New set</button>
+                </div>
+              )}
+
+              {festIdeas.length > 0 && (                <div style={{ border: '1px solid var(--eh-line,#e2e8f0)', borderRadius: 8, padding: 10, background: 'var(--eh-surface,#f8fafc)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink,#0f1128)' }}>
+                      {festObservances.length
+                        ? `For ${form.date} · ${festObservances.map(o => o.name).join(', ')}`
+                        : `For ${form.date} · no festival on this date`}
+                      <div style={{ fontWeight: 400, fontSize: 11, color: 'var(--eh-muted,#64748b)', marginTop: 2 }}>
+                        {festObservances.length
+                          ? 'Built around the occasion above.'
+                          : 'No registered occasion — these are general programme ideas for an ordinary day.'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button type="button" className="btn" onClick={runFestivalSuggestions}
+                        style={{ fontSize: 11, padding: '2px 8px' }} disabled={festLoading}>↻ New set</button>
+                      <button type="button" className="btn" onClick={() => setFestDismissed(v => !v)}
+                        style={{ fontSize: 11, padding: '2px 8px' }}>{festDismissed ? 'Show' : 'Hide'}</button>
+                    </div>
+                  </div>
+
+                  {festAi?.truncated && (
+                    <div style={{ fontSize: 11, color: '#92400e', marginBottom: 8 }}>
+                      Showing {festIdeas.length} of {festAi.requested} — the provider reached its response limit, so it was cut before the rest. Use “New set” for different ideas.
+                    </div>
+                  )}
+
+                  {!festDismissed && (
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {festIdeas.map((idea, i) => (
+                        <div key={(idea.title || '') + i} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: 8, background: '#fff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--eh-ink,#0f1128)' }}>{idea.title}</div>
+                            <button type="button" className="btn btn-primary" onClick={() => applyFestivalSuggestion(idea)}
+                              style={{ fontSize: 11, padding: '3px 10px', whiteSpace: 'nowrap' }}>Use this</button>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--eh-muted,#64748b)', marginTop: 3 }}>
+                            {[idea.activityName, idea.format, idea.priority, idea.duration].filter(Boolean).join(' · ')}
+                            {idea.activityId ? ' · verified existing activity' : ''}
+                          </div>
+                          {idea.objective && <div style={{ fontSize: 12, marginTop: 5 }}><strong>Objective:</strong> {idea.objective}</div>}
+                          {idea.rationale && <div style={{ fontSize: 12, marginTop: 3, color: '#334155' }}><strong>Why:</strong> {idea.rationale}</div>}
+                          {idea.audience && <div style={{ fontSize: 12, marginTop: 3 }}><strong>Who benefits:</strong> {idea.audience}</div>}
+                          {Array.isArray(idea.materials) && idea.materials.length > 0 && (
+                            <div style={{ fontSize: 12, marginTop: 3 }}><strong>Materials:</strong> {idea.materials.join(', ')}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="form-row">
               <div className="field"><label>Start Time</label><input type="time" name="start_time" value={form.start_time} onChange={handleChange} /></div>
               <div className="field"><label>End Time</label><input type="time" name="end_time" value={form.end_time} onChange={handleChange} /></div>
