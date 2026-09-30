@@ -33,6 +33,7 @@ import {
   withoutStaleIdle,
   isIdleNow,
   idleFreezeCutoffMs,
+  isCounterDayStale,
   IDLE_LIVE_FRESH_MS,
 } from '../utils/froIdle.js';
 import {
@@ -5136,7 +5137,15 @@ export const getLiveStatuses = async (req, res) => {
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
       const dataUsed = stats.contacted + stats.donation_collected;
-      const talkSeconds = ls.today_talk_seconds || 0;
+      // Talk and Calls are "today" counters on the same row, so a row nobody has
+      // logged into since yesterday is still holding yesterday's figures. liveIdleSeconds
+      // now drops the idle half of that; these two need the same treatment or the
+      // board mixes a stale idle with a stale talk time and the productivity share
+      // is computed from two different days. Read-only: the rollover belongs to the
+      // write paths, and an admin refreshing a page must not reset anyone's ledger.
+      const staleDay = isCounterDayStale(ls, nowMs);
+      const talkSeconds = staleDay ? 0 : (ls.today_talk_seconds || 0);
+      const callCount = staleDay ? 0 : (ls.today_calls || 0);
       const productivity = talkSeconds > 0 ? 100 : null;
 
       const coverers = (coversByTarget.get(String(ls.worker_id)) || [])
@@ -5203,7 +5212,7 @@ export const getLiveStatuses = async (req, res) => {
           department: ls.workers?.department || '',
         },
         performance: {
-          today_calls: ls.today_calls || 0,
+          today_calls: callCount,
           today_talk_seconds: talkSeconds,
           today_idle_seconds: idleSeconds,
           idle_minutes: Math.floor(idleSeconds / 60),
