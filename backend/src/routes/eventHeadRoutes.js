@@ -11,6 +11,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_manager', 'Event Manager', 'Event Head');
+// Calendar extras (static paths BEFORE /events/:id)
+router.get('/calendar/observances', eh, ctrl.listCalendarObservances);
+router.post('/calendar/suggest', eh, ctrl.suggestDayPrograms);
 // Events (static paths BEFORE :id)
 router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);

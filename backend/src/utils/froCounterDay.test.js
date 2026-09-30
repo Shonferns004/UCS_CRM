@@ -171,7 +171,7 @@ test('a current row does not roll and keeps its counters', async () => {
 
 // ── The end-to-end shape that produced 52h in one day ─────────────────────────
 
-test('a stale counter plus a fresh period can no longer exceed one day', () => {
+test('a stale counter plus a fresh period no longer reaches the cap at all', () => {
   // What the exit path used to compute: yesterday's committed 50h still in the
   // row, plus a 2h open period, written to today's ledger row.
   const stale = {
@@ -182,9 +182,19 @@ test('a stale counter plus a fresh period can no longer exceed one day', () => {
   const shift = { startMs: NOW - 8 * 3600 * 1000, endMs: NOW + 4 * 3600 * 1000 };
   const afterRoll = { ...stale, today_idle_seconds: 0 };
 
-  const before = capIdleSeconds(liveIdleSeconds(stale, shift, NOW));
-  const after = capIdleSeconds(liveIdleSeconds(afterRoll, shift, NOW));
+  // The cap used to be what stopped 52h becoming a day: 50h + 2h came out of
+  // liveIdleSeconds as 52h and only capIdleSeconds held it at 24h. The day check
+  // now drops the stale half before it is ever added, so the figure is right
+  // before any cap sees it. That assertion used to expect MAX_IDLE_SECONDS_PER_DAY.
+  assert.equal(liveIdleSeconds(stale, shift, NOW), 2 * 3600, "yesterday's 50h is dropped, not capped");
+  assert.equal(liveIdleSeconds(afterRoll, shift, NOW), 2 * 3600, 'after the rollover the day holds only the open period');
 
-  assert.equal(before, MAX_IDLE_SECONDS_PER_DAY, 'the pre-fix figure is unreachable but capped');
-  assert.equal(after, 2 * 3600, 'after the rollover the day holds only the open period');
+  // The cap is still the backstop for an over-count that is wrong WITHIN today,
+  // which no day check can see.
+  const sameDay = {
+    stats_date: today,
+    today_idle_seconds: 50 * 3600,
+    idle_since: new Date(NOW - 2 * 3600 * 1000).toISOString(),
+  };
+  assert.equal(capIdleSeconds(liveIdleSeconds(sameDay, shift, NOW)), MAX_IDLE_SECONDS_PER_DAY);
 });

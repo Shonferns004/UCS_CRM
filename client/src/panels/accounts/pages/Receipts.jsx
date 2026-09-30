@@ -571,6 +571,33 @@ export default function Receipts() {
     setDonors(prev => (prev || []).map(d => d.receipt_id === receiptId ? { ...d, 'Mobile No.': val } : d))
   }
 
+  const [pdfSlot, setPdfSlot] = useState(null)
+  const pdfSlotReadyRef = useRef(null)
+  const pdfQueueRef = useRef(Promise.resolve())
+  const pdfSlotNgo = pdfSlot ? (pdfSlot.donor['Project'] || 'bsct') : null
+  const PdfSlotComp = pdfSlotNgo ? getNgoSettings(pdfSlotNgo).comp : null
+
+  useLayoutEffect(() => {
+    if (!pdfSlot) return
+    const resolve = pdfSlotReadyRef.current
+    pdfSlotReadyRef.current = null
+    if (resolve) resolve()
+  }, [pdfSlot])
+
+  const captureReceiptPdf = (donor) => {
+    const run = pdfQueueRef.current.then(async () => {
+      const rendered = new Promise((resolve) => { pdfSlotReadyRef.current = resolve })
+      setPdfSlot({ donor })
+      await rendered
+      const el = document.querySelector(`[data-receipt-pdf-slot="${donor.receipt_id}"]`)
+      if (!el) throw new Error('Receipt could not be rendered for PDF generation')
+      const pdf = await generateReceiptPDF(el)
+      return pdf.output('datauristring').split(',')[1]
+    })
+    pdfQueueRef.current = run.catch(() => {})
+    return run
+  }
+
   const handleSendSingle = async (donor, receiptId) => {
     setSendingId(receiptId)
     try {
@@ -582,12 +609,7 @@ export default function Receipts() {
       const ngo = donor['Project'] || 'bsct'
       const tpl = getNgoSettings(ngo)
 
-      let pdfBase64 = null
-      const el = document.querySelector(`[data-receipt-batch="${donor.receipt_id}"]`)
-      if (el) {
-        const pdf = await generateReceiptPDF(el)
-        pdfBase64 = pdf.output('datauristring').split(',')[1]
-      }
+      const pdfBase64 = await captureReceiptPdf(donor)
 
       await apiPost('/whatsapp/send-direct', {
         to: phone, pdfBase64, receiptNo,
@@ -735,12 +757,7 @@ export default function Receipts() {
         const ngo = donor['Project'] || 'bsct'
         const tpl = getNgoSettings(ngo)
 
-        let pdfBase64 = null
-        const el = document.querySelector(`[data-receipt-batch="${donor.receipt_id}"]`)
-        if (el) {
-          const pdf = await generateReceiptPDF(el)
-          pdfBase64 = pdf.output('datauristring').split(',')[1]
-        }
+        const pdfBase64 = await captureReceiptPdf(donor)
 
         try {
           await apiPost('/whatsapp/send-direct', {
@@ -1106,13 +1123,8 @@ export default function Receipts() {
 
           <ReceiptHistory />
 
-          {donors && (<div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
-            {donors.length <= 100 && donors.map((d, i) => {
-              const ngo = d['Project'] || 'bsct'
-              const tpl = getNgoSettings(ngo)
-              const Comp = tpl.comp
-              return <div key={d.receipt_id || i} data-receipt-batch={d.receipt_id}><Comp donor={d} project={ngo} /></div>
-            })}
+          {pdfSlot && PdfSlotComp && (<div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
+            <div data-receipt-pdf-slot={pdfSlot.donor.receipt_id}><PdfSlotComp donor={pdfSlot.donor} project={pdfSlotNgo} /></div>
           </div>)}
 
           {previewRow && (

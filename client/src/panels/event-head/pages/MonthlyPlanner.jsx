@@ -9,6 +9,7 @@ import { PageHeader, SearchInput, Select } from '../components/ui'
 import {
   fetchCalendarEvents, fetchWorkspaceNgos, fetchSectors, fetchActivities,
   createEvent, updateEvent, deleteEvent,
+  fetchCalendarObservances, suggestDayPrograms,
   EVENT_STATUSES, PRIORITIES, CATEGORIES,
 } from '../store'
 import '../calendar.css'
@@ -31,6 +32,18 @@ const fmtTime = (t) => {
   h = h % 12 || 12
   return `${h}:${String(m).padStart(2, '0')} ${ap}`
 }
+
+/* ── Important days / festivals / observances (Calendar layer) ───────────────
+   Colours + emoji for the `kind` values produced by the backend reference
+   calendar. `scope` decides whether the entry shows under the India filter. */
+const OBS_META = {
+  observance: { label: 'Observance',  color: '#0ea5e9', icon: '🌐' },
+  national:   { label: 'National / Civic', color: '#f59e0b', icon: '🏛️' },
+  festival:   { label: 'Festival',     color: '#16a34a', icon: '🎉' },
+  religious:  { label: 'Religious',    color: '#8b5cf6', icon: '🕉️' },
+}
+const OBS_SCOPE = { worldwide: { label: 'Worldwide', icon: '🌍' }, india: { label: 'India', icon: '🇮🇳' } }
+const obsMeta = (kind) => OBS_META[kind] || OBS_META.observance
 
 /* ── Event category (derived client-side for coloring) ── */
 const CATEGORY_META = {
@@ -133,25 +146,29 @@ function ModalShell({ title, onClose, children, footer }) {
   )
 }
 
-/* ── Event form (create / edit) ── */
-function EventFormModal({ mode, initial, defaultDate, onClose, onSaved }) {
+/* ── Event form (create / edit) ──
+   `preset` optionally pre-fills a create form from an AI programme suggestion
+   (see DayPlanModal). It is merged underneath `initial`, so every existing
+   caller — which passes no preset — behaves exactly as before. */
+function EventFormModal({ mode, initial, defaultDate, preset, onClose, onSaved }) {
   const navigate = useNavigate()
   const [ngos, setNgos] = useState([])
   const [allSectors, setAllSectors] = useState([])
   const [allActivities, setAllActivities] = useState([])
   const [form, setForm] = useState(() => ({
-    name: initial?.name || '',
-    ngo_id: initial?.ngo_id || initial?.extendedProps?.ngoId || '',
-    sector_id: initial?.sector_id || initial?.extendedProps?.sectorId || '',
-    activities: (initial?.extendedProps?.activities || []).map(a => String(a.id)),
-    date: initial?.extendedProps?.date || initial?.startStr?.slice(0, 10) || defaultDate || '',
-    start_time: initial?.extendedProps?.startTime || (initial?.startStr ? initial.startStr.slice(11, 16) : ''),
-    end_time: initial?.extendedProps?.endTime || (initial?.endStr ? initial.endStr.slice(11, 16) : ''),
-    venue: initial?.extendedProps?.venue || '',
-    description: initial?.extendedProps?.description || '',
-    status: (initial?.extendedProps?.status) || 'Draft',
-    priority: initial?.extendedProps?.priority || 'Medium',
-    category: initial?.category || '',
+    ...(preset || {}),
+    name: preset?.name || initial?.name || '',
+    ngo_id: preset?.ngo_id || initial?.ngo_id || initial?.extendedProps?.ngoId || '',
+    sector_id: preset?.sector_id || initial?.sector_id || initial?.extendedProps?.sectorId || '',
+    activities: preset?.activities || (initial?.extendedProps?.activities || []).map(a => String(a.id)),
+    date: preset?.date || initial?.extendedProps?.date || initial?.startStr?.slice(0, 10) || defaultDate || '',
+    start_time: preset?.start_time ?? (initial?.extendedProps?.startTime || (initial?.startStr ? initial.startStr.slice(11, 16) : '')),
+    end_time: preset?.end_time ?? (initial?.extendedProps?.endTime || (initial?.endStr ? initial.endStr.slice(11, 16) : '')),
+    venue: preset?.venue ?? (initial?.extendedProps?.venue || ''),
+    description: preset?.description ?? (initial?.extendedProps?.description || ''),
+    status: preset?.status || (initial?.extendedProps?.status) || 'Draft',
+    priority: preset?.priority || (initial?.extendedProps?.priority) || 'Medium',
+    category: preset?.category || initial?.category || '',
   }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -163,8 +180,22 @@ function EventFormModal({ mode, initial, defaultDate, onClose, onSaved }) {
       fetchActivities().catch(() => []),
     ]).then(([n, s, a]) => {
       setNgos(n || []); setAllSectors(s || []); setAllActivities(a || [])
+      // A suggestion names an activity in free text. When that name already
+      // exists under the chosen NGO + sector, preselect it so the coordinator
+      // does not have to hunt for it. Never invents a new activity here.
+      const wanted = String(preset?.activityName || '').trim().toLowerCase()
+      if (!wanted) return
+      const ngoId = String(preset?.ngo_id || initial?.ngo_id || initial?.extendedProps?.ngoId || '')
+      const sectorId = String(preset?.sector_id || initial?.sector_id || initial?.extendedProps?.sectorId || '')
+      const hit = (a || []).find(x =>
+        String(x.name || '').trim().toLowerCase() === wanted &&
+        (!sectorId || String(x.sector_id) === sectorId) &&
+        (!ngoId || x.ngo_id == null || String(x.ngo_id) === ngoId))
+      if (hit) {
+        setForm(p => (p.activities.includes(String(hit.id)) ? p : { ...p, activities: [...p.activities, String(hit.id)] }))
+      }
     })
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const ngoId = form.ngo_id ? String(form.ngo_id) : ''
   const sectorId = form.sector_id ? String(form.sector_id) : ''
@@ -310,6 +341,20 @@ function EventFormModal({ mode, initial, defaultDate, onClose, onSaved }) {
           </Select>
         </div>
       </div>
+      <div style={{ marginTop: 14 }}>
+        <label style={LABEL}>Category</label>
+        <input
+          style={FIELD}
+          name="category"
+          value={form.category}
+          onChange={change}
+          placeholder="e.g. Health, Education, Women Empowerment"
+          list="eh-event-categories"
+        />
+        <datalist id="eh-event-categories">
+          {CATEGORIES.map(c => <option key={c} value={c} />)}
+        </datalist>
+      </div>
       <div style={{ marginTop: 14 }}><label style={LABEL}>Location / Venue</label><input style={FIELD} name="venue" value={form.venue} onChange={change} placeholder="Venue / address" /></div>
       <div style={{ marginTop: 14 }}><label style={LABEL}>Description</label><textarea style={{ ...FIELD, minHeight: 72, resize: 'vertical' }} name="description" value={form.description} onChange={change} placeholder="Event description / notes" /></div>
     </ModalShell>
@@ -388,8 +433,149 @@ function EventInfoModal({ event, onClose, onEdit, onDelete }) {
   )
 }
 
+/* ── Important day / festival → suggested programmes → create ──────────────
+   The date and occasion shown here come from the backend reference calendar and
+   are never AI-generated. Gemini is asked only which programmes would suit the
+   day, and each idea can be pushed straight into the normal Event Head create
+   flow with its date pre-filled. */
+function DayPlanModal({ date, observances, scope, context, onClose, onUseSuggestion }) {
+  const [loading, setLoading] = useState(false)
+  const [suggestions, setSuggestions] = useState([])
+  const [meta, setMeta] = useState(null)
+  const [error, setError] = useState('')
+  const askedRef = useRef(false)
+
+  const run = async () => {
+    setLoading(true); setError('')
+    try {
+      const d = await suggestDayPrograms({ date, scope, observances, ...context })
+      setSuggestions(Array.isArray(d?.suggestions) ? d.suggestions : [])
+      setMeta(d?.ai || null)
+    } catch (err) {
+      setError(err.message || 'Could not load suggestions')
+      setMeta({ available: false })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Ask once as soon as a day with an occasion is opened.
+  useEffect(() => {
+    if (askedRef.current) return
+    askedRef.current = true
+    run() // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
+
+  const unavailable = meta && meta.available === false
+
+  return (
+    <ModalShell
+      title={`${ymdToLabel(date)} — plan a programme`}
+      onClose={onClose}
+      footer={<>
+        <button className="eh-btn" onClick={onClose}>Close</button>
+        <button className="eh-btn" onClick={run} disabled={loading}>{loading ? 'Thinking…' : '↻ Regenerate'}</button>
+      </>}
+    >
+      {/* 1. The reliable part: what the calendar says about this day. */}
+      <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontWeight: 700, color: 'var(--eh-success)' }}>✓ Verified dates</span>
+        <span>· from the reference calendar, not AI</span>
+      </div>
+
+      {observances.length ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          {observances.map((o) => {
+            const m = obsMeta(o.kind)
+            const sc = OBS_SCOPE[o.scope] || OBS_SCOPE.worldwide
+            return (
+              <div key={o.name} style={{ border: '1px solid var(--eh-line)', borderLeft: `3px solid ${m.color}`, borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13 }}>{m.icon}</span>
+                  <b style={{ fontSize: 13.5, color: 'var(--eh-ink)' }}>{o.name}</b>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, background: `${m.color}22`, color: m.color }}>{m.label}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{sc.icon} {sc.label}</span>
+                  {o.precision === 'lunar' && (
+                    <span title="Lunar-calendar festival — confirm against the official gazette before finalising" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--eh-warn-soft, #fef3c7)', color: 'var(--eh-warn, #b45309)', cursor: 'help' }}>lunar — confirm date</span>
+                  )}
+                </div>
+                {o.note && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', marginTop: 4, lineHeight: 1.5 }}>{o.note}</div>}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--eh-ink-soft)', marginBottom: 16, padding: '10px 12px', borderRadius: 10, background: 'var(--eh-tint-1)' }}>
+          No registered important day, festival or observance for {ymdToLabel(date)}. Suggestions below are general community-programme ideas.
+        </div>
+      )}
+
+      {/* 2. The AI part — clearly labelled as ideas only. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, paddingTop: 12, borderTop: '1px solid var(--eh-line)' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)' }}>✦ Suggested programmes</span>
+        <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>AI ideas — you pick what to add</span>
+        {meta?.model && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--eh-ink-faint)' }}>{meta.model}</span>}
+      </div>
+
+      {loading && <div style={{ fontSize: 13, color: 'var(--eh-ink-soft)', padding: '10px 0' }}>Generating programme ideas…</div>}
+
+      {!loading && error && (
+        <div style={{ fontSize: 13, color: 'var(--eh-danger)', background: 'var(--eh-danger-soft)', padding: '10px 12px', borderRadius: 10, marginBottom: 12 }}>{error}</div>
+      )}
+
+      {!loading && unavailable && !error && (
+        <div style={{ fontSize: 13, color: 'var(--eh-ink-soft)', background: 'var(--eh-tint-1)', padding: '12px 14px', borderRadius: 10, marginBottom: 12, lineHeight: 1.55 }}>
+          <b style={{ color: 'var(--eh-ink)' }}>AI suggestions are unavailable.</b>
+          <div style={{ fontSize: 12, marginTop: 4 }}>{String(meta.reason || 'The Gemini API is not reachable.')}</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>The dates above are unaffected — you can still create an event for this day below.</div>
+        </div>
+      )}
+
+      {!loading && !suggestions.length && !unavailable && !error && (
+        <div style={{ fontSize: 13, color: 'var(--eh-ink-soft)', marginBottom: 12 }}>No suggestions returned for this day.</div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+          {suggestions.map((s, i) => (
+            <div key={i} style={{ border: '1px solid var(--eh-line)', borderRadius: 12, padding: '12px 14px', background: '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--eh-ink)' }}>{s.title}</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                    {s.format && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--eh-tint-1)', color: 'var(--eh-primary)' }}>{s.format}</span>}
+                    {s.priority && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{s.priority}</span>}
+                    {s.duration && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{s.duration}</span>}
+                  </div>
+                </div>
+              </div>
+              {s.audience && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', marginTop: 7 }}><b>For:</b> {s.audience}</div>}
+              {s.activityName && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', marginTop: 3 }}><b>Activity:</b> {s.activityName}</div>}
+              {s.rationale && <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', marginTop: 6, lineHeight: 1.55 }}>{s.rationale}</div>}
+              {Array.isArray(s.materials) && s.materials.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--eh-ink-soft)', marginTop: 6 }}>
+                  <b>Materials:</b> {s.materials.join(', ')}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                <button className="eh-btn eh-btn-sm" onClick={onClose}>Dismiss</button>
+                <button className="eh-btn eh-btn-sm eh-btn-primary" onClick={() => onUseSuggestion(s)}>
+                  + Add to Calendar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button className="eh-btn" style={{ width: '100%' }} onClick={() => onUseSuggestion(null)}>
+        {observances.length ? '+ Create an event for this day' : '+ Create an event'}
+      </button>
+    </ModalShell>
+  )
+}
+
 export default function MonthlyPlanner() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const calRef = useRef(null)
   const [events, setEvents] = useState([])
@@ -411,6 +597,38 @@ export default function MonthlyPlanner() {
   const [sectors, setSectors] = useState([])
   const [activities, setActivities] = useState([])
 
+  /* Important days / festivals / observances */
+  const [scope, setScope] = useState('all')            // 'all' | 'worldwide' | 'india'
+  const [showObs, setShowObs] = useState(true)         // day-cell layer on/off
+  const [obs, setObs] = useState({ byDate: {}, list: [], available_years: [], lunar_years: [], reliability: null, source: 'server' })
+  const [obsLoading, setObsLoading] = useState(false)
+  const [obsError, setObsError] = useState('')
+  const [dayPanel, setDayPanel] = useState(null)       // { date }
+
+  /* Month / year navigation mirror of the FullCalendar view */
+  const [cursor, setCursor] = useState(() => {
+    const d = initialDateRef.current ? new Date(`${initialDateRef.current}T00:00:00`) : new Date()
+    return { y: d.getFullYear(), m: d.getMonth() }
+  })
+  const gotoMonth = (y, m) => {
+    const safeY = Number(y); const safeM = Number(m)
+    if (!Number.isFinite(safeY) || !Number.isFinite(safeM)) return
+    if (calRef.current) calRef.current.gotoDate(new Date(safeY, safeM, 1))
+  }
+  const navMonth = (delta) => {
+    const d = new Date(cursor.y, cursor.m + delta, 1)
+    gotoMonth(d.getFullYear(), d.getMonth())
+  }
+  const goToday = () => { const n = new Date(); gotoMonth(n.getFullYear(), n.getMonth()) }
+
+  // Year options: whatever the reference calendar covers, widened around the
+  // year currently in view so it never drifts out of date.
+  const yearOptions = useMemo(() => {
+    const set = new Set(obs.available_years || [])
+    for (let y = cursor.y - 4; y <= cursor.y + 4; y++) set.add(y)
+    return [...set].filter(y => y >= 1990 && y <= 2100).sort((a, b) => a - b)
+  }, [obs.available_years, cursor.y])
+
   /* Modals */
   const [createOpen, setCreateOpen] = useState(false)
   const [createDate, setCreateDate] = useState(null)
@@ -418,6 +636,7 @@ export default function MonthlyPlanner() {
   const [editOpen, setEditOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [groupSel, setGroupSel] = useState(null)
+  const [preset, setPreset] = useState(null)           // prefill for EventFormModal
 
   /* Load options (NGO → Sector → Activity cascade) */
   useEffect(() => {
@@ -448,6 +667,104 @@ export default function MonthlyPlanner() {
   }
 
   useEffect(() => { loadEvents() /* eslint-disable-line */ }, [range, filterNgo, filterSector, filterActivity, filterStatus, filterYear, loadKey])
+
+  /* ── Important days / festivals / observances for the visible range ──
+     Dates are computed by the backend reference calendar (deterministic). */
+  const loadObservances = () => {
+    if (!range) return
+    setObsLoading(true); setObsError('')
+    fetchCalendarObservances({ start: range.startStr, end: range.endStr, scope })
+      .then(d => {
+        setObs({
+          byDate: d?.by_date || {},
+          list: Array.isArray(d?.observances) ? d.observances : [],
+          available_years: Array.isArray(d?.available_years) ? d.available_years : [],
+          lunar_years: Array.isArray(d?.lunar_years) ? d.lunar_years : [],
+          reliability: d?.reliability || null,
+          source: d?.source || 'server',
+        })
+      })
+      .catch(err => {
+        console.error('observances fetch', err)
+        setObsError(err.message || 'Could not load the observance calendar')
+        setObs({ byDate: {}, list: [], available_years: [], lunar_years: [], reliability: null, source: 'server' })
+      })
+      .finally(() => setObsLoading(false))
+  }
+  useEffect(() => { loadObservances() /* eslint-disable-line */ }, [range, scope])
+
+  // Observances falling inside the month currently in view (for the side list).
+  const monthObservances = useMemo(() => {
+    const y = cursor.y; const m0 = cursor.m
+    return obs.list.filter(o => {
+      const d = o.date.split('-')
+      return Number(d[0]) === y && Number(d[1]) - 1 === m0
+    })
+  }, [obs.list, cursor.y, cursor.m])
+
+  const obsFor = (ymdStr) => (showObs && obs.byDate[ymdStr]) || []
+
+  /* ── Day plan (observance → AI suggestions → create) ── */
+  const openDayPlan = async (ymdStr) => {
+    const day = String(ymdStr || '').slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return
+    setDayPanel({ date: day, loading: true })
+    // Ground the model in the org's own vocabulary. Failures just yield fewer
+    // context hints — never block the panel.
+    const [allSectorsList, allActivitiesList] = await Promise.all([
+      filterNgo ? Promise.resolve([]) : fetchSectors().catch(() => []),
+      filterNgo ? fetchActivities({ ngo_id: filterNgo }).catch(() => []) : Promise.resolve([]),
+    ])
+    const sectorNames = (filterNgo ? sectors : allSectorsList).map(s => s?.name).filter(Boolean)
+    const activityNames = (filterNgo ? activities : allActivitiesList).map(a => a?.name).filter(Boolean)
+    setDayPanel({
+      date: day,
+      loading: false,
+      context: {
+        ngoName: ngos.find(n => String(n.id) === String(filterNgo))?.name || null,
+        sectorName: sectors.find(s => String(s.id) === String(filterSector))?.name || null,
+        sectors: sectorNames.slice(0, 15),
+        activities: activityNames.slice(0, 30),
+        existingTitles: events
+          .map(e => baseTitle(e.title, e.extendedProps?.ngoName))
+          .filter(Boolean)
+          .slice(0, 40),
+      },
+    })
+  }
+
+  // Push a suggestion (or a bare "create on this day") into the normal
+  // Event Head create flow, with the verified date already filled in.
+  const useSuggestion = (day, suggestion) => {
+    const ngoId = filterNgo || ''
+    const sectorId = filterSector || ''
+    const obsOnDay = Array.isArray(day?.observances) ? day.observances : []
+    setDayPanel(null)
+    setPreset({
+      name: suggestion?.title || (obsOnDay[0]?.name ? `${obsOnDay[0].name} — Programme` : ''),
+      ngo_id: ngoId,
+      sector_id: sectorId,
+      activities: [],
+      date: day.date,
+      start_time: '', end_time: '',
+      status: 'Draft',
+      priority: suggestion?.priority || 'Medium',
+      category: suggestion?.format || '',
+      description: suggestion
+        ? [
+            `Planned for ${ymdToLabel(day.date)}.`,
+            obsOnDay.length ? `Occasion: ${obsOnDay.map(o => o.name).join(', ')}.` : '',
+            suggestion.audience ? `Target group: ${suggestion.audience}.` : '',
+            suggestion.duration ? `Duration: ${suggestion.duration}.` : '',
+            suggestion.rationale || '',
+            Array.isArray(suggestion.materials) && suggestion.materials.length ? `Materials: ${suggestion.materials.join(', ')}.` : '',
+          ].filter(Boolean).join('\n')
+        : obsOnDay.length ? `Planned for ${obsOnDay.map(o => o.name).join(', ')}.` : '',
+      activityName: suggestion?.activityName || '',
+    })
+    setCreateDate(day.date)
+    setCreateOpen(true)
+  }
 
   /* ── Auto-jump the calendar to a month that actually has events ── */
   const didJumpRef = useRef(false)
@@ -481,13 +798,33 @@ export default function MonthlyPlanner() {
   const changeNgo = (v) => { setFilterNgo(v); setFilterSector(''); setFilterActivity('') }
   const changeSector = (v) => { setFilterSector(v); setFilterActivity('') }
 
-  /* Clicking an NGO tag on a calendar pill filters the calendar to that NGO. */
-  const handleTagClick = (e) => {
+  /* Clicking an NGO tag on a calendar pill filters the calendar to that NGO;
+     clicking an observance chip opens that day's programme planner. */
+  const handleCalendarClick = (e) => {
+    const chip = e.target.closest('.eh-obs-chip')
+    if (chip) {
+      e.stopPropagation()
+      const date = chip.getAttribute('data-obs-date')
+      if (date) { openDayPlan(date); return }
+    }
     const t = e.target.closest('.eh-tag')
     if (!t) return
     const id = t.getAttribute('data-ngo-id')
     if (!id) return
     changeNgo(filterNgo === id ? '' : id)
+  }
+
+  /* Keep the month/year navigator in sync with whatever FullCalendar shows. */
+  const handleDatesSet = (info) => {
+    setRange(info)
+    if (info?.view?.currentStart) {
+      const d = new Date(info.view.currentStart)
+      // In timeGridWeek the week can start in the previous month — follow the
+      // range's midpoint month instead of the grid's first cell.
+      const mid = new Date((new Date(info.start).getTime() + new Date(info.end).getTime()) / 2)
+      const use = Number.isNaN(mid.getTime()) ? d : mid
+      setCursor(prev => (prev.y === use.getFullYear() && prev.m === use.getMonth() ? prev : { y: use.getFullYear(), m: use.getMonth() }))
+    }
   }
 
   const refresh = () => setLoadKey(k => k + 1)
@@ -541,11 +878,6 @@ export default function MonthlyPlanner() {
   }, [filteredEvents])
 
   const applyFilterToCal = () => {} // eslint-disable-line
-
-  const handleDateSelect = (info) => {
-    setCreateDate(info.startStr.slice(0, 10))
-    setCreateOpen(true)
-  }
 
   const handleEventClick = (info) => {
     const members = info.event.extendedProps?.members
@@ -603,6 +935,58 @@ export default function MonthlyPlanner() {
     }
   }
 
+  const scopeLabel = { all: '🌍 Worldwide + India', worldwide: '🌍 Worldwide only', india: '🇮🇳 India only' }[scope]
+
+  const ScopeBar = (
+    <div className="card" style={{ marginBottom: 0 }}>
+      <div className="card-pad" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={LABEL}>Important Days Calendar</label>
+          <div style={{ display: 'flex', gap: 6, background: 'var(--eh-tint-1)', padding: 3, borderRadius: 10 }}>
+            {['all', 'worldwide', 'india'].map(s => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                style={{
+                  border: 'none', cursor: 'pointer', borderRadius: 8, padding: '7px 13px', fontSize: 12.5, fontWeight: 700,
+                  background: scope === s ? 'var(--eh-primary)' : 'transparent',
+                  color: scope === s ? '#fff' : 'var(--eh-ink-soft)',
+                  boxShadow: scope === s ? '0 1px 3px rgba(0,0,0,.14)' : 'none',
+                }}
+              >{scopeLabel === null ? s : ({ all: '🌍 Worldwide + India', worldwide: '🌍 Worldwide only', india: '🇮🇳 India only' })[s]}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ width: 150 }}><label style={LABEL}>Month</label>
+          <Select value={String(cursor.m)} onChange={(v) => gotoMonth(cursor.y, v)}>
+            {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </Select>
+        </div>
+        <div style={{ width: 105 }}><label style={LABEL}>Year</label>
+          <Select value={String(cursor.y)} onChange={(v) => gotoMonth(v, cursor.m)}>
+            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </Select>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="eh-btn eh-btn-sm" onClick={() => navMonth(-1)} title="Previous month">‹</button>
+          <button className="eh-btn eh-btn-sm" onClick={goToday} title="Jump to today">Today</button>
+          <button className="eh-btn eh-btn-sm" onClick={() => navMonth(1)} title="Next month">›</button>
+        </div>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--eh-ink)', cursor: 'pointer', margin: 0 }}>
+            <input type="checkbox" checked={showObs} onChange={(e) => setShowObs(e.target.checked)} style={{ accentColor: 'var(--eh-primary)' }} />
+            Show important days on the grid
+          </label>
+          <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>
+            {obsLoading ? 'Loading…' : `${monthObservances.length} in ${MONTHS[cursor.m]}`}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+
   const FilterBar = (
     <div className="card" style={{ marginBottom: 0 }}>
       <div className="card-pad" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -619,8 +1003,8 @@ export default function MonthlyPlanner() {
         <div style={{ width: 150 }}><label style={LABEL}>Status</label>
           <Select value={filterStatus} onChange={setFilterStatus}><option value="">All</option>{STATUS_PRIORITY.map(s => <option key={s} value={s}>{s}</option>)}</Select>
         </div>
-        <div style={{ width: 110 }}><label style={LABEL}>Year</label>
-          <Select value={filterYear} onChange={setFilterYear}><option value="">All</option>{[2026,2025,2024,2023,2022].map(y => <option key={y} value={y}>{y}</option>)}</Select>
+        <div style={{ width: 110 }}><label style={LABEL}>Event Year</label>
+          <Select value={filterYear} onChange={setFilterYear}><option value="">All</option>{yearOptions.map(y => <option key={y} value={y}>{y}</option>)}</Select>
         </div>
         <div>
           <button className="eh-btn" onClick={clearFilters} disabled={!hasFilters}>Clear</button>
@@ -634,13 +1018,142 @@ export default function MonthlyPlanner() {
     ? `${MONTHS[range.start.getMonth()]} ${range.start.getFullYear()}`
     : `${MONTHS[today.getMonth()]} ${today.getFullYear()}`
 
+  /* Compact observance strip inside each day cell.
+     Uses dayCellDidMount and appends into the cell's own DOM rather than the
+     dayCellContent hook: that hook only exposes `dayNumberContent` in some
+     dayGrid configurations (it is undefined in others, e.g. other views/plugins),
+     and returning `{html}` from it also wipes the day number. `arg.el` and
+     `arg.dateStr` are always present, so this is safe in every view.
+     Clicks are delegated to handleCalendarClick via data-obs-date. */
+  const dayCellDidMount = (arg) => {
+    const cell = arg.el
+    if (!cell || !arg.dateStr) return
+    cell.querySelector('.eh-obs-strip')?.remove()
+    const chips = obsFor(arg.dateStr)
+    if (!chips.length) return
+    const strip = document.createElement('div')
+    strip.className = 'eh-obs-strip'
+    for (const o of chips) {
+      const m = obsMeta(o.kind)
+      const sc = (OBS_SCOPE[o.scope] || OBS_SCOPE.worldwide).icon
+      const tip = o.precision === 'lunar' ? ' (lunar date — confirm against the gazette)' : ''
+      const chip = document.createElement('span')
+      chip.className = 'eh-obs-chip'
+      chip.dataset.obsDate = arg.dateStr
+      chip.style.setProperty('--obs-c', m.color)
+      chip.title = `${sc} ${o.name}${tip} — click to plan a programme`
+      chip.textContent = `${m.icon} ${o.name}`
+      strip.appendChild(chip)
+    }
+    cell.appendChild(strip)
+  }
+
+  const dayCellWillUnmount = (arg) => {
+    arg.el?.querySelector('.eh-obs-strip')?.remove()
+  }
+
+  /* Observances arrive after the grid is already drawn, and the strip is painted
+     by didMount rather than by the event pipeline — so re-render the view
+     whenever the underlying data or the toggle changes. */
+  useEffect(() => {
+    const api = calRef.current?.getApi?.()
+    if (api) api.render()
+  }, [obs.byDate, showObs, scope])
+
+  /* Group the visible month's observances by day for the side list. */
+  const monthGroups = useMemo(() => {
+    const map = new Map()
+    for (const o of monthObservances) {
+      if (!map.has(o.date)) map.set(o.date, [])
+      map.get(o.date).push(o)
+    }
+    return [...map.entries()]
+  }, [monthObservances])
+
+  const ImportantDaysPanel = (
+    <div className="card" style={{ marginBottom: 0, flex: '0 1 330px', minWidth: 0 }}>
+      <div className="card-pad">
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+          <b style={{ fontSize: 14, color: 'var(--eh-ink)' }}>Important Days</b>
+          <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>{MONTHS[cursor.m]} {cursor.y}</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--eh-ink-faint)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontWeight: 700, color: 'var(--eh-success)' }}>✓ Verified dates</span>
+          <span>· reference calendar</span>
+          {(obs.lunar_years || []).length > 0 && (
+            <span title={`Lunar festivals are tabulated for ${obs.lunar_years.join(', ')}`} style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--eh-warn, #b45309)' }}>lunar dates flagged</span>
+          )}
+        </div>
+
+        {obs.source === 'client-fallback' && (
+          <div style={{ fontSize: 11.5, color: 'var(--eh-warn, #b45309)', background: 'var(--eh-warn-soft, #fef3c7)', padding: '8px 10px', borderRadius: 9, marginBottom: 10, lineHeight: 1.5 }}>
+            <b>Built-in reference calendar.</b> The calendar service did not respond, so the
+            built-in festival dates are shown. Any custom holidays added by an admin are not
+            included until the service is reachable.
+          </div>
+        )}
+
+        {obsError && (
+          <div style={{ fontSize: 12, color: 'var(--eh-danger)', background: 'var(--eh-danger-soft)', padding: '9px 11px', borderRadius: 9 }}>{obsError}</div>
+        )}
+        {!obsError && obsLoading && <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)' }}>Loading…</div>}
+        {!obsError && !obsLoading && monthGroups.length === 0 && (
+          <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)', lineHeight: 1.55 }}>
+            {scope === 'worldwide'
+              ? 'No worldwide observances in this month. Try "Worldwide + India" or another month.'
+              : scope === 'india'
+                ? 'No Indian observances or festivals in this month.'
+                : 'No important days in this month.'}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 460, overflow: 'auto' }}>
+          {monthGroups.map(([date, items]) => (
+            <div key={date}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--eh-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+                {ymdToLabel(date)}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {items.map((o) => {
+                  const m = obsMeta(o.kind)
+                  const sc = OBS_SCOPE[o.scope] || OBS_SCOPE.worldwide
+                  return (
+                    <button
+                      key={o.name}
+                      onClick={() => openDayPlan(date)}
+                      title={o.note || o.name}
+                      style={{
+                        textAlign: 'left', cursor: 'pointer', width: '100%',
+                        border: '1px solid var(--eh-line)', borderLeft: `3px solid ${m.color}`,
+                        borderRadius: 9, padding: '8px 10px', background: '#fff',
+                      }}
+                    >
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)', lineHeight: 1.35 }}>{m.icon} {o.name}</div>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: `${m.color}22`, color: m.color }}>{sc.icon} {sc.label}</span>
+                        {o.precision === 'lunar' && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-warn, #b45309)' }}>confirm date</span>}
+                        {o.source === 'db' && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>custom</span>}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <PageHeader
         title="Calendar"
         subtitle={`Live interactive calendar · ${currentLabel}`}
-        actions={<button className="eh-btn eh-btn-primary" onClick={() => { setCreateDate(null); setCreateOpen(true) }}>+ Create Event</button>}
+        actions={<button className="eh-btn eh-btn-primary" onClick={() => { setPreset(null); setCreateDate(null); setCreateOpen(true) }}>+ Create Event</button>}
       />
+
+      {ScopeBar}
 
       {FilterBar}
 
@@ -648,7 +1161,7 @@ export default function MonthlyPlanner() {
 
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)' }}>Legend</span>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)' }}>Event Legend</span>
           {Object.entries(CATEGORY_META).map(([k, m]) => (
             <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--eh-ink)' }}>
               <span style={{ width: 12, height: 12, borderRadius: 3, background: m.color, display: 'inline-block' }} />
@@ -658,6 +1171,15 @@ export default function MonthlyPlanner() {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--eh-ink)' }}>
             <span style={{ width: 12, height: 12, borderRadius: 3, background: '#e5e7eb', border: '1px solid #d1d5db', display: 'inline-block' }} />
             NGO tags (click to filter)
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--eh-ink)', paddingLeft: 8, marginLeft: 4, borderLeft: '1px solid var(--eh-line)' }}>
+            <b style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--eh-ink-soft)' }}>Important Days</b>
+            {Object.entries(OBS_META).map(([k, m]) => (
+              <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 12, height: 12, borderRadius: 3, background: `${m.color}33`, border: `1px solid ${m.color}`, display: 'inline-block' }} />
+                {m.icon} {m.label}
+              </span>
+            ))}
           </span>
         </div>
       </div>
@@ -672,60 +1194,77 @@ export default function MonthlyPlanner() {
         </div>
       )}
 
-      <div className="card" onClick={handleTagClick}>
-        <div className="card-pad">
-          {loading && <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)', marginBottom: 8 }}>Loading calendar…</div>}
-          <FullCalendar
-            ref={calRef}
-            plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
-            initialDate={initialDateRef.current}
-            headerToolbar={{
-              left: 'prev,next today',
-              center: 'title',
-              right: 'dayGridMonth,timeGridWeek,listMonth',
-            }}
-            height="auto"
-            editable
-            selectable
-            selectMirror
-            dayMaxEvents={3}
-            moreLinkContent={(arg) => `${arg.num} more`}
-            nowIndicator
-            events={groupedEvents}
-            eventClassNames={(arg) => {
-              const p = arg.event.extendedProps || {}
-              return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
-            }}
-            eventContent={(arg) => {
-              const p = arg.event.extendedProps || {}
-              const cat = CATEGORY_META[p.category] || CATEGORY_META.other
-              const ngos = p.ngos || []
-              const title = baseTitle(arg.event.title, p.ngoName)
-              return {
-                html: `<div class="eh-pill" style="--pile-c:${cat.color}">
-                  <div class="eh-pill-row1"><span class="eh-pill-icon">${cat.icon}</span><span class="eh-pill-title">${escapeHtml(title)}${ngos.length > 1 ? ` <b class="eh-pill-count">(${ngos.length} NGOs)</b>` : ''}</span></div>
-                  <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag" data-ngo-id="${escapeHtml(n.id || '')}" title="Click to show only ${escapeHtml(n.code)} events" style="cursor:pointer">${escapeHtml(n.code)}</span>`).join('')}</div>
-                </div>`,
-              }
-            }}
-            datesSet={(info) => setRange(info)}
-            dateClick={(info) => { setCreateDate(info.dateStr); setCreateOpen(true) }}
-            select={handleDateSelect}
-            eventClick={handleEventClick}
-            eventDrop={handleEventDrop}
-            eventResize={handleEventResize}
-          />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+        <div className="card" onClick={handleCalendarClick} style={{ marginBottom: 0, flex: '1 1 660px', minWidth: 0 }}>
+          <div className="card-pad">
+            {loading && <div style={{ fontSize: 12, color: 'var(--eh-ink-faint)', marginBottom: 8 }}>Loading calendar…</div>}
+            <FullCalendar
+              ref={calRef}
+              plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
+              initialView="dayGridMonth"
+              initialDate={initialDateRef.current}
+              headerToolbar={{
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,listMonth',
+              }}
+              height="auto"
+              editable
+              selectable
+              selectMirror
+              dayMaxEvents={3}
+              moreLinkContent={(arg) => `${arg.num} more`}
+              nowIndicator
+              events={groupedEvents}
+              dayCellDidMount={dayCellDidMount}
+              dayCellWillUnmount={dayCellWillUnmount}
+              eventClassNames={(arg) => {
+                const p = arg.event.extendedProps || {}
+                return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
+              }}
+              eventContent={(arg) => {
+                const p = arg.event.extendedProps || {}
+                const cat = CATEGORY_META[p.category] || CATEGORY_META.other
+                const ngos = p.ngos || []
+                const title = baseTitle(arg.event.title, p.ngoName)
+                return {
+                  html: `<div class="eh-pill" style="--pile-c:${cat.color}">
+                    <div class="eh-pill-row1"><span class="eh-pill-icon">${cat.icon}</span><span class="eh-pill-title">${escapeHtml(title)}${ngos.length > 1 ? ` <b class="eh-pill-count">(${ngos.length} NGOs)</b>` : ''}</span></div>
+                    <div class="eh-pill-ngos">${ngos.map(n => `<span class="eh-tag" data-ngo-id="${escapeHtml(n.id || '')}" title="Click to show only ${escapeHtml(n.code)} events" style="cursor:pointer">${escapeHtml(n.code)}</span>`).join('')}</div>
+                  </div>`,
+                }
+              }}
+              datesSet={handleDatesSet}
+              dateClick={(info) => { setPreset(null); setCreateDate(info.dateStr); setCreateOpen(true) }}
+              select={(info) => { setPreset(null); setCreateDate(info.startStr.slice(0, 10)); setCreateOpen(true) }}
+              eventClick={handleEventClick}
+              eventDrop={handleEventDrop}
+              eventResize={handleEventResize}
+            />
+          </div>
         </div>
+        {ImportantDaysPanel}
       </div>
+
+      {dayPanel && !dayPanel.loading && (
+        <DayPlanModal
+          date={dayPanel.date}
+          observances={obs.byDate[dayPanel.date] || []}
+          scope={scope}
+          context={dayPanel.context || {}}
+          onClose={() => setDayPanel(null)}
+          onUseSuggestion={(s) => useSuggestion({ date: dayPanel.date, observances: obs.byDate[dayPanel.date] || [] }, s)}
+        />
+      )}
 
       {createOpen && (
         <EventFormModal
           mode="create"
           initial={null}
+          preset={preset}
           defaultDate={createDate || undefined}
-          onClose={() => setCreateOpen(false)}
-          onSaved={() => { setCreateOpen(false); refresh(); showToast('Event created successfully.'); }}
+          onClose={() => { setCreateOpen(false); setPreset(null) }}
+          onSaved={() => { setCreateOpen(false); setPreset(null); refresh(); showToast('Event created successfully.') }}
         />
       )}
       {selected && !editOpen && (

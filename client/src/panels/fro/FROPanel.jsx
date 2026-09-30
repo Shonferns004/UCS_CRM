@@ -15,7 +15,7 @@ import { requestNotifPermission, showDesktopNotification } from '../../utils/des
 import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
-import { CallProvider, useCall, DISPOSITION_WINDOW } from './CallContext'
+import { CallProvider, useCall, DISPOSITION_WINDOW, SETTLE_SECONDS } from './CallContext'
 import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
@@ -205,18 +205,31 @@ function formatClock(totalSeconds) {
 
 // Disposition countdown, floating over every FRO screen.
 //
-// The window is opened by the FRO's first logged action of the day, not by
-// logging in, so until they do something the widget reads "Not started" instead
-// of pretending to run. Once armed it counts down from the server's deadline;
-// paused, in a meeting or off shift it holds at a full 4:00 and says why,
-// because the server issues no deadline in those states.
+// Logging in buys a one-time 3-minute settle-in grace, and the ordinary
+// 4-minute window arms by itself the moment that runs out — so the FRO always
+// ends up on a real clock without being billed for the seconds they spent
+// getting started. Until a window exists the widget shows the grace instead of
+// "Not started". Once armed it counts down from the server's deadline; paused, in
+// a meeting or off shift it holds and says why, because the server issues no
+// deadline in those states.
 function DispositionTimer() {
-  const { secondsLeft, isIdle, inShift, paused, status, idleLiveSeconds } = useCall();
+  const { secondsLeft, isIdle, inShift, paused, status, idleLiveSeconds, settleSecondsLeft } = useCall();
 
   const held = paused || status === 'meeting';
   const armed = secondsLeft != null;
+  // The grace only shows while there is no window to show. Once the window is
+  // armed it supersedes the grace, so the widget never displays two clocks.
+  //
+  // Held and off-shift are excluded because the server grants and advances nothing
+  // in those states either. A FRO who pauses during the grace would otherwise sit
+  // watching it run down to 0:00, and at zero the client would keep asking the
+  // server to arm a window the server is deliberately refusing to arm.
+  const settling = !armed && settleSecondsLeft != null && !held && inShift;
   const counting = inShift && !held && armed;
   const value = armed ? secondsLeft : DISPOSITION_WINDOW;
+  // Urgency belongs to the window only. A grace is a countdown the FRO cannot be
+  // billed for, so it must never turn amber or red — at 0:30 of grace, warning
+  // someone "due now" would be a lie.
   const urgent = counting && value <= 60;
   const warn = counting && value <= 120;
 
@@ -232,6 +245,7 @@ function DispositionTimer() {
   const label = isIdle ? 'Idle'
     : held ? (status === 'meeting' ? 'Meeting' : 'Paused')
     : !inShift ? 'Off shift'
+    : settling ? 'Settling in'
     : !armed ? 'Not started'
     : urgent ? 'Now'
     : warn ? 'Due'
@@ -241,21 +255,32 @@ function DispositionTimer() {
   // nothing left to count down, and the useful number is how long they have been
   // idle. It ticks live between heartbeats, and the server commits the same
   // figure into today's idle total the moment they record any activity.
-  const display = isIdle ? formatClock(idleLiveSeconds) : (armed ? formatClock(value) : '—:—');
+  const display = isIdle
+    ? formatClock(idleLiveSeconds)
+    : armed ? formatClock(value)
+      : settling ? formatClock(settleSecondsLeft)
+        : '—:—';
 
   const tip = isIdle
     ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record any activity to clear it.`
-    : !armed
-      ? 'Your 4-minute disposition window has not started yet. It opens the moment you log your first action of the day.'
+    : settling
+      ? 'Settling in. Your 4-minute disposition window starts as soon as this runs out — nothing is counted against you until then.'
       : held
         ? 'On hold — the 4-minute window is frozen while you are paused or in a meeting.'
         : !inShift
-          ? 'Off shift, so the window is not running. It opens with your first action of the day.'
-          : 'Time left to record an activity. Every activity resets this to 4:00.';
+          ? 'Off shift, so the window is not running. It opens when you start your shift.'
+          : !armed
+            ? 'Your 4-minute disposition window is starting up. It runs on its own — you do not need to log anything first.'
+            : 'Time left to record an activity. Every activity resets this to 4:00.';
 
   // Fraction of the window still remaining, for the bar underneath. While idle
-  // the bar is full-width: the countdown is over, this is an accrual now.
-  const remaining = isIdle ? 1 : (armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW)) : 1);
+  // the bar is full-width: the countdown is over, this is an accrual now. During
+  // the grace it tracks the grace, not a window that does not exist yet.
+  const remaining = isIdle
+    ? 1
+    : armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW))
+      : settling ? Math.max(0, Math.min(1, settleSecondsLeft / SETTLE_SECONDS))
+        : 1;
 
   // Portalled to document.body on purpose. Rendered inline it sat at z-index 70,
   // so the detailed donor/lead page (z-index 1400) and the donation modal (2000)
