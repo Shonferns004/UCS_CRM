@@ -37,6 +37,8 @@ export const Globe = I(<><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2
 export const Dollar = I(<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>)
 export const Ticket = I(<><path d="M20 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v2"/><path d="M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/><line x1="16" y1="12" x2="8" y2="12"/></>)
 export const Flask = I(<><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></>)
+export const Trophy = I(<><path d="M8 4h8v7a4 4 0 0 1-8 0V4Z"/><path d="M8 6H5.5a2.5 2.5 0 0 0 2.5 4"/><path d="M16 6h2.5a2.5 2.5 0 0 1-2.5 4"/><line x1="12" y1="15" x2="12" y2="19"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="9" y1="19" x2="15" y2="19"/></>)
+export const PartyPopper = I(<><path d="M3 21l6-6"/><path d="M14 4l1.5 3.5L19 9l-3.5 1.5L14 14l-1.5-3.5L9 9l3.5-1.5L14 4Z"/><path d="M19 15l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7.7-1.6Z"/></>)
 
 export const WhatsApp = ({ size = 20, ...p }) => (
   <svg {...p} width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
