@@ -1,4 +1,10 @@
 import { api } from '../../api/auth'
+import {
+  getObservancesInRange,
+  availableYears,
+  allThemes,
+  SUPPORTED_LUNAR_YEARS,
+} from '@observances'
 export const apiGet = (path) => api(path, { _prefix: 'ucs' })
 export const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
 export const apiDelete = (path) => api(path, { method: 'DELETE', _prefix: 'ucs' })
@@ -336,6 +342,105 @@ export const fetchCalendarEvents = (params = {}) => {
   return apiGet('/event-head/events/calendar' + (q ? '?' + q : ''))
 }
 export const fetchEventsByNgo = (ngoId) => apiGet('/event-head/events/ngo/' + ngoId)
+
+/* ── Calendar · important days, festivals & observances ────────────────────────
+   Dates are computed by a deterministic reference calendar (fixed month/day
+   rules + explicit per-year rows + weekday rules) — never by an AI model.
+   `scope` is 'all' | 'worldwide' | 'india'.
+
+   The server endpoint is preferred because it can merge operator-managed
+   `holidays` rows on top. If it is unreachable (e.g. the API host predates this
+   route) we fall back to the identical module imported directly from the backend
+   source, so the calendar still shows correct dates instead of an error. The
+   response shape is the same either way; `source` says which path was used. */
+const localObservances = (start, end, scope) => {
+  const list = getObservancesInRange(start, end, { scope })
+  const byDate = {}
+  for (const o of list) (byDate[o.date] ||= []).push(o)
+  return {
+    start,
+    end,
+    scope,
+    available_years: availableYears(),
+    lunar_years: SUPPORTED_LUNAR_YEARS,
+    themes: allThemes(),
+    count: list.length,
+    observances: list,
+    by_date: byDate,
+    source: 'client-fallback',
+    reliability: {
+      dates_source: 'curated-reference-calendar',
+      ai_generated_dates: false,
+      lunar_rows: list.filter((o) => o.precision === 'lunar').length,
+    },
+  }
+}
+
+export const fetchCalendarObservances = async (params = {}) => {
+  const qs = new URLSearchParams()
+  if (params.start) qs.set('start', params.start)
+  if (params.end) qs.set('end', params.end)
+  if (params.scope) qs.set('scope', params.scope)
+  const q = qs.toString()
+  try {
+    const d = await apiGet('/event-head/calendar/observances' + (q ? '?' + q : ''))
+    if (d && Array.isArray(d.observances)) return { ...d, source: 'server' }
+    throw new Error('unexpected observance response')
+  } catch (err) {
+    const today = new Date()
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const end = params.end || iso(today)
+    const start = params.start || iso(new Date(today.getTime() - 62 * 86400000))
+    const scope = params.scope || 'all'
+    console.warn('fetchCalendarObservances: server calendar unavailable, using bundled reference calendar:', err?.message || err)
+    return localObservances(start, end, scope)
+  }
+}
+
+/* AI-backed programme ideas for one day. The date and the occasion come
+   from the reference calendar on the server; the model only proposes ideas, and
+   the API key stays on the server. If the endpoint is missing we return the same
+   shape with `ai.available: false` so the UI shows a clear message and the user
+   can still create an event for that day.
+
+   `activityOptions` is a list of the caller's REAL existing activities
+   ({ id, name }). It is sent so the server can bind each suggestion to an
+   activity that actually exists and drop any suggestion naming one that does
+   not — without it the model can only guess at activity names, which is how a
+   "Health Camp" suggestion ends up duplicating an existing "Community Health
+   Camp". Omitting it is supported: the model then proposes free-text names. */
+export const suggestDayPrograms = async (payload = {}) => {
+  try {
+    return await apiPost('/event-head/calendar/suggest', {
+      date: payload.date,
+      scope: payload.scope || 'all',
+      ngo_name: payload.ngoName || null,
+      sector_id: payload.sectorId || null,
+      sector_name: payload.sectorName || null,
+      sectors: payload.sectors || [],
+      activities: payload.activities || [],
+      activity_options: Array.isArray(payload.activityOptions)
+        ? payload.activityOptions
+            .map(a => (a && typeof a === 'object' ? { id: a.id ?? a.activity_id, name: a.name ?? a.activity_name } : null))
+            .filter(a => a && a.id !== undefined && a.id !== null && a.name)
+            .slice(0, 40)
+        : [],
+      existing_titles: payload.existingTitles || [],
+    })
+  } catch (err) {
+    console.warn('suggestDayPrograms: server unavailable:', err?.message || err)
+    const obs = Array.isArray(payload.observances) ? payload.observances : []
+    return {
+      date: payload.date,
+      observances: obs,
+      suggestions: [],
+      ai: {
+        available: false,
+        reason: 'AI programme suggestions need the updated backend, which is not available on this server yet. The calendar dates above are unaffected.',
+      },
+    }
+  }
+}
 export const fetchEventsByState = (state) => apiGet('/event-head/events/state/' + state)
 export const fetchEventPerformance = (id) => apiGet('/event-head/events/' + id + '/performance')
 export const updateEventStatus = (id, status) => apiPut('/event-head/events/' + id + '/status', { status })

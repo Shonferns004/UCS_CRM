@@ -194,6 +194,41 @@
 .fc .fc-highlight { background: var(--fc-highlight-color); }
 .fc .fc-daygrid-day.fc-day-today { background: var(--fc-today-bg-color); }
 
+/* Important days / festivals / observances strip inside each day cell.
+   Dates here come from the backend reference calendar (never AI-generated);
+   the chips only open the day's programme planner. */
+.eh-obs-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: -2px 4px 3px;
+}
+.eh-obs-chip {
+  display: block;
+  font-size: 9.5px;
+  line-height: 1.45;
+  font-weight: 600;
+  text-align: left;
+  padding: 0 5px;
+  border-radius: 5px;
+  border-left: 2.5px solid var(--obs-c, #0ea5e9);
+  background: color-mix(in srgb, var(--obs-c, #0ea5e9) 15%, #ffffff);
+  color: color-mix(in srgb, var(--obs-c, #0ea5e9) 72%, #111827);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: box-shadow .12s ease, background .12s ease;
+}
+.eh-obs-chip:hover {
+  background: color-mix(in srgb, var(--obs-c, #0ea5e9) 28%, #ffffff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--obs-c, #0ea5e9) 50%, transparent);
+}
+.eh-obs-chip:active { transform: scale(.97); }
+
+/* Give the day cell a touch more room when it carries observance chips. */
+.fc .fc-daygrid-day:has(.eh-obs-strip) .fc-daygrid-day-frame { min-height: 74px; }
+
 /* Phones: a 7-column month view leaves each day cell ~48px wide, so the type
    scales down rather than the view changing (switching to list view is already
    exposed by the toolbar). Long titles keep truncating via .eh-pill-title. */
@@ -209,4 +244,6 @@
   .eh-pill-row1 { font-size: 9.5px; gap: 2px; }
   .eh-tag { font-size: 8px; padding: 0 4px; }
   .eh-pill-ngos { gap: 2px; }
+  .eh-obs-chip { font-size: 8px; padding: 0 3px; }
+  .eh-obs-strip { margin: -1px 2px 2px; }
 }
