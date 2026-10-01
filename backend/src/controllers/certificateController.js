@@ -21,7 +21,18 @@ const identity = (req) => ({
   name: String(req.user?.name ?? req.user?.full_name ?? ''),
 });
 
-async function fetchFile(url) {
+// Prefer a service-role download by storage key. The `certificates` bucket is not
+// public, so an anonymous GET against the public URL 403s even though the upload
+// itself succeeded — that is what made every render fail with "Unable to read
+// template file (403)". The public URL is kept only as a fallback for rows stored
+// before template_key existed.
+async function fetchFile(url, key) {
+  if (key) {
+    const { data, error } = await db.storage.from(BUCKET).download(key);
+    if (!error && data) return Buffer.from(data);
+    const why = error && error.message ? error.message : String(error);
+    throw new Error(`Unable to read template file from storage: ${why}`);
+  }
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Unable to read template file (${resp.status})`);
   return Buffer.from(await resp.arrayBuffer());
@@ -51,7 +62,7 @@ async function savePreviewImage(id, template, buffer, ext = 'png', contentType =
 export async function autosnapshotTemplate(template) {
   if (!template || !template.template_file) return null;
   try {
-    const raw = await fetchFile(template.template_file);
+    const raw = await fetchFile(template.template_file, template.template_key);
     const png = await snapshotToPng(raw, template.file_format);
     if (!png) return null;
     return savePreviewImage(template.id, template, png);
@@ -130,7 +141,7 @@ function buildMissing(requiredFields, values) {
 
 async function renderFromTemplate(template, values) {
   if (!template.template_file) throw new Error('Template file is missing');
-  const storage = await fetchFile(template.template_file);
+  const storage = await fetchFile(template.template_file, template.template_key);
   return renderCertificate(storage, values);
 }
 
@@ -186,7 +197,7 @@ export const createTemplate = async (req, res) => {
     await autosnapshotTemplate(template);
     return res.json({ message: 'Template created', template: await loadTemplateDetail(id), detected: placeholders });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -223,7 +234,7 @@ export const listTemplates = async (req, res) => {
         ORDER BY t.updated_at DESC, t.created_at DESC`, params);
     return res.json(rows);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -233,7 +244,7 @@ export const listNgoOptions = async (req, res) => {
       `SELECT id, name FROM ngos WHERE is_active = true ORDER BY name ASC`);
     return res.json(rows);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -247,7 +258,7 @@ export const listPurposes = async (req, res) => {
         ORDER BY p.sort_order ASC, p.name ASC`);
     return res.json(rows);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -268,7 +279,7 @@ export const addPurpose = async (req, res) => {
     }
     return res.json(await listToJson());
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -279,7 +290,7 @@ export const deletePurpose = async (req, res) => {
     await db._pool.query(`UPDATE certificate_purposes SET is_active = false WHERE id = $1`, [id]);
     return res.json(await listToJson());
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -296,14 +307,14 @@ async function listToJson() {
 export const getTemplateFile = async (req, res) => {
   try {
     const { rows } = await db._pool.query(
-      `SELECT template_file FROM certificate_templates WHERE id = $1`, [req.params.id]);
+      `SELECT template_file, template_key FROM certificate_templates WHERE id = $1`, [req.params.id]);
     if (!rows.length || !rows[0].template_file) return res.status(404).json({ message: 'Template file not found' });
-    const buffer = await fetchFile(rows[0].template_file);
+    const buffer = await fetchFile(rows[0].template_file, rows[0].template_key);
     res.set('Content-Type', 'application/octet-stream');
     res.set('Content-Disposition', `attachment; filename="template-${req.params.id}"`);
     return res.send(buffer);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -313,7 +324,7 @@ export const getTemplate = async (req, res) => {
     if (!template) return res.status(404).json({ message: 'Template not found' });
     return res.json(template);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -355,7 +366,7 @@ export const updateTemplate = async (req, res) => {
 
     return res.json({ message: 'Template updated', template: await loadTemplateDetail(id) });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -390,7 +401,7 @@ export const reuploadTemplateFile = async (req, res) => {
 
     return res.json({ message: 'Template file replaced', template: await loadTemplateDetail(id), detected: placeholders });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -411,7 +422,7 @@ export const setTemplatePreview = async (req, res) => {
 
     return res.json({ message: 'Preview image saved', template: await loadTemplateDetail(id) });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -443,7 +454,7 @@ export const duplicateTemplate = async (req, res) => {
     const template = await loadTemplateDetail(id);
     if (!template) return res.status(404).json({ message: 'Template not found' });
 
-    const storage = await fetchFile(template.template_file);
+    const storage = await fetchFile(template.template_file, template.template_key);
     const me = identity(req);
     const name = `${template.name} (copy)`;
     const { rows } = await db._pool.query(
@@ -463,7 +474,7 @@ export const duplicateTemplate = async (req, res) => {
 
     return res.json({ message: 'Template duplicated', template: await loadTemplateDetail(newId) });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -476,7 +487,7 @@ export const setTemplateStatus = async (req, res) => {
     if (!rowCount) return res.status(404).json({ message: 'Template not found' });
     return res.json({ message: `Template ${status === 'archived' ? 'archived' : status}` });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -490,7 +501,7 @@ export const deleteTemplate = async (req, res) => {
     await db._pool.query('DELETE FROM certificate_templates WHERE id = $1', [req.params.id]);
     return res.json({ message: 'Template deleted. Generated certificates are kept in history.' });
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -646,7 +657,7 @@ export const listCertificates = async (req, res) => {
         LIMIT 300`, params);
     return res.json(rows);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };
 
@@ -659,6 +670,6 @@ export const getCertificate = async (req, res) => {
     if (!rows.length) return res.status(404).json({ message: 'Certificate not found' });
     return res.json(rows[0]);
   } catch (e) {
-    return res.status(500).json({ message: e.message });
+    return res.status(e.status || 500).json({ message: e.message });
   }
 };

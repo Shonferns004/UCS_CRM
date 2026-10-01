@@ -324,12 +324,6 @@ export default function AccountsPanel() {
     requestNotifPermission();
   }, [user?.id]);
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadNotifications(),
-    enabled: !!user?.id,
-  });
-
   const seenAccountTicketsRef = useRef(null);
   useEffect(() => {
     const checkNewTickets = async () => {

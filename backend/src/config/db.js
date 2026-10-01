@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { emitDbChange } from '../socket.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
@@ -76,7 +76,7 @@ const PGRST116 = { message: 'JSON object requested, multiple (or no) rows return
 // -- Realtime -----------------------------------------------------------------
 // Tables whose row writes are broadcast to socket.io clients as db:change events.
 const REALTIME_TABLES = new Set([
-  'notification_log', 'fro_donor_logs', 'bank_audit_entries', 'rejected_lead_tickets',
+  'fro_donor_logs', 'bank_audit_entries', 'rejected_lead_tickets',
   'fro_assignments', 'fro_live_status', 'messages', 'conversations',
   'attendance', 'leaves', 'worker_loans', 'attendance_corrections', 'impersonation_codes',
   'receipts', 'leads', 'special_incentives', 'special_incentive_progress',
@@ -515,6 +515,71 @@ function nestRows(rows, embedPaths) {
 // ---------------------------------------------------------------------------
 // Query builder (thenable)
 // ---------------------------------------------------------------------------
+// Tables that were deliberately retired. The physical table is dropped, but
+// feature code across the codebase still calls db.from() on them, so these
+// resolve to empty results instead of throwing "relation does not exist" —
+// which would otherwise turn every call site into a 500. Writing is a silent
+// no-op, so retiring a table is one edit here instead of ~90 scattered ones.
+//
+// Add a table here ONLY when it is genuinely being retired. A typo would
+// silently swallow real queries.
+const RETIRED_TABLES = new Set(['notification_log']);
+
+// Chainable no-op stand-in for a retired table. It mimics enough of the
+// QueryBuilder surface (fluent filters + thenable) that existing call sites
+// keep working unchanged and simply see an empty table.
+class RetiredTableQuery {
+  constructor(table) {
+    this.table = table;
+    this.op = 'select';
+  }
+
+  select() { this.op = 'select'; return this; }
+  eq() { return this; }
+  neq() { return this; }
+  gt() { return this; }
+  gte() { return this; }
+  lt() { return this; }
+  lte() { return this; }
+  is() { return this; }
+  like() { return this; }
+  ilike() { return this; }
+  in() { return this; }
+  not() { return this; }
+  or() { return this; }
+  order() { return this; }
+  limit() { return this; }
+  range() { return this; }
+  single() { this.op = 'select'; this._single = true; return this; }
+  maybeSingle() { this.op = 'select'; this._single = true; return this; }
+  insert() { this.op = 'insert'; return this; }
+  update() { this.op = 'update'; return this; }
+  upsert() { this.op = 'upsert'; return this; }
+  ignoreDuplicates() { return this; }
+  delete() { this.op = 'delete'; return this; }
+
+  // Mirrors the real builder's result shape: reads hand back an empty table,
+  // writes hand back the "done, nothing to return" shape.
+  _result() {
+    if (this.op === 'select') {
+      if (this._single) {
+        const empty = { data: null, count: null, error: { ...PGRST116 } };
+        return empty;
+      }
+      return { data: [], count: 0, error: null };
+    }
+    return { data: null, count: null, error: null };
+  }
+
+  then(onFulfilled, onRejected) { return Promise.resolve(this._result()).then(onFulfilled, onRejected); }
+  catch(onRejected) { return Promise.resolve(this._result()).then(undefined, onRejected); }
+  finally(fn) { return Promise.resolve(this._result()).finally(fn); }
+}
+
+function makeQuery(table) {
+  return RETIRED_TABLES.has(table) ? new RetiredTableQuery(table) : new QueryBuilder(table);
+}
+
 class QueryBuilder {
   constructor(table) {
     this.table = table;
@@ -1276,6 +1341,12 @@ const S3_ACCOUNTS = {
     bucket: process.env.UPSTREAM_S3_BUCKET,
     region: process.env.UPSTREAM_S3_REGION || 'ap-south-1',
   },
+  legacy: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    bucket: process.env.S3_BUCKET,
+    region: process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1',
+  },
 };
 
 const _s3Clients = {};
@@ -1323,30 +1394,55 @@ function getS3() {
 
 const s3Key = (bucket, fileName) => `${safeBucket(bucket)}/${String(fileName)}`;
 
+// GetObjectCommand hands back a stream whose reader API depends on the SDK
+// version — newer builds mix in transformToByteArray(), older ones leave a
+// plain async-iterable Readable. Prefer the helper when present and fall back to
+// draining the stream, so a read never fails over a version difference.
+async function s3BodyToBuffer(body) {
+  if (!body) return Buffer.alloc(0);
+  if (typeof body.transformToByteArray === 'function') return Buffer.from(await body.transformToByteArray());
+  if (typeof body.transformToString === 'function') return Buffer.from(await body.transformToString('utf8'));
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
 const STORAGE_NOT_CONFIGURED = 'S3 storage is not configured. Set S3_BUCKET (and AWS credentials) to enable file uploads.';
 
 // Resolve which named account (or legacy client) a storage call targets.
 // db.storage.from('head', 'receipts') / db.storage.from('upstream', 'receipts')
 // pick an explicit account; db.storage.from('receipts') falls back to the
 // active (head) account when configured, else the legacy AWS_*/S3_* pair.
+// The resolved account name is returned so callers that must later read the
+// same object back (see services/receiptFileLink.js) do not have to re-derive
+// the bucket from env and risk guessing a different one.
 function resolveS3(accountOrBucket, maybeBucket) {
   const explicit = maybeBucket != null;
   const account = explicit ? accountOrBucket : null;
   const bucket = explicit ? maybeBucket : accountOrBucket;
   let s3 = null;
+  let accountName = null;
   if (account) {
     s3 = getS3Client(account) || (account === 'head' ? getS3() : null);
+    accountName = account;
+  } else if (getS3Client('head')) {
+    s3 = getS3Client('head');
+    accountName = 'head';
   } else {
-    s3 = getS3Client('head') || getS3();
+    s3 = getS3();
+    accountName = 'legacy';
   }
-  return { s3, bucket };
+  return { s3, bucket, accountName };
 }
 
 const storage = {
   from(accountOrBucket, maybeBucket) {
-    const { s3, bucket } = resolveS3(accountOrBucket, maybeBucket);
+    const { s3, bucket, accountName } = resolveS3(accountOrBucket, maybeBucket);
     const b = safeBucket(bucket);
     return {
+      // Which configured account this handle writes to. Exposed so a caller can
+      // build a link that reads the same object back later.
+      accountName: s3 ? accountName : null,
       async upload(fileName, buffer, opts = {}) {
         if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
         try {
@@ -1364,6 +1460,33 @@ const storage = {
       getPublicUrl(fileName) {
         if (!s3) return { data: { publicUrl: '' } };
         return { data: { publicUrl: `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${s3Key(b, fileName)}` } };
+      },
+      // Server-side read of a private object. getPublicUrl() yields an
+      // unauthenticated URL that 403s for any bucket not world-readable, so
+      // anything the backend needs to re-read (e.g. a certificate template it
+      // uploaded itself) has to come through the credentials rather than HTTP.
+      async download(fileName) {
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+        try {
+          const res = await s3.client.send(new GetObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, fileName) }));
+          return { data: await s3BodyToBuffer(res.Body), error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_DOWNLOAD_FAILED' } };
+        }
+      },
+      // Same read as download(), but hands back the live stream plus the object's
+      // own headers instead of buffering it. The WhatsApp receipt-file endpoint
+      // needs Content-Type/Content-Length to answer Meta properly, and streaming
+      // avoids holding whole PDFs in memory. Kept separate from download()
+      // because buffering would be the wrong default for a streaming caller.
+      async readStream(fileName) {
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+        try {
+          const out = await s3.client.send(new GetObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, fileName) }));
+          return { data: { body: out.Body, contentType: out.ContentType, contentLength: out.ContentLength }, error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: e?.name || 'S3_READ_FAILED' } };
+        }
       },
       async remove(paths) {
         const list = Array.isArray(paths) ? paths : [paths];
@@ -1429,13 +1552,13 @@ async function testConnection() {
 }
 
 const db = {
-  from(table) { return new QueryBuilder(table); },
+  from(table) { return makeQuery(table); },
   async transaction(callback) {
     const client = await pgPool.connect();
     try {
       await client.query('BEGIN');
       const result = await txStore.run({ client }, async () => {
-        return await callback({ from: (table) => new QueryBuilder(table) });
+        return await callback({ from: (table) => makeQuery(table) });
       });
       await client.query('COMMIT');
       return result;

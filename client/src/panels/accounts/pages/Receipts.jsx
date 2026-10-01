@@ -11,6 +11,7 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak'
 import BulkProgressModal from '../components/BulkProgressModal'
 import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
+import WhatsAppDeliveryBadge from '../components/WhatsAppDeliveryBadge'
 import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
 import { API_BASE as apiBase } from '../../../lib/apiBase'
 
@@ -508,6 +509,14 @@ export default function Receipts() {
     onUpdate: () => { clearTimeout(rtTimerRef.current); rtTimerRef.current = setTimeout(() => loadPending(true), 400) },
   })
 
+  // Delivery verdicts arrive asynchronously on the Meta webhook, minutes
+  // after the send. Refreshing on the receipts table is what makes a failed
+  // send reappear here as Failed instead of staying silently "sent".
+  useRealtime('receipts', {
+    onInsert: () => { clearTimeout(rtTimerRef.current); rtTimerRef.current = setTimeout(() => loadPending(true), 400) },
+    onUpdate: () => { clearTimeout(rtTimerRef.current); rtTimerRef.current = setTimeout(() => loadPending(true), 400) },
+  })
+
   const getValidDonors = useCallback(() => {
     return filteredDonors ? filteredDonors.filter(d => { const m = String(d['Mobile No.'] || '').replace(/[^0-9]/g, ''); return m.length >= 10 }) : []
   }, [filteredDonors])
@@ -612,7 +621,7 @@ export default function Receipts() {
       const pdfBase64 = await captureReceiptPdf(donor)
 
       await apiPost('/whatsapp/send-direct', {
-        to: phone, pdfBase64, receiptNo,
+        to: phone, receiptId: donor.receipt_id, pdfBase64, receiptNo,
         donorName: donor['Donor Name'],
         amount: donor['Amount'],
         templateName: tpl.metaTemplate,
@@ -621,7 +630,7 @@ export default function Receipts() {
       })
       await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id })
       removeFromPending(donor.receipt_id)
-      showToast('success', `Sent to ${donor['Donor Name']}`)
+      showToast('success', `Accepted by WhatsApp for ${donor['Donor Name']} — delivery updates below`)
     } catch (e) {
       showToast('error', e.message)
     }
@@ -761,7 +770,7 @@ export default function Receipts() {
 
         try {
           await apiPost('/whatsapp/send-direct', {
-            to: phone, pdfBase64, receiptNo,
+            to: phone, receiptId: donor.receipt_id, pdfBase64, receiptNo,
             donorName: donor['Donor Name'],
             amount: donor['Amount'],
             templateName: tpl.metaTemplate,
@@ -1026,6 +1035,7 @@ export default function Receipts() {
                 <th>Amount</th>
                 <th>Date</th>
                 <th>NGO</th>
+                <th>Delivery</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -1038,13 +1048,14 @@ export default function Receipts() {
                     <td><div className="sk" style={{ width:90, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
-                    <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:55, height:12, borderRadius:3 }} /></td>
+                    <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
                     <td><div className="sk" style={{ width:140, height:24, borderRadius:4 }} /></td>
+                    <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
                   </tr>
                 ))
               ) : filteredDonors.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
+                <tr><td colSpan={9} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
               ) : filteredDonors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                 const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
                 const rowId = d.receipt_id;
@@ -1075,6 +1086,9 @@ export default function Receipts() {
                       return <span className="rx-ngo-tag" style={st}>{NGO_MAP[ng]?.label || ng}</span>
                     })()}
                   </td>
+                  <td style={{ whiteSpace:'nowrap' }}>
+                    <WhatsAppDeliveryBadge receipt={d} />
+                  </td>
                   <td className="rx-actions-cell">
                         <div className="rx-row-acts">
                           <button type="button" className="rx-row-actbtn" onClick={e => { e.stopPropagation(); if (d.receipt_id) setPreviewedIds(prev => new Set(prev).add(d.receipt_id)); setPreviewRow(d) }}>
@@ -1096,6 +1110,7 @@ export default function Receipts() {
               {!loading && filteredDonors.length > 0 && (
                 <tr className="rx-total-row">
                   <td style={{ padding:'9px 12px' }}>Total</td>
+                  <td></td>
                   <td></td>
                   <td></td>
                   <td></td>

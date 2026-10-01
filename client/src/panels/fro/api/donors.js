@@ -72,8 +72,11 @@ export async function uploadPaymentScreenshot(fileBase64, mimeType, opts = {}) {
   return api('/fro/upload-payment-screenshot', { method: 'POST', body: JSON.stringify({ file_base64: fileBase64, mime_type: mimeType }), _prefix: 'ucs', ...opts })
 }
 
+// The panel holds a full-screen skeleton on this call, so it uses a much shorter
+// timeout than the 120s default. A queued-out dashboard should surface as a
+// failed load the FRO can retry, not two minutes of an ambiguous shimmer.
 export async function getMyDashboard() {
-  return api('/fro/dashboard', { _prefix: 'ucs' })
+  return api('/fro/dashboard', { _prefix: 'ucs', timeout: 20000 })
 }
 
 export async function getMyAllotmentSummary(month, batch, opts = {}) {
