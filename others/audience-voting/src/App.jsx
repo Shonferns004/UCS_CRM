@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchStatus, getDeviceToken, join, setDeviceToken, submitRating } from './api'
+import { fetchStatus, getDeviceToken, join, setDeviceToken, clearDeviceToken, submitRating } from './api'
 import { POLL_MS } from './config'
 import NameEntry from './components/NameEntry'
 import RatingForm from './components/RatingForm'
@@ -116,7 +116,18 @@ export default function App() {
         setError(e.message)
         poll()
       } else if (e.code === 'not_joined') {
-        setError('Your session expired. Reload the page and enter your name again.')
+        // The only case the server cannot recover from: this device has no voter
+        // in the live event AND no record in any earlier one, so there is no name
+        // to carry forward. Drop the token and ask again.
+        //
+        // The previous message here said "your session expired, reload the page",
+        // which was a dead end: the stale token lives in localStorage, so a reload
+        // resubmits the same unknown token and lands on the same error.
+        clearDeviceToken()
+        ratedRef.current = null
+        setError('')
+        setStatus(null)
+        setScreen('name')
       } else {
         setError(e.status ? e.message : 'Could not save your rating. Check your connection and try again.')
       }
