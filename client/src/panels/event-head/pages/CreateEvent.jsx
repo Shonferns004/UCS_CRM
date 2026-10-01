@@ -22,8 +22,11 @@ export default function CreateEvent() {
   /* Month picker that opens the Monthly Planner on that month. The actual day is
      chosen on the planner's grid, which is where the calendar already lives —
      this form only carries the month, so it never claims a day the user has not
-     actually picked. Defaults to the month we are already in. */
+     actually picked. Defaults to the month we are already in, or to ?month= when
+     the user arrived from the Overview page after choosing a month there. */
   const [month, setMonth] = useState(() => {
+    const fromUrl = (searchParams.get('month') || '').trim()
+    if (/^\d{4}-\d{2}$/.test(fromUrl)) return fromUrl
     const n = new Date()
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
   })
