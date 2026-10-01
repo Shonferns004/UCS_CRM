@@ -42,6 +42,7 @@ export const Brush = Icon(<><path d="M18.4 2.6a2 2 0 0 1 2.8 2.8L12 14.6l-3.6.9.
 export const Shield = Icon(<><path d="M12 3l7 3v6c0 4.4-2.9 7.9-7 9-4.1-1.1-7-4.6-7-9V6l7-3Z" /><path d="M9.4 12.2l1.9 1.9 3.5-3.8" /></>)
 export const Ballot = Icon(<><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4" /><path d="M9.5 12.5l1.8 1.8 3.4-3.6" /></>)
 export const TrophyIcon = Icon(<><path d="M8 4h8v7a4 4 0 0 1-8 0V4Z" /><path d="M8 6H5.5a2.5 2.5 0 0 0 2.5 4" /><path d="M16 6h2.5a2.5 2.5 0 0 1-2.5 4" /><line x1="12" y1="15" x2="12" y2="19" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="9" y1="19" x2="15" y2="19" /></>)
+export const Lock = Icon(<><rect x="4" y="10.5" width="16" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>)
 
 /**
  * A simple line mark per department, chosen by name so the reference's six

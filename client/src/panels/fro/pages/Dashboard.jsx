@@ -9,8 +9,18 @@ import { useCall } from '../CallContext'
 import { api } from '../api/auth'
 import { useIsMobile } from '../../../hooks/useIsMobile'
 import { formatIstTime } from '../utils/time'
+import { istMonthKey, istParts } from '../../../utils/istDate'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
+
+// '2026-09-01' -> 'Sep 2026'
+const monthLabel = (v) => {
+  if (!v) return ''
+  const [y, m] = String(v).slice(0, 7).split('-')
+  if (!y || !m) return String(v)
+  const d = new Date(Number(y), Number(m) - 1, 1)
+  return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+}
 
 const fmtStamp = (v) => {
   if (!v) return '—'
@@ -150,8 +160,9 @@ export default function Dashboard() {
   const [incentiveOnly, setIncentiveOnly] = useState(false)
 
   const today = new Date()
-  const day = today.getDate()
-  const monthStr = today.toISOString().slice(0, 7)
+  const istToday = istParts(today)
+  const day = istToday.day
+  const monthStr = istMonthKey(today)
   const isMonthlyPopupSeason = day >= 1 && day <= 3
 
   useEffect(() => {
@@ -386,7 +397,13 @@ return (
             <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{currency(target)}</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-            {ts.target_source === 'not_set' ? 'Not set by admin' : `${progress.toFixed(0)}% achieved`}
+            {ts.target_source === 'not_set'
+              ? 'Not set by admin'
+              : ts.target_source === 'carried_forward' && ts.target_source_month
+                // Say where the number came from, otherwise a carried figure looks
+                // identical to one someone deliberately set for this month.
+                ? `${progress.toFixed(0)}% achieved · carried over from ${monthLabel(ts.target_source_month)}`
+                : `${progress.toFixed(0)}% achieved`}
           </div>
         </div>
 

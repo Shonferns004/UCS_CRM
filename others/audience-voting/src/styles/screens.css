@@ -1,0 +1,276 @@
+/* Screen-specific styles: name entry, the rating sheet, and the two resting
+   screens. */
+
+/* ── Name entry ─────────────────────────────────────────────────────────── */
+
+.name-card .lede {
+  margin-bottom: 4px;
+}
+
+/* ── Rating sheet ───────────────────────────────────────────────────────── */
+
+.rate-card {
+  max-width: 480px;
+}
+
+.rate-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.rate-head-text {
+  min-width: 0;
+}
+
+/* The speaker's name has to survive a long name on a narrow phone, so the row
+   wraps under the avatar rather than pushing it off screen. */
+.rate-head .title {
+  overflow-wrap: anywhere;
+}
+
+.portrait {
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--brand-ink);
+  background: var(--brand);
+  border-radius: 50%;
+}
+
+.portrait-sm {
+  width: 34px;
+  height: 34px;
+  font-size: 13px;
+}
+
+.criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* ── Criteria ───────────────────────────────────────────────────────────── */
+
+.criterion {
+  margin: 0;
+  padding: 14px 0;
+  border: 0;
+  /* Keeps the label off the border line and lets it hold a second line. */
+}
+
+.criterion + .criterion {
+  border-top: 1px solid var(--line-soft);
+}
+
+.criterion-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The chosen word for the current star, not a number: "1 of 5" is not
+   feedback, "Very nervous" is. */
+.criterion-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--brand);
+}
+
+/* ── Stars ──────────────────────────────────────────────────────────────── */
+
+.stars {
+  display: flex;
+  gap: 8px;
+}
+
+.stars:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.star {
+  flex: 1 1 0;
+  min-width: 0;
+  /* 52px tall, full-width share of the row: five across a 320px phone leaves
+     ~54px per star including the gaps, which clears the 44px minimum. */
+  min-height: var(--tap);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--bg-sink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.star svg {
+  width: 100%;
+  max-width: 34px;
+  height: auto;
+}
+
+.star.is-on {
+  color: var(--star);
+  border-color: rgb(255 201 77 / 45%);
+  background: rgb(255 201 77 / 12%);
+}
+
+.star:disabled {
+  cursor: not-allowed;
+}
+
+.star:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* ── Timing ─────────────────────────────────────────────────────────────── */
+
+.timing {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.timing-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 64px;
+  padding: 10px 8px;
+  font-family: inherit;
+  text-align: center;
+  background: var(--bg-sink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.timing-label {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.timing-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.timing-opt.is-on {
+  background: rgb(109 139 255 / 16%);
+  border-color: var(--brand);
+}
+
+.timing-opt.is-on .timing-label {
+  color: var(--brand);
+}
+
+/* On the narrowest phones three stacked labels wrap to two lines and the row
+   grows; keeping them side by side is worth more than the hint line. */
+@media (max-width: 340px) {
+  .timing-hint {
+    display: none;
+  }
+}
+
+.timing:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+/* ── Rate footer ────────────────────────────────────────────────────────── */
+
+.rate-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.rate-progress {
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+/* ── Waiting / done ─────────────────────────────────────────────────────── */
+
+.wait-card,
+.done-card {
+  text-align: center;
+}
+
+.wait-icon,
+.done-tick {
+  width: 66px;
+  height: 66px;
+  margin: 4px auto 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.wait-icon {
+  color: var(--text-faint);
+  background: var(--bg-sink);
+  border: 1px solid var(--line);
+}
+
+.done-tick {
+  color: var(--good);
+  background: rgb(74 222 128 / 12%);
+  border: 1px solid rgb(74 222 128 / 35%);
+}
+
+.wait-card .btn,
+.done-card .btn {
+  margin-top: 20px;
+}
+
+.wait-count {
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.done-speaker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0 16px;
+  padding: 12px;
+  font-size: 15px;
+  background: var(--bg-sink);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+}
+
+.done-speaker strong {
+  font-weight: 700;
+}

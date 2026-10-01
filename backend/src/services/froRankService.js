@@ -1,7 +1,8 @@
 import db from '../config/db.js';
 import { getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
 import { getActiveSalaryByWorkers } from '../models/salaryModel.js';
-import { monthsSinceJoining, calculateAutoTarget } from './froAutoTarget.js';
+import { getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
+import { resolveMonthlyTarget } from './froMonthlyTarget.js';
 
 // Single source of truth for the FRO leaderboard. Both the admin High/Low panels
 // (getFroPerformance) and the FRO My-Leads strip (getMyPerformance) rank through
@@ -69,35 +70,42 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
 
   const { data: targetRows } = await db
     .from('fro_monthly_targets')
-    .select('fro_worker_id, target_amount, achieved_target')
+    .select('fro_worker_id, month, target_amount, achieved_target, created_at')
     .eq('month', monthStartDay);
-  const targetMap = {};
+  // The table is keyed on (fro_worker_id, ngo_id, month) so a worker on two NGOs
+  // holds two rows for one month. Resolve to the newest write - the same tie-break
+  // getTargetByWorker uses - so the leaderboard, the NGO board and the FRO's own
+  // strip cannot show different numbers for one person.
+  const currentRowMap = {};
   for (const t of targetRows || []) {
     const key = String(t.fro_worker_id);
-    const current = targetMap[key];
-    if (!current || Number(t.target_amount || 0) > current.target_amount) {
-      targetMap[key] = {
-        target_amount: Number(t.target_amount || 0),
-        achieved_target: t.achieved_target == null ? null : Number(t.achieved_target),
-      };
-    }
+    const prev = currentRowMap[key];
+    if (!prev || String(t.created_at || '') > String(prev.created_at || '')) currentRowMap[key] = t;
   }
 
   // A new FRO's target is not in fro_monthly_targets. It is derived from their
-  // current salary for their first three months, and the derived value OVERRIDES
-  // any stored row — that is exactly what getMyPerformance does for the FRO's own
-  // strip. Reading only the table here left the Telecaller board, the High/Low
-  // cards and the leaderboard at 0 for every new hire while their own strip showed
-  // the right number. Salary is fetched in one batch; the N per-worker salary
-  // lookups this replaces made the leaderboard endpoint noticeably slow.
-  const salaryByWorker = await getActiveSalaryByWorkers(ids);
-  const autoTargetByWorker = {};
-  const refDate = new Date();
+  // current salary for their first three months. Conversely an established FRO has
+  // no row for a month that has just begun, and used to read 0 here - which zeroed
+  // their rank and greyed them out until an admin re-entered last month's figure.
+  // Both are handled in one place now: resolveMonthlyTarget. Salary and the prior
+  // month rows are each fetched in a single batch; the per-worker lookups they
+  // replace made this endpoint noticeably slow.
+  const [salaryByWorker, priorRowMap] = await Promise.all([
+    getActiveSalaryByWorkers(ids),
+    getLatestTargetsBeforeMonthForWorkers(ids, monthStartDay),
+  ]);
+  const refDate = new Date(`${monthStartDay}T00:00:00Z`);
+  const resolvedByWorker = {};
   for (const w of roster) {
-    const monthsEmployed = monthsSinceJoining(w.created_at, refDate);
+    const key = String(w.id);
     const salaryRow = salaryByWorker.get(w.id);
-    const auto = calculateAutoTarget(salaryRow ? Number(salaryRow.salary || 0) : 0, monthsEmployed);
-    if (auto !== null) autoTargetByWorker[w.id] = auto;
+    resolvedByWorker[key] = resolveMonthlyTarget({
+      joiningDate: w.created_at,
+      salary: salaryRow ? Number(salaryRow.salary || 0) : 0,
+      currentRow: currentRowMap[key] || null,
+      priorRow: priorRowMap.get(key) || null,
+      refDate,
+    });
   }
 
   const { data: attRows } = await db
@@ -119,13 +127,13 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
   const list = roster.map(w => {
     const id = w.id;
     const monthCollection = monthColl[id] || 0;
-    const target = targetMap[id];
-    // Auto wins over the stored row for months 0-2 (same precedence as the FRO's
-    // own strip); from month 3 on it is the stored target only.
-    const autoTarget = autoTargetByWorker[id];
-    const monthlyTarget = autoTarget != null ? autoTarget : (target?.target_amount || 0);
-    const achievedTarget = (target?.achieved_target != null && Number(target.achieved_target) > 0)
-      ? Number(target.achieved_target)
+    const resolved = resolvedByWorker[String(id)];
+    const monthlyTarget = resolved.target;
+    // Achievement is only ever read from THIS month's row. A carried-forward target
+    // inherits the figure, never last month's achievement - hitting target in
+    // September says nothing about October.
+    const achievedTarget = (resolved.achievedTarget != null && resolved.achievedTarget > 0)
+      ? resolved.achievedTarget
       : monthCollection;
     const workedDays = workedDaysMap[id]?.size || 0;
     const perDayCollection = workingDays > 0 ? monthlyTarget / workingDays : 0;
@@ -148,9 +156,11 @@ export async function buildFroLeaderboard({ startDay, endDay, todayDay } = {}) {
       period_target: periodTarget,
       monthly_target: monthlyTarget,
       // 'auto' = derived from salary in the first three months, 'manual' = the
-      // stored row, 'not_set' = neither. Surfaced so a blank-looking target can be
-      // told apart from one that is genuinely 0.
-      target_source: autoTarget != null ? 'auto' : (target ? 'manual' : 'not_set'),
+      // stored row for this month, 'carried_forward' = inherited from an earlier
+      // month, 'not_set' = none of those. Surfaced so a blank-looking target can
+      // be told apart from one that is genuinely 0.
+      target_source: resolved.source,
+      target_source_month: resolved.sourceMonth,
       achieved_target: achievedTarget,
       working_days: workingDays,
       worked_days: workedDays,

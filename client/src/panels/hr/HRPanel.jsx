@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { useHR } from './store'
-import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star, Trophy } from './icons'
+import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -23,9 +23,9 @@ import GenerateQR from './components/GenerateQR'
 import Loans from './components/Loans'
 import Tickets from './components/Tickets'
 import Quizzes from './components/Quizzes'
-import Awards from './components/Awards'
 import SettingsPage from './components/Settings'
 import NgoSalary from './components/NgoSalary'
+import FroTargets from '../../components/FroTargets'
 import ChangeSalaryAccessCode from './components/ChangeSalaryAccessCode'
 import { fetchTicketCount } from './store'
 import ToastContainer from '../../components/Toast'
@@ -45,11 +45,11 @@ const NAV = [
   { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Volunteer onboarding forms' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
   { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:Star,    eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
-  { id:'awards',     path:'/hr/awards',      label:'Awards',      icon:Trophy,  eyebrow:'Ceremony',     sub:'Run the departmental award vote' },
   { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
   { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
+  { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
   { id:'chat',       path:'/hr/chat',        label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
@@ -273,11 +273,11 @@ export default function HRPanel() {
         <Route path="hr-forms" element={<HRForms />} />
         <Route path="recruiters" element={<Recruiters />} />
         <Route path="quizzes" element={<Quizzes />} />
-        <Route path="awards" element={<Awards />} />
         <Route path="holidays" element={<Holidays />} />
         <Route path="qr" element={<GenerateQR />} />
         <Route path="loans" element={<Loans />} />
         <Route path="ngo" element={<NgoSalary />} />
+        <Route path="fro-targets" element={<FroTargets />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="settings" element={<SettingsRoute />} />

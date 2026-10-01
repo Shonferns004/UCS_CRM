@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
 import { isFreshStation } from '../../../lib/stations';
+import { istMonthKey } from '../../../utils/istDate';
 
 const NGO_NAME_COLORS = {
   bsct: '#2563eb',
@@ -1015,12 +1016,26 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
   );
 }
 
-// Source badge (Auto M1/M2/M3 yellow, Manual green, Not Set neutral).
-function SourcePill({ source }) {
-  if (source === 'auto_month1') return <span className="pill pill-yellow">Auto M1</span>;
-  if (source === 'auto_month2') return <span className="pill pill-yellow">Auto M2</span>;
-  if (source === 'auto_month3') return <span className="pill pill-yellow">Auto M3</span>;
+// Source badge. The backend used to emit one value per auto tier ('auto_month1'
+// through 'auto_month3'); it now emits a single 'auto' plus the tier in a
+// separate field, because the tier is derived at read time by one shared
+// resolver rather than recomputed per surface. The old values are still accepted
+// so an in-flight response from a previous deploy cannot render as "Not Set".
+function SourcePill({ source, monthsEmployed, sourceMonth }) {
+  const tier = Number.isFinite(monthsEmployed)
+    ? Math.min(Math.max(monthsEmployed + 1, 1), 3)
+    : null;
+  if (source === 'auto' || source === 'auto_month1' || source === 'auto_month2' || source === 'auto_month3') {
+    const fallback = source === 'auto_month2' ? 2 : source === 'auto_month3' ? 3 : tier;
+    return <span className="pill pill-yellow">Auto M{fallback ?? 1}</span>;
+  }
   if (source === 'manual') return <span className="pill pill-green">Manual</span>;
+  // Inherited from an earlier month rather than set for this one - worth showing
+  // distinctly, otherwise a carried figure looks like a deliberate value.
+  if (source === 'carried_forward') {
+    const from = sourceMonth ? ` from ${String(sourceMonth).slice(0, 7)}` : '';
+    return <span className="pill pill-blue" title={`Carried over${from}. Editing it creates a value for this month.`}>Carried over{from}</span>;
+  }
   return <span className="pill pill-gray">Not Set</span>;
 }
 
@@ -1465,10 +1480,7 @@ export default function StationManagement() {
   const [msg, setMsg] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [targetAmount, setTargetAmount] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [selectedMonth, setSelectedMonth] = useState(() => istMonthKey());
   const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [ngoGroup, setNgoGroup] = useState(null);      // 'bsct' | 'aflf' | 'mann' | 'other' | null
   const [uploadStation, setUploadStation] = useState(null);
@@ -1566,7 +1578,7 @@ export default function StationManagement() {
 
   useEffect(() => {
     setLoading(true);
-    const m = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    const m = istMonthKey();
     apiPost('/ngo-admin/ngos/ensure').catch(() => {}).then(() => {
       return Promise.all([
         apiGet('/ngo-admin/ngos/all'),
@@ -1713,7 +1725,7 @@ export default function StationManagement() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 205 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, flexWrap: 'wrap' }}>
           <span>Target <strong>₹{Number(targetAmt || 0).toLocaleString('en-IN')}</strong></span>
-          <SourcePill source={source} />
+          <SourcePill source={source} monthsEmployed={t?.months_employed} sourceMonth={t?.target_source_month} />
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-soft)', display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
           <span>Salary <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{salary != null ? '₹' + Number(salary).toLocaleString('en-IN') : '—'}</strong></span>

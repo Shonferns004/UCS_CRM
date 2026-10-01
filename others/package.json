@@ -10,7 +10,8 @@
     "dev:hr-form": "npm --prefix \"hr form\" run dev",
     "dev:recruit-quizz": "npm --prefix recruit-quizz run dev",
     "dev:reminder-alarm": "npm --prefix \"reminder alarm\" run dev",
-    "dev:submitted-form": "npm --prefix \"submitted form\" run dev"
+    "dev:submitted-form": "npm --prefix \"submitted form\" run dev",
+    "dev:audience-voting": "npm --prefix audience-voting run dev"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -17,6 +17,7 @@ import Reports from './pages/Reports'
 import TeamsPage from './pages/Teams'
 import IncentiveSetup from './pages/IncentiveSetup'
 import IncentiveVerification from './pages/IncentiveVerification'
+import FroTargets from '../../components/FroTargets'
 import NewData from './pages/NewData'
 import OldData from './pages/OldData'
 import Donors from './pages/Donors'
@@ -34,6 +35,9 @@ import Workers from '../hr/components/Workers'
 import EmployeeDetail from '../hr/components/EmployeeDetail'
 import Offboarding from '../hr/components/Offboarding'
 import Loans from '../hr/components/Loans'
+import AudienceVoting from './pages/AudienceVoting'
+import Awards from '../hr/components/Awards'
+import { Trophy } from '../hr/icons'
 import { fetchWorkerById } from '../hr/store'
 import AttendancePage from './pages/Attendance'
 import SimSection from './components/SimSection'
@@ -71,6 +75,8 @@ const NAV_GROUPS = [
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg> },
       { id: 'incentive-verify', path: '/accounts/incentive-verify', label: 'Incentive Verify',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+      { id: 'fro-targets', path: '/accounts/fro-targets', label: 'FRO Targets',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> },
       { id: 'incentives', path: '/accounts/incentives', label: 'NGO wise Incentive',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>,
         match: (p) => p.startsWith('/accounts/incentives') },
@@ -96,6 +102,16 @@ const NAV_GROUPS = [
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
       { id: 'loans', path: '/accounts/loans', label: 'Loan & Advance',
         icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+    ],
+  },
+  {
+    title: 'Ceremony',
+    icon: <Trophy size={18} />,
+    items: [
+      { id: 'awards', path: '/accounts/awards', label: 'Awards',
+        icon: <Trophy size={18} /> },
+      { id: 'audience-voting', path: '/accounts/audience-voting', label: 'Audience Voting',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/><path d="M8 23h8"/></svg> },
     ],
   },
 ]
@@ -181,6 +197,7 @@ const SIDEBAR_SECTIONS = [
       { id: 'g-workforce', label: NAV_GROUPS[0].title, icon: NAV_GROUPS[0].icon, storageKey: 'workforce', items: NAV_GROUPS[0].items },
       { id: 'g-donor', label: NAV_GROUPS[1].title, icon: NAV_GROUPS[1].icon, storageKey: 'donor_management', items: NAV_GROUPS[1].items },
       { id: 'g-asset', label: NAV_GROUPS[2].title, icon: NAV_GROUPS[2].icon, storageKey: 'asset_finance', items: NAV_GROUPS[2].items },
+      { id: 'g-ceremony', label: NAV_GROUPS[3].title, icon: NAV_GROUPS[3].icon, storageKey: 'ceremony', items: NAV_GROUPS[3].items },
       { id: 'g-data', label: NAV_DATA_GROUP.title, icon: NAV_DATA_GROUP.icon, storageKey: 'data', items: NAV_DATA_GROUP.items },
       { id: 'g-beneficiaries', label: 'Beneficiaries', icon: <Users size={18} />, storageKey: 'beneficiaries', items: BENEFICIARY_NAV,
         isGroupActive: (p) => p.startsWith('/accounts/beneficiaries') },
@@ -257,6 +274,14 @@ function VolunteerOffboardPage({ theme }) {
       {loading ? <div className="empty">Loading...</div>
         : !worker ? <div className="empty">Attendance not found.</div>
         : <Offboarding worker={worker} onBack={() => navigate('/accounts/volunteers')} />}
+    </div>
+  )
+}
+
+function AwardsPage({ theme }) {
+  return (
+    <div className="panel-hr" style={hrScopeStyle(theme)}>
+      <Awards />
     </div>
   )
 }
@@ -432,6 +457,8 @@ export default function AccountsPanel() {
             <Route path="tickets" element={<AccountsTickets />} />
             <Route path="chat" element={<ChatWorkspace />} />
             <Route path="loans" element={<Loans />} />
+            <Route path="awards" element={<AwardsPage theme={themes[themeName]} />} />
+            <Route path="audience-voting" element={<AudienceVoting />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="template-settings" element={<TemplateSettings />} />
             <Route path="asset-register" element={<AssetRegister />} />
@@ -439,6 +466,7 @@ export default function AccountsPanel() {
             <Route path="teams" element={<TeamsPage />} />
             <Route path="incentive" element={<IncentiveSetup />} />
             <Route path="incentive-verify" element={<IncentiveVerification />} />
+        <Route path="fro-targets" element={<FroTargets />} />
             <Route path="incentives" element={<IncentivesPage />}>
               <Route index element={<Navigate to="sir" replace />} />
               <Route path="sir" element={<SpecialIncentives />} />
