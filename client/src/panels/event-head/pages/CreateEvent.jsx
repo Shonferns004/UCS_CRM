@@ -19,6 +19,26 @@ export default function CreateEvent() {
     date:'', start_time:'', end_time:'', venue:'', priority:'Medium', banner:'',
     district:'', state:'', organizer:'', event_manager:'', coordinator:'',
   })
+  /* Month picker that opens the Monthly Planner on that month. The actual day is
+     chosen on the planner's grid, which is where the calendar already lives —
+     this form only carries the month, so it never claims a day the user has not
+     actually picked. Defaults to the month we are already in. */
+  const [month, setMonth] = useState(() => {
+    const n = new Date()
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
+  })
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const monthYears = useMemo(() => {
+    const now = new Date()
+    const y = now.getFullYear()
+    return [y, y + 1]
+  }, [])
+  const openMonthlyPlanner = () => {
+    if (!month) return
+    const params = new URLSearchParams({ month })
+    if (form.ngo_id) params.set('ngo_id', form.ngo_id)
+    navigate('/event-head/monthly-planner?' + params.toString())
+  }
   const [saving, setSaving] = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
   const [error, setError] = useState('')
@@ -462,7 +482,7 @@ export default function CreateEvent() {
       if (!form.ngo_id) { fail('Please choose an NGO', 'ngo_id'); return }
       if (!draft) {
         if (!form.sector_id) { fail('Please choose a Sector', 'sector_id'); return }
-        if (!form.date) { fail('Please choose an Event Date — it is required so the event shows on the Calendar', 'date'); return }
+        if (!form.date) { fail('Please choose an Event Date in Event Details below, or pick the day from Monthly Planner', 'date'); return }
       }
       const typedActivity = String(form.activityName || '').trim()
       // The activity can only be resolved once a sector is picked, so a draft
@@ -617,10 +637,10 @@ export default function CreateEvent() {
           <div className="eh-section-body">
             {section('Program')}
             {/* Field order follows the order the form is actually filled in: pick the
-                NGO, then the date (which decides the festival), then the sector, then
-                the activity. Keeping the date up here means the festival is already
-                known before the sector and activity are chosen, and the suggestion
-                panel below lands exactly where the activity gets picked. */}
+                NGO, then the month, then jump to the Monthly Planner to click the real
+                day on the grid. The exact date input lives in Event Details below, for
+                the quick case where the day is already known — the festival chips and
+                the suggestion panel read the same form.date either way. */}
             <div className="form-row">
               <div className="field"><label>NGO *</label>
                 <select name="ngo_id" value={form.ngo_id} onChange={handleChange} ref={registerField('ngo_id')} style={fieldStyle('ngo_id')}>
@@ -629,9 +649,17 @@ export default function CreateEvent() {
                 </select>
                 {fieldError('ngo_id')}
               </div>
-              <div className="field"><label>Event Date *</label>
-                <input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />
-                {fieldError('date')}
+              <div className="field"><label>Month</label>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <select name="month" value={month} onChange={e => setMonth(e.target.value)} style={{ flex: 1 }}>
+                    {monthYears.map(y => MONTH_NAMES.map((m, i) => {
+                      const val = `${y}-${String(i + 1).padStart(2, '0')}`
+                      return <option key={val} value={val}>{m} {y}</option>
+                    }))}
+                  </select>
+                  <button type="button" className="eh-btn" onClick={openMonthlyPlanner} title="Open the Monthly Planner on this month and pick the day on the calendar" style={{ whiteSpace: 'nowrap', padding: '7px 12px' }}>Monthly Planner</button>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--eh-muted,#64748b)', marginTop: 5 }}>Pick the exact day on the Monthly Planner grid.</div>
               </div>
             </div>
             <div className="form-row">
@@ -802,6 +830,10 @@ export default function CreateEvent() {
 
             {section('Event Details')}
             <div className="form-row">
+              <div className="field"><label>Event Date *</label>
+                <input type="date" name="date" value={form.date} onChange={handleChange} required ref={registerField('date')} style={fieldStyle('date')} />
+                {fieldError('date')}
+              </div>
               <div className="field"><label>Start Time</label><input type="time" name="start_time" value={form.start_time} onChange={handleChange} /></div>
               <div className="field"><label>End Time</label><input type="time" name="end_time" value={form.end_time} onChange={handleChange} /></div>
               <div className="field"><label>Priority</label><select name="priority" value={form.priority} onChange={handleChange}>
