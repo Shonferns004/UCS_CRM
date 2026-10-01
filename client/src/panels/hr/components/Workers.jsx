@@ -5,6 +5,7 @@ import { useSalaryPrivacy } from '../../../context/SalaryPrivacyContext';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check, Flask } from '../icons';
 import { api } from '../../../api/auth';
+import { parseDocumentsValue, joinDocumentLabels } from '../../../lib/documents';
 import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
 
@@ -1065,18 +1066,25 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
                         ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
                       </td>
                       <td>
-                        {w.documents_submitted ? (
+                        {w.documents_submitted ? (() => {
+                          // Parsed and joined so the chip shows real names, never
+                          // the raw JSON array string stored in the column.
+                          const labels = joinDocumentLabels(
+                            parseDocumentsValue(w.documents_value, w.documents_other).selected,
+                            w.documents_other) || 'Yes';
+                          return (
                           <span
-                            title={`Documents submitted: ${w.documents_value || 'Yes'}`}
+                            title={`Documents submitted: ${labels}`}
                             style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
                             <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:18, height:18, borderRadius:'50%', background:'#1a8d3a', flexShrink:0 }}>
                               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ display:'block' }}>
                                 <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
                               </svg>
                             </span>
-                            <span style={{ fontSize:11, color:'var(--ink-soft)', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{w.documents_value || 'Yes'}</span>
+                            <span style={{ fontSize:11, color:'var(--ink-soft)', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{labels}</span>
                           </span>
-                        ) : (
+                          );
+                        })() : (
                           <span title="Documents not submitted" style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#fce4ec', color:'#c62828' }}>
                             Missing
                           </span>

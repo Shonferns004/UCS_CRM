@@ -1,6 +1,8 @@
+import SignatureLine from './SignatureLine';
+
 const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
 
-export default function Template6({ personal, declarationDate, place }) {
+export default function Template6({ personal, declarationDate, place, signatureUrl }) {
   return (
     <div className="print-page">
       <style>{`
@@ -142,7 +144,7 @@ export default function Template6({ personal, declarationDate, place }) {
 
         <div className="field">
           <span className="label">Signature:</span>
-          <span className="line"></span>
+          <SignatureLine url={signatureUrl} className="line" />
         </div>
 
         <div className="field">

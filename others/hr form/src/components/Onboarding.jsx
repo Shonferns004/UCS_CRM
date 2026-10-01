@@ -3,6 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 const STEPS = ['Personal Details', 'Address', 'Education', 'Experience', 'Family', 'Profile Photo', 'Digital Signature', 'Review & Submit']
+
+// capturedSignature holds either an unsaved canvas snapshot (data:) or the
+// stored S3 URL returned by the server. Which one it is decides whether the
+// final submit uploads or simply commits.
+const isDataUrl = (v) => typeof v === 'string' && v.startsWith('data:')
+const sourceLabel = (s) => (s === 'hr_form' ? 'HR Form' : s === 'submitted_form' ? 'Online Form' : s === 'admin' ? 'HR (on behalf)' : null)
 const STEP_SUBS = ['Tell us about yourself', 'Your permanent address', 'Your highest qualification', 'Previous work experience', 'Family members', 'Take a clear photo', 'Sign digitally', 'Verify and submit']
 
 const INITIAL = {
@@ -43,6 +49,11 @@ export default function Onboarding() {
   const [capturedPhoto, setCapturedPhoto] = useState(null)
   const [capturedDocs, setCapturedDocs] = useState({})
   const [capturedSignature, setCapturedSignature] = useState(null)
+  // Server-side signature metadata. status: null (never signed) | 'draft' | 'signed'
+  const [sigState, setSigState] = useState({ status: null, signedAt: null, source: null })
+  const [sigSaving, setSigSaving] = useState(false)
+  // True while replacing an existing signature via "Update signature".
+  const [resigning, setResigning] = useState(false)
   const [cameraMode, setCameraMode] = useState(null)
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraCaptureData, setCameraCaptureData] = useState(null)
@@ -91,6 +102,39 @@ export default function Onboarding() {
       } catch {}
     }
   }, [])
+
+  // Keep the signature in step with the submitted form without a manual reload.
+  // Only the signature fields are refreshed — re-running applyProfile here would
+  // overwrite whatever else the volunteer is still typing. Skipped while a
+  // re-sign is in progress and after the form is submitted.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token') || submitted) return
+    let cancelled = false
+    const sync = () => {
+      if (cancelled || resigning) return
+      api.signature().then((s) => {
+        if (cancelled || resigning || !s) return
+        if (s.signature_url) {
+          setCapturedSignature(s.signature_url)
+          setSigState({
+            status: s.signature_status || 'signed',
+            signedAt: s.signature_signed_at || null,
+            source: s.signature_source || null,
+          })
+        }
+      }).catch(() => {})
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') sync() }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') sync() }, 20000)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(poll)
+    }
+  }, [submitted, resigning])
 
   const saveState = useCallback(() => {
     try {
@@ -164,6 +208,22 @@ export default function Onboarding() {
     update('bank.ifsc_code', p.ifsc_code)
     update('bank.account_number', p.account_number)
     if (p.photo_url) setCapturedPhoto(p.photo_url)
+    // The server copy wins over anything cached in localStorage, so a signature
+    // saved in the submitted form shows up here instead of being masked by a
+    // stale cached value.
+    if (p.signature_url) {
+      setCapturedSignature(p.signature_url)
+      setSigState({
+        status: p.signature_status || 'signed',
+        signedAt: p.signature_signed_at || null,
+        source: p.signature_source || null,
+      })
+    } else {
+      // Nothing on the server, so a stored URL restored from cache is stale.
+      // A freshly drawn data: URL is untouched.
+      setCapturedSignature(prev => (prev && !isDataUrl(prev) ? null : prev))
+      setSigState({ status: null, signedAt: null, source: null })
+    }
     if (p.education_details?.[0]) {
       const e = p.education_details[0]
       update('education.degree', e.degree)
@@ -216,6 +276,7 @@ export default function Onboarding() {
     setCapturedPhoto(null)
     setCapturedDocs({})
     setCapturedSignature(null)
+    setSigState({ status: null, signedAt: null, source: null })
     setStep(0)
     setSubmitted(false)
     setError('')
@@ -224,6 +285,13 @@ export default function Onboarding() {
   }
 
   const handleSubmit = async () => {
+    // An onboarding form with no signature is exactly what HR cannot act on, so
+    // it is not worth submitting.
+    if (!capturedSignature) {
+      showToast('Please sign before submitting', 'error')
+      setStep(6)
+      return
+    }
     setLoading(true)
     try {
       if (capturedPhoto && capturedPhoto.startsWith('data:')) {
@@ -238,8 +306,17 @@ export default function Onboarding() {
       for (const [t, d] of Object.entries(capturedDocs)) {
         if (d.startsWith('data:')) await api.uploadDocument(t, d.split(',')[1], 'image/jpeg')
       }
-      if (capturedSignature && capturedSignature.startsWith('data:')) {
-        await api.uploadSignature(capturedSignature.split(',')[1], 'image/png')
+      // Lock the signature as part of the final submit. The old code uploaded
+      // only when the value was still a data: URL, so a signature already stored
+      // on the server was never committed and stayed an unlocked draft forever.
+      if (sigState.status === 'signed') {
+        // Already locked on a previous submit — leave the signed date alone.
+      } else if (isDataUrl(capturedSignature)) {
+        await api.uploadSignature(capturedSignature.split(',')[1], 'image/png', { commit: true })
+        setSigState({ status: 'signed', signedAt: new Date().toISOString(), source: 'hr_form' })
+      } else if (capturedSignature) {
+        const res = await api.commitSignature()
+        setSigState({ status: res.signature_status || 'signed', signedAt: res.signature_signed_at || null, source: 'hr_form' })
       }
       const pd = {
         name: form.personal.name, email: form.personal.email, phone: form.personal.phone,
@@ -311,19 +388,53 @@ export default function Onboarding() {
 
   const retakeCamera = () => { setCameraCaptureData(null); if (videoRef.current) videoRef.current.classList.remove('hidden') }
 
-  const saveSignature = () => {
+  // Uploads immediately as a draft. Previously this only set local state, so a
+  // volunteer who signed and then closed the tab lost the signature entirely and
+  // HR saw a blank line. Now the image is durable from the moment they hit Save,
+  // and the final submit is what locks it.
+  const saveSignature = async () => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const hasContent = imageData.data.some(ch => ch !== 0)
     if (!hasContent) return showToast('Please draw your signature first', 'error')
-    setCapturedSignature(canvas.toDataURL('image/png'))
-    setShowCamera(false)
-    showToast('Signature saved!')
+    const dataUrl = canvas.toDataURL('image/png')
+    setSigSaving(true)
+    try {
+      // From "Update", re_sign replaces the locked record and re-stamps it as
+      // signed in one call, instead of the 409 the plain save would get.
+      const res = await api.uploadSignature(dataUrl.split(',')[1], 'image/png', resigning ? { re_sign: true } : {})
+      setCapturedSignature(res.signature_url)
+      setSigState({ status: res.signature_status || 'draft', signedAt: res.signature_signed_at || null, source: 'hr_form' })
+      setShowCamera(false)
+      setResigning(false)
+      showToast(resigning ? 'Signature updated' : 'Signature saved')
+    } catch (err) {
+      showToast('Could not save signature: ' + err.message, 'error')
+    } finally {
+      setSigSaving(false)
+    }
   }
 
-  const clearSignature = () => { setCapturedSignature(null); setShowCamera(false) }
+  // Only reachable for an unsaved or draft signature — a committed one renders
+  // read-only and never offers this.
+  const clearSignature = () => { setCapturedSignature(null); setSigState({ status: null, signedAt: null, source: null }); setShowCamera(false) }
+
+  // Enter "Update" mode for an already-signed signature: clears the local image
+  // so the pad shows empty and the next save is sent as a re-sign.
+  const startResign = () => { setResigning(true); setCapturedSignature(null) }
+
+  // Abandon the re-sign and restore the stored image from the server.
+  const cancelResign = () => {
+    setResigning(false)
+    api.signature().then((s) => {
+      if (s?.signature_url) {
+        setCapturedSignature(s.signature_url)
+        setSigState({ status: s.signature_status || 'signed', signedAt: s.signature_signed_at || null, source: s.signature_source || null })
+      }
+    }).catch(() => {})
+  }
 
   const fi = (label, value, path, type = 'text', placeholder = '', required = false) => (
     <div className="mb-4">
@@ -489,30 +600,63 @@ export default function Onboarding() {
           </div>
         </div>
       )
-      case 6: return card(
-        <div>
-          {capturedSignature ? (
-            <div className="text-center">
-              <div className="max-w-xs mx-auto mb-4"><img src={capturedSignature} className="w-full border border-gray-300 rounded-xl" style={{ maxHeight: 120 }} /></div>
-              <p className="text-sm text-green-600 font-medium mb-4">Signature captured</p>
-              <div className="flex gap-3 justify-center">
-                <button className="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors" onClick={clearSignature}>Clear & Redraw</button>
+      case 6: {
+        const locked = sigState.status === 'signed'
+        const stamp = sigState.signedAt
+          ? new Date(sigState.signedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : null
+        return card(
+          <div>
+            {resigning ? (
+              // "Update" mode: clean pad, saving replaces the locked record.
+              <div>
+                <p className="text-sm text-gray-500 mb-4">Draw your new signature below. This replaces the current one and is recorded immediately.</p>
+                <canvas ref={canvasRef} width="500" height="150" style={{ width: '100%', maxWidth: 500, height: 150, border: '2px dashed #d1d5db', borderRadius: 12, cursor: 'crosshair', background: '#fafafa', touchAction: 'none', display: 'block', margin: '0 auto' }}
+                  onMouseDown={e => { const c = canvasRef.current; const ctx = c.getContext('2d'); const r = c.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); let drawing = true; const move = (ev) => { if (!drawing) return; ctx.lineTo(ev.clientX - r.left, ev.clientY - r.top); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ev.clientX - r.left, ev.clientY - r.top) }; const up = () => { drawing = false }; c.onmousemove = move; c.onmouseup = up; c.onmouseleave = up; }}
+                  onTouchStart={e => { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext('2d'); const r = c.getBoundingClientRect(); const t = e.touches[0]; ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); let drawing = true; const move = (ev) => { if (!drawing) return; ev.preventDefault(); ctx.lineTo(ev.touches[0].clientX - r.left, ev.touches[0].clientY - r.top); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ev.touches[0].clientX - r.left, ev.touches[0].clientY - r.top) }; const up = () => { drawing = false }; c.ontouchmove = move; c.ontouchend = up; }}
+                />
+                <div className="flex gap-3 justify-center mt-4">
+                  <button onClick={cancelResign} className="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors">Cancel</button>
+                  <button disabled={sigSaving} onClick={saveSignature} className="rounded-lg bg-blue-500 text-white font-medium text-sm px-6 py-2.5 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-colors">{sigSaving ? 'Saving…' : 'Save Updated Signature'}</button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div>
-              <p className="text-sm text-gray-500 mb-4">Draw your signature below using your mouse or finger.</p>
-              <canvas ref={canvasRef} width="500" height="150" style={{ width: '100%', maxWidth: 500, height: 150, border: '2px dashed #d1d5db', borderRadius: 12, cursor: 'crosshair', background: '#fafafa', touchAction: 'none', display: 'block', margin: '0 auto' }}
-                onMouseDown={e => { const c = canvasRef.current; const ctx = c.getContext('2d'); const r = c.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); let drawing = true; const move = (ev) => { if (!drawing) return; const x = ev.touches ? ev.touches[0].clientX - r.left : ev.clientX - r.left; const y = ev.touches ? ev.touches[0].clientY - r.top : ev.clientY - r.top; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y) }; const up = () => { drawing = false }; c.onmousemove = move; c.onmouseup = up; c.onmouseleave = up; }}
-                onTouchStart={e => { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext('2d'); const r = c.getBoundingClientRect(); const t = e.touches[0]; ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); let drawing = true; const move = (ev) => { if (!drawing) return; ev.preventDefault(); const x = ev.touches[0].clientX - r.left; const y = ev.touches[0].clientY - r.top; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y) }; const up = () => { drawing = false }; c.ontouchmove = move; c.ontouchend = up; }}
-              />
-              <div className="flex gap-3 justify-center mt-4">
-                <button className="rounded-lg bg-blue-500 text-white font-medium text-sm px-6 py-2.5 hover:bg-blue-600 cursor-pointer transition-colors" onClick={saveSignature}>Save Signature</button>
+            ) : locked ? (
+              <div className="text-center">
+                <div className="max-w-xs mx-auto mb-4"><img src={capturedSignature} className="w-full border border-gray-300 rounded-xl" style={{ maxHeight: 120 }} /></div>
+                <p className="text-sm text-green-600 font-medium mb-1">Signature recorded</p>
+                <p className="text-xs text-gray-500 mb-4">
+                  {stamp ? `Signed on ${stamp}` : 'Signed'}
+                  {sourceLabel(sigState.source) ? ` via ${sourceLabel(sigState.source)}` : ''}.
+                </p>
+                <div className="flex gap-3 justify-center">
+                  <button onClick={startResign} className="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors">Update signature</button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      )
+            ) : capturedSignature ? (
+              <div className="text-center">
+                <div className="max-w-xs mx-auto mb-4"><img src={capturedSignature} className="w-full border border-gray-300 rounded-xl" style={{ maxHeight: 120 }} /></div>
+                <p className="text-sm text-blue-600 font-medium mb-1">Signature saved</p>
+                <p className="text-xs text-gray-500 mb-4">Saved and visible to HR. It becomes locked when you submit the form.</p>
+                <div className="flex gap-3 justify-center">
+                  <button className="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors" onClick={clearSignature}>Clear & Redraw</button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-500 mb-4">Draw your signature below using your mouse or finger.</p>
+                <canvas ref={canvasRef} width="500" height="150" style={{ width: '100%', maxWidth: 500, height: 150, border: '2px dashed #d1d5db', borderRadius: 12, cursor: 'crosshair', background: '#fafafa', touchAction: 'none', display: 'block', margin: '0 auto' }}
+                  onMouseDown={e => { const c = canvasRef.current; const ctx = c.getContext('2d'); const r = c.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); let drawing = true; const move = (ev) => { if (!drawing) return; const x = ev.touches ? ev.touches[0].clientX - r.left : ev.clientX - r.left; const y = ev.touches ? ev.touches[0].clientY - r.top : ev.clientY - r.top; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y) }; const up = () => { drawing = false }; c.onmousemove = move; c.onmouseup = up; c.onmouseleave = up; }}
+                  onTouchStart={e => { e.preventDefault(); const c = canvasRef.current; const ctx = c.getContext('2d'); const r = c.getBoundingClientRect(); const t = e.touches[0]; ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); let drawing = true; const move = (ev) => { if (!drawing) return; ev.preventDefault(); const x = ev.touches ? ev.touches[0].clientX - r.left : ev.clientX - r.left; const y = ev.touches ? ev.touches[0].clientY - r.top : ev.clientY - r.top; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#000'; ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y) }; const up = () => { drawing = false }; c.ontouchmove = move; c.ontouchend = up; }}
+                />
+                <div className="flex gap-3 justify-center mt-4">
+                  <button disabled={sigSaving} className="rounded-lg bg-blue-500 text-white font-medium text-sm px-6 py-2.5 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-colors" onClick={saveSignature}>{sigSaving ? 'Saving…' : 'Save Signature'}</button>
+                </div>
+                <p className="text-xs text-gray-400 mt-3 text-center">Saved immediately, so HR can see it before you finish the form.</p>
+              </div>
+            )}
+          </div>
+        )
+      }
       case 7: {
         const row = (k, v) => (
           <div className="flex justify-between items-center py-2.5 px-3 border-b border-gray-100 last:border-b-0">
@@ -556,7 +700,7 @@ export default function Onboarding() {
                 {row('Bank', form.bank.bank_name)}{row('Holder', form.bank.account_holder_name)}{row('IFSC', form.bank.ifsc_code)}{row('Account No', form.bank.account_number)}
               </Fragment>
             )}
-            {rsec('Signature', row('Digital Signature', capturedSignature ? 'Signed ✔' : null))}
+            {rsec('Signature', row('Digital Signature', capturedSignature ? (sigState.status === 'signed' ? 'Signed ✔ (locked)' : 'Saved — locks on submit') : null))}
           </div>
         )
       }
