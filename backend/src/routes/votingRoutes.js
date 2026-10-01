@@ -26,9 +26,10 @@ const router = Router();
 // identity, but the endpoints that read them are still gated.
 const ANY_AUTH = authenticate;
 
-// HR runs the ceremony. `admin` covers the NGO Admin / accounts staff who are
-// given the same panel-level rights elsewhere in the app.
-const canManage = authenticateRole('hr', 'admin', 'super_admin', 'master');
+// Accounts runs the ceremony from `/accounts/awards`. `admin` covers the NGO
+// Admin staff who are given the same panel-level rights elsewhere in the app,
+// and `super_admin` / `master` keep their global access.
+const canManage = authenticateRole('accounts', 'admin', 'super_admin', 'master');
 
 // ── public ────────────────────────────────────────────────────────────────
 // Lets the login screen tell people to come back later. Carries no department,
