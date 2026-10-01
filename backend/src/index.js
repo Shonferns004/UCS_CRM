@@ -939,6 +939,18 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/fro-month-rollover', requireCronAuth, async (req, res) => {
+      try {
+        const { runMonthlyRollover } = await import('./services/froMonthlyRollover.js');
+        const force = req.body?.force === true || req.query?.force === 'true';
+        const result = await runMonthlyRollover({ force });
+        res.json({ success: true, ...result });
+      } catch (error) {
+        console.error('FRO month-rollover cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });
@@ -1004,6 +1016,7 @@ if (!process.env.VERCEL) {
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
+    import('./services/froMonthlyRollover.js').then((m) => m.start?.());
     // Hard ceiling on resident memory: restart (via PM2) if RSS stays over
     // MEM_WATCHDOG_MB (default 900) for 20s, so the 2 GB box can never OOM.
     startMemoryWatchdog();
