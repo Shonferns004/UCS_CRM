@@ -70,6 +70,10 @@ function collectFromEntryText(content, out) {
 // is the literal string "Multi error"; the actionable text lives one level down
 // in properties.errors[].properties.explanation. Without this, every bad
 // template looks identical to the user.
+// Docxtemplater wraps everything it finds wrong in a single error whose message
+// is the literal string "Multi error"; the actionable text lives one level down
+// in properties.errors[].properties.explanation. Without this, every bad
+// template looks identical to the user.
 function describeDocxError(e) {
   const one = (err) => {
     const p = (err && err.properties) || {};
@@ -82,9 +86,9 @@ function describeDocxError(e) {
 
   const subs = e?.properties?.errors;
   if (Array.isArray(subs) && subs.length) {
-    const lines = subs.map(one).filter(Boolean);
-    const head = lines.length > 1 ? `Template has ${lines.length} problems:` : 'Template problem:';
-    return `${head}\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`;
+    const first = one(subs[0]);
+    if (subs.length === 1) return first;
+    return `${first} (+${subs.length - 1} more)`;
   }
   return one(e);
 }
