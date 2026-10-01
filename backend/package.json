@@ -10,7 +10,9 @@
     "start": "nodemon src/index.js",
     "dev": "nodemon src/index.js",
     "vercel-build": "echo 'Build complete'",
-    "test": "node --test \"src/**/*.test.js\""
+    "test": "node --test \"src/**/*.test.js\"",
+    "security:check": "node scripts/security-check.mjs",
+    "security:check:staged": "node scripts/security-check.mjs --staged"
   },
   "dependencies": {
     "@aws-sdk/client-backup": "^3.1113.0",
