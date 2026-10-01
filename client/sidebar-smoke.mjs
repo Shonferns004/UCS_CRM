@@ -109,6 +109,13 @@ const SIDEBAR_SECTIONS = [
         ],
       },
       {
+        id: 'g-ceremony', label: 'Ceremony', icon: ico, storageKey: 'ceremony',
+        items: [
+          leaf('awards', 'Awards', '/accounts/awards'),
+          leaf('audience-voting', 'Audience Voting', '/accounts/audience-voting'),
+        ],
+      },
+      {
         id: 'g-sim', label: 'SIM Management', icon: ico, storageKey: 'sim',
         items: [
           leaf('sim-dashboard', 'Dashboard', '/accounts/sim/dashboard', { match: (p) => p === '/accounts/sim' || p === '/accounts/sim/dashboard' }),
@@ -135,6 +142,7 @@ const ROUTES = [
   '/accounts/incentives', '/accounts/incentives/payout', '/accounts/donors',
   '/accounts/address', '/accounts/certificates', '/accounts/asset-register',
   '/accounts/loans', '/accounts/new-data', '/accounts/old-data',
+  '/accounts/awards', '/accounts/audience-voting',
   '/accounts/beneficiaries', '/accounts/beneficiaries/all',
   '/accounts/beneficiaries/import', '/accounts/beneficiaries/programs',
   '/accounts/beneficiaries/events', '/accounts/beneficiaries/xyz',
