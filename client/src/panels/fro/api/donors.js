@@ -15,6 +15,7 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (options.inactiveOnly) params.set('inactive_only', 'true');
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
+  if (options.includeSuppressed) params.set('include_suppressed', 'true');
   if (options.station) params.set('station', options.station);
   if (options.ngoId) params.set('ngo_id', options.ngoId);
   if (options.limit) params.set('limit', options.limit);
