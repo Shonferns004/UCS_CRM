@@ -666,6 +666,11 @@
 .panel-hr .dp-year:hover { background:var(--sand); }
 .panel-hr .dp-year.today { font-weight:700; color:var(--sage); }
 .panel-hr .dp-year.selected { background:var(--sage); color:white; }
+.panel-hr .dp-day.disabled { opacity:.28; cursor:not-allowed; pointer-events:none; }
+.panel-hr .dp-month-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:4px; }
+.panel-hr .dp-month { padding:8px 2px; font-size:13px; text-align:center; cursor:pointer; border-radius:var(--radius-sm); color:var(--ink); }
+.panel-hr .dp-month:hover { background:var(--sand); }
+.panel-hr .dp-month.selected { background:var(--sage); color:white; }
 .panel-hr .back-btn { display:inline-flex; align-items:center; gap:6px; margin-bottom:16px; font-size:13px; color:var(--ink-soft); background:none; border:none; padding:6px 0; }
 .panel-hr .back-btn:hover { color:var(--ink); }
 .panel-hr .detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1px; background:var(--line); border-radius:var(--radius-sm); overflow:hidden; }
@@ -784,6 +789,76 @@
 .panel-hr .empty-state p { font-size:14px; }
 .panel-hr .empty-text { text-align:center; color:var(--ink-soft); padding:24px; }
 .panel-hr .err-banner { color:var(--danger); font-size:13px; margin-bottom:16px; padding:8px 14px; background:var(--danger-soft); border-radius:var(--radius-sm); }
+
+/* ── HR > Reports (daily report) ────────────────────────────────────────────
+   Prefixed .hpr-* to avoid collisions with the rest of the HR panel. Every
+   class used here is defined in this file; nothing here relies on a class from
+   another panel (that mistake is what left the old date filter unstyled). */
+.panel-hr .hpr-bar { display:flex; flex-wrap:wrap; gap:12px 16px; align-items:flex-end; }
+.panel-hr .hpr-quick { display:inline-flex; border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; background:var(--paper); }
+.panel-hr .hpr-quick button { padding:8px 12px; font-size:12px; font-family:inherit; background:none; border:none; color:var(--ink-soft); cursor:pointer; white-space:nowrap; }
+.panel-hr .hpr-quick button + button { border-left:1px solid var(--line); }
+.panel-hr .hpr-quick button:hover { background:var(--sand); color:var(--ink); }
+.panel-hr .hpr-quick button.active { background:var(--sage); color:#fff; font-weight:600; }
+.panel-hr .hpr-actions { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; align-items:center; }
+.panel-hr .hpr-dirty { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--ink-soft); white-space:nowrap; }
+.panel-hr .hpr-dirty .dot { width:7px; height:7px; border-radius:50%; background:var(--sage); }
+.panel-hr .hpr-dirty.pending .dot { background:var(--gold); }
+.panel-hr .hpr-rel { font-size:11px; color:var(--ink-soft); margin-top:4px; }
+.panel-hr .hpr-legend { display:flex; flex-wrap:wrap; gap:14px; font-size:11px; color:var(--ink-soft); margin-bottom:12px; align-items:center; }
+.panel-hr .hpr-legend b { font-weight:600; color:var(--ink); }
+
+/* Sortable header cells. <th> already carries the uppercase label styling, so
+   these only supply the hit area and the caret. */
+.panel-hr .hpr-sort { display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0; margin:0; font:inherit; color:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer; }
+.panel-hr .hpr-sort:hover { color:var(--sage); }
+.panel-hr .hpr-sort .caret { font-size:9px; opacity:.45; }
+.panel-hr .hpr-sort.on .caret { opacity:1; color:var(--sage); }
+.panel-hr .hpr-num { text-align:right; font-variant-numeric:tabular-nums; }
+.panel-hr .hpr-roles { font-size:11px; color:var(--ink-soft); margin-top:2px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Manual figures are typed, not derived. They get a dotted underline so nobody
+   reads them as a system count, and render as a muted dash when left blank. */
+.panel-hr .hpr-typed { border-bottom:1px dotted var(--gold); padding-bottom:1px; }
+.panel-hr .hpr-blank { color:var(--ink-soft); opacity:.6; }
+
+/* Totals row sits above .panel-hr tr:hover td, so it needs its own weight. */
+.panel-hr tr.hpr-total td { background:var(--sand); font-weight:700; border-top:2px solid var(--ink); color:var(--ink); }
+.panel-hr tr.hpr-total:hover td { background:var(--sand); }
+.panel-hr td.hpr-expander { padding:0; background:var(--paper); }
+.panel-hr tr.hpr-open td { background:var(--paper); }
+
+.panel-hr .hpr-edit { padding:14px 16px 16px; border-bottom:1px solid var(--line); }
+.panel-hr .hpr-edit-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px; }
+.panel-hr .hpr-field { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--ink-soft); min-width:0; }
+.panel-hr .hpr-field input, .panel-hr .hpr-field textarea { width:100%; box-sizing:border-box; padding:8px 10px; font-size:13px; font-family:inherit; color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); outline:none; }
+.panel-hr .hpr-field textarea { resize:vertical; line-height:1.5; }
+.panel-hr .hpr-field input:focus, .panel-hr .hpr-field textarea:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.panel-hr .hpr-note { font-size:11px; color:var(--ink-soft); margin-bottom:10px; line-height:1.5; }
+.panel-hr .hpr-count { font-size:11px; color:var(--ink-soft); margin-top:4px; }
+.panel-hr .hpr-btn-link { background:none; border:none; padding:0; font:inherit; font-size:11px; color:var(--sage); cursor:pointer; text-decoration:underline; }
+.panel-hr .hpr-btn-link:hover { color:var(--ink); }
+
+/* Print-only helpers for this screen. .print-section-title and friends have no
+   screen rule anywhere in the sheet, so they would render as unstyled blocks in
+   the app; scoping the hide to .hpr-* keeps other panels untouched. */
+.panel-hr .hpr-print-only { display:none; }
+
+@media print {
+  .panel-hr .hpr-print-only { display:block !important; }
+  .panel-hr .hpr-bar, .panel-hr .hpr-quick, .panel-hr .hpr-actions, .panel-hr .hpr-legend { display:none !important; }
+  .panel-hr .table-wrap { overflow:visible !important; border:none !important; }
+  .panel-hr table { font-size:10px; }
+  .panel-hr th, .panel-hr td { padding:5px 6px !important; }
+  .panel-hr thead { display:table-header-group; }
+  .panel-hr tr { page-break-inside:avoid; }
+  .panel-hr .hpr-typed { border-bottom:none; }
+  .panel-hr tr.hpr-total td { background:#eee !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .panel-hr .stats { gap:6px; margin-bottom:12px; }
+  .panel-hr .stat { padding:8px 10px; box-shadow:none; min-width:0; }
+  .panel-hr .stat-value { font-size:18px; }
+  .panel-hr .hpr-roles { max-width:none; white-space:normal; }
+}
 .panel-hr .load-overlay { position:fixed; inset:0; background:rgba(255,255,255,.7); display:flex; align-items:center; justify-content:center; z-index:2000; }
 .panel-hr .spinner { width:36px; height:36px; border:3px solid var(--line); border-top-color:var(--sage); border-radius:50%; animation:att-spin .6s linear infinite; }
 @keyframes att-spin { to{transform:rotate(360deg)} }

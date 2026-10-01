@@ -91,6 +91,16 @@ export const sendHrWhatsAppLetter = (worker_id, worker_name, letter_type, pdf_ba
 export const fetchHrWhatsAppStatus = () => apiGet('/hr/whatsapp/account-status');
 export const fetchHrWhatsAppWindow = (phone) => apiGet('/hr/whatsapp/service-window?phone=' + encodeURIComponent(phone || ''));
 export const fetchHrWhatsAppSends = (worker_id) => apiGet('/hr/whatsapp/sends' + (worker_id ? '?worker_id=' + encodeURIComponent(worker_id) : ''));
+
+// HR > Reports. The attendance figures are derived on every request and never
+// stored, so there is no cache to invalidate here; only the typed absences and
+// the per-recruiter free text are persisted. `saveHrDailyReport` deliberately
+// sends no reporter name: the server resolves it from the signed-in user, so a
+// report cannot be written under someone else's name.
+export const fetchHrAttendanceSummary = (date) => apiGet('/hr-reports/attendance-summary?date=' + encodeURIComponent(date));
+export const fetchMyHrDailyReport = (date) => apiGet('/hr-reports/mine?date=' + encodeURIComponent(date));
+export const fetchHrDailyReports = (date) => apiGet('/hr-reports?date=' + encodeURIComponent(date));
+export const saveHrDailyReport = (body) => apiPost('/hr-reports', body);
 export const fetchHolidays = () => apiGet('/holidays');
 export const addHoliday = (h) => apiPost('/holidays', h);
 export const removeHoliday = (id) => apiDelete('/holidays/' + id);

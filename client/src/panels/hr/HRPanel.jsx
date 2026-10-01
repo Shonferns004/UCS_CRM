@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { useHR } from './store'
-import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star } from './icons'
+import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell, Star, ChartBar } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -19,6 +19,7 @@ import Letters from './components/Letters'
 import HRForms from './components/HRForms'
 import Holidays from './components/Holidays'
 import Recruiters from './components/Recruiters'
+import Reports from './components/Reports'
 import GenerateQR from './components/GenerateQR'
 import Loans from './components/Loans'
 import Tickets from './components/Tickets'
@@ -44,6 +45,7 @@ const NAV = [
   { id:'letters',    path:'/hr/letters',     label:'Letters',     icon:FileTxt, eyebrow:'Documents',   sub:'Generate HR letters' },
   { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Volunteer onboarding forms' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
+  { id:'reports',    path:'/hr/reports',     label:'Reports',     icon:ChartBar,eyebrow:'Daily',       sub:'Recruiter MIS and attendance' },
   { id:'quizzes',    path:'/hr/quizzes',     label:'Quizzes',     icon:Star,    eyebrow:'Recruitment',  sub:'AI-marked candidate quiz results' },
   { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
@@ -272,6 +274,7 @@ export default function HRPanel() {
         <Route path="letters" element={<Letters />} />
         <Route path="hr-forms" element={<HRForms />} />
         <Route path="recruiters" element={<Recruiters />} />
+        <Route path="reports" element={<Reports />} />
         <Route path="quizzes" element={<Quizzes />} />
         <Route path="holidays" element={<Holidays />} />
         <Route path="qr" element={<GenerateQR />} />
