@@ -21,7 +21,16 @@ const identity = (req) => ({
   name: String(req.user?.name ?? req.user?.full_name ?? ''),
 });
 
-async function fetchFile(url) {
+// Prefer a service-role download by storage key. The `certificates` bucket is not
+// public, so an anonymous GET against the public URL 403s even though the upload
+// itself succeeded — that is what made every render fail with "Unable to read
+// template file (403)". The public URL is kept only as a fallback for rows stored
+// before template_key existed.
+async function fetchFile(url, key) {
+  if (key) {
+    const { data, error } = await db.storage.from(BUCKET).download(key);
+    if (!error && data) return Buffer.from(await data.arrayBuffer());
+  }
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Unable to read template file (${resp.status})`);
   return Buffer.from(await resp.arrayBuffer());
@@ -51,7 +60,7 @@ async function savePreviewImage(id, template, buffer, ext = 'png', contentType =
 export async function autosnapshotTemplate(template) {
   if (!template || !template.template_file) return null;
   try {
-    const raw = await fetchFile(template.template_file);
+    const raw = await fetchFile(template.template_file, template.template_key);
     const png = await snapshotToPng(raw, template.file_format);
     if (!png) return null;
     return savePreviewImage(template.id, template, png);
@@ -130,7 +139,7 @@ function buildMissing(requiredFields, values) {
 
 async function renderFromTemplate(template, values) {
   if (!template.template_file) throw new Error('Template file is missing');
-  const storage = await fetchFile(template.template_file);
+  const storage = await fetchFile(template.template_file, template.template_key);
   return renderCertificate(storage, values);
 }
 
@@ -296,9 +305,9 @@ async function listToJson() {
 export const getTemplateFile = async (req, res) => {
   try {
     const { rows } = await db._pool.query(
-      `SELECT template_file FROM certificate_templates WHERE id = $1`, [req.params.id]);
+      `SELECT template_file, template_key FROM certificate_templates WHERE id = $1`, [req.params.id]);
     if (!rows.length || !rows[0].template_file) return res.status(404).json({ message: 'Template file not found' });
-    const buffer = await fetchFile(rows[0].template_file);
+    const buffer = await fetchFile(rows[0].template_file, rows[0].template_key);
     res.set('Content-Type', 'application/octet-stream');
     res.set('Content-Disposition', `attachment; filename="template-${req.params.id}"`);
     return res.send(buffer);
@@ -443,7 +452,7 @@ export const duplicateTemplate = async (req, res) => {
     const template = await loadTemplateDetail(id);
     if (!template) return res.status(404).json({ message: 'Template not found' });
 
-    const storage = await fetchFile(template.template_file);
+    const storage = await fetchFile(template.template_file, template.template_key);
     const me = identity(req);
     const name = `${template.name} (copy)`;
     const { rows } = await db._pool.query(
