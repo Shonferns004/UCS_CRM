@@ -14,6 +14,11 @@ const eh = authenticateRole('super_admin', 'admin', 'hr', 'event_head', 'event_m
 // Calendar extras (static paths BEFORE /events/:id)
 router.get('/calendar/observances', eh, ctrl.listCalendarObservances);
 router.post('/calendar/suggest', eh, ctrl.suggestDayPrograms);
+// Monthly Planner: programme suggestions for one activity in one month. Separate
+// from /calendar/suggest, which is driven by a single day on the Calendar page.
+router.post('/planner/suggest-programs', eh, ctrl.suggestActivityPrograms);
+router.get('/planner/suggestions', eh, ctrl.getPlannerSuggestions);
+router.put('/planner/suggestions/:id/select', eh, ctrl.setPlannerSuggestionSelected);
 // Events (static paths BEFORE :id)
 router.get('/dashboard/stats', eh, ctrl.getEventHeadDashboardStats);
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchDashboardStats, fetchDashboardOptions, fetchDeadlineNotifs, deadlineLabel } from '../store'
+import { fetchDashboardStats, fetchDashboardOptions, fetchDeadlineNotifs, deadlineLabel, fetchCalendarEvents } from '../store'
 import { PageHeader, MetricCard, SectionCard, SearchInput, StatusPill, Empty } from '../components/ui'
 import RecentNotices from '../../../components/RecentNotices'
 
@@ -120,20 +120,83 @@ export default function EventDashboard() {
   const open = (id) => navigate('/event-head/events/' + id)
   const openMedia = (id) => navigate('/event-head/media-management?event=' + id)
 
+  /* Month chosen for the next event. The day itself is always picked on the
+     planner grid — this only decides which month Create Event and the planner
+     open on, so the two never disagree about which month is being planned.
+     Defaults to the month we are already in. */
+  const [planMonth, setPlanMonth] = useState(() => {
+    const n = new Date()
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
+  })
+  const planYears = useMemo(() => {
+    const y = new Date().getFullYear()
+    return [y, y + 1]
+  }, [])
+  const goCreate = () => navigate('/event-head/create?month=' + planMonth)
+  const goPlanner = () => navigate('/event-head/monthly-planner?month=' + planMonth)
+
+  /* Programmes already planned in the month chosen above. Same feed the Monthly
+     Planner grid draws from, so this list can never disagree with the calendar. */
+  const [monthProgs, setMonthProgs] = useState([])
+  const [progsLoading, setProgsLoading] = useState(false)
+  useEffect(() => {
+    if (!/^\d{4}-\d{2}$/.test(planMonth)) return
+    const [y, m] = planMonth.split('-').map(Number)
+    const first = new Date(y, m - 1, 1)
+    const last = new Date(y, m, 0)
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    let cancelled = false
+    setProgsLoading(true)
+    fetchCalendarEvents({ start: iso(first), end: iso(last) })
+      .then(d => { if (!cancelled) setMonthProgs(Array.isArray(d) ? d : []) })
+      .catch(err => { console.error('programmes fetch', err); if (!cancelled) setMonthProgs([]) })
+      .finally(() => { if (!cancelled) setProgsLoading(false) })
+    return () => { cancelled = true }
+  }, [planMonth])
+
+  const progsByDay = useMemo(() => {
+    const map = new Map()
+    for (const ev of monthProgs) {
+      const p = ev.extendedProps || {}
+      const day = String(p.date || ev.date || '').slice(0, 10)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue
+      if (!map.has(day)) map.set(day, [])
+      map.get(day).push(ev)
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [monthProgs])
+
+  const labelOf = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+
   const k = stats?.kpis || {}
   const maxNgoCount = Math.max(1, ...(stats?.events_by_ngo || []).map(n => n.count))
 
   const actions = (
     <>
-      <button className="eh-btn eh-btn-primary" onClick={() => navigate('/event-head/create')}>
+      {/* Month leads the action row: pick the month, then either open the form to
+          fill in details or jump straight to the grid to click the exact day.
+          Both carry the same month through the URL. */}
+      <select
+        className="eh-select"
+        value={planMonth}
+        onChange={e => setPlanMonth(e.target.value)}
+        aria-label="Month to plan"
+        style={{ minWidth: 140 }}
+      >
+        {planYears.map(y => MONTHS.map((m, i) => {
+          const val = `${y}-${String(i + 1).padStart(2, '0')}`
+          return <option key={val} value={val}>{m} {y}</option>
+        }))}
+      </select>
+      <button className="eh-btn eh-btn-primary" onClick={goCreate}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Create Event
       </button>
+      <button className="eh-btn" onClick={goPlanner}>Monthly Planner <Caret /></button>
       <button className="eh-btn" onClick={() => navigate('/event-head/activities')}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add Activity
       </button>
-      <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')}>Open Calendar <Caret /></button>
       <button className="eh-btn" onClick={() => navigate('/event-head/reports')}>Event Reports</button>
     </>
   )
@@ -210,6 +273,65 @@ export default function EventDashboard() {
               icon={<Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>} />}
               color="var(--eh-primary)" />
           </div>
+
+          {/* Programmes: what is already planned in the selected month, with the
+              two actions that create more of it. Placed above Upcoming Deadlines
+              because picking a month and creating is the main thing done here. */}
+          <SectionCard
+            title="Programmes"
+            sub={`${MONTHS[Number(planMonth.slice(5, 7)) - 1]} ${planMonth.slice(0, 4)} · ${monthProgs.length} planned`}
+            headRight={
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select className="eh-select" value={planMonth} onChange={e => setPlanMonth(e.target.value)} aria-label="Month" style={{ minWidth: 120 }}>
+                  {planYears.map(y => MONTHS.map((m, i) => {
+                    const val = `${y}-${String(i + 1).padStart(2, '0')}`
+                    return <option key={val} value={val}>{m} {y}</option>
+                  }))}
+                </select>
+                <button className="eh-btn eh-btn-primary" onClick={goCreate}>+ Create Event</button>
+                <button className="eh-btn" onClick={goPlanner}>Monthly Planner <Caret /></button>
+              </div>
+            }
+          >
+            {progsLoading ? (
+              <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)', padding: '6px 0' }}>Loading programmes…</div>
+            ) : progsByDay.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)', lineHeight: 1.55, padding: '4px 0' }}>
+                No programmes planned in {MONTHS[Number(planMonth.slice(5, 7)) - 1]} {planMonth.slice(0, 4)}.
+                Use <b>+ Create Event</b> to fill in the details, or <b>Monthly Planner</b> to pick the day on the grid.
+              </div>
+            ) : (
+              <div className="eh-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 320, overflow: 'auto' }}>
+                {progsByDay.map(([day, items]) => (
+                  <div key={day}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--eh-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>{labelOf(day)}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {items.map(ev => {
+                        const p = ev.extendedProps || {}
+                        const time = String(p.startTime || '').slice(0, 5)
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            onClick={() => navigate('/event-head/events/' + ev.id)}
+                            title={p.description || ev.title}
+                            style={{ textAlign: 'left', cursor: 'pointer', width: '100%', border: '1px solid var(--eh-line)', borderRadius: 10, padding: '9px 11px', background: '#fff' }}
+                          >
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)', lineHeight: 1.35 }}>{ev.title}</div>
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+                              {time && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-primary-soft)', color: 'var(--eh-primary)' }}>{time}</span>}
+                              {p.ngoName && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{p.ngoName}</span>}
+                              {p.status && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{p.status}</span>}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
 
           {deadlines.length > 0 && (
             <SectionCard title="Upcoming Deadlines" sub="Events due within the next 5 days · auto-updates"
@@ -321,11 +443,12 @@ export default function EventDashboard() {
               </div>
             </SectionCard>
 
+            {/* Create Event and Monthly Planner live in the Programmes section above,
+                so they are not repeated here. This card keeps the two actions
+                that have no equivalent there. */}
             <SectionCard title="Quick Actions">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, paddingTop: 4 }}>
-                <button className="eh-btn eh-btn-primary" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/create')}>＋ Create Event</button>
                 <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/activities')}>＋ Add Activity</button>
-                <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/monthly-planner')}>▣ Open Calendar</button>
                 <button className="eh-btn" style={{ justifyContent: 'center', padding: '12px 8px' }} onClick={() => navigate('/event-head/reports')}>▣ Event Reports</button>
               </div>
             </SectionCard>
