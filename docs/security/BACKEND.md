@@ -2,7 +2,7 @@
 
 ## Stack
 
-Express on Node, behind nginx, run under PM2. Notable dependencies
+Express on Node, behind Caddy (nginx on the HEAD host), run under PM2. Notable dependencies
 (`backend/package.json`):
 
 | Package | Version | Note |

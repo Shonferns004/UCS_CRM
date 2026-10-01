@@ -1,0 +1,38 @@
+api.beingsevak.org, 13-207-47-116.sslip.io {
+    reverse_proxy 127.0.0.1:5000
+}
+
+crm.beingsevak.org, crm.13-207-47-116.sslip.io {
+    root * /var/www/crm
+    encode gzip
+    try_files {path} /index.html
+    file_server
+}
+
+aflf.ngo, www.aflf.ngo {
+    root * /var/www/aflf
+    encode gzip
+    try_files {path} /index.html
+    file_server
+}
+
+manncarefoundation.org, www.manncarefoundation.org {
+    root * /var/www/mann
+    encode gzip
+    try_files {path} /index.html
+    file_server
+}
+
+beingsevak.org, www.beingsevak.org {
+    root * /var/www/being
+    encode gzip
+    try_files {path} /index.html
+    file_server
+}
+
+ultimateconsultancy.services, www.ultimateconsultancy.services {
+    root * /var/www/ucs
+    encode gzip
+    try_files {path} /index.html
+    file_server
+}
