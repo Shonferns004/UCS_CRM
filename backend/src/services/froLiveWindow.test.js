@@ -150,3 +150,89 @@ test('resetLiveWindow reads and upserts the given worker row and returns the tim
   assert.equal(timer.seconds_left, 240);
   assert.equal(timer.is_idle, false);
 });
+
+// A row whose stats_date is still yesterday. Nobody stamped this FRO, no heartbeat
+// landed, the machine was off overnight.
+function staleRow(dayStr) {
+  return {
+    worker_id: 'f1',
+    status: 'idle',
+    stats_date: dayStr,
+    updated_at: `${dayStr}T20:00:00.000Z`,
+    // Deliberately absurd-looking: the point is that these must not survive into
+    // today, where they would only ever be able to rise.
+    today_idle_seconds: 8 * 3600,
+    today_talk_seconds: 4 * 3600,
+    today_calls: 37,
+    idle_since: null,
+    disposition_due_at: null,
+  };
+}
+
+function capturingDb(liveRow) {
+  const seen = { upserts: [] };
+  return {
+    seen,
+    from(table) {
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: table === 'fro_live_status' ? liveRow : null }),
+          }),
+        }),
+        upsert: async (patch, opts) => {
+          seen.upserts.push({ table, patch, opts });
+          return { error: null };
+        },
+      };
+    },
+  };
+}
+
+test('a stale row is rolled to zero before stats_date is restamped as today', async () => {
+  // NOW is 2026-09-29 in IST (17:30 IST on the 29th), so the stale day below is
+  // the 28th.
+  const fakeDb = capturingDb(staleRow('2026-09-28'));
+
+  await resetLiveWindow('f1', { nowMs: NOW, dbClient: fakeDb, getShift: async () => SHIFT });
+
+  assert.equal(fakeDb.seen.upserts.length, 1);
+  const { patch } = fakeDb.seen.upserts[0];
+
+  assert.equal(patch.stats_date, '2026-09-29', 'restamped to today');
+  // Every counter named explicitly. The upsert is partial, so a column left out
+  // keeps its stored value - which is how yesterday's total used to survive under
+  // a fresh date.
+  assert.equal(patch.today_idle_seconds, 0);
+  assert.equal(patch.today_talk_seconds, 0);
+  assert.equal(patch.today_calls, 0);
+  assert.equal(patch.today_break_seconds, 0);
+  assert.equal(patch.today_skipped, 0);
+  assert.equal(patch.idle_since, null);
+  assert.equal(patch.status, 'online', 'still punched back online by the window');
+});
+
+test('a row already dated today is not rolled', async () => {
+  const fakeDb = capturingDb(staleRow('2026-09-29'));
+
+  await resetLiveWindow('f1', { nowMs: NOW, dbClient: fakeDb, getShift: async () => SHIFT });
+
+  const { patch } = fakeDb.seen.upserts[0];
+  assert.equal(patch.stats_date, '2026-09-29');
+  // No counter is named at all. The row's committed total already belongs to
+  // today, so there is nothing to zero - and zeroing it would wipe a real day's
+  // work. This is the whole difference from the stale case above, where the
+  // stored value belongs to yesterday and must be replaced.
+  assert.equal('today_idle_seconds' in patch, false);
+  assert.equal('today_talk_seconds' in patch, false);
+  assert.equal('today_calls' in patch, false);
+});
+
+test('a stale row reports 0 idle to the client, not yesterday\'s running total', async () => {
+  const fakeDb = capturingDb(staleRow('2026-09-28'));
+
+  const timer = await resetLiveWindow('f1', { nowMs: NOW, dbClient: fakeDb, getShift: async () => SHIFT });
+
+  assert.equal(timer.today_idle_seconds, 0);
+  assert.equal(timer.seconds_left, 240);
+});

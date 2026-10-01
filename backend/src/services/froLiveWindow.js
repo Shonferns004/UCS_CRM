@@ -27,7 +27,7 @@ import {
   liveIdleSeconds,
   nextDeadline,
 } from '../utils/froIdle.js';
-import { writeDailySnapshot } from './froCounterDay.js';
+import { writeDailySnapshot, rollCountersForNewDay, COUNTER_COLUMNS } from './froCounterDay.js';
 
 // Pure: derive the upsert patch and the client-facing timer from a row + shift.
 //
@@ -96,7 +96,30 @@ export async function resetLiveWindow(workerId, {
     .eq('worker_id', workerId)
     .maybeSingle();
 
-  const { patch, timer } = buildLiveWindow({ workerId, liveRow, shift, nowMs });
+  // Bank a stale row's day and start today at zero BEFORE the window is rebuilt.
+  //
+  // buildLiveWindow always stamps stats_date to today. If this row still described
+  // yesterday - nobody stamped the FRO, no heartbeat landed, the machine was off -
+  // that stamp used to relabel yesterday's accumulated counters as today's
+  // WITHOUT banking them to fro_daily_stats. Two consequences: the day's real total
+  // was lost, and because the counters can only ever rise (GREATEST on both the
+  // snapshot and the row), today started above zero and could not be walked back.
+  // The rollover is what makes an impossible day like 52h unrepresentable, so it
+  // has to run before the patch is built, not after.
+  const roll = await rollCountersForNewDay(workerId, liveRow, nowMs, { dbg: 'live-window-roll' });
+
+  const baseRow = roll.rolled
+    ? { ...liveRow, ...roll.counters, idle_since: null, disposition_due_at: null, stats_date: roll.statsDate }
+    : liveRow;
+
+  const { patch, timer } = buildLiveWindow({ workerId, liveRow: baseRow, shift, nowMs });
+
+  // baseRow already reads as zeroed, but the patch is a partial upsert: columns it
+  // omits keep their old stored values. Name every counter explicitly so a
+  // relabelled row cannot carry a previous day forward.
+  if (roll.rolled) {
+    for (const col of COUNTER_COLUMNS) patch[col] = 0;
+  }
 
   await dbClient.from('fro_live_status').upsert(patch, { onConflict: 'worker_id' });
   if (patch.today_idle_seconds !== undefined) {
