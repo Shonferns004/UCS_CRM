@@ -101,12 +101,17 @@ export const fetchCeremony = () => get('/voting/ceremony')
 export const fetchBallot = (departmentId) => get(`/voting/ballot?department_id=${encodeURIComponent(departmentId)}`)
 
 /**
- * Cast a vote in one department's ballot. The server's reply deliberately does
- * not echo the nominee, so nothing here can reveal the choice to someone looking
- * over a shoulder.
+ * Cast one department's ballot: one nominee per team, in a single submit.
+ *
+ * The server re-derives which team each nominee belongs to, so what is sent is
+ * just the picks. Its reply deliberately does not echo them, so nothing here can
+ * reveal the choices to someone looking over a shoulder.
  */
-export const castVote = (departmentId, nomineeId) =>
-  post('/voting/ballot', { department_id: departmentId, nominee_id: nomineeId })
+export const castVote = (departmentId, picks) =>
+  post('/voting/ballot', {
+    department_id: departmentId,
+    picks: picks.map((nomineeId) => ({ nominee_id: nomineeId })),
+  })
 
 // ── ceremony control (used by the HR panel; exposed here for the results view) ──
 

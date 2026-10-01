@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { fetchStatus, login } from '../api'
-import { ArrowRight, Lock } from '../icons'
+import { ArrowRight } from '../icons'
 import trophyUrl from '../assets/images/transparent.png'
 
 /* The artwork is 1536x1024 with roughly 12% transparent margin on each side, so
@@ -47,33 +47,33 @@ export function LoginCard({
         </div>
 
         <div className="signin-head">
-          <span className="signin-eyebrow">{open ? 'Sign in to vote' : 'Not open yet'}</span>
           <h1 className="signin-title">
             {open ? (
               <>
-                <span className="signin-title-navy">Monthly Award</span>{' '}
-                <span className="signin-title-gold">Ceremony</span>
+                <span className="signin-title-line">Monthly Award</span>
+                <span className="signin-title-line">
+                  <span className="signin-title-gold">Ceremony</span>
+                </span>
               </>
             ) : (
-              <span className="signin-title-navy">The ceremony has not started</span>
+              <span className="signin-title-line">The ceremony has not started</span>
             )}
           </h1>
         </div>
 
         {checking ? (
           <div className="spinner dark signin-spinner" />
-        ) : open ? (
-          <p className="signin-lede">
-            Use the same login ID and password you use for the UCS CRM. You will be able to vote in every
-            department while voting is open.
-          </p>
         ) : (
           <>
-            <p className="signin-lede">
-              Voting opens when HR starts the award ceremony. Leave this page open — it will activate on its
-              own — or come back when you are called.
-            </p>
-            {unreachable && (
+            {!open && (
+              // Marked optional so a short viewport can drop it and keep the
+              // form itself on screen.
+              <p className="signin-lede is-optional">
+                Voting opens when HR starts the award ceremony. Leave this page open — it will activate on
+                its own — or come back when you are called.
+              </p>
+            )}
+            {!open && unreachable && (
               <div className="signin-note" role="status">
                 Could not reach the server. Check your connection.
               </div>
@@ -127,16 +127,6 @@ export function LoginCard({
             {!busy && open ? <ArrowRight size={18} aria-hidden="true" focusable="false" /> : null}
           </button>
         </fieldset>
-
-        <hr className="signin-divider" />
-
-        <p className="signin-privacy">
-          <Lock size={17} aria-hidden="true" focusable="false" />
-          <span>
-            We record only which person you voted for — never who cast the vote. One ballot per person, and
-            it cannot be changed or undone.
-          </span>
-        </p>
       </form>
     </main>
   )
@@ -202,14 +192,10 @@ export default function Login() {
   }
 
   return (
-    // The signed-out page carries no header bar. The brand mark is a mark, not a
-    // control, so it is a plain decorative span rather than a link or button.
+    // The signed-out page carries no header bar and no brand mark: the trophy
+    // artwork is the only thing on the page that identifies the ceremony.
     <div className="signin">
       <div className="signin-bg" aria-hidden="true" />
-
-      <span className="signin-mark" aria-hidden="true">
-        U
-      </span>
 
       <LoginCard
         open={open}
