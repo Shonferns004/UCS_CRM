@@ -12,6 +12,7 @@ import { generateReceiptPDF, formatReceiptDate } from '../services/pdfGenerator'
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
+import WhatsAppDeliveryBadge from '../components/WhatsAppDeliveryBadge';
 import { API_BASE as apiBase } from '../../../lib/apiBase';
 
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
@@ -465,6 +466,7 @@ export default function ReceiptHistory() {
       const waTpl = getWaSettings(preview.receipt.project_id);
       await apiPost('/whatsapp/send-direct', {
         to: formatted,
+        receiptId: preview.receipt.id,
         pdfBase64,
         receiptNo: preview.receipt.receipt_no,
         donorName: preview.receipt.donor_name,
@@ -474,7 +476,7 @@ export default function ReceiptHistory() {
         project: preview.receipt.project_id,
       });
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch (e) { console.error('Error:', e.message); }
-      setWaResult({ success: true, message: 'Receipt sent via WhatsApp!' });
+      setWaResult({ success: true, message: 'Accepted by WhatsApp. Delivery status appears in the list within a minute.' });
     } catch (err) {
       setWaResult({ success: false, message: 'Failed: ' + err.message });
     } finally { setWaLoading(false); }
@@ -846,6 +848,7 @@ export default function ReceiptHistory() {
                 <th>Time</th>
                 <th>Amount</th>
                 <th>No. of Donations</th>
+                <th>Delivery</th>
                 <th></th>
               </tr>
             </thead>
@@ -860,11 +863,12 @@ export default function ReceiptHistory() {
                     <td><div className="sk" style={{ width: 45, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 40, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 70, height: 12, borderRadius: 3 }} /></td>
                   </tr>
                 ))
               ) : receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                     {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
                   </td>
                 </tr>
@@ -890,6 +894,9 @@ export default function ReceiptHistory() {
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
                       <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <WhatsAppDeliveryBadge receipt={r} compact />
+                      </td>
                       <td style={{ display: 'flex', gap: 2 }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEditReceipt(r); }}
@@ -932,6 +939,7 @@ export default function ReceiptHistory() {
                     {currency(receipts.reduce((s, r) => s + Number(r.amount || 0), 0))}
                   </td>
                   <td style={{ padding: '9px 12px', fontWeight: 700 }}>{receipts.length} rows</td>
+                  <td></td>
                   <td></td>
                 </tr>
               )}
