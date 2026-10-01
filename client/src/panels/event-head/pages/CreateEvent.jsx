@@ -696,7 +696,7 @@ export default function CreateEvent() {
               ) : !festIdeas.length && !festLoading && !festAi ? (
                 <button type="button" className="btn" onClick={runFestivalSuggestions}
                   style={{ fontSize: 12, padding: '6px 12px' }}>
-                  ✨ Suggest programmes for {form.date}
+                  ✦ Suggested programmes for {form.date}
                 </button>
               ) : null}
 
@@ -728,9 +728,12 @@ export default function CreateEvent() {
               {festIdeas.length > 0 && (                <div style={{ border: '1px solid var(--eh-line,#e2e8f0)', borderRadius: 8, padding: 10, background: 'var(--eh-surface,#f8fafc)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink,#0f1128)' }}>
-                      {festObservances.length
-                        ? `For ${form.date} · ${festObservances.map(o => o.name).join(', ')}`
-                        : `For ${form.date} · no festival on this date`}
+                      ✦ Suggested programmes
+                      <div style={{ fontWeight: 600, fontSize: 11.5, marginTop: 3 }}>
+                        {festObservances.length
+                          ? `For ${form.date} · ${festObservances.map(o => o.name).join(', ')}`
+                          : `For ${form.date} · no festival on this date`}
+                      </div>
                       <div style={{ fontWeight: 400, fontSize: 11, color: 'var(--eh-muted,#64748b)', marginTop: 2 }}>
                         {festObservances.length
                           ? 'Built around the occasion above.'
