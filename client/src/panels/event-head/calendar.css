@@ -260,6 +260,33 @@
 /* Give the day cell a touch more room when it carries observance chips. */
 .fc .fc-daygrid-day:has(.eh-obs-strip) .fc-daygrid-day-frame { min-height: 74px; }
 
+/* ── Always-visible scrollbars ───────────────────────────────────────────────
+   Windows 11 ships overlay scrollbars that only paint while the pointer is over
+   the element, so the Important Days list and the modal bodies looked like they
+   were simply cut off with nothing to drag. `scrollbar-gutter: stable` reserves
+   the track permanently and the ::-webkit rules below give it a visible thumb.
+   The standard properties cover Firefox; Chrome/Edge read the pseudo-elements. */
+.eh-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #b9bcd0 #eef0f7;
+}
+.eh-scroll::-webkit-scrollbar { width: 11px; height: 11px; }
+.eh-scroll::-webkit-scrollbar-track {
+  background: #eef0f7;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.eh-scroll::-webkit-scrollbar-thumb {
+  background: #b9bcd0;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.eh-scroll::-webkit-scrollbar-thumb:hover { background: #9498b0; background-clip: padding-box; }
+.eh-scroll::-webkit-scrollbar-thumb:active { background: #7d8199; background-clip: padding-box; }
+
 /* Phones: a 7-column month view leaves each day cell ~48px wide, so the type
    scales down rather than the view changing (switching to list view is already
    exposed by the toolbar). Long titles keep truncating via .eh-pill-title. */
