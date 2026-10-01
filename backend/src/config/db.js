@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { emitDbChange } from '../socket.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
@@ -1323,6 +1323,19 @@ function getS3() {
 
 const s3Key = (bucket, fileName) => `${safeBucket(bucket)}/${String(fileName)}`;
 
+// GetObjectCommand hands back a stream whose reader API depends on the SDK
+// version — newer builds mix in transformToByteArray(), older ones leave a
+// plain async-iterable Readable. Prefer the helper when present and fall back to
+// draining the stream, so a read never fails over a version difference.
+async function s3BodyToBuffer(body) {
+  if (!body) return Buffer.alloc(0);
+  if (typeof body.transformToByteArray === 'function') return Buffer.from(await body.transformToByteArray());
+  if (typeof body.transformToString === 'function') return Buffer.from(await body.transformToString('utf8'));
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
 const STORAGE_NOT_CONFIGURED = 'S3 storage is not configured. Set S3_BUCKET (and AWS credentials) to enable file uploads.';
 
 // Resolve which named account (or legacy client) a storage call targets.
@@ -1364,6 +1377,19 @@ const storage = {
       getPublicUrl(fileName) {
         if (!s3) return { data: { publicUrl: '' } };
         return { data: { publicUrl: `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${s3Key(b, fileName)}` } };
+      },
+      // Server-side read of a private object. getPublicUrl() yields an
+      // unauthenticated URL that 403s for any bucket not world-readable, so
+      // anything the backend needs to re-read (e.g. a certificate template it
+      // uploaded itself) has to come through the credentials rather than HTTP.
+      async download(fileName) {
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+        try {
+          const res = await s3.client.send(new GetObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, fileName) }));
+          return { data: await s3BodyToBuffer(res.Body), error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_DOWNLOAD_FAILED' } };
+        }
       },
       async remove(paths) {
         const list = Array.isArray(paths) ? paths : [paths];
