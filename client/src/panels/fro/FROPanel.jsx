@@ -937,17 +937,6 @@ useEffect(() => onFroAction((action) => {
   }, [froBroadcast]);
   const broadcastTeams = sortTeamBroadcasts(froBroadcast?.teams);
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: (row) => {
-      if (row?.type === 'suspense_alert') {
-        ringSuspenseAlert(row);
-      }
-      loadNotifications();
-    },
-    enabled: !!user?.id,
-  });
-
   const refreshWaUnread = useCallback(async () => {
     try {
       const token = localStorage.getItem('ucs_token')

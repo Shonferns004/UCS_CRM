@@ -82,12 +82,6 @@ export default function RangeRulePopup() {
     } catch { /* ignore */ }
   };
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: (row) => show(row),
-    enabled: !!user?.id,
-  });
-
   useEffect(() => {
     load();
     const t = setInterval(load, 20000);

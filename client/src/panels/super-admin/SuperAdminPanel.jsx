@@ -213,12 +213,6 @@ function PageShell({ children }) {
     requestNotifPermission();
   }, [user?.id]);
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadNotifications(),
-    enabled: !!user?.id,
-  });
-
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)

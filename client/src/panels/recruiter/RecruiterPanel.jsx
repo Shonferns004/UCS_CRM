@@ -99,11 +99,6 @@ function AppShell() {
     requestNotifPermission();
   }, [user?.id]);
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadNotifications(),
-    enabled: !!user?.id,
-  });
   const recruiter = useRec()
   const meta = NAV.find(n => location.pathname === n.path) || NAV[0]
   const name = user?.name || 'User'
