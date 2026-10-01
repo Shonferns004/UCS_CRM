@@ -43,6 +43,11 @@ const OBS_META = {
   religious:  { label: 'Religious',    color: '#8b5cf6', icon: '🕉️' },
 }
 const OBS_SCOPE = { worldwide: { label: 'Worldwide', icon: '🌍' }, india: { label: 'India', icon: '🇮🇳' } }
+
+/* How many observance rows a single day cell shows before collapsing the rest
+   into a "+N more" chip. Two keeps the grid readable on a normal month view
+   while still fitting multi-observance dates such as 14 Nov. */
+const OBS_CHIPS_IN_CELL = 2
 const obsMeta = (kind) => OBS_META[kind] || OBS_META.observance
 
 /* ── Event category (derived client-side for coloring) ── */
@@ -582,7 +587,7 @@ export default function MonthlyPlanner() {
   const [loading, setLoading] = useState(false)
   const [loadKey, setLoadKey] = useState(0)
 
-  const initialDate = searchParams.get('date') || undefined
+  const initialDate = searchParams.get('date') || (searchParams.get('month') ? `${searchParams.get('month')}-01` : undefined)
   const initialDateRef = useRef(initialDate)
   const [range, setRange] = useState(null)
   /* Filters */
@@ -1019,46 +1024,67 @@ export default function MonthlyPlanner() {
     : `${MONTHS[today.getMonth()]} ${today.getFullYear()}`
 
   /* Compact observance strip inside each day cell.
-     Uses dayCellDidMount and appends into the cell's own DOM rather than the
-     dayCellContent hook: that hook only exposes `dayNumberContent` in some
-     dayGrid configurations (it is undefined in others, e.g. other views/plugins),
-     and returning `{html}` from it also wipes the day number. `arg.el` and
-     `arg.dateStr` are always present, so this is safe in every view.
-     Clicks are delegated to handleCalendarClick via data-obs-date. */
-  const dayCellDidMount = (arg) => {
-    const cell = arg.el
-    if (!cell || !arg.dateStr) return
-    cell.querySelector('.eh-obs-strip')?.remove()
-    const chips = obsFor(arg.dateStr)
-    if (!chips.length) return
-    const strip = document.createElement('div')
-    strip.className = 'eh-obs-strip'
-    for (const o of chips) {
-      const m = obsMeta(o.kind)
-      const sc = (OBS_SCOPE[o.scope] || OBS_SCOPE.worldwide).icon
-      const tip = o.precision === 'lunar' ? ' (lunar date — confirm against the gazette)' : ''
-      const chip = document.createElement('span')
-      chip.className = 'eh-obs-chip'
-      chip.dataset.obsDate = arg.dateStr
-      chip.style.setProperty('--obs-c', m.color)
-      chip.title = `${sc} ${o.name}${tip} — click to plan a programme`
-      chip.textContent = `${m.icon} ${o.name}`
-      strip.appendChild(chip)
-    }
-    cell.appendChild(strip)
-  }
 
-  const dayCellWillUnmount = (arg) => {
-    arg.el?.querySelector('.eh-obs-strip')?.remove()
-  }
+     Rendered through `dayCellContent`, which is the React-native hook — the
+     content is part of React's tree, so it re-renders by itself when the
+     observance data arrives or the scope changes.
 
-  /* Observances arrive after the grid is already drawn, and the strip is painted
-     by didMount rather than by the event pipeline — so re-render the view
-     whenever the underlying data or the toggle changes. */
-  useEffect(() => {
-    const api = calRef.current?.getApi?.()
-    if (api) api.render()
-  }, [obs.byDate, showObs, scope])
+     The previous implementation used `dayCellDidMount` and built the chips by
+     hand with document.createElement. That never produced a single chip:
+     FullCalendar 6 does not put a `dateStr` on this hook's argument, so the
+     guard `if (!arg.dateStr) return` bailed out on every single cell and the
+     "Important Days" listed in the side panel appeared nowhere on the grid.
+
+     The date key therefore comes from `arg.date`, not `arg.dateStr`, and it is
+     built from the LOCAL year/month/day parts. toISOString() must not be used
+     here: in IST midnight is 18:30 UTC the previous day, which silently moved
+     every observance onto the cell above its own.
+
+     It reads the same `obs.byDate` the side panel renders from, so the panel and
+     the grid can never disagree. */
+  const dayCellContent = (arg) => {
+    const key = toYmd(arg.date)
+    const chips = showObs ? (obs.byDate[key] || []) : []
+    const shown = chips.slice(0, OBS_CHIPS_IN_CELL)
+    const extra = chips.length - shown.length
+    return (
+      /* FullCalendar renders dayCellContent *inside* its own
+         .fc-daygrid-day-number element, which is a shrink-to-fit flex item.
+         Wrapping the number and the strip here is what keeps them stacked with
+         the date on top and the chips spanning the full cell width. */
+      <div className="eh-obs-cell">
+        <span className="eh-obs-num">{arg.date.getDate()}</span>
+        {!!chips.length && (
+          <div className="eh-obs-strip">
+            {shown.map((o) => {
+              const m = obsMeta(o.kind)
+              const sc = (OBS_SCOPE[o.scope] || OBS_SCOPE.worldwide)
+              const tip = o.precision === 'lunar' ? ' (lunar date — confirm against the gazette)' : ''
+              return (
+                <span
+                  key={`${key}|${o.name}`}
+                  className="eh-obs-chip"
+                  data-obs-date={key}
+                  style={{ '--obs-c': m.color }}
+                  title={`${sc.icon} ${sc.label} · ${m.label}${tip} — click to plan a programme`}
+                >
+                  {sc.icon} {o.name}
+                </span>
+              )
+            })}
+            {extra > 0 && (
+              /* Still carries data-obs-date, so clicking "+N more" opens the day
+                 box listing every observance on that date. */
+              <span className="eh-obs-chip eh-obs-more" data-obs-date={key}
+                title={`${extra} more important day${extra > 1 ? 's' : ''} on this date — click to see all`}>
+                +{extra} more
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   /* Group the visible month's observances by day for the side list. */
   const monthGroups = useMemo(() => {
@@ -1216,8 +1242,7 @@ export default function MonthlyPlanner() {
               moreLinkContent={(arg) => `${arg.num} more`}
               nowIndicator
               events={groupedEvents}
-              dayCellDidMount={dayCellDidMount}
-              dayCellWillUnmount={dayCellWillUnmount}
+              dayCellContent={dayCellContent}
               eventClassNames={(arg) => {
                 const p = arg.event.extendedProps || {}
                 return ['ev-status-' + (p.status || ''), 'ev-cat-' + (p.category || 'other')].filter(Boolean)
