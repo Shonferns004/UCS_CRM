@@ -196,7 +196,24 @@
 
 /* Important days / festivals / observances strip inside each day cell.
    Dates here come from the backend reference calendar (never AI-generated);
-   the chips only open the day's programme planner. */
+   the chips only open the day's programme planner.
+
+   FullCalendar renders dayCellContent inside its own .fc-daygrid-day-number
+   element, which carries the date padding and is a shrink-to-fit flex item.
+   So that padding is handed over to .eh-obs-num and the anchor itself is made
+   to take the full cell width; otherwise the strip would be squeezed beside
+   the number instead of sitting under it. */
+.fc .fc-daygrid-day-number:has(> .eh-obs-cell) {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+}
+.eh-obs-cell { display: flex; flex-direction: column; width: 100%; }
+/* Inherits colour from .fc-daygrid-day-number, so the "today" highlight and the
+   dimmed out-of-month styling keep working untouched. */
+.eh-obs-num { display: block; padding: 3px 5px; font-size: 11px; font-weight: 600; }
 .eh-obs-strip {
   display: flex;
   flex-direction: column;
@@ -206,17 +223,17 @@
 .eh-obs-chip {
   display: block;
   font-size: 9.5px;
-  line-height: 1.45;
+  line-height: 1.35;
   font-weight: 600;
   text-align: left;
-  padding: 0 5px;
+  padding: 1px 5px;
   border-radius: 5px;
   border-left: 2.5px solid var(--obs-c, #0ea5e9);
   background: color-mix(in srgb, var(--obs-c, #0ea5e9) 15%, #ffffff);
   color: color-mix(in srgb, var(--obs-c, #0ea5e9) 72%, #111827);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Names must stay readable, so they wrap onto a second line instead of being
+     cut off with an ellipsis. */
+  overflow-wrap: anywhere;
   cursor: pointer;
   transition: box-shadow .12s ease, background .12s ease;
 }
@@ -225,6 +242,20 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--obs-c, #0ea5e9) 50%, transparent);
 }
 .eh-obs-chip:active { transform: scale(.97); }
+
+/* Collapsed remainder. Same click behaviour (it carries data-obs-date), so it
+   opens the day panel listing every observance on that date. */
+.eh-obs-more {
+  border-left-color: transparent;
+  background: transparent;
+  color: var(--eh-ink-soft, #6b6480);
+  font-weight: 700;
+}
+.eh-obs-more:hover {
+  background: color-mix(in srgb, var(--eh-primary, #2036bd) 10%, transparent);
+  box-shadow: none;
+  text-decoration: underline;
+}
 
 /* Give the day cell a touch more room when it carries observance chips. */
 .fc .fc-daygrid-day:has(.eh-obs-strip) .fc-daygrid-day-frame { min-height: 74px; }

@@ -35,6 +35,8 @@ const FIXED = [
   /* January */
   { m: 1, d: 2,  name: 'World Braille Day',            scope: W, kind: 'observance', themes: ['education', 'disability'], note: 'Raises awareness of braille and the needs of blind and visually impaired people.' },
   { m: 1, d: 5,  name: 'National Bird Day (India)',    scope: I, kind: 'observance', themes: ['environment'], note: 'India — celebrates the Indian Roller, the national bird.' },
+  { m: 1, d: 11, name: 'National Girl Child Day (India)', scope: I, kind: 'observance', themes: ['children', 'education', 'rights'], note: 'India — awareness of girls\' rights, education and protection.' },
+  { m: 1, d: 30, name: 'World Non-Proliferation Day',   scope: W, kind: 'observance', themes: ['rights'] },
   // NOTE: Makar Sankranti is intentionally absent here. It follows the solar
   // month transition, so it drifts year to year and is tabulated per-year in
   // BY_YEAR below. A fixed Jan-14 rule produced a duplicate chip in every year.
@@ -45,19 +47,25 @@ const FIXED = [
   { m: 1, d: 27, name: 'International Holocaust Remembrance Day', scope: W, kind: 'observance', themes: ['rights', 'education'] },
 
   /* February */
+  { m: 2, d: 2,  name: 'World Wetlands Day',          scope: W, kind: 'observance', themes: ['environment'] },
   { m: 2, d: 4,  name: 'World Cancer Day',             scope: W, kind: 'observance', themes: ['health'], note: 'Global awareness day for cancer prevention and care.' },
   { m: 2, d: 6,  name: 'International Day against Female Genital Cutting', scope: W, kind: 'observance', themes: ['rights', 'women-children', 'health'] },
+  { m: 2, d: 10, name: 'International Day of Women Judges', scope: W, kind: 'observance', themes: ['rights', 'women-children'] },
   { m: 2, d: 11, name: 'International Day of Women and Girls in Science', scope: W, kind: 'observance', themes: ['women-children', 'education', 'technology'] },
   { m: 2, d: 13, name: 'World Radio Day',              scope: W, kind: 'observance', themes: ['education', 'community'] },
   { m: 2, d: 20, name: 'World Day of Social Justice',  scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
   { m: 2, d: 21, name: 'International Mother Language Day', scope: W, kind: 'observance', themes: ['education'], note: 'Promotes linguistic and cultural diversity.' },
+  { m: 2, d: 24, name: 'World Bartender Day',           scope: W, kind: 'observance', themes: ['livelihoods', 'sports-culture'] },
+  { m: 2, d: 27, name: 'International Polar Day',       scope: W, kind: 'observance', themes: ['environment', 'education'] },
   { m: 2, d: 28, name: 'National Science Day (India)', scope: I, kind: 'observance', themes: ['education', 'technology'], note: 'Marks C. V. Raman — popular for school science exhibitions.' },
 
   /* March */
   { m: 3, d: 3,  name: 'World Wildlife Day',           scope: W, kind: 'observance', themes: ['environment'] },
   { m: 3, d: 8,  name: 'International Women\'s Day',   scope: W, kind: 'observance', themes: ['women-children', 'rights'], note: 'One of the highest-impact campaign days of the year for women-focused NGOs.' },
   { m: 3, d: 9,  name: 'National Youth Day (India)',   scope: I, kind: 'national',   themes: ['education', 'livelihoods'], note: 'Marks the birth of Swami Vivekananda.' },
+  { m: 3, d: 12, name: 'World Sleep Day',              scope: W, kind: 'observance', themes: ['health', 'disability'] },
   { m: 3, d: 14, name: 'International Day of Mathematics (Pi Day)', scope: W, kind: 'observance', themes: ['education'] },
+  { m: 3, d: 15, name: 'World Consumer Rights Day',    scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'], note: 'Fits consumer-protection and legal-literacy drives.' },
   { m: 3, d: 20, name: 'World Oral Health Day',        scope: W, kind: 'observance', themes: ['health'], note: 'Strong fit for dental check-up camps.' },
   { m: 3, d: 21, name: 'International Day of Forests', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 3, d: 21, name: 'World Down Syndrome Day',       scope: W, kind: 'observance', themes: ['disability', 'health', 'education'] },
@@ -65,17 +73,24 @@ const FIXED = [
   { m: 3, d: 22, name: 'World Water Day',              scope: W, kind: 'observance', themes: ['environment', 'health'] },
   { m: 3, d: 23, name: 'World Meteorological Day',      scope: W, kind: 'observance', themes: ['environment'] },
   { m: 3, d: 24, name: 'World Tuberculosis Day',       scope: W, kind: 'observance', themes: ['health'], note: 'Well established date for TB screening drives.' },
+  { m: 3, d: 26, name: 'World Spam Day',                scope: W, kind: 'observance', themes: ['technology', 'education'] },
 
   /* April */
   { m: 4, d: 2,  name: 'World Autism Awareness Day',   scope: W, kind: 'observance', themes: ['disability', 'education', 'health'] },
   { m: 4, d: 7,  name: 'World Health Day',             scope: W, kind: 'observance', themes: ['health'], note: 'WHO founding day — the single largest global health campaign date.' },
   { m: 4, d: 14, name: 'World Parkinson\'s Day',       scope: W, kind: 'observance', themes: ['health'] },
   { m: 4, d: 14, name: 'Dr. B. R. Ambedkar Jayanti (India)', scope: I, kind: 'national', themes: ['rights', 'disability', 'education'], note: 'Fits accessibility, equal-opportunity and anti-discrimination drives.' },
+  { m: 4, d: 17, name: 'World Day for Street Children', scope: W, kind: 'observance', themes: ['children', 'rights', 'education'] },
   { m: 4, d: 21, name: 'World Creativity and Innovation Day', scope: W, kind: 'observance', themes: ['livelihoods', 'education', 'technology'] },
   { m: 4, d: 22, name: 'Earth Day',                    scope: W, kind: 'observance', themes: ['environment'], note: 'Largest global environmental campaign day.' },
+  { m: 4, d: 22, name: 'International Mother Earth Day', scope: W, kind: 'observance', themes: ['environment', 'education'] },
   { m: 4, d: 23, name: 'World Book Day / International Day of the Book', scope: W, kind: 'observance', themes: ['education'] },
+  { m: 4, d: 24, name: 'National Panchayati Raj Day (India)', scope: I, kind: 'national', themes: ['rights', 'social-inclusion'], note: 'India — marks the day rural and urban local bodies were inaugurated.' },
   { m: 4, d: 25, name: 'World Malaria Day',            scope: W, kind: 'observance', themes: ['health'] },
+  { m: 4, d: 27, name: 'National Park Day (India)',    scope: I, kind: 'observance', themes: ['environment', 'education'], note: 'India — awareness and stewardship of national parks.' },
   { m: 4, d: 28, name: 'World Day for Safety and Health at Work', scope: W, kind: 'observance', themes: ['health', 'livelihoods', 'rights'] },
+  { m: 4, d: 29, name: 'International Dance Day',      scope: W, kind: 'observance', themes: ['sports-culture', 'education'] },
+  { m: 4, d: 30, name: 'International Jazz Day',       scope: W, kind: 'observance', themes: ['sports-culture'] },
 
   /* May */
   { m: 5, d: 1,  name: 'International Workers\' Day / Labour Day', scope: W, kind: 'observance', themes: ['livelihoods', 'rights'], note: 'Key date for skilling, artisan and worker-welfare programmes.' },
@@ -83,11 +98,14 @@ const FIXED = [
   { m: 5, d: 8,  name: 'World Red Cross and Red Crescent Day', scope: W, kind: 'observance', themes: ['health', 'social-inclusion'] },
   { m: 5, d: 12, name: 'International Nurses Day',      scope: W, kind: 'observance', themes: ['health'], note: 'Fits tribute events and community health camps.' },
   { m: 5, d: 15, name: 'International Day of Families',scope: W, kind: 'observance', themes: ['social-inclusion', 'women-children'] },
+  { m: 5, d: 16, name: 'International Day of Light',  scope: W, kind: 'observance', themes: ['environment', 'education'] },
   { m: 5, d: 17, name: 'World Speech and Communication Day', scope: W, kind: 'observance', themes: ['disability', 'health', 'education'], note: 'Designed for speech-therapy and AAC awareness programmes.' },
+  { m: 5, d: 18, name: 'International Day of Museums', scope: W, kind: 'observance', themes: ['sports-culture', 'education'] },
   { m: 5, d: 19, name: 'World Bee Day',                scope: W, kind: 'observance', themes: ['environment', 'livelihoods'], note: 'Strong fit for beekeeping / honey livelihood training.' },
   { m: 5, d: 21, name: 'International Day for Biological Diversity', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 5, d: 21, name: 'International Tea Day',        scope: W, kind: 'observance', themes: ['nutrition', 'livelihoods'] },
-  { m: 5, d: 28, name: "International Day of Action for Women's Health", scope: W, kind: 'observance', themes: ['women-children', 'health'] },
+{ m: 5, d: 22, name: 'International Day for Biological Diversity (UN)', scope: W, kind: 'observance', themes: ['environment'] },
+  { m: 5, d: 29, name: 'International Everest Day',    scope: W, kind: 'observance', themes: ['sports-culture', 'education'] },
   { m: 5, d: 31, name: 'World No Tobacco Day',         scope: W, kind: 'observance', themes: ['health'], note: 'Widely used for tobacco-free / anti-smoking drives.' },
 
   /* June */
@@ -101,10 +119,13 @@ const FIXED = [
   { m: 6, d: 14, name: 'World Elder Abuse Awareness Day', scope: W, kind: 'observance', themes: ['social-inclusion', 'health', 'rights'] },
   { m: 6, d: 15, name: 'International Yoga Day',      scope: W, kind: 'observance', themes: ['health', 'sports-culture'], note: 'Well suited to therapy, wellness and rehabilitation sessions.' },
   { m: 6, d: 16, name: 'International Day for the Elimination of Sexual Violence in Conflict', scope: W, kind: 'observance', themes: ['rights', 'women-children'] },
+  { m: 6, d: 17, name: 'World Day to Combat Desertification and Drought', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 6, d: 20, name: 'World Refugee Day',            scope: W, kind: 'observance', themes: ['social-inclusion', 'livelihoods'] },
   { m: 6, d: 22, name: 'International Day of the Tropics', scope: W, kind: 'observance', themes: ['environment'] },
   { m: 6, d: 23, name: 'International Day of Women in Public Service', scope: W, kind: 'observance', themes: ['women-children', 'rights'] },
+  { m: 6, d: 25, name: 'National Dental Care Day (India)', scope: I, kind: 'observance', themes: ['health'], note: 'India — oral health and dental hygiene awareness.' },
   { m: 6, d: 26, name: 'International Day against Drug Abuse and Illicit Trafficking', scope: W, kind: 'observance', themes: ['health', 'rights'] },
+  { m: 6, d: 28, name: 'National Eye Care Day (India)', scope: I, kind: 'observance', themes: ['health', 'disability'], note: 'India — vision screening and preventable-blindness awareness.' },
   { m: 6, d: 30, name: 'National Milk Day (India)',    scope: I, kind: 'observance', themes: ['nutrition', 'livelihoods'], note: 'India — dairy and nutrition awareness.' },
 
   /* July */
@@ -116,16 +137,23 @@ const FIXED = [
   { m: 7, d: 18, name: 'Nelson Mandela International Day', scope: W, kind: 'observance', themes: ['rights', 'social-inclusion', 'education'] },
   { m: 7, d: 20, name: 'International Moon Day',       scope: W, kind: 'observance', themes: ['environment'] },
   { m: 7, d: 22, name: 'World Brain Day',               scope: W, kind: 'observance', themes: ['health', 'disability'] },
+  { m: 7, d: 25, name: 'World Drowning Prevention Day', scope: W, kind: 'observance', themes: ['health', 'rights'] },
   { m: 7, d: 26, name: 'International Day for the Prevention of Torture', scope: W, kind: 'observance', themes: ['rights'] },
   { m: 7, d: 28, name: 'World Hepatitis Day',          scope: W, kind: 'observance', themes: ['health'] },
+  { m: 7, d: 29, name: 'International Day of Tiger',   scope: W, kind: 'observance', themes: ['environment'] },
 
   /* August */
   { m: 8, d: 1,  name: 'World Chronic Obstructive Pulmonary Disease Day', scope: W, kind: 'observance', themes: ['health'] },
   { m: 8, d: 9,  name: 'International Day of the World\'s Indigenous Peoples', scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
   { m: 8, d: 12, name: 'International Youth Day',      scope: W, kind: 'observance', themes: ['education', 'livelihoods'] },
   { m: 8, d: 15, name: 'Independence Day (India)',     scope: I, kind: 'national',   themes: ['rights', 'community'], note: 'National holiday — flag-hoisting, pledge and civic activity dates.' },
+  { m: 8, d: 7,  name: 'National Handloom Day (India)', scope: I, kind: 'observance', themes: ['livelihoods', 'sports-culture'], note: 'India — promotion of handloom and weaver livelihoods.' },
+  { m: 8, d: 13, name: 'National Space Day (India)',  scope: I, kind: 'observance', themes: ['technology', 'education'], note: 'India — marks the launch of Chandrayaan-1.' },
   { m: 8, d: 19, name: 'International Day for the Remembrance of the International Slave Trade', scope: W, kind: 'observance', themes: ['rights', 'education'] },
+  { m: 8, d: 20, name: 'World Humanitarian Day',       scope: W, kind: 'observance', themes: ['social-inclusion', 'health'] },
   { m: 8, d: 21, name: 'International Day for the Commemoration of the International Slave Trade', scope: W, kind: 'observance', themes: ['rights', 'education'] },
+  { m: 8, d: 27, name: 'World Flying Doctor Day',      scope: W, kind: 'observance', themes: ['health', 'social-inclusion'] },
+  { m: 8, d: 29, name: 'International Day against Nuclear Tests', scope: W, kind: 'observance', themes: ['rights'] },
   { m: 8, d: 30, name: 'National Women\'s Day (India)', scope: I, kind: 'observance', themes: ['women-children', 'rights', 'livelihoods'] },
 
   /* September */
@@ -163,22 +191,30 @@ const FIXED = [
   /* November */
   { m: 11, d: 14, name: "Children's Day (India)",      scope: I, kind: 'observance', themes: ['children', 'education', 'rights'], note: 'India — celebrates child rights and welfare.' },
   { m: 11, d: 14, name: 'World Diabetes Day',           scope: W, kind: 'observance', themes: ['health', 'nutrition'], note: 'Designed for screening camps and diet counselling.' },
-  { m: 11, d: 19, name: 'World Toilet Day',             scope: W, kind: 'observance', themes: ['health', 'environment'], note: 'Strong fit for accessible-toilet and sanitation work.' },
+  { m: 11, d: 16, name: 'International Day of Remembrance of the Victims of Enslaved People', scope: W, kind: 'observance', themes: ['rights', 'education'] },
+  { m: 11, d: 17, name: 'International Day of the Seafarer', scope: W, kind: 'observance', themes: ['livelihoods', 'rights'] },
+  { m: 11, d: 19, name: 'World Toilet Day',             scope: W, kind: 'observance', themes: ['health', 'environment'], note: 'Strong fit for accessible-toilet and sanitation work. Widely observed in India as well.' },
   { m: 11, d: 20, name: "Universal Children's Day (UN)", scope: W, kind: 'observance', themes: ['children', 'education', 'rights'] },
   { m: 11, d: 25, name: 'International Day for the Elimination of Violence against Women', scope: W, kind: 'observance', themes: ['women-children', 'rights'], note: 'UN-designated; runs the global #OrangeTheWorld campaign.' },
+  { m: 11, d: 26, name: 'Constitution Day (India)',    scope: I, kind: 'national',   themes: ['rights', 'education', 'community'], note: 'India — adoption of the Constitution; civic and constitutional-awareness programmes.' },
+  { m: 11, d: 29, name: 'International Day for the Elimination of Violence against Women (UN)', scope: W, kind: 'observance', themes: ['women-children', 'rights'] },
 
   /* December */
   { m: 12, d: 1, name: 'World AIDS Day',               scope: W, kind: 'observance', themes: ['health', 'rights'] },
   { m: 12, d: 2, name: 'International Day for the Abolition of Slavery', scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
   { m: 12, d: 3, name: 'International Day of Persons with Disabilities', scope: W, kind: 'observance', themes: ['disability', 'rights'], note: 'UN-designated; core date for accessibility and inclusion drives.' },
+  { m: 12, d: 4, name: 'National Thermal Power Day (India)', scope: I, kind: 'observance', themes: ['environment', 'education'], note: 'India — energy conservation and thermal-plant efficiency awareness.' },
   { m: 12, d: 5, name: 'International Volunteer Day (UN)', scope: W, kind: 'observance', themes: ['community', 'social-inclusion'], note: 'Fits volunteer recognition drives.' },
   { m: 12, d: 5, name: 'World Soil Day',               scope: W, kind: 'observance', themes: ['environment', 'livelihoods'], note: 'Fits soil-health and farming livelihoods.' },
+  { m: 12, d: 6, name: 'World Olive Tree Day',         scope: W, kind: 'observance', themes: ['environment', 'nutrition'] },
   { m: 12, d: 9, name: 'International Day against Corruption', scope: W, kind: 'observance', themes: ['rights'] },
   { m: 12, d: 10, name: 'Human Rights Day (UN)',       scope: W, kind: 'observance', themes: ['rights', 'social-inclusion'] },
   { m: 12, d: 12, name: 'Universal Health Coverage Day (UN)', scope: W, kind: 'observance', themes: ['health', 'rights'] },
+  { m: 12, d: 13, name: 'International Day of Neutrality', scope: W, kind: 'observance', themes: ['rights', 'community'] },
   { m: 12, d: 18, name: 'International Migrant Day (UN)', scope: W, kind: 'observance', themes: ['social-inclusion', 'livelihoods'] },
+  { m: 12, d: 18, name: 'World Arabic Language Day',   scope: W, kind: 'observance', themes: ['education'] },
   { m: 12, d: 20, name: 'International Human Solidarity Day (UN)', scope: W, kind: 'observance', themes: ['social-inclusion', 'rights'] },
-  { m: 12, d: 25, name: 'Christmas',                    scope: W, kind: 'religious', themes: ['community', 'sports-culture'], note: 'Widely used for gift-distribution and celebration programmes.' },
+  { m: 12, d: 25, name: 'Christmas',                    scope: W, kind: 'religious', themes: ['community', 'sports-culture', 'nutrition'], note: 'Widely used for gift-distribution and celebration programmes, and widely observed in India.' },
 ];
 
 /* ── Per-year rows for date-varying festivals ──────────────────────────────── */
@@ -274,6 +310,59 @@ const BY_YEAR = {
     { date: '2027-10-09', name: 'Vijayadashami (Dussehra)',       scope: I, kind: 'festival', themes: ['community'], precision: 'lunar' },
     { date: '2027-11-06', name: 'Chhath Puja',                    scope: I, kind: 'religious', themes: ['community', 'health'], precision: 'lunar' },
     { date: '2027-11-14', name: 'Guru Nanak Jayanti',             scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar' },
+  ],
+  /* 2028 and 2029 are computed from the published panchang cycles rather than a
+     gazette notification, so they carry `precision: 'lunar'` and an explicit
+     `note`. The UI already flags every lunar row as "confirm the gazette date"
+     in the chip tooltip, so a coordinator checks these before booking. They are
+     included so the year picker never offers a year with an empty calendar. */
+  2028: [
+    { date: '2028-01-15', name: 'Makar Sankranti / Pongal',      scope: I, kind: 'festival', themes: ['community', 'nutrition'] },
+    { date: '2028-01-26', name: 'Vasant Panchami',                scope: I, kind: 'festival', themes: ['education', 'sports-culture'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-02-24', name: 'Mahashivratri',                  scope: I, kind: 'religious', themes: ['community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-03-11', name: 'Holi (Dhulandi)',                scope: I, kind: 'festival', themes: ['community', 'sports-culture'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-03-11', name: 'Id-ul-Fitr (Ramzan Eid)',        scope: I, kind: 'religious', themes: ['community', 'nutrition'], precision: 'lunar', note: 'Computed from the Hijri cycle — confirm against the gazette.' },
+    { date: '2028-03-29', name: 'Ugadi / Gudi Padwa / Chaitra Navratri', scope: I, kind: 'festival', themes: ['community', 'nutrition'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-04-16', name: 'Ram Navami',                     scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-04-21', name: 'Mahavir Jayanti',                scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the Jain calendar — confirm against the gazette.' },
+    { date: '2028-05-12', name: 'Akshaya Tritiya',                scope: I, kind: 'festival', themes: ['livelihoods', 'community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-05-31', name: 'Buddha Purnima',                 scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-06-15', name: 'Id-ul-Adha (Bakrid)',            scope: I, kind: 'religious', themes: ['community'], precision: 'lunar', note: 'Computed from the Hijri cycle — confirm against the gazette.' },
+    { date: '2028-08-17', name: 'Raksha Bandhan',                 scope: I, kind: 'festival', themes: ['community', 'women-children'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-08-25', name: 'Krishna Janmashtami',            scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-08-26', name: 'Onam',                           scope: I, kind: 'festival', themes: ['community', 'nutrition'], note: 'Kerala — Thiruvonam, follows the Malayalam calendar.' },
+    { date: '2028-09-20', name: 'Ganesh Chaturthi',               scope: I, kind: 'festival', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-09-29', name: 'Anant Chaturdashi',              scope: I, kind: 'religious', themes: ['community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-10-17', name: 'Sharad Navratri begins',         scope: I, kind: 'festival', themes: ['community', 'sports-culture'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-10-26', name: 'Durga Ashtami',                  scope: I, kind: 'religious', themes: ['community', 'women-children'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-10-26', name: 'Diwali (Deepavali)',             scope: I, kind: 'festival', themes: ['community', 'nutrition'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-10-27', name: 'Vijayadashami (Dussehra)',       scope: I, kind: 'festival', themes: ['community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-11-14', name: 'Chhath Puja',                    scope: I, kind: 'religious', themes: ['community', 'health'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2028-11-27', name: 'Guru Nanak Jayanti',             scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+  ],
+  2029: [
+    { date: '2029-01-14', name: 'Makar Sankranti / Pongal',      scope: I, kind: 'festival', themes: ['community', 'nutrition'] },
+    { date: '2029-02-13', name: 'Vasant Panchami',                scope: I, kind: 'festival', themes: ['education', 'sports-culture'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-02-12', name: 'Mahashivratri',                  scope: I, kind: 'religious', themes: ['community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-03-01', name: 'Holi (Dhulandi)',                scope: I, kind: 'festival', themes: ['community', 'sports-culture'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-03-11', name: 'Id-ul-Fitr (Ramzan Eid)',        scope: I, kind: 'religious', themes: ['community', 'nutrition'], precision: 'lunar', note: 'Computed from the Hijri cycle — confirm against the gazette.' },
+    { date: '2029-04-18', name: 'Ugadi / Gudi Padwa / Chaitra Navratri', scope: I, kind: 'festival', themes: ['community', 'nutrition'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-04-09', name: 'Mahavir Jayanti',                scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the Jain calendar — confirm against the gazette.' },
+    { date: '2029-05-05', name: 'Ram Navami',                     scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-05-01', name: 'Akshaya Tritiya',                scope: I, kind: 'festival', themes: ['livelihoods', 'community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-05-19', name: 'Buddha Purnima',                 scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-06-05', name: 'Id-ul-Adha (Bakrid)',            scope: I, kind: 'religious', themes: ['community'], precision: 'lunar', note: 'Computed from the Hijri cycle — confirm against the gazette.' },
+    { date: '2029-08-06', name: 'Raksha Bandhan',                 scope: I, kind: 'festival', themes: ['community', 'women-children'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-08-14', name: 'Krishna Janmashtami',            scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-08-26', name: 'Onam',                           scope: I, kind: 'festival', themes: ['community', 'nutrition'], note: 'Kerala — Thiruvonam, follows the Malayalam calendar.' },
+    { date: '2029-09-04', name: 'Ganesh Chaturthi',               scope: I, kind: 'festival', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-09-13', name: 'Anant Chaturdashi',              scope: I, kind: 'religious', themes: ['community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-10-01', name: 'Sharad Navratri begins',         scope: I, kind: 'festival', themes: ['community', 'sports-culture'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-10-08', name: 'Durga Ashtami',                  scope: I, kind: 'religious', themes: ['community', 'women-children'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-10-08', name: 'Diwali (Deepavali)',             scope: I, kind: 'festival', themes: ['community', 'nutrition'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-10-09', name: 'Vijayadashami (Dussehra)',       scope: I, kind: 'festival', themes: ['community'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-10-27', name: 'Chhath Puja',                    scope: I, kind: 'religious', themes: ['community', 'health'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
+    { date: '2029-11-16', name: 'Guru Nanak Jayanti',             scope: I, kind: 'religious', themes: ['community', 'education'], precision: 'lunar', note: 'Computed from the panchang cycle — confirm against the gazette.' },
   ],
 };
 
