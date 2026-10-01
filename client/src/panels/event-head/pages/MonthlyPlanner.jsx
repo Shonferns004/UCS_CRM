@@ -144,7 +144,13 @@ function ModalShell({ title, onClose, children, footer }) {
           <h3 style={{ flex: 1, fontSize: 16, fontWeight: 700, color: 'var(--eh-ink)' }}>{title}</h3>
           <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, border: 'none', borderRadius: 8, background: 'transparent', cursor: 'pointer', color: 'var(--eh-ink-soft)' }}>✕</button>
         </div>
-        <div style={{ flex: 1, overflow: 'auto', padding: '18px 20px', background: '#fff' }}>{children}</div>
+        {/* minHeight:0 is required, not cosmetic. `.panel-event-head .modal` is
+            overflow:hidden, so this div is the only thing that can scroll. A flex
+            child defaults to min-height:auto and refuses to shrink below its
+            content, which let the body grow past the max-height and get clipped —
+            content below the fold was unreachable with no scrollbar. Capping the
+            shrink is what makes overflow:auto actually take effect. */}
+        <div className="eh-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', padding: '18px 20px', background: '#fff' }}>{children}</div>
         {footer && <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid var(--eh-line)', background: '#fff' }}>{footer}</div>}
       </div>
     </div>
@@ -1096,8 +1102,96 @@ export default function MonthlyPlanner() {
     return [...map.entries()]
   }, [monthObservances])
 
+  /* Programmes already planned for the month in view, grouped by day. Same
+     event feed the grid draws from (filteredEvents), so a programme can never
+     be listed here without also appearing on the calendar. Read-only: clicking a
+     row opens the event, exactly like clicking its pill in the grid. */
+  const monthPrograms = useMemo(() => {
+    const y = cursor.y; const m0 = cursor.m
+    const map = new Map()
+    for (const ev of filteredEvents) {
+      const p = ev.extendedProps || {}
+      const day = String(p.date || ev.date || '').slice(0, 10)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue
+      const d = day.split('-')
+      if (Number(d[0]) !== y || Number(d[1]) - 1 !== m0) continue
+      if (!map.has(day)) map.set(day, [])
+      map.get(day).push({ ev, p })
+    }
+    // Soonest first, and stable within a day by time then title.
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [filteredEvents, cursor.y, cursor.m])
+
+  const ProgrammesPanel = (
+    <div className="card" style={{ marginBottom: 0 }}>
+      <div className="card-pad">
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+          <b style={{ fontSize: 14, color: 'var(--eh-ink)' }}>Programmes</b>
+          <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>{MONTHS[cursor.m]} {cursor.y}</span>
+          <button
+            type="button"
+            className="eh-btn eh-btn-sm"
+            style={{ marginLeft: 'auto' }}
+            title={`Create a programme in ${MONTHS[cursor.m]} ${cursor.y}`}
+            onClick={() => { setPreset(null); setCreateDate(`${cursor.y}-${String(cursor.m + 1).padStart(2, '0')}-01`); setCreateOpen(true) }}
+          >
+            + Add
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--eh-ink-faint)', marginBottom: 12 }}>
+          {monthPrograms.length
+            ? `${monthPrograms.reduce((n, [, items]) => n + items.length, 0)} planned on ${monthPrograms.length} ${monthPrograms.length === 1 ? 'day' : 'days'}`
+            : `Nothing planned in ${MONTHS[cursor.m]} yet.`}
+        </div>
+
+        {monthPrograms.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--eh-ink-soft)', lineHeight: 1.55 }}>
+            No programmes scheduled this month. Click a day on the grid, or use <b>+ Add</b> to create one.
+          </div>
+        ) : (
+          <div className="eh-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 460, overflow: 'auto' }}>
+            {monthPrograms.map(([day, items]) => (
+              <div key={day}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--eh-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+                  {ymdToLabel(day)}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {items.map(({ ev, p }) => {
+                    const m = CATEGORY_META[ev.category] || CATEGORY_META.other
+                    const time = String(p.startTime || '').slice(0, 5)
+                    return (
+                      <button
+                        key={ev.id}
+                        type="button"
+                        onClick={() => { setSelected(ev); setEditOpen(false) }}
+                        title={p.description || ev.title}
+                        style={{
+                          textAlign: 'left', cursor: 'pointer', width: '100%',
+                          border: '1px solid var(--eh-line)', borderLeft: `3px solid ${m.color}`,
+                          borderRadius: 9, padding: '8px 10px', background: '#fff',
+                        }}
+                      >
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)', lineHeight: 1.35 }}>{ev.title}</div>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
+                          {time && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: `${m.color}22`, color: m.color }}>{time}</span>}
+                          <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{m.icon} {m.label}</span>
+                          {p.ngoName && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{p.ngoName}</span>}
+                          {p.status && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--eh-tint-2)', color: 'var(--eh-ink-soft)' }}>{p.status}</span>}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
   const ImportantDaysPanel = (
-    <div className="card" style={{ marginBottom: 0, flex: '0 1 330px', minWidth: 0 }}>
+    <div className="card" style={{ marginBottom: 0 }}>
       <div className="card-pad">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
           <b style={{ fontSize: 14, color: 'var(--eh-ink)' }}>Important Days</b>
@@ -1133,8 +1227,10 @@ export default function MonthlyPlanner() {
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 460, overflow: 'auto' }}>
-          {monthGroups.map(([date, items]) => (
+{/* .eh-scroll keeps the Windows 11 overlay scrollbar permanently visible —
+              without it this list reads as content cut off with no way to drag. */}
+          <div className="eh-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 460, overflow: 'auto' }}>
+            {monthGroups.map(([date, items]) => (
             <div key={date}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--eh-ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
                 {ymdToLabel(date)}
@@ -1268,7 +1364,13 @@ export default function MonthlyPlanner() {
             />
           </div>
         </div>
-        {ImportantDaysPanel}
+        {/* Sidebar column: Programmes first (what we are planning), then Important
+            Days (what the calendar says about the month). Both keep their own
+            scrollbar, so a long month never pushes the grid off screen. */}
+        <div style={{ flex: '0 1 330px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {ProgrammesPanel}
+          {ImportantDaysPanel}
+        </div>
       </div>
 
       {dayPanel && !dayPanel.loading && (

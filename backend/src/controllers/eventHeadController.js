@@ -8,6 +8,14 @@ import {
   availableYears, allThemes, SUPPORTED_LUNAR_YEARS,
 } from '../utils/observances.js';
 import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
+import {
+  ACTIVITY_SUGGESTION_LIMIT,
+  buildActivityProgramPrompt,
+  isMonthYmd,
+  monthEndExclusive,
+  monthFirstDay,
+  parseActivityProgramSuggestions,
+} from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
 
 // ngo_id is deliberately NOT coerced to a number: ngos.id may be a UUID, so it
@@ -2525,6 +2533,230 @@ export const suggestDayPrograms = async (req, res) => {
     });
   } catch (error) {
     console.error('suggestDayPrograms error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── MONTHLY PLANNER: ACTIVITY-DRIVEN PROGRAMME SUGGESTIONS ───
+// The Monthly Planner picks an NGO, a month and an activity, then asks the model
+// what programmes that activity should run that month. This is the counterpart to
+// suggestDayPrograms above, which works the other way round (a day drives the
+// ideas). Two differences that matter:
+//
+//   * The activity is resolved from the DB here, so it never has to be echoed
+//     back. The model cannot invent an activity, and cannot disagree with us
+//     about which one is being planned.
+//   * Nothing date-shaped reaches the client. Dates come from the reference
+//     calendar only, and the planner assigns them when the user commits.
+//
+// The prompt, the parser and the month helpers all live in
+// utils/activityProgramPrompt.js so they can be unit tested without a database.
+export const suggestActivityPrograms = async (req, res) => {
+  try {
+    const month = String(req.body?.month || '').trim();
+    if (!isMonthYmd(month)) {
+      return res.status(400).json({ message: 'month is required as YYYY-MM' });
+    }
+
+    // activity_id is a SERIAL int. ngo_id is deliberately left as a string
+    // because ngos.id may be a UUID (see the numericFields note above).
+    const activityId = Number(req.body?.activity_id);
+    if (!Number.isInteger(activityId) || activityId <= 0) {
+      return res.status(400).json({ message: 'activity_id is required' });
+    }
+    const ngoIdRaw = req.body?.ngo_id;
+    const ngoId = ngoIdRaw === undefined || ngoIdRaw === null || ngoIdRaw === '' ? null : String(ngoIdRaw);
+
+    // ── Resolve the activity server-side. Its name is the only thing the model
+    //    is told, so it must never come from the request body.
+    const activity = await EventHead.getActivityById(activityId);
+    if (!activity) return res.status(404).json({ message: 'Activity not found' });
+
+    // An activity with a null ngo_id is shared across NGOs; anything else must
+    // belong to the requested NGO. Without this a client could pair one NGO with
+    // another NGO's activity and get confidently wrong suggestions.
+    const activityNgoId = activity.ngo_id === null || activity.ngo_id === undefined ? null : String(activity.ngo_id);
+    if (ngoId && activityNgoId && activityNgoId !== ngoId) {
+      return res.status(400).json({ message: 'That activity does not belong to the selected NGO' });
+    }
+
+    const [sectors, ngoRow] = await Promise.all([
+      EventHead.getAllEventHeadSectors().catch(() => []),
+      ngoId ? EventHead.getEventHeadNgoById(ngoId).catch(() => null) : Promise.resolve(null),
+    ]);
+    const sectorRow = (sectors || []).find((s) => String(s.id) === String(activity.sector_id));
+    const sectorName = sectorRow?.name || null;
+
+    // ── Real observance dates for the month. Deterministic, never AI-generated.
+    const scopeRaw = String(req.body?.scope || 'all').toLowerCase();
+    const scope = ['all', 'worldwide', 'india'].includes(scopeRaw) ? scopeRaw : 'all';
+    const first = monthFirstDay(month);
+    const endExclusive = monthEndExclusive(month);
+    const curated = getObservancesInRange(first, endExclusive, { scope });
+
+    // Operator holiday rows are a bonus layer; a DB failure must not break the
+    // planner, so it degrades to the curated list alone. Merged for EVERY scope
+    // and then re-filtered, exactly as listCalendarObservances does — a custom
+    // holiday can carry its own scope and must not vanish from a filtered view.
+    const holidays = await getHolidaysCached();
+    const observances = holidays.length
+      ? mergeCustomObservances(curated, holidays).filter((o) => scope === 'all' || o.scope === scope)
+      : curated;
+
+    // ── Programmes this NGO already has in the month, so the model avoids them.
+    const existingTitles = [];
+    if (ngoId) {
+      const inRange = await EventHead.getEventHeadEventsByRange({ start: first, end: endExclusive, ngo_id: ngoId })
+        .catch(() => []);
+      for (const ev of inRange || []) {
+        const t = String(ev?.name || '').trim();
+        if (t) existingTitles.push(t.slice(0, 100));
+      }
+    }
+
+    const payload = {
+      month,
+      ngo_id: ngoId,
+      ngo_name: ngoRow?.name || null,
+      activity: { id: activity.id, name: activity.name, sector_id: activity.sector_id, sector_name: sectorName },
+      observances: (observances || []).map((o) => ({ date: o.date, name: o.name, scope: o.scope, kind: o.kind })),
+      suggestions: [],
+    };
+
+    // No provider → still return the resolved activity and the month's real
+    // observances so the panel can render everything except the ideas. Matches
+    // the house style of the other AI endpoints: 200 + empty, never a 500.
+    if (!aiSuggestionsConfigured()) {
+      return res.json({ ...payload, ai: { available: false, reason: 'AI suggestions are not configured on this server' } });
+    }
+
+    const prompt = buildActivityProgramPrompt({
+      activityName: activity.name,
+      ngoName: ngoRow?.name,
+      sectorName,
+      monthYmd: month,
+      observances: payload.observances,
+      existingTitles,
+    });
+
+    let parsed = null;
+    let usedModel = null;
+    let usedProvider = null;
+    let truncated = false;
+    try {
+      const result = await generateSuggestionJson(prompt, { temperature: 0.6, maxOutputTokens: 4096 });
+      parsed = result?.value ?? null;
+      usedModel = result?.model || null;
+      usedProvider = result?.provider || null;
+      truncated = result?.truncated === true;
+    } catch (error) {
+      // Same reasoning as the day flow: the resolved activity and the verified
+      // observance dates are still correct, so degrade instead of failing.
+      console.error('suggestActivityPrograms: all AI providers failed:', error.message || error);
+      return res.json({ ...payload, ai: { available: false, reason: userSafeAiReason(error) } });
+    }
+
+    const suggestions = parseActivityProgramSuggestions(parsed, {
+      activityName: activity.name,
+      activityId: activity.id,
+      existingTitles,
+    });
+
+    // ── Persist the generated batch so the Monthly Planner's tick boxes
+    // survive re-opening the modal or a page reload. Existing selections are
+    // never clobbered (onConflict + ignoreDuplicates). Always re-read to return
+    // real ids.
+    let persisted = [];
+    try {
+      const [y, m] = String(month).split('-').map(Number);
+      persisted = await EventHead.savePlannerSuggestions({
+        ngo_id: ngoId,
+        activity_id: activityId,
+        month: Number.isFinite(m) ? m : month,
+        year: Number.isFinite(y) ? y : null,
+        batch_no: 1,
+        suggestions,
+        created_by: req.user?.username || req.user?.email || null,
+      });
+    } catch (persistErr) {
+      // Suggestions should still be returned to the UI even if persistence is
+      // temporarily unavailable (e.g. DB unreachable). Do not fail the call.
+      console.error('suggestActivityPrograms: failed to persist suggestions:', persistErr.message || persistErr);
+      persisted = [];
+    }
+
+    // Prefer persisted rows (they include id + is_selected). Fall back to the
+    // freshly-parsed suggestions if persistence returned nothing.
+    const returnedSuggestions = persisted.length
+      ? persisted.map((r) => ({
+          id: r.id,
+          title: r.title,
+          format: r.format,
+          priority: r.priority,
+          audience: r.audience,
+          duration: r.duration,
+          objective: r.objective,
+          rationale: r.rationale,
+          materials: Array.isArray(r.materials) ? r.materials : [],
+          is_selected: Boolean(r.is_selected),
+          activity_id: r.activity_id,
+          batch_no: r.batch_no,
+        }))
+      : suggestions;
+
+    return res.json({
+      ...payload,
+      suggestions: returnedSuggestions,
+      ai: {
+        available: true,
+        model: usedModel,
+        provider: usedProvider,
+        // Stated explicitly because this endpoint never asks the model for dates.
+        dates_from_ai: false,
+        truncated,
+        requested: ACTIVITY_SUGGESTION_LIMIT,
+      },
+    });
+  } catch (error) {
+    console.error('suggestActivityPrograms error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── PLANNER SUGGESTIONS (Monthly Planner: stored AI ideas) ───
+export const getPlannerSuggestions = async (req, res) => {
+  try {
+    const { ngo_id, activity_id, month, year, batch_no, selected_only } = req.query;
+    const monthStr = String(month || '').trim();
+    const [yPart, mPart] = monthStr.includes('-') ? monthStr.split('-') : [year, month];
+    const yNum = yPart ? Number(yPart) : (year ? Number(year) : undefined);
+    const mNum = mPart ? Number(mPart) : (month && !monthStr.includes('-') ? Number(month) : undefined);
+    const list = await EventHead.getPlannerSuggestions({
+      ngo_id: ngo_id || undefined,
+      activity_id: activity_id ? Number(activity_id) : undefined,
+      month: Number.isFinite(mNum) ? mNum : undefined,
+      year: Number.isFinite(yNum) ? yNum : undefined,
+      batch_no: batch_no ? Number(batch_no) : undefined,
+      selected_only: selected_only === 'true' || selected_only === true,
+    });
+    return res.json({ suggestions: list });
+  } catch (error) {
+    console.error('getPlannerSuggestions error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setPlannerSuggestionSelected = async (req, res) => {
+  try {
+    const id = Number(req.params?.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'id is required' });
+    }
+    const is_selected = Boolean(req.body?.is_selected);
+    const row = await EventHead.setPlannerSuggestionSelected(id, is_selected);
+    return res.json({ suggestion: row });
+  } catch (error) {
+    console.error('setPlannerSuggestionSelected error:', error.message || error);
     return res.status(500).json({ message: error.message });
   }
 };

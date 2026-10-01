@@ -451,9 +451,56 @@ export const suggestDayPrograms = async (payload = {}) => {
     }
   }
 }
+/* ── Monthly Planner · activity-driven programme suggestions ──────────────
+   The Monthly Planner picks an NGO, a month and an activity, then asks the
+   backend what programmes that activity should run that month. Unlike
+   suggestDayPrograms (driven by one day on the Calendar page), the server
+   resolves the activity from activityId and supplies the month's real observance
+   dates itself, so neither the activity nor any date is taken from here.
+
+   The optimistic fallback mirrors suggestDayPrograms: the planner must stay
+   usable with no AI, so an unreachable backend yields an explicit reason and an
+   empty list rather than an exception. */
+export const suggestActivityPrograms = async (payload = {}) => {
+  try {
+    return await apiPost('/event-head/planner/suggest-programs', {
+      activity_id: payload.activityId,
+      ngo_id: payload.ngoId || null,
+      month: payload.month,
+      scope: payload.scope || 'all',
+    })
+  } catch (err) {
+    console.warn('suggestActivityPrograms: server unavailable:', err?.message || err)
+    return {
+      month: payload.month,
+      activity: null,
+      observances: [],
+      suggestions: [],
+      ai: {
+        available: false,
+        reason: 'AI programme suggestions need the updated backend, which is not available on this server yet. You can still plan programmes for this activity by hand.',
+      },
+    }
+  }
+}
+
 export const fetchEventsByState = (state) => apiGet('/event-head/events/state/' + state)
 export const fetchEventPerformance = (id) => apiGet('/event-head/events/' + id + '/performance')
 export const updateEventStatus = (id, status) => apiPut('/event-head/events/' + id + '/status', { status })
+
+/* ── Monthly Planner · stored AI suggestions ──
+   Selections persist server-side so a tick survives closing the modal and a page
+   reload, and so the downloadable monthly report can list them later. */
+export const fetchPlannerSuggestions = async (params = {}) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString()
+  const res = await apiGet('/event-head/planner/suggestions' + (q ? '?' + q : ''))
+  return Array.isArray(res) ? res : (res?.suggestions || [])
+}
+
+export const setPlannerSuggestionSelected = async (id, is_selected = true) => {
+  const res = await apiPut('/event-head/planner/suggestions/' + id + '/select', { is_selected })
+  return res?.suggestion || null
+}
 
 /* ── Events sheet import / export ── */
 export const importEventsSheet = (opts = {}, file) => {
