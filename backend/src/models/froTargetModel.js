@@ -30,6 +30,49 @@ export const getTargetByWorker = async (workerId, month) => {
   return data;
 };
 
+// The row a month-4+ FRO should inherit from: the most recent month strictly
+// before `month`. Ordered month DESC then created_at DESC so it resolves
+// duplicate (worker, month) rows the same way getTargetByWorker above does — the
+// two must agree or the FRO's own strip and the NGO board will show different
+// numbers for the same person.
+export const getLatestTargetBeforeMonth = async (workerId, month) => {
+  const { data, error } = await db
+    .from('fro_monthly_targets')
+    .select('*')
+    .eq('fro_worker_id', workerId)
+    .lt('month', month)
+    .order('month', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+// Batch form of the above for the board/leaderboard paths, which loop over the
+// whole roster and would otherwise issue one query per FRO. Returns a Map keyed
+// by worker id, each value the single best prior row.
+export const getLatestTargetsBeforeMonthForWorkers = async (workerIds, month) => {
+  if (!workerIds || workerIds.length === 0) return new Map();
+  const { data, error } = await db
+    .from('fro_monthly_targets')
+    .select('fro_worker_id, month, target_amount, achieved_target, created_at')
+    .in('fro_worker_id', workerIds)
+    .lt('month', month)
+    .order('month', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  const best = new Map();
+  for (const row of data || []) {
+    const key = String(row.fro_worker_id);
+    // Rows arrive already ordered, so the first one seen per worker is the
+    // newest month and, within it, the newest write.
+    if (!best.has(key)) best.set(key, row);
+  }
+  return best;
+};
+
 export const getTargetsByNgo = async (ngoId, month) => {
   const { data, error } = await db
     .from('fro_monthly_targets')

@@ -20,7 +20,9 @@ import {
   deleteStationAssignment,
   getStationAssignmentByNgoAndStation,
 } from '../models/froStationAssignmentModel.js';
-import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
+import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
+import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
+import { istMonthBounds } from '../utils/ist.js';
 import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
@@ -632,13 +634,8 @@ export const setTarget = async (req, res) => {
   try {
     const { fro_worker_id, month, target_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
-
     if (!fro_worker_id || !month || target_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and target_amount are required' });
-    }
-    if (!ngoId) {
-      return res.status(400).json({ message: 'No NGO assigned to your account' });
     }
 
     const worker = await getWorkerById(fro_worker_id);
@@ -646,36 +643,60 @@ export const setTarget = async (req, res) => {
       return res.status(404).json({ message: 'Worker not found' });
     }
 
-    const salary = await getActiveSalaryByWorker(fro_worker_id);
-    const currentSalary = salary ? parseFloat(salary.salary) : 0;
-    const joinedAt = new Date(worker.created_at);
+    // An explicit ngo_id from the body is honoured, but only if this account may
+    // write for that NGO. An UNAUTHORISED one is rejected rather than quietly
+    // downgraded to a different NGO, which is what silently happened before.
+    let ngoId = null;
+    if (ngo_id) {
+      if (!ngoIds.some(id => String(id) === String(ngo_id))) {
+        return res.status(403).json({ message: 'You do not have access to that NGO' });
+      }
+      ngoId = ngo_id;
+    } else {
+      // Fall back to the FRO's OWN ngo_id. This used to fall back to ngoIds[0],
+      // i.e. whichever NGO happened to sort first for this account, which wrote
+      // the target against the wrong NGO for every FRO not assigned to it.
+      ngoId = worker.ngo_id || ngoIds[0] || null;
+    }
+
+    if (!ngoId) {
+      return res.status(400).json({ message: 'No NGO could be determined for this FRO' });
+    }
+
     const targetMonth = new Date(month + '-01');
+    const joinedAt = new Date(worker.created_at);
     const monthsEmployed = (targetMonth.getFullYear() - joinedAt.getFullYear()) * 12
       + (targetMonth.getMonth() - joinedAt.getMonth());
 
-    let finalTarget = target_amount;
-    let isAuto = false;
-    if (monthsEmployed < 3) {
-      if (monthsEmployed <= 0) finalTarget = currentSalary * 1;
-      else if (monthsEmployed === 1) finalTarget = currentSalary * 2.5;
-      else finalTarget = currentSalary * 3;
-      isAuto = true;
+    // The amount the person typed is stored AS TYPED. This used to recompute the
+    // auto tier for anyone inside their first three months and store that instead,
+    // so an HR or Accounts user setting 20000 for a month-2 FRO got 2.5x their
+    // salary written to the table and a success message naming the auto figure.
+    // The auto tier is now applied at READ time by resolveMonthlyTarget for
+    // display, which leaves the manual override intact - see the precedence notes
+    // in services/froMonthlyTarget.js.
+    const amount = Number(target_amount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return res.status(400).json({ message: 'target_amount must be a non-negative number' });
     }
 
     const result = await upsertTarget({
       fro_worker_id,
       ngo_id: ngoId,
       month: month + '-01',
-      target_amount: finalTarget,
+      target_amount: amount,
       set_by: req.user.id,
     });
 
+    // Reported so the UI can explain that a first-three-month FRO will now show
+    // this stored figure rather than the derived one.
+    const inAutoWindow = monthsEmployed < 3;
+
     return res.json({
-      message: isAuto
-        ? `Auto-calculated target set for month ${monthsEmployed + 1}: ₹${finalTarget.toLocaleString('en-IN')}`
-        : 'Target set successfully',
+      message: 'Target set successfully',
       data: result,
-      auto_target: isAuto,
+      auto_target: false,
+      overrides_auto: inAutoWindow,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -686,7 +707,7 @@ export const getTargets = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
     const { month, ngo_id } = req.query;
-    const targetMonth = month ? month + '-01' : new Date().toISOString().slice(0, 7) + '-01';
+    const targetMonth = month ? month + '-01' : istMonthBounds().month;
 
     const filterNgoIds = ngo_id && ngoIds.some(id => String(id) === String(ngo_id))
       ? [ngo_id]
@@ -705,46 +726,65 @@ export const getTargets = async (req, res) => {
       const targets = await getTargetsByNgo(ngoId, targetMonth);
       allManualTargets.push(...targets);
     }
+    // One row per FRO per month is the display contract, but the table is keyed on
+    // (fro_worker_id, ngo_id, month), so a worker on two NGOs holds two rows for
+    // the same month. Resolve to the newest write - the same tie-break
+    // getTargetByWorker uses - so this board and the FRO's own panel can never
+    // show different numbers for one person.
+    const currentRowMap = {};
+    for (const t of allManualTargets) {
+      const key = String(t.fro_worker_id);
+      const prev = currentRowMap[key];
+      if (!prev || String(t.created_at || '') > String(prev.created_at || '')) currentRowMap[key] = t;
+    }
     const manualMap = {};
     const achievedMap = {};
     const incentiveMap = {};
-    for (const t of allManualTargets) {
-      manualMap[t.fro_worker_id] = parseFloat(t.target_amount);
-      achievedMap[t.fro_worker_id] = t.achieved_target != null ? parseFloat(t.achieved_target) : null;
-      incentiveMap[t.fro_worker_id] = t.incentive != null ? parseFloat(t.incentive) : null;
+    for (const [key, t] of Object.entries(currentRowMap)) {
+      manualMap[key] = parseFloat(t.target_amount);
+      achievedMap[key] = t.achieved_target != null ? parseFloat(t.achieved_target) : null;
+      incentiveMap[key] = t.incentive != null ? parseFloat(t.incentive) : null;
     }
+
+    // Month 4+ FROs have no row for a brand new month. Fetch their most recent
+    // earlier row in ONE query rather than one per FRO, and let the shared
+    // resolver decide what that means.
+    const priorRowMap = await getLatestTargetsBeforeMonthForWorkers(
+      froWorkers.map(w => w.id),
+      targetMonth,
+    );
 
     const result = await Promise.all(froWorkers.map(async (w) => {
       const salary = await getActiveSalaryByWorker(w.id);
       const currentSalary = salary ? parseFloat(salary.salary) : 0;
-      const joinedAt = new Date(w.created_at);
-      const targetDate = new Date(targetMonth);
-      const monthsEmployed = (targetDate.getFullYear() - joinedAt.getFullYear()) * 12
-        + (targetDate.getMonth() - joinedAt.getMonth());
-
-      let target;
-      let targetSource;
-      if (monthsEmployed < 3) {
-        if (monthsEmployed <= 0) { target = currentSalary * 1; targetSource = 'auto_month1'; }
-        else if (monthsEmployed === 1) { target = currentSalary * 2.5; targetSource = 'auto_month2'; }
-        else { target = currentSalary * 3; targetSource = 'auto_month3'; }
-      } else {
-        target = manualMap[w.id] || 0;
-        targetSource = manualMap[w.id] ? 'manual' : 'not_set';
-      }
+      const key = String(w.id);
+      // Tenure is still anchored to the month being viewed, not to today, so
+      // reviewing a past month reproduces that month rather than today's tier.
+      const resolved = resolveMonthlyTarget({
+        joiningDate: w.created_at,
+        salary: currentSalary,
+        currentRow: currentRowMap[key] || null,
+        priorRow: priorRowMap.get(key) || null,
+        refDate: new Date(targetMonth),
+      });
 
       return {
         id: w.id,
         name: w.name,
         login_id: w.login_id,
+        // Echoed so the editor can post an explicit ngo_id instead of relying on
+        // the server's fallback; setTarget still falls back to the worker's own
+        // ngo_id, and rejects an ngo_id this account may not write for.
+        ngo_id: w.ngo_id || null,
         salary: currentSalary,
         joined_at: w.created_at,
-        months_employed: monthsEmployed,
-        target,
-        target_source: targetSource,
-        manual_target: manualMap[w.id] || null,
-        achieved_target: achievedMap[w.id] || null,
-        incentive: incentiveMap[w.id] || null,
+        months_employed: resolved.monthsEmployed,
+        target: resolved.target,
+        target_source: resolved.source,
+        target_source_month: resolved.sourceMonth,
+        manual_target: manualMap[key] || null,
+        achieved_target: achievedMap[key] || null,
+        incentive: incentiveMap[key] || null,
       };
     }));
 

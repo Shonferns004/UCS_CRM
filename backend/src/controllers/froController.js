@@ -5,7 +5,7 @@ import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
-import { monthsSinceJoining, calculateAutoTarget, autoTargetMonthLabel } from '../services/froAutoTarget.js';
+import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import {
   batchCreateAssignments,
   findAssignmentById,
@@ -15,7 +15,7 @@ import {
   completeAllScheduledByAssignment,
   getScheduledByAssignment,
 } from '../models/froAssignmentModel.js';
-import { getTargetByWorker } from '../models/froTargetModel.js';
+import { getTargetByWorker, getLatestTargetBeforeMonth } from '../models/froTargetModel.js';
 import { classifyLogSide, bustTlCache } from './ngoAdminController.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 import { getOfficeStart, getOfficeEnd } from '../utils/attendanceStatus.js';
@@ -64,7 +64,7 @@ import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js'
 import { rollCountersForNewDay, writeDailySnapshot } from '../services/froCounterDay.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
-import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc } from '../utils/ist.js';
+import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
@@ -435,28 +435,40 @@ async function fetchScopedDonationEvidence({ assignments, donorIds, projectSet, 
 
 // Start of the current donation window for a donor's frequency. Defaults to the
 // current calendar month for monthly/unknown donors.
-function periodStartForType(type, now = new Date()) {
+//
+// The window is anchored to IST, not the server's local clock. Postgres is pinned
+// to Asia/Kolkata (config/db.js), so every SQL-side "current month" is already IST;
+// using local getters here made the two disagree whenever the process does not run
+// in IST. On a UTC host that window was wrong in BOTH directions on the 1st:
+//   00:00-05:29 IST  local clock is still the previous month -> last month's
+//                    collections kept counting, so donors collected in September
+//                    stayed hidden from October's queue.
+//   05:30 IST        local month start lands 5.5h INTO the month -> donations made
+//                    in the first 5.5h did not count, so those donors reappeared in
+//                    the queue as if unpaid.
+const periodStartForType = (type, now = new Date()) => {
   const t = (type || '').toLowerCase();
+  const p = istParts(now);
+  const istMonthStart = (year, month0) => new Date(Date.UTC(year, month0, 1) - 330 * 60 * 1000);
   if (t === 'quarterly') {
-    const q = Math.floor(now.getMonth() / 3);
-    return new Date(now.getFullYear(), q * 3, 1, 0, 0, 0, 0);
+    return istMonthStart(p.year, Math.floor((p.month - 1) / 3) * 3);
   }
   if (t === 'half_yearly') {
-    return new Date(now.getFullYear(), now.getMonth() < 6 ? 0 : 6, 1, 0, 0, 0, 0);
+    return istMonthStart(p.year, p.month < 7 ? 0 : 6);
   }
   if (t === 'yearly') {
-    return new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+    return istMonthStart(p.year, 0);
   }
   if (t === 'one_time') {
-    return new Date(2000, 0, 1, 0, 0, 0, 0);
+    return new Date(Date.UTC(2000, 0, 1) - 330 * 60 * 1000);
   }
-  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-}
+  return istMonthStart(p.year, p.month - 1);
+};
 
 function getMonthRange(dateStr) {
-  const d = new Date(dateStr);
-  const start = new Date(d.getFullYear(), d.getMonth(), 1);
-  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  const p = istParts(new Date(dateStr));
+  const start = new Date(Date.UTC(p.year, p.month, 1) - 330 * 60 * 1000);
+  const end = new Date(Date.UTC(p.year, p.month + 1, 1) - 330 * 60 * 1000);
   return {
     start: start.toISOString(),
     end: end.toISOString(),
@@ -538,28 +550,30 @@ export const getDashboard = async (req, res) => {
 
     const now = new Date();
     const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-    const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
-    const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
-    const monthStr = now.toISOString().slice(0, 7) + '-01';
+    const monthBounds = istMonthBounds(now);
+    const monthStart = monthBounds.start.toISOString();
+    const monthEnd = monthBounds.end.toISOString();
+    const monthStr = monthBounds.month;
     const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
 
     const collected = await getTotalCollectedByWorker(creditWorkerId, monthStart, monthEnd);
 
-    const monthsEmployed = monthsSinceJoining(worker.created_at, now);
-
-    let target;
-    let targetSource;
-    const manualTarget = await getTargetByWorker(workerId, monthStr);
-    const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
-    if (autoTarget !== null) {
-      target = autoTarget;
-      targetSource = autoTargetMonthLabel(monthsEmployed);
-    } else {
-      target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
-      targetSource = manualTarget ? 'manual' : 'not_set';
-    }
-
-    const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
+    const [manualTarget, priorTarget] = await Promise.all([
+      getTargetByWorker(workerId, monthStr),
+      getLatestTargetBeforeMonth(workerId, monthStr),
+    ]);
+    const resolved = resolveMonthlyTarget({
+      joiningDate: worker.created_at,
+      salary: currentSalary,
+      currentRow: manualTarget,
+      priorRow: priorTarget,
+      refDate: now,
+    });
+    const target = resolved.target;
+    const targetSource = resolved.source;
+    const targetSourceMonth = resolved.sourceMonth;
+    const monthsEmployed = resolved.monthsEmployed;
+    const achieved_target = resolved.achievedTarget;
 
     const todayStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
     const todayEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
@@ -735,6 +749,7 @@ export const getDashboard = async (req, res) => {
       target: {
         amount: target,
         source: targetSource,
+        source_month: targetSourceMonth,
         collected,
         achieved: achieved_target,
         salary: currentSalary,
@@ -1160,13 +1175,16 @@ export const getMyCollections = async (req, res) => {
 
 // ─── Suspense receipts (this month only) + claims ────────────
 // IST current-month bounds shared by the suspense endpoints.
+//
+// This used to build monthStart as an instant and then read the month back out
+// of it with toISOString().slice(). monthStart is midnight IST on the 1st, which
+// as an instant is 18:30 UTC on the LAST day of the previous month, so that slice
+// returned the PREVIOUS month on every day of the month, not just near the
+// boundary - suspense receipts were being read a month behind throughout.
+// istMonthBounds derives every value from the IST calendar directly.
 function currentMonthBoundsIST() {
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istNow = new Date(new Date().getTime() + istOffset);
-  const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0));
-  const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
-  const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999));
-  return { month: monthStart.toISOString().slice(0, 7), monthStart: monthStart.toISOString().slice(0, 10), monthEnd: monthEnd.toISOString().slice(0, 10) };
+  const b = istMonthBounds();
+  return { month: b.monthKey, monthStart: b.startDay, monthEnd: b.endDay };
 }
 
 // Every project_id value a receipt can legitimately carry for an NGO. Mirrors
@@ -3247,26 +3265,27 @@ export const getMyTarget = async (req, res) => {
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
     const now = new Date();
-    const istNowT = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-    const monthStr = now.toISOString().slice(0, 7) + '-01';
-    const monthStart = new Date(Date.UTC(istNowT.getUTCFullYear(), istNowT.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
-    const monthEnd = new Date(Date.UTC(istNowT.getUTCFullYear(), istNowT.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
+    const monthBounds = istMonthBounds(now);
+    const monthStr = monthBounds.month;
+    const monthStart = monthBounds.start.toISOString();
+    const monthEnd = monthBounds.end.toISOString();
 
-    const monthsEmployed = monthsSinceJoining(worker.created_at, now);
-
-    let target;
-    let targetSource;
-    const manualTarget = await getTargetByWorker(workerId, monthStr);
-    const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
-    if (autoTarget !== null) {
-      target = autoTarget;
-      targetSource = 'auto';
-    } else {
-      target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
-      targetSource = manualTarget ? 'manual' : 'not_set';
-    }
-
-    const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
+    const [manualTarget, priorTarget] = await Promise.all([
+      getTargetByWorker(workerId, monthStr),
+      getLatestTargetBeforeMonth(workerId, monthStr),
+    ]);
+    const resolved = resolveMonthlyTarget({
+      joiningDate: worker.created_at,
+      salary: currentSalary,
+      currentRow: manualTarget,
+      priorRow: priorTarget,
+      refDate: now,
+    });
+    const target = resolved.target;
+    const targetSource = resolved.source;
+    const targetSourceMonth = resolved.sourceMonth;
+    const monthsEmployed = resolved.monthsEmployed;
+    const achieved_target = resolved.achievedTarget;
 
     const { allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     const creditWorkerId = req.user.impersonation && req.user.imposter_id ? req.user.imposter_id : workerId;
@@ -3332,6 +3351,7 @@ export const getMyTarget = async (req, res) => {
       month: monthStr,
       target,
       target_source: targetSource,
+      target_source_month: targetSourceMonth,
       collected,
       collected_by_ngo: collected_by_ngo,
       achieved_target,
@@ -4089,7 +4109,7 @@ export const getLeadStats = async (req, res) => {
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json({ new_donors: 0, new_amount: 0, existing_donors: 0, existing_amount: 0 });
 
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const month = req.query.month || istMonthKey();
     const monthStart = month + '-01';
     const monthEndDate = new Date(new Date(monthStart).getFullYear(), new Date(monthStart).getMonth() + 1, 0);
     const monthEnd = monthEndDate.toISOString().slice(0, 10) + 'T23:59:59.999Z';
@@ -4150,7 +4170,7 @@ export const getMonthlyDonors = async (req, res) => {
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const month = req.query.month || istMonthKey();
 
     const monthStart = month + '-01';
     const monthEndDate = new Date(new Date(monthStart).getFullYear(), new Date(monthStart).getMonth() + 1, 0);
@@ -4248,7 +4268,7 @@ export const getDonorHistory = async (req, res) => {
       const year = now.getFullYear();
       startDate = now.getMonth() < 3 ? `${year - 1}-04-01` : `${year}-04-01`;
     } else {
-      startDate = now.toISOString().slice(0, 7) + '-01';
+      startDate = istMonthBounds(now).month;
     }
 
     const { data: checkAccess } = await withStationNgoPairs(
@@ -5919,7 +5939,7 @@ export const getDonorDonations = async (req, res) => {
     let startDate;
     let endDate;
     if (period === 'monthly') {
-      startDate = now.toISOString().slice(0, 7) + '-01';
+      startDate = istMonthBounds(now).month;
     } else if (period === 'yearly') {
       startDate = now.getFullYear() + '-01-01';
     } else if (period === 'all') {
@@ -5932,7 +5952,7 @@ export const getDonorDonations = async (req, res) => {
       startDate = `${parts[1]}-04-01`;
       endDate = `${parts[2]}-03-31`;
     } else {
-      startDate = now.toISOString().slice(0, 7) + '-01';
+      startDate = istMonthBounds(now).month;
     }
 
     let query = db

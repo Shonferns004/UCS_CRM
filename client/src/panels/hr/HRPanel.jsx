@@ -25,6 +25,7 @@ import Tickets from './components/Tickets'
 import Quizzes from './components/Quizzes'
 import SettingsPage from './components/Settings'
 import NgoSalary from './components/NgoSalary'
+import FroTargets from '../../components/FroTargets'
 import ChangeSalaryAccessCode from './components/ChangeSalaryAccessCode'
 import { fetchTicketCount } from './store'
 import ToastContainer from '../../components/Toast'
@@ -48,6 +49,7 @@ const NAV = [
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
   { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
   { id:'ngo-salary', path:'/hr/ngo',         label:'NGO & Salary',      icon:Grid, eyebrow:'Finance',  sub:'Allocations, reports and payments' },
+  { id:'fro-targets', path:'/hr/fro-targets', label:'FRO Targets',  icon:Grid, eyebrow:'Targets',  sub:'Set and review monthly collection targets' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
   { id:'chat',       path:'/hr/chat',        label:'Community',  icon:ChatIcon, eyebrow:'Team', sub:'Company announcements — read only' },
 ]
@@ -275,6 +277,7 @@ export default function HRPanel() {
         <Route path="qr" element={<GenerateQR />} />
         <Route path="loans" element={<Loans />} />
         <Route path="ngo" element={<NgoSalary />} />
+        <Route path="fro-targets" element={<FroTargets />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="chat" element={<ChatWorkspace />} />
         <Route path="settings" element={<SettingsRoute />} />
