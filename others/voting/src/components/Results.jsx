@@ -1,10 +1,36 @@
 import { accentFor, initials } from '../helpers'
 
+/** One team's winner line: portrait, name, and how many votes carried it. */
+function TeamWinner({ team, accent }) {
+  return (
+    <div className="rteam">
+      <span className="rteam-label">{team.label}</span>
+      {team.winner ? (
+        <>
+          <span className="avatar" style={{ background: `hsl(${accent.hue} 45% 46%)` }}>
+            {team.winner.photo_url ? <img src={team.winner.photo_url} alt="" /> : initials(team.winner.name)}
+          </span>
+          <div className="rname">{team.winner.name}</div>
+          <div className="rsub">
+            {team.winner.votes} {team.winner.votes === 1 ? 'vote' : 'votes'}
+            {team.is_tie ? ` · tied with ${team.tied_count - 1} other${team.tied_count > 2 ? 's' : ''}` : ''}
+          </div>
+        </>
+      ) : (
+        <div className="rsub">No votes recorded</div>
+      )}
+    </div>
+  )
+}
+
 /**
  * The end-of-ceremony reveal. Shown only once the voting window has closed and
  * HR has finished the ceremony — through the ceremony itself the booth shows
  * nothing about how the vote is going, because the winner is decided after
  * everyone has voted.
+ *
+ * A department with several teams has a winner per team, so its card lists one
+ * per team; a single-team department reads exactly as it always did.
  */
 export default function Results({ ceremony }) {
   const { session, results = [] } = ceremony || {}
@@ -26,6 +52,9 @@ export default function Results({ ceremony }) {
         <div className="results">
           {results.map((r) => {
             const accent = accentFor(r.department?.order_index ?? 0)
+            // The teams a voter had to choose between; the server sends one per
+            // team with the nominees on it, so this is never empty here.
+            const teams = (r.teams || []).filter((t) => t.winner)
             return (
               <div
                 key={r.department?.id}
@@ -34,7 +63,8 @@ export default function Results({ ceremony }) {
               >
                 <div className="eyebrow">{r.department?.name}</div>
                 {r.winner ? (
-                  <div className="result-winner">
+                  <div className={`result-winner${teams.length > 1 ? ' is-multi' : ''}`}>
+                    {teams.length > 1 ? <span className="rteam-label">Overall winner</span> : null}
                     <span className="avatar" style={{ background: `hsl(${accent.hue} 45% 46%)` }}>
                       {r.winner.photo_url ? <img src={r.winner.photo_url} alt="" /> : initials(r.winner.name)}
                     </span>
@@ -47,6 +77,10 @@ export default function Results({ ceremony }) {
                 ) : (
                   <div className="rsub">No votes recorded</div>
                 )}
+
+                {teams.length > 1
+                  ? teams.map((t) => <TeamWinner key={t.key || 'no-team'} team={t} accent={accent} />)
+                  : null}
               </div>
             )
           })}

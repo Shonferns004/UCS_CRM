@@ -117,6 +117,14 @@ export default function App() {
     setActiveDept(dept)
   }
 
+  // One team was voted in. Deliberately does NOT close the ballot: there are
+  // more teams to do, and the ballot screen has already moved to the next one.
+  // Reassigning `voted` here would mark the whole department done after a single
+  // pick and the grid would offer it as finished.
+  async function onTeamPicked() {
+    // Nothing to do locally — the ballot is the source of truth mid-department.
+  }
+
   // A vote landed. Mark it locally the moment it succeeds, so the confirmation
   // screen and its "next department" choice are correct even if the catch-up
   // refresh is slow or fails; the next poll replaces this with server truth.
@@ -181,6 +189,7 @@ export default function App() {
                 onDone={closeBallot}
                 onBack={() => setActiveDept(null)}
                 onSubmitted={onVoteSubmitted}
+                onPicked={onTeamPicked}
               />
             ) : justVoted ? (
               <VoteSubmitted

@@ -7,6 +7,8 @@
    owns names like --gold, --muted and --border for the rest of the booth, and
    redefining those globally would recolour pages this file must not touch. */
 
+/* ── palette ────────────────────────────────────────────────────────────── */
+
 .signin {
   --ivory: #fbfaf7;
   --ivory-warm: #f8f3e9;
@@ -20,6 +22,41 @@
   --si-border: #dce5f0;
   --si-line: #e6ecf4;
   --si-white: #ffffff;
+
+  /* ── density tokens ──────────────────────────────────────────────────────
+     The card is content-driven, so its height is the sum of these. They are
+     declared here as one set and then stepped down by the width and height
+     media queries at the foot of the file, which is what keeps the panel on
+     screen without a scrollbar: shrinking one part but not the others would
+     just move the overflow somewhere else.
+
+     --si-trophy is the width of the <img> box. The artwork carries ~12% of
+     transparent margin per side, so the visible cup is roughly 76.3% of it. */
+
+  --si-trophy: 300px;
+  --si-trophy-mb: 16px;
+  /* Width of the form column. A two-field login form stretched to the full 665px
+     reference card width reads badly on desktop, so this is deliberately
+     narrower than that card was. */
+  --si-form-w: 460px;
+  --si-card-pad: 40px;
+  --si-card-pad-x: 48px;
+  --si-title-fs: 37px;
+  --si-lede-fs: 16.5px;
+  --si-lede-mt: 13px;
+  --si-label-fs: 14.5px;
+  --si-label-mb: 7px;
+  --si-input-h: 48px;
+  --si-input-fs: 15.5px;
+  --si-field-mb: 15px;
+  --si-fieldset-mt: 18px;
+  --si-submit-h: 56px;
+  --si-submit-fs: 16px;
+  --si-submit-mt: 4px;
+
+  --si-stage-top: 92px;
+  --si-stage-bottom: 44px;
+  --si-stage-x: 24px;
 
   position: relative;
   min-height: 100vh;
@@ -64,7 +101,7 @@
   background: radial-gradient(circle at 50% 50%, rgba(255, 248, 235, 0.95) 0%, rgba(255, 248, 235, 0) 68%);
 }
 
-/* Pale gold shape entering from the upper right, behind the brand mark. */
+/* Pale gold shape entering from the upper right. */
 .signin-bg::after {
   width: 54vw;
   height: 54vw;
@@ -94,28 +131,9 @@
   to { transform: translate3d(2.5%, -2%, 0) scale(1.06); }
 }
 
-/* ── brand mark ─────────────────────────────────────────────────────────── */
-
 /* The only brand element on the page. Fixed to the top-right corner rather than
-   laid out in flow, so the card can be centred independently of it. */
-.signin-mark {
-  position: absolute;
-  top: 22px;
-  right: 28px;
-  z-index: 2;
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #fbe3a4 0%, var(--si-gold) 52%, var(--si-gold-dark) 100%);
-  color: #2a1d05;
-  font-size: 25px;
-  font-weight: 800;
-  line-height: 1;
-  box-shadow: 0 6px 18px rgba(228, 165, 31, 0.3);
-}
-
+   laid out in flow, so the card can be centred independently of it. Its size
+   and offset are tokens, because the stage's top padding has to clear it. */
 /* ── card ───────────────────────────────────────────────────────────────── */
 
 /* margin:auto rather than align-items:center, so a card taller than the viewport
@@ -125,21 +143,18 @@
   z-index: 1;
   flex: 1;
   display: flex;
-  /* The top padding clears the brand mark. It is relaxed at >=1024px below,
-     where the centred card is nowhere near the top-right corner. */
-  padding: 92px 24px 44px;
-  padding-left: calc(24px + env(safe-area-inset-left));
-  padding-right: calc(24px + env(safe-area-inset-right));
+  padding: var(--si-stage-top) var(--si-stage-x) var(--si-stage-bottom);
+  padding-left: calc(var(--si-stage-x) + env(safe-area-inset-left));
+  padding-right: calc(var(--si-stage-x) + env(safe-area-inset-right));
 }
 
+/* No card container: the form sits directly on the ivory background. It keeps
+   the reference's column width and centred alignment, but draws no box, so the
+   spacing tokens below control the rhythm instead of a card's padding. */
 .signin-card {
   margin: auto;
-  width: min(665px, calc(100% - 48px));
-  background: var(--si-white);
-  border: 1px solid #efece2;
-  border-radius: 29px;
-  box-shadow: 0 26px 64px rgba(16, 27, 51, 0.1), 0 2px 8px rgba(16, 27, 51, 0.04);
-  padding: 48px;
+  width: min(var(--si-form-w), calc(100% - (var(--si-stage-x) * 2)));
+  padding: var(--si-card-pad) var(--si-card-pad-x);
   text-align: center;
 }
 
@@ -148,38 +163,27 @@
 .signin-trophy {
   display: flex;
   justify-content: center;
-  /* Deliberate gap between the pedestal and the eyebrow. */
-  margin-bottom: 18px;
+  /* Deliberate gap between the pedestal and the title. */
+  margin-bottom: var(--si-trophy-mb);
 }
 
-/* 330px of element width puts the visible cup at ~252px, because the artwork
-   carries ~12% transparent margin on each side. */
 .signin-trophy img {
-  width: 330px;
+  width: var(--si-trophy);
   max-width: 100%;
   height: auto;
   /* contain, so the artwork can never be cropped or distorted. */
   object-fit: contain;
 }
 
-/* ── eyebrow + title ────────────────────────────────────────────────────── */
+/* -- title ---------------------------------------------------------------- */
 
 .signin-head { text-align: center; }
 
-.signin-eyebrow {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: 0.3em;
-  /* Optical centring: trailing letter-space pushes centred text left. */
-  text-indent: 0.3em;
-  text-transform: uppercase;
-  color: var(--si-gold-ink);
-  margin-bottom: 7px;
-}
-
 .signin-title {
-  font-size: clamp(28px, 4.6vw, 37px);
+  /* Set here rather than on a per-line span, so a line with no explicit colour
+     still gets the sign-in navy instead of inheriting base.css's. */
+  color: var(--si-navy);
+  font-size: var(--si-title-fs);
   font-weight: 800;
   line-height: 1.14;
   letter-spacing: -0.02em;
@@ -188,26 +192,34 @@
   overflow-wrap: break-word;
 }
 
-.signin-title-navy { color: var(--si-navy); }
 .signin-title-gold { color: var(--si-gold); }
+
+/* "Monthly Award" then "Ceremony" on its own line. Block-level so the break
+   between them is a real line break rather than a wrap that depends on width. */
+.signin-title-line { display: block; }
 
 /* ── supporting copy ────────────────────────────────────────────────────── */
 
 .signin-lede {
   color: var(--si-muted);
-  font-size: 16.5px;
+  font-size: var(--si-lede-fs);
   line-height: 1.5;
-  margin: 14px auto 0;
+  margin: var(--si-lede-mt) auto 0;
   /* Fills the card's inner width. Narrowing this is what pushes the sentence to
      three lines, where the reference has two. */
   max-width: 100%;
 }
 
-.signin-spinner { margin: 34px auto 30px; }
+/* Purely supplementary copy. On a short viewport it is the one block that can
+   go without hiding anything functional, so the shortest phones can keep the
+   whole form on screen. */
+.signin-lede.is-optional { display: var(--si-lede-display, block); }
+
+.signin-spinner { margin: 30px auto 26px; }
 
 .signin-note {
-  margin: 16px auto 0;
-  padding: 11px 14px;
+  margin: 14px auto 0;
+  padding: 10px 13px;
   border-radius: 12px;
   background: var(--cream);
   border: 1px solid #f0e2c4;
@@ -218,8 +230,8 @@
 }
 
 .signin-error {
-  margin: 20px 0 0;
-  padding: 12px 15px;
+  margin: 18px 0 0;
+  padding: 11px 14px;
   border-radius: 13px;
   background: #fdeeec;
   border: 1px solid #f2c6c1;
@@ -234,7 +246,7 @@
 .signin-fieldset {
   border: 0;
   padding: 0;
-  margin: 20px 0 0;
+  margin: var(--si-fieldset-mt) 0 0;
   text-align: left;
 }
 
@@ -242,22 +254,22 @@
    unavailable without hiding the form's shape. */
 .signin-fieldset:disabled { opacity: 0.55; }
 
-.signin-field { margin-bottom: 16px; }
+.signin-field { margin-bottom: var(--si-field-mb); }
 
 .signin-label {
   display: block;
-  font-size: 14.5px;
+  font-size: var(--si-label-fs);
   font-weight: 600;
   color: var(--si-navy);
-  margin-bottom: 7px;
+  margin-bottom: var(--si-label-mb);
 }
 
 .signin-input {
   display: block;
   width: 100%;
-  height: 52px;
+  height: var(--si-input-h);
   padding: 0 16px;
-  font-size: 15.5px;
+  font-size: var(--si-input-fs);
   color: var(--si-navy);
   background: var(--si-white);
   border: 1px solid var(--si-border);
@@ -269,10 +281,18 @@
 
 .signin-input:hover { border-color: #c6d4e6; }
 
-.signin-input:focus {
+/* No focus treatment on the inputs by request. This needs an explicit
+   outline:none rather than just an absent rule: Chrome's own UA stylesheet
+   gives a focused text input `outline: auto`, which would otherwise reappear
+   the moment :focus stopped being overridden.
+   Note this is not a keyboard-only change — Chrome matches :focus-visible on a
+   text input even when it is clicked with a mouse, so there is no pure-CSS way
+   to keep a keyboard ring here while hiding it from a click. */
+.signin-input:focus,
+.signin-input:focus-visible {
   outline: none;
-  border-color: var(--si-gold);
-  box-shadow: 0 0 0 3px rgba(228, 165, 31, 0.2);
+  border-color: var(--si-border);
+  box-shadow: none;
 }
 
 /* ── submit ─────────────────────────────────────────────────────────────── */
@@ -283,14 +303,14 @@
   justify-content: center;
   gap: 10px;
   width: 100%;
-  height: 59px;
-  margin-top: 4px;
+  height: var(--si-submit-h);
+  margin-top: var(--si-submit-mt);
   padding: 0 20px;
   border: 0;
   border-radius: 13px;
   background: linear-gradient(135deg, #f6d183 0%, var(--si-gold) 48%, #c8901a 100%);
   color: var(--si-navy);
-  font-size: 16px;
+  font-size: var(--si-submit-fs);
   font-weight: 700;
   box-shadow: 0 6px 16px rgba(228, 165, 31, 0.28);
   transition: filter 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
@@ -311,110 +331,187 @@
   box-shadow: none;
 }
 
-/* ── divider + privacy note ─────────────────────────────────────────────── */
-
-.signin-divider {
-  height: 1px;
-  border: 0;
-  margin: 20px 0 0;
-  background: var(--si-line);
-}
-
-.signin-privacy {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  margin: 13px 0 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--si-muted);
-  text-align: left;
-}
-
-.signin-privacy svg {
-  flex: none;
-  color: var(--si-navy);
-  /* Sits on the first line of text rather than floating above it. */
-  margin-top: 2px;
-}
-
 /* ── focus visibility ───────────────────────────────────────────────────── */
 
-.signin button:focus-visible,
-.signin input:focus-visible {
+/* The submit button keeps a keyboard ring — it is not a text field, so Chrome
+   does not match :focus-visible for a mouse click and keyboard users still get
+   the indicator they need to follow focus. */
+.signin-submit:focus-visible {
   outline: 2px solid var(--si-gold-dark);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
-.signin-submit:focus-visible { outline-offset: 3px; }
+/* ── density ladder ─────────────────────────────────────────────────────── */
 
-/* ── responsive ─────────────────────────────────────────────────────────── */
+/* Stepped from roomiest to tightest, so the last rule to match wins. Width
+   comes first because it sets the reading size of the copy, then height trims
+   the decorative and spacing parts. */
 
-/* At 1024px and up the card is centred in a viewport far wider than itself, so
-   it can never reach the top-right brand mark. That frees the top padding. */
-@media (min-width: 1024px) {
-  .signin-stage { padding: 48px 24px 44px; }
-}
-
+/* Tablet: the card has room, the type is a step down from desktop. */
 @media (max-width: 1023px) {
-  .signin-stage { padding: 92px 20px 44px; }
-  .signin-card {
-    width: min(665px, calc(100% - 40px));
-    padding: 40px 36px;
+  .signin {
+    --si-trophy: 260px;
+    --si-card-pad: 34px;
+    --si-card-pad-x: 36px;
+    --si-title-fs: 32px;
+    --si-lede-fs: 16px;
+    --si-stage-top: 88px;
+    --si-stage-bottom: 36px;
+    --si-stage-x: 20px;
   }
-  .signin-trophy { margin-bottom: 18px; }
-  .signin-trophy img { width: 300px; }
 }
 
+/* Phone. The lede's line count is the biggest single saving here, so the
+   sentence is allowed to run to three lines at this width. */
 @media (max-width: 599px) {
-  .signin-mark {
-    /* Kept clear of the card by the stage's top padding, and out of the notch. */
-    top: calc(14px + env(safe-area-inset-top));
-    right: calc(14px + env(safe-area-inset-right));
-    width: 46px;
-    height: 46px;
-    border-radius: 13px;
-    font-size: 22px;
+  .signin {
+    --si-trophy: 190px;
+    --si-trophy-mb: 14px;
+    --si-card-pad: 22px;
+    --si-card-pad-x: 22px;
+    --si-title-fs: 28px;
+    --si-lede-fs: 15px;
+    --si-lede-mt: 11px;
+    --si-label-fs: 14px;
+    --si-input-h: 48px;
+    --si-field-mb: 13px;
+    --si-fieldset-mt: 16px;
+    --si-submit-h: 54px;
+    --si-stage-top: 64px;
+    --si-stage-bottom: 20px;
+    --si-stage-x: 16px;
   }
 
-  .signin-stage { padding: 86px 16px 34px; }
-
-  .signin-card {
-    width: calc(100% - 32px);
-    border-radius: 24px;
-    padding: 30px 22px 26px;
-  }
-
-  .signin-trophy { margin-bottom: 18px; }
-  .signin-trophy img { width: 236px; }
-
-  /* The eyebrow keeps its 13-14px size; only the tracking eases off so
-     "SIGN IN TO VOTE" still clears the card edges at 320px. */
-  .signin-eyebrow { letter-spacing: 0.24em; text-indent: 0.24em; }
-  .signin-title { font-size: clamp(26px, 7.4vw, 30px); }
-  .signin-lede { font-size: 15.5px; margin-top: 13px; }
-  .signin-fieldset { margin-top: 22px; }
-  .signin-field { margin-bottom: 15px; }
-  .signin-privacy { font-size: 13.5px; }
 }
 
-/* 320px is the tightest case the checklist calls out. */
+/* 320px is the tightest width called out. Type holds at a legible floor rather
+   than shrinking further. */
 @media (max-width: 359px) {
-  .signin-stage { padding: 84px 12px 28px; }
-  .signin-card { width: calc(100% - 24px); padding: 24px 18px 22px; border-radius: 20px; }
-  .signin-trophy img { width: 208px; }
-  .signin-eyebrow { font-size: 13px; letter-spacing: 0.2em; text-indent: 0.2em; }
-  .signin-title { font-size: 25px; }
-  .signin-lede { font-size: 15px; }
-  .signin-label { font-size: 14px; }
-  .signin-input { height: 50px; padding: 0 14px; font-size: 15px; }
-  .signin-privacy { font-size: 13px; }
+  .signin {
+    --si-trophy: 158px;
+    --si-card-pad: 18px;
+    --si-card-pad-x: 18px;
+    --si-title-fs: 25px;
+    --si-input-fs: 15px;
+    --si-stage-top: 60px;
+    --si-stage-bottom: 16px;
+    --si-stage-x: 12px;
+  }
+
+  .signin-input { padding: 0 14px; }
 }
 
-/* Short viewports (laptop with the browser chrome open, landscape phones):
-   let the page scroll rather than crushing the card. */
-@media (max-height: 720px) {
-  .signin-stage { padding-top: 84px; }
+/* Laptop with the browser chrome open, and landscape phones. There is no mark
+   to clear here, so the stage's top padding is spent on the card instead. */
+@media (min-width: 600px) and (max-height: 880px) {
+  .signin {
+    --si-trophy: 270px;
+    --si-card-pad: 32px;
+    --si-title-fs: 34px;
+    --si-stage-top: 40px;
+    --si-stage-bottom: 32px;
+  }
+}
+
+@media (min-width: 600px) and (max-height: 800px) {
+  .signin {
+    --si-trophy: 250px;
+    --si-trophy-mb: 14px;
+    --si-card-pad: 28px;
+    --si-title-fs: 32px;
+    --si-lede-mt: 12px;
+    --si-input-h: 48px;
+    --si-field-mb: 14px;
+    --si-submit-h: 54px;
+    --si-stage-top: 28px;
+    --si-stage-bottom: 24px;
+  }
+}
+
+/* A 1280x720 window with the browser chrome open is the other tight case, so the
+   stage padding is trimmed hard to keep the whole card on screen. */
+@media (min-width: 600px) and (max-height: 740px) {
+  .signin {
+    --si-trophy: 210px;
+    --si-trophy-mb: 12px;
+    --si-card-pad: 22px;
+    --si-title-fs: 29px;
+    --si-lede-mt: 10px;
+    --si-input-h: 46px;
+    --si-field-mb: 12px;
+    --si-submit-h: 52px;
+    --si-stage-top: 20px;
+    --si-stage-bottom: 16px;
+  }
+}
+
+@media (min-width: 600px) and (max-height: 640px) {
+  .signin {
+    --si-trophy: 170px;
+    --si-card-pad: 16px;
+    --si-title-fs: 26px;
+    --si-stage-top: 14px;
+    --si-stage-bottom: 12px;
+  }
+}
+
+/* Short phones and small landscape windows. The supporting copy is the one
+   non-essential block, so it is dropped before anything the person needs. */
+@media (max-width: 599px) and (max-height: 740px) {
+  .signin {
+    --si-lede-display: none;
+    --si-trophy: 168px;
+    --si-card-pad: 18px;
+    --si-fieldset-mt: 15px;
+    --si-stage-top: 58px;
+    --si-stage-bottom: 14px;
+  }
+}
+
+/* An iPhone SE sized 375x667 is the tightest width that still gets the
+   comfortable phone treatment, and it needs one more step. */
+@media (max-width: 420px) and (max-height: 700px) {
+  .signin {
+    --si-trophy: 150px;
+    --si-trophy-mb: 12px;
+    --si-card-pad: 16px;
+    --si-fieldset-mt: 14px;
+    --si-field-mb: 12px;
+    --si-stage-top: 56px;
+    --si-stage-bottom: 12px;
+  }
+}
+
+@media (max-width: 599px) and (max-height: 640px) {
+  .signin {
+    --si-trophy: 138px;
+    --si-trophy-mb: 12px;
+    --si-card-pad: 14px;
+    --si-title-fs: 25px;
+    --si-input-h: 44px;
+    --si-submit-h: 48px;
+    --si-submit-fs: 15px;
+    --si-stage-top: 54px;
+    --si-stage-bottom: 10px;
+  }
+}
+
+/* 320x568 is the smallest screen this needs to survive, so the savings all have
+   to come out of the card itself. */
+@media (max-width: 359px) and (max-height: 600px) {
+  .signin {
+    --si-trophy: 100px;
+    --si-trophy-mb: 10px;
+    --si-card-pad: 10px;
+    --si-card-pad-x: 16px;
+    --si-title-fs: 23px;
+      --si-label-mb: 5px;
+    --si-input-h: 44px;
+    --si-field-mb: 10px;
+    --si-fieldset-mt: 13px;
+    --si-submit-fs: 15px;
+    --si-stage-bottom: 8px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

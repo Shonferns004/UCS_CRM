@@ -21,14 +21,16 @@ import {
   closeAllTurns,
   closeTurn as closeTurnModel,
   updateSession,
-  getBallot,
-  getVotedTurnIds,
-  insertBallot,
+  getVoterTeamKeys,
+  getVotedTurnCounts,
+  insertBallots,
   tallyResults,
   countBallotsForTurn,
   addAudit,
   listAudit,
   hashVoterKey,
+  groupByTeam,
+  normTeam,
 } from '../models/votingModel.js';
 import { emitRealtime } from '../socket.js';
 
@@ -62,32 +64,87 @@ const shapeDepartment = (d) => ({
   member_count: Array.isArray(d.members) ? d.members.length : undefined,
 });
 
+/** The tally rows' team key, normalised — legacy rows have no team of their own. */
+const rowTeamKey = (r) => String(r.team_key ?? '');
+
+const shapeWinner = (row) => ({
+  nominee_id: row.nominee_id,
+  name: row.nominee_name,
+  employee_id: row.nominee_employee_id,
+  photo_url: row.nominee_photo_url,
+  votes: row.votes,
+});
+
 /**
- * The final winners, one per department. Shared by the HR board and the booth's
- * end-of-ceremony reveal so they can never disagree. It only appears once every
- * turn is done — the votes stay private until then.
+ * One group's outcome from its tally rows: total votes, the top row, and whether
+ * the top is shared.
+ *
+ * A tie is reported rather than broken. Deciding between tied people is HR's
+ * call, so the same shape feeds the board, the reveal and the export and none of
+ * them can quietly pick a different winner from the others.
+ */
+const tallyOutcome = (rows) => {
+  const votes = rows.reduce((s, r) => s + (r.votes || 0), 0);
+  const top = rows.reduce((best, r) => (!best || (r.votes || 0) > best.votes ? r : best), null);
+  const tied = top ? rows.filter((r) => r.votes === top.votes).length : 0;
+  return {
+    votes_cast: votes,
+    winner: top && votes > 0 ? shapeWinner(top) : null,
+    is_tie: !!(top && votes > 0 && tied > 1),
+    tied_count: tied,
+  };
+};
+
+/**
+ * The winners of one department, one per team plus the department-wide top.
+ *
+ * The team winners are the point of team voting: a department of five teams has
+ * five winners. The department-wide winner is kept alongside them because the
+ * board and the Excel export have always shown one overall line per department,
+ * and dropping it would change what HR exports as well as what they see.
+ *
+ * Teams are ordered by name, matching the ballot the voter filled in, so the
+ * reveal reads in the same order they voted.
+ *
+ * `fallbackLabel` names the one group that never had a team of its own. It is
+ * the department name, so a department where nobody has a team assigned reads as
+ * a single pick for that department rather than a phantom "No team" winner.
+ */
+const buildTeamWinners = (rows, fallbackLabel = '') => {
+  const byKey = new Map();
+  for (const r of rows) {
+    const key = rowTeamKey(r);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(r);
+  }
+  return [...byKey.entries()]
+    .map(([key, teamRows]) => ({
+      key,
+      // The team as it reads now, falling back to the stored key if HR has since
+      // renamed or blanked it, and to the caller's label when there is no team.
+      label: String(teamRows[0]?.nominee_team ?? '').trim() || key || fallbackLabel,
+      ...tallyOutcome(teamRows),
+    }))
+    .sort((a, b) => {
+      if (a.key === b.key) return 0;
+      if (!a.key) return 1;
+      if (!b.key) return -1;
+      return a.label.localeCompare(b.label, 'en', { sensitivity: 'base' });
+    });
+};
+
+/**
+ * The final winners for the end-of-ceremony reveal. Shared with the HR board so
+ * the two can never disagree, and only surfaced once every turn is done — the
+ * votes stay private until then.
  */
 const buildWinners = (departments, tally) =>
   departments.map((d) => {
     const rows = (tally || []).filter((r) => Number(r.department_id) === Number(d.id) && r.nominee_id);
-    const votes = rows.reduce((s, r) => s + (r.votes || 0), 0);
-    const top = rows.reduce((best, r) => (!best || (r.votes || 0) > best.votes ? r : best), null);
-    const tied = top ? rows.filter((r) => r.votes === top.votes).length : 0;
     return {
       department: { id: d.id, name: d.name, order_index: d.order_index },
-      votes_cast: votes,
-      winner:
-        top && votes > 0
-          ? {
-              nominee_id: top.nominee_id,
-              name: top.nominee_name,
-              employee_id: top.nominee_employee_id,
-              photo_url: top.nominee_photo_url,
-              votes: top.votes,
-            }
-          : null,
-      is_tie: !!(top && votes > 0 && tied > 1),
-      tied_count: tied,
+      ...tallyOutcome(rows),
+      teams: buildTeamWinners(rows, d.name),
     };
   });
 
@@ -174,7 +231,7 @@ export const getCeremony = async (req, res) => {
     }
 
     const [depts, turns] = await Promise.all([listDepartments(), listTurns(session.id)]);
-    const votedTurnIds = await getVotedTurnIds(
+    const votedTurnCounts = await getVotedTurnCounts(
       turns.map((t) => t.id),
       req.user.login_id,
     );
@@ -190,15 +247,26 @@ export const getCeremony = async (req, res) => {
         .map((t) => t.closes_at)
         .sort()[0] || null;
 
+    // Each pick is recorded on its own, so a department is finished only once the
+    // voter has a row for every team on it. Team counts come from the roster, the
+    // same grouping the ballot itself uses.
+    const rosters = await getAllRosters();
+    const teamCounts = new Map(rosters.map((r) => [r.id, groupByTeam(r.members).length]));
+
     const departments = depts.map((d) => {
       const t = turns.find((x) => Number(x.department_id) === Number(d.id)) || null;
       const open = live && isTurnLive(t, now);
+      const picked = t ? votedTurnCounts.get(Number(t.id)) || 0 : 0;
+      const needed = teamCounts.get(d.id) || 0;
       return {
         id: d.id,
         name: d.name,
         order_index: d.order_index,
         open,
-        voted: !!t && votedTurnIds.has(Number(t.id)),
+        voted: picked > 0 && picked >= needed,
+        // Part way through: still open to vote in, so the grid must not mark it
+        // done or the voter would be shut out of the teams they have not done.
+        partial: picked > 0 && picked < needed,
         closes_at: t?.closes_at || null,
       };
     });
@@ -229,11 +297,15 @@ export const getCeremony = async (req, res) => {
 };
 
 /**
- * Resolve the department whose ballot is being voted on.
+ * Resolve the department whose ballot is being voted on, and the ballot itself.
  *
  * Any department in the ceremony is fair game for any signed-in employee, so
  * this is a lookup rather than a membership test. The only gate is that the
  * ballot is genuinely open right now.
+ *
+ * The nominees are returned twice over: flat, and grouped by team. The flat list
+ * is what validation runs against; the groups are what the ballot is drawn as,
+ * since the voter picks one person per team.
  */
 const resolveOpenBallot = async (session, departmentId, worker) => {
   const dept = await getDepartment(departmentId);
@@ -249,8 +321,19 @@ const resolveOpenBallot = async (session, departmentId, worker) => {
     .filter((m) => session.allow_self_vote || String(m.id) !== String(worker.id))
     .map((m) => ({ id: m.id, name: m.name, employee_id: m.employee_id, department: m.department, team: m.team, photo_url: m.photo_url }));
 
-  return { dept, turn, members, nominees };
+  // The department name carries the label for the single-group fallback, so a
+  // department with no teams reads as one pick for that department rather than
+  // inventing a "No team" section the voter was never offered.
+  return { dept, turn, members, nominees, teams: groupByTeam(nominees, { fallbackLabel: dept.name }) };
 };
+
+/** The team groups for one department's ballot. */
+const shapeTeams = (teams) =>
+  teams.map((t) => ({
+    key: t.key,
+    label: t.label,
+    nominees: t.members,
+  }));
 
 /** The nominee list for one department's ballot, only while that ballot is open. */
 export const getMyBallot = async (req, res) => {
@@ -264,7 +347,7 @@ export const getMyBallot = async (req, res) => {
     const departmentId = String(req.query?.department_id || '').trim();
     if (!departmentId) return res.status(400).json({ message: 'Which department?' });
 
-    const { error, dept, turn, nominees } = await resolveOpenBallot(session, departmentId, worker);
+    const { error, dept, turn, teams } = await resolveOpenBallot(session, departmentId, worker);
     if (error) return res.status(error.status).json({ message: error.message });
 
     return res.json(
@@ -272,7 +355,15 @@ export const getMyBallot = async (req, res) => {
         session: { id: session.id, title: session.title, award_label: session.award_label },
         department: shapeDepartment(dept),
         turn: { id: turn.id, closes_at: turn.closes_at },
-        nominees,
+        // Grouped is what the voter is choosing within; flat is kept so the
+        // payload still describes every nominee in one list.
+        teams: shapeTeams(teams),
+        nominees: teams.flatMap((t) => t.members),
+        // Which teams this person has already voted in, so reopening a ballot
+        // resumes where they left off instead of showing a team they cannot vote
+        // in again. Team keys only — never a nominee — so this cannot reveal a
+        // past choice.
+        voted_team_keys: [...(await getVoterTeamKeys(turn.id, hashVoterKey(turn.id, req.user.login_id)))]
       }),
     );
   } catch (error) {
@@ -281,55 +372,93 @@ export const getMyBallot = async (req, res) => {
 };
 
 /**
- * Cast one vote, in one department's ballot.
+ * Cast one department's ballot: one pick per team, recorded together.
  *
- * The response is a bare confirmation — it deliberately does not echo the
- * nominee back, so a shared screen cannot reveal what anyone picked.
+ * The picks arrive as bare nominee ids and the team each one belongs to is
+ * re-derived here from the roster, never taken from the client. So a caller
+ * cannot vote for somebody twice by claiming two teams for them, and cannot slip
+ * in a nominee from a team that is not on this ballot.
+ *
+ * The response is a bare confirmation — it deliberately does not echo the picks
+ * back, so a shared screen cannot reveal what anyone picked.
  */
 export const castVote = async (req, res) => {
   try {
     const worker = await requireWorker(req, res);
     if (!worker) return;
 
-    const nomineeId = String(req.body?.nominee_id || '').trim();
-    if (!nomineeId) return res.status(400).json({ message: 'Please select one person' });
-
     const departmentId = String(req.body?.department_id || '').trim();
     if (!departmentId) return res.status(400).json({ message: 'Which department?' });
+
+    // One id per team. A bare `nominee_id` is still honoured so a booth tab left
+    // open from before this change can finish its vote.
+    const legacy = String(req.body?.nominee_id || '').trim();
+    const requested = Array.isArray(req.body?.picks)
+      ? req.body.picks.map((p) => String(p?.nominee_id ?? p ?? '').trim()).filter(Boolean)
+      : legacy
+        ? [legacy]
+        : [];
+    if (!requested.length) return res.status(400).json({ message: 'Please choose one person for this team' });
 
     const session = await getActiveSession();
     if (!session) return res.status(404).json({ message: 'There is no ceremony running right now' });
 
-    const { error, dept, turn, members } = await resolveOpenBallot(session, departmentId, worker);
+    const { error, dept, turn, nominees, teams } = await resolveOpenBallot(session, departmentId, worker);
     if (error) return res.status(error.status).json({ message: error.message });
 
-    const allowed = members.filter((m) => session.allow_self_vote || String(m.id) !== String(worker.id));
-    if (!allowed.some((m) => String(m.id) === nomineeId)) {
-      return res.status(400).json({ message: 'That person is not on this department’s ballot' });
+    const byId = new Map(nominees.map((n) => [String(n.id), n]));
+    const seen = new Set();
+    for (const id of requested) {
+      if (!byId.has(id)) {
+        return res.status(400).json({ message: 'That person is not on this department’s ballot' });
+      }
+      if (seen.has(id)) {
+        return res.status(400).json({ message: 'The same person cannot be picked twice' });
+      }
+      seen.add(id);
     }
+
+    // Each pick is sent on its own and becomes that team's vote immediately, so
+    // the client no longer sends a full set of teams. A stale tab from the
+    // all-at-once version can still send several at once, so a request covering
+    // more than one team is refused rather than half-honoured.
+    if (requested.length > 1) {
+      return res.status(400).json({ message: 'Please vote one team at a time' });
+    }
+
+    const teamKey = normTeam(byId.get(seen.values().next().value).team);
 
     const voterHash = hashVoterKey(turn.id, req.user.login_id);
-    if (await getBallot(turn.id, voterHash)) {
-      return res.status(409).json({ message: 'You have already voted in this department' });
+    const done = await getVoterTeamKeys(turn.id, voterHash);
+    // The unique key is (turn, voter, team), so a team is recorded once. A repeat
+    // here means a double tap or a second tab, and must not count twice.
+    if (done.has(teamKey)) {
+      return res.status(409).json({ message: 'You have already voted for this team' });
     }
 
-    try {
-      await insertBallot({
+    // One row for this team, keyed by the team the nominee is on.
+    const rows = [
+      {
         session_id: session.id,
         turn_id: turn.id,
         department_id: dept.id,
-        nominee_id: nomineeId,
+        nominee_id: seen.values().next().value,
+        team_key: teamKey,
         voter_hash: voterHash,
-      });
+      },
+    ];
+
+    try {
+      await insertBallots(rows);
     } catch (e) {
       // 23505 = unique_violation. Two taps, or two tabs, raced each other past
       // the check above. The constraint is the real guarantee, so report it as
       // "already voted" rather than a server error.
-      if (e?.code === '23505') return res.status(409).json({ message: 'You have already voted in this department' });
+      if (e?.code === '23505') return res.status(409).json({ message: 'You have already voted for this team' });
       throw e;
     }
 
-    await addAudit(session.id, 'vote_cast', null, { department_id: dept.id });
+    await addAudit(session.id, 'vote_cast', null, { department_id: dept.id, team: teamKey });
     broadcast(session.id, 'vote_cast', { department_id: dept.id });
 
     return res.status(201).json({ message: 'Your vote has been recorded', server_now: new Date().toISOString() });
@@ -513,32 +642,45 @@ export const getBoard = async (req, res) => {
     const departments = rosters.map((d) => {
       const turn = turns.find((t) => Number(t.department_id) === Number(d.id)) || null;
       const rows = tally.filter((r) => Number(r.department_id) === Number(d.id) && r.nominee_id);
-      const votes = rows.reduce((s, r) => s + (r.votes || 0), 0);
-      const top = rows.reduce((best, r) => (!best || r.votes > best.votes ? r : best), null);
-      const tied = top ? rows.filter((r) => r.votes === top.votes).map((r) => r.nominee_id) : [];
+      const outcome = tallyOutcome(rows);
+      // Roster teams are listed even with no votes yet, so HR can see that a
+      // team exists but nobody picked anybody there before the ceremony closes.
+      const teams = groupByTeam(d.members, { fallbackLabel: d.name }).map((t) => {
+        const teamRows = rows.filter((r) => rowTeamKey(r) === t.key);
+        return {
+          key: t.key,
+          label: t.label,
+          candidates: t.members.length,
+          ...tallyOutcome(teamRows),
+        };
+      });
 
       return {
         ...shapeDepartment(d),
         turn_status: turn ? (isTurnLive(turn, now) ? 'open' : turn.status === 'open' ? 'expired' : turn.status) : 'pending',
         opens_at: turn?.opens_at || null,
         closes_at: turn?.closes_at || null,
-        votes_cast: votes,
-        ballots: votes,
+        votes_cast: outcome.votes_cast,
+        ballots: outcome.votes_cast,
         // Every employee may vote in every department, so the denominator for
         // "x of y voted" is the whole company. `candidates` is how many names
         // are on this department's ballot.
         eligible: eligibleVoters,
         candidates: d.members.length,
+        teams,
         results: rows.map((r) => ({
           nominee_id: r.nominee_id,
           name: r.nominee_name,
           employee_id: r.nominee_employee_id,
           photo_url: r.nominee_photo_url,
+          team: r.nominee_team || null,
           votes: r.votes || 0,
         })),
-        winner: top && votes > 0 ? { nominee_id: top.nominee_id, name: top.nominee_name, votes: top.votes } : null,
-        is_tie: !!(top && votes > 0 && tied.length > 1),
-        tied_count: tied.length,
+        winner: outcome.winner
+          ? { nominee_id: outcome.winner.nominee_id, name: outcome.winner.name, votes: outcome.winner.votes }
+          : null,
+        is_tie: outcome.is_tie,
+        tied_count: outcome.tied_count,
       };
     });
 
@@ -570,7 +712,7 @@ export const getSessionAudit = async (req, res) => {
   }
 };
 
-/** Ballots recorded in an open turn — used by the board to show progress. */
+/** People who have voted in this turn, counting each voter once. */
 export const getTurnProgress = async (req, res) => {
   try {
     const turn = await getTurn(req.params.id, req.params.deptId);

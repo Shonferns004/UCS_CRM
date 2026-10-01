@@ -18,6 +18,61 @@ function ballotSecret() {
 /** Department names are free text in this codebase; compare them case/whitespace-insensitively. */
 export const normDept = (v) => String(v ?? '').trim().toLowerCase();
 
+/** Team names are free text for the same reason, and `workers.team` is nullable. */
+export const normTeam = (v) => String(v ?? '').trim().toLowerCase();
+
+/**
+ * What order two team groups render in: named teams first, in name order.
+ *
+ * Numeric-aware so UFS2 sorts before UFS10 rather than after it.
+ */
+const TEAM_COLLATOR = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+const byTeamLabel = (a, b) => {
+  if (a.key === b.key) return 0;
+  if (!a.key) return 1;
+  if (!b.key) return -1;
+  return TEAM_COLLATOR.compare(a.label, b.label);
+};
+
+/**
+ * Group a roster by worker team, because the team is the ballot's unit of choice.
+ *
+ * One pick per team means the teams are the ballot's real structure: a
+ * department with four teams is four picks, not one.
+ *
+ * Two rules, both about who is actually votable:
+ *
+ *   - Someone with no team assigned is not on the ballot at all. Putting them in
+ *     a "No team" section made them a team nobody is on, so they could win a
+ *     prize nobody chose them for. They are instead fixed by giving them a team
+ *     in the HR picker.
+ *   - If a roster has teams *and* unassigned people, that leaves a real ballot.
+ *     But if a whole department has no teams at all, dropping its people would
+ *     leave nobody votable there and the department could never produce a
+ *     winner — so it falls back to a single group holding everyone, which is
+ *     exactly how a one-team ballot behaved before.
+ *
+ * Returns `[{ key, label, members }]`. The key is the normalised team and is what
+ * ballots are stored against; the label is the text as HR typed it, or
+ * `fallbackLabel` for that single-group case.
+ */
+export const groupByTeam = (people = [], { fallbackLabel = '' } = {}) => {
+  const byKey = new Map();
+  for (const p of people) {
+    const label = String(p?.team ?? '').trim();
+    const key = normTeam(label);
+    if (!key) continue;
+    if (!byKey.has(key)) byKey.set(key, { key, label, members: [] });
+    byKey.get(key).members.push(p);
+  }
+
+  const groups = [...byKey.values()];
+  if (!groups.length && people.length) {
+    groups.push({ key: '', label: String(fallbackLabel || '').trim(), members: [...people] });
+  }
+  return groups.sort(byTeamLabel);
+};
+
 /**
  * Does a worker's department fall into a group's match list?
  *
@@ -453,43 +508,78 @@ export const updateSession = async (id, patch) => {
 
 // ── ballots ────────────────────────────────────────────────────────────────
 
-export const getBallot = async (turnId, voterHash) => {
+/**
+ * The team keys this person has already recorded in one turn.
+ *
+ * Only keys come back — never a nominee, never a timestamp — so the answer
+ * cannot be used to work out a past choice. A non-empty set means the ballot is
+ * done: every pick is written in one statement, so a ballot is never half
+ * recorded and "some rows exist" is the same test as "they voted".
+ */
+export const getVoterTeamKeys = async (turnId, voterHash) => {
   const { data, error } = await db
     .from(BALLOTS_TABLE)
-    .select('id, created_at')
+    .select('team_key')
     .eq('turn_id', turnId)
-    .eq('voter_hash', voterHash)
-    .maybeSingle();
-  if (error && error.code !== 'PGRST116') throw error;
-  return data || null;
+    .eq('voter_hash', voterHash);
+  if (error) throw error;
+  return new Set((data || []).map((r) => String(r.team_key ?? '')));
 };
 
 /**
- * Which of these turns has this person already voted in?
+ * Which of these turns has this person voted in?
  *
  * Lets the booth show "Vote" vs "Voted ✓" per department so someone walking the
  * six ballots can see where they are. Only turn ids come back — never a nominee,
  * never a timestamp — so the response cannot be used to work out a past choice.
+ *
+ * Counts how many teams each turn has a row for, because a pick is now recorded
+ * one team at a time: someone who has voted for two of four teams is still part
+ * way through that ballot, not finished with it.
  */
-export const getVotedTurnIds = async (turnIds = [], loginId) => {
-  if (!turnIds.length) return new Set();
-  const hashes = turnIds.map((id) => hashVoterKey(id, loginId));
-  const { data, error } = await db.from(BALLOTS_TABLE).select('turn_id').in('voter_hash', hashes);
+export const getVotedTurnCounts = async (turnIds = [], loginId) => {
+  if (!turnIds.length) return new Map();
+  const byTurn = new Map(turnIds.map((id) => [id, hashVoterKey(id, loginId)]));
+  const { data, error } = await db
+    .from(BALLOTS_TABLE)
+    .select('turn_id')
+    .in('voter_hash', [...byTurn.values()]);
   if (error) throw error;
-  return new Set((data || []).map((r) => Number(r.turn_id)));
-};
-
-export const insertBallot = async (row) => {
-  const { data, error } = await db.from(BALLOTS_TABLE).insert(row).select('id, created_at').single();
-  if (error) throw error;
-  return data;
+  const counts = new Map();
+  for (const r of data || []) {
+    const id = Number(r.turn_id);
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  return counts;
 };
 
 /**
- * Per-group vote totals for the live board and the results reveal.
+ * Record a whole ballot — one row per team — in a single statement.
+ *
+ * One statement rather than a loop so the pick per team is atomic: either the
+ * department's ballot exists in full or it was never written, and there is no
+ * half-recorded state for the "have I voted?" check to trip over.
+ */
+export const insertBallots = async (rows) => {
+  const { data, error } = await db
+    .from(BALLOTS_TABLE)
+    .insert(rows)
+    .select('id, team_key, created_at');
+  if (error) throw error;
+  return data || [];
+};
+
+/**
+ * Per-group vote totals for the live board and the results reveal, split by team
+ * as well as by department.
  *
  * Deliberately an aggregate: the caller receives counts, never a
  * nominee→voter mapping, and voter_hash is not selected at all.
+ *
+ * The rows are ordered department, then votes descending, then name — so the
+ * board's flat "top five" and the Excel export stay department-wide as before,
+ * and callers that need a team breakdown pick it out of these same rows rather
+ * than the query being reshaped for them.
  */
 export const tallyResults = async (sessionId) => {
   const { rows } = await db._pool.query(
@@ -497,9 +587,11 @@ export const tallyResults = async (sessionId) => {
             t.id            AS turn_id,
             t.status        AS turn_status,
             t.order_index,
+            COALESCE(b.team_key, '') AS team_key,
             b.nominee_id,
             w.name          AS nominee_name,
             w.employee_id   AS nominee_employee_id,
+            w.team          AS nominee_team,
             w.photo_url     AS nominee_photo_url,
             COUNT(b.id)::int AS votes
        FROM voting_turns t
@@ -507,17 +599,18 @@ export const tallyResults = async (sessionId) => {
        LEFT JOIN workers w       ON w.id = b.nominee_id
       WHERE t.session_id = $1
       GROUP BY t.department_id, t.id, t.status, t.order_index,
-               b.nominee_id, w.name, w.employee_id, w.photo_url
+               COALESCE(b.team_key, ''), b.nominee_id,
+               w.name, w.employee_id, w.team, w.photo_url
       ORDER BY t.order_index, votes DESC, lower(w.name)`,
     [sessionId],
   );
   return rows;
 };
 
-/** Has everyone on the roster already voted in this turn? */
+/** How many people have voted in this turn, counting each voter once. */
 export const countBallotsForTurn = async (turnId) => {
   const { rows } = await db._pool.query(
-    'SELECT COUNT(*)::int AS n FROM voting_ballots WHERE turn_id = $1',
+    'SELECT COUNT(DISTINCT voter_hash)::int AS n FROM voting_ballots WHERE turn_id = $1',
     [turnId],
   );
   return rows[0]?.n || 0;
