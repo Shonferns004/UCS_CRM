@@ -1880,6 +1880,7 @@ export const getReceiptList = async (req, res) => {
                 receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
                 donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
                 sent, sent_at, voided_at, void_reason, created_at,
+                wa_message_id, wa_status, wa_failure_reason, wa_status_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
                  WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                  ORDER BY b.id LIMIT 1) AS audit_payer_name,
@@ -1920,6 +1921,7 @@ export const getReceiptList = async (req, res) => {
               receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
               donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
               sent, sent_at, voided_at, void_reason, created_at,
+              wa_message_id, wa_status, wa_failure_reason, wa_status_at,
               (SELECT b.payer_name FROM bank_audit_entries b
                WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                ORDER BY b.id LIMIT 1) AS audit_payer_name,
@@ -2105,6 +2107,12 @@ export const getPendingReceipts = async (req, res) => {
         'Agent Name': r.agent_name || '',
         receipt_id: r.id,
         sent: r.sent || false,
+        // Real delivery verdict, straight from the Meta status webhook. Absent
+        // on receipts sent before this was tracked, so the UI must treat null as
+        // "unknown" rather than "failed".
+        wa_status: r.wa_status || null,
+        wa_failure_reason: r.wa_failure_reason || null,
+        wa_status_at: r.wa_status_at || null,
         log_id: r.log_id,
         'Project': project,
       };
