@@ -119,7 +119,8 @@ as React elements instead of an HTML string. Add a lint rule banning
 
 A repository-wide search for `Content-Security-Policy`, `Strict-Transport-Security`,
 `X-Frame-Options`, `add_header`, and `helmet` returns **zero** matches. There is
-no nginx config, no `vercel.json`, and no `_headers` file for `client/`.
+no `vercel.json`, and no `_headers` file for `client/`. *(Resolved 2026-09-30: the
+production Caddyfile and HEAD nginx config are now committed under `infra/`.)*
 
 Consequences: no CSP backstop for SEC-002/SEC-010, no HSTS, and the app is
 framed by any origin (clickjacking). The client is deployed by copying
@@ -128,7 +129,7 @@ now in place are configured outside version control — unversioned, unreviewed,
 and undocumented.
 
 **Remediation:** add the header block in
-[REVERSE-PROXY.md](REVERSE-PROXY.md) to the nginx site config and commit it.
+[REVERSE-PROXY.md](REVERSE-PROXY.md) to the site config and commit it. *(Done: `infra/caddy/Caddyfile` and `infra/nginx/head.conf`.)*
 `helmet()` on the backend is still recommended for the API origin.
 
 ---
