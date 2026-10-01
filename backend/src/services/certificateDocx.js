@@ -66,6 +66,39 @@ function collectFromEntryText(content, out) {
   for (const run of runs) collectFromText(run, out);
 }
 
+// Docxtemplater wraps everything it finds wrong in a single error whose message
+// is the literal string "Multi error"; the actionable text lives one level down
+// in properties.errors[].properties.explanation. Without this, every bad
+// template looks identical to the user.
+function describeDocxError(e) {
+  const one = (err) => {
+    const p = (err && err.properties) || {};
+    const text = p.explanation || err?.message || String(err);
+    const tag = p.xtag || p.value;
+    const part = String(p.part || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (tag && part && !text.includes(tag)) return `${text} (near "${part}")`;
+    return text;
+  };
+
+  const subs = e?.properties?.errors;
+  if (Array.isArray(subs) && subs.length) {
+    const lines = subs.map(one).filter(Boolean);
+    const head = lines.length > 1 ? `Template has ${lines.length} problems:` : 'Template problem:';
+    return `${head}\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`;
+  }
+  return one(e);
+}
+
+// An unreadable/invalid template is the caller's mistake, not ours: 400, not 500.
+export class TemplateError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'TemplateError';
+    this.status = 400;
+    this.expose = true;
+  }
+}
+
 export const humanizeKey = (k) =>
   String(k)
     .split('.')
@@ -81,7 +114,7 @@ export function detectPlaceholders(buffer) {
     zip = new PizZip(buffer);
     doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
   } catch (e) {
-    throw new Error(`Unreadable template: ${e && e.message ? e.message : String(e)}`);
+    throw new TemplateError(`Unreadable template — ${describeDocxError(e)}`);
   }
 
   const keys = new Set();
@@ -115,14 +148,24 @@ export function detectPlaceholders(buffer) {
 }
 
 export function renderCertificate(buffer, values) {
-  const zip = new PizZip(buffer);
-  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  let zip;
+  let doc;
+  try {
+    zip = new PizZip(buffer);
+    doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  } catch (e) {
+    throw new TemplateError(`Unreadable template — ${describeDocxError(e)}`);
+  }
   const data = {};
   for (const [k, v] of Object.entries(values || {})) {
     if (v == null) continue;
     data[k] = String(v);
   }
-  doc.render(data);
+  try {
+    doc.render(data);
+  } catch (e) {
+    throw new TemplateError(`Could not fill template — ${describeDocxError(e)}`);
+  }
   const ext = getPkgFormat(buffer);
   const mime =
     ext === 'pptx'
