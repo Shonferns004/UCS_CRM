@@ -1276,6 +1276,12 @@ const S3_ACCOUNTS = {
     bucket: process.env.UPSTREAM_S3_BUCKET,
     region: process.env.UPSTREAM_S3_REGION || 'ap-south-1',
   },
+  legacy: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    bucket: process.env.S3_BUCKET,
+    region: process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1',
+  },
 };
 
 const _s3Clients = {};
@@ -1342,24 +1348,36 @@ const STORAGE_NOT_CONFIGURED = 'S3 storage is not configured. Set S3_BUCKET (and
 // db.storage.from('head', 'receipts') / db.storage.from('upstream', 'receipts')
 // pick an explicit account; db.storage.from('receipts') falls back to the
 // active (head) account when configured, else the legacy AWS_*/S3_* pair.
+// The resolved account name is returned so callers that must later read the
+// same object back (see services/receiptFileLink.js) do not have to re-derive
+// the bucket from env and risk guessing a different one.
 function resolveS3(accountOrBucket, maybeBucket) {
   const explicit = maybeBucket != null;
   const account = explicit ? accountOrBucket : null;
   const bucket = explicit ? maybeBucket : accountOrBucket;
   let s3 = null;
+  let accountName = null;
   if (account) {
     s3 = getS3Client(account) || (account === 'head' ? getS3() : null);
+    accountName = account;
+  } else if (getS3Client('head')) {
+    s3 = getS3Client('head');
+    accountName = 'head';
   } else {
-    s3 = getS3Client('head') || getS3();
+    s3 = getS3();
+    accountName = 'legacy';
   }
-  return { s3, bucket };
+  return { s3, bucket, accountName };
 }
 
 const storage = {
   from(accountOrBucket, maybeBucket) {
-    const { s3, bucket } = resolveS3(accountOrBucket, maybeBucket);
+    const { s3, bucket, accountName } = resolveS3(accountOrBucket, maybeBucket);
     const b = safeBucket(bucket);
     return {
+      // Which configured account this handle writes to. Exposed so a caller can
+      // build a link that reads the same object back later.
+      accountName: s3 ? accountName : null,
       async upload(fileName, buffer, opts = {}) {
         if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
         try {
@@ -1389,6 +1407,20 @@ const storage = {
           return { data: await s3BodyToBuffer(res.Body), error: null };
         } catch (e) {
           return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_DOWNLOAD_FAILED' } };
+        }
+      },
+      // Same read as download(), but hands back the live stream plus the object's
+      // own headers instead of buffering it. The WhatsApp receipt-file endpoint
+      // needs Content-Type/Content-Length to answer Meta properly, and streaming
+      // avoids holding whole PDFs in memory. Kept separate from download()
+      // because buffering would be the wrong default for a streaming caller.
+      async readStream(fileName) {
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+        try {
+          const out = await s3.client.send(new GetObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, fileName) }));
+          return { data: { body: out.Body, contentType: out.ContentType, contentLength: out.ContentLength }, error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: e?.name || 'S3_READ_FAILED' } };
         }
       },
       async remove(paths) {

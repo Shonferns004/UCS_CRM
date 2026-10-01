@@ -2,6 +2,7 @@ import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTempl
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
 import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
+import { signReceiptFile, verifyReceiptFile, buildReceiptFileUrl, describeStoredObjectUrl } from '../services/receiptFileLink.js';
 import db from '../config/db.js';
 
 const TEMPLATE_PROJECT_MAP = {
@@ -94,6 +95,48 @@ async function preflightAttachment(documentUrl) {
   if (probe.ok) return null;
   console.error('WhatsApp attachment preflight failed:', documentUrl, probe.status, probe.reason || '');
   return describeUnreachableAttachment(documentUrl, probe);
+}
+
+// Serves a receipt PDF to Meta, out of the private receipts bucket.
+//
+// Unauthenticated by necessity: Meta fetches the header document with a plain
+// GET and cannot present a session token. The HMAC in the URL is the entire
+// authorisation, which is why it is checked before any storage call and why an
+// expired or tampered token returns 404 rather than a distinguishable error --
+// this endpoint must not become an oracle for probing which receipt keys exist.
+export async function serveReceiptFile(req, res) {
+  let claim;
+  try {
+    claim = verifyReceiptFile(req.params.token);
+  } catch (err) {
+    console.warn(`[receipt-file] rejected: ${err.message}`);
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  const { data, error } = await db
+    .storage.from(claim.account, 'receipts')
+    .readStream(claim.key);
+
+  if (error || !data?.body) {
+    const missing = /NoSuchKey|NotFound/i.test(String(error?.code || error?.message || ''));
+    console.error(`[receipt-file] storage read failed for ${claim.key}: ${error?.code || error?.message}`);
+    return res.status(missing ? 404 : 502).json({ message: missing ? 'Not found' : 'Receipt file could not be read' });
+  }
+
+  const filename = claim.key.split('/').pop() || 'receipt.pdf';
+  res.setHeader('Content-Type', data.contentType || 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${filename.replace(/["\\]/g, '')}"`);
+  if (Number.isFinite(data.contentLength)) res.setHeader('Content-Length', String(data.contentLength));
+  // Signed, expiring, donor-specific: nothing here may be cached by a proxy.
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  const body = data.body;
+  if (typeof body.pipe === 'function') {
+    body.on('error', (e) => { console.error(`[receipt-file] stream failed: ${e.message}`); res.destroy(); });
+    return body.pipe(res);
+  }
+  return res.send(Buffer.from(await body.transformToByteArray()));
 }
 
 // Accounts sends by phone number, whereas the FRO inbox reads the messages
@@ -280,24 +323,33 @@ export async function sendReceipt(req, res) {
     // Same guard as sendDirect: this path can be reached with a pdf_url written
     // by an older run against a bucket that no longer serves anonymous reads, and
     // a dead URL here is an invisible lost receipt rather than a visible error.
+    //
+    // The stored URL is a bucket URL, so it is re-signed to point back at this
+    // backend; Meta cannot read the bucket directly and the credentials here
+    // cannot open it up.
+    let attachmentUrl = documentUrl;
     if (documentUrl) {
-      const attachmentError = await preflightAttachment(documentUrl);
+      const located = describeStoredObjectUrl(documentUrl);
+      if (located) {
+        attachmentUrl = buildReceiptFileUrl(req, signReceiptFile(located));
+      }
+      const attachmentError = await preflightAttachment(attachmentUrl);
       if (attachmentError) {
-        return res.status(422).json({ message: attachmentError, code: 'attachment_unreachable', attachmentUrl: documentUrl });
+        return res.status(422).json({ message: attachmentError, code: 'attachment_unreachable', attachmentUrl });
       }
     } else if (!uploadErrorMsg) {
       uploadErrorMsg = 'no receipt PDF was found for this donation';
     }
 
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, documentUrl, templateName, account);
+    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, attachmentUrl, templateName, account);
     await recordReceiptDelivery({
       receiptId, receiptNo, project: donorProject,
       wamid: whatsappMessageId(result), status: 'accepted',
     });
     const displayName = `Receipt_${String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()}_${receiptNo || 'receipt'}.pdf`;
     const message = await recordReceiptInConversation({
-      phone, project: donorProject, receiptNo, documentUrl, displayName, sentBy: req.user?.id, result,
+      phone, project: donorProject, receiptNo, documentUrl: attachmentUrl, displayName, sentBy: req.user?.id, result,
     });
 
     return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, chatMessage: message, uploadError: uploadErrorMsg });
@@ -388,7 +440,10 @@ export async function sendDirect(req, res) {
         const safeName = String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()
         displayName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`
         const storagePath = `receipts/${receiptNo || Date.now()}.pdf`;
-        let { error: upErr } = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
+        // One handle for the whole upload, so the account that actually receives
+        // the PDF is the account we later ask to serve it back.
+        const store = db.storage.from('receipts');
+        let { error: upErr } = await store.upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
         if (upErr) {
           await db.storage.createBucket('receipts', { public: true });
           const retry = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
@@ -396,10 +451,15 @@ export async function sendDirect(req, res) {
         }
         if (upErr) {
           uploadError = upErr.message || 'PDF upload failed';
+        } else if (!store.accountName) {
+          uploadError = 'PDF uploaded but no storage account is configured to serve it back';
         } else {
-          const { data: pub } = db.storage.from('receipts').getPublicUrl(storagePath);
-          documentUrl = pub?.publicUrl || null;
-          if (!documentUrl) uploadError = 'PDF upload returned no public URL';
+          // The bucket's own URL cannot be used: it denies anonymous reads, and
+          // the credentials available here cannot grant them (no
+          // s3:PutBucketPolicy, no s3:PutObjectAcl). Meta gets a signed link to
+          // this backend instead, which streams the PDF out of the private
+          // bucket. Nothing about the donor becomes world-readable.
+          documentUrl = buildReceiptFileUrl(req, signReceiptFile({ account: store.accountName, key: storagePath }));
         }
       } catch (e) {
         uploadError = e.message;
