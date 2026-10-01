@@ -29,7 +29,9 @@ const identity = (req) => ({
 async function fetchFile(url, key) {
   if (key) {
     const { data, error } = await db.storage.from(BUCKET).download(key);
-    if (!error && data) return Buffer.from(await data.arrayBuffer());
+    if (!error && data) return Buffer.from(data);
+    const why = error && error.message ? error.message : String(error);
+    throw new Error(`Unable to read template file from storage: ${why}`);
   }
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Unable to read template file (${resp.status})`);
