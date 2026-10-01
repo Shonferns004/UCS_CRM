@@ -587,7 +587,7 @@ export default function MonthlyPlanner() {
   const [loading, setLoading] = useState(false)
   const [loadKey, setLoadKey] = useState(0)
 
-  const initialDate = searchParams.get('date') || undefined
+  const initialDate = searchParams.get('date') || (searchParams.get('month') ? `${searchParams.get('month')}-01` : undefined)
   const initialDateRef = useRef(initialDate)
   const [range, setRange] = useState(null)
   /* Filters */
