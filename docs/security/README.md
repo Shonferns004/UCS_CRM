@@ -39,7 +39,8 @@ handling, and a findings register with concrete fixes.
 | [AUTHENTICATION.md](AUTHENTICATION.md) | JWT issuance/verification, token storage, roles, revocation, expiry |
 | [FRONTEND.md](FRONTEND.md) | SPA trust boundary, XSS sinks, client storage, PII exposure, uploads |
 | [BACKEND.md](BACKEND.md) | Middleware order, CORS, rate limiting, validation, SQL, static mounts |
-| [REVERSE-PROXY.md](REVERSE-PROXY.md) | nginx/TLS, security headers, proxy hardening, sample config |
+| [REVERSE-PROXY.md](REVERSE-PROXY.md) | Edge audit: **production is Caddy**, HEAD is nginx. TLS, security headers, hardening config |
+| [EDGE-HARDENING-PLAN.md](EDGE-HARDENING-PLAN.md) | Phased edge work (Phases 0-6) + verification commands |
 | [DATA-PROTECTION.md](DATA-PROTECTION.md) | PII inventory, database access, backups, retention, logging hygiene |
 | [SECRETS-MANAGEMENT.md](SECRETS-MANAGEMENT.md) | Secret inventory, handling rules, rotation procedure |
 | [FINDINGS.md](FINDINGS.md) | Prioritised findings register with evidence and remediation |

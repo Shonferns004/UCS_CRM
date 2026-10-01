@@ -55,7 +55,7 @@ proxy, or anything handling personal data. Cross-referenced with
 - [ ] Auth routes rate limited more strictly than the rest of the API
 - [ ] Node port not reachable from outside the host
 - [ ] Edge config committed to the repository, not only on the host
-- [ ] Certificate renewal and nginx reload verified
+- [ ] Certificate renewal and proxy reload verified (Caddy auto-ACME on prod; `nginx -s reload` on HEAD)
 
 ## Verification
 

@@ -75,7 +75,7 @@ Assume breach notification is required until counsel says otherwise.
  Browsers (client/ SPA, plus 9 other SPAs and 6 mobile apps)
         |  HTTPS
         v
- Reverse proxy  (nginx on the app host — config NOT in version control)
+ Reverse proxy  (Caddy on the prod host — config now in version control, infra/)
         |
         +---> /            static SPA bundles          (unauthenticated)
         |
@@ -342,12 +342,12 @@ always available. Effort is engineering time for one developer.
 | P1-B | **Stored XSS against HR administrators.** Worker/NGO names interpolated raw into letter HTML, injected via `dangerouslySetInnerHTML` and again via `el.innerHTML` before `html2canvas`. A worker controls their own display name. | `Letters.jsx:88,431,484,566,794,…`, sinks `:1043,1303` | Apply a complete `esc()` (including `"` and `'`) to every field, or render as React elements. Ban the sinks via lint. | 1 d |
 | P1-C | Unsanitised `mammoth` DOCX→HTML into `dangerouslySetInnerHTML`. DOMPurify is in the tree transitively but **never imported**. | `Certificates.jsx:55,79,436,1316` | Add `dompurify` as a direct dependency; sanitise with an allow-list at both sinks. | 0.5 d |
 | P1-D | Shared username/password gates technical tickets in client code and is in the shipped bundle; the server only requires `authenticate`, so **any** token reaches list, bulk-update and approve. | `TicketGate.jsx:4-8,32`; `TechnicalTickets.jsx:8-12,190`; `developerTicketRoutes.js:11,25-27` | Delete the credential comparison. Gate routes on `authenticateRole('super_admin','developer')`. Rotate the credential — it is public. | 0.5 d |
-| P1-E | **No security response headers anywhere.** No CSP, HSTS, frame-ancestors, nosniff, referrer or permissions policy. No `helmet` dependency. Proxy config is unversioned. | repo-wide: 0 hits | Commit the nginx config from [REVERSE-PROXY.md](REVERSE-PROXY.md) under `infra/nginx/`; add `helmet()` to the API origin. | 1 d |
+| P1-E | **No security response headers anywhere.** No CSP, HSTS, frame-ancestors, nosniff, referrer or permissions policy. No `helmet` dependency. Confirmed absent on live production responses 2026-09-30. | `curl -sI https://crm.beingsevak.org` | See [EDGE-HARDENING-PLAN.md](EDGE-HARDENING-PLAN.md) Phase 3 — Caddy `header` blocks; strip `X-Powered-By` in `index.js`. | 1 d |
 | P1-F | **Wildcard CORS** in Express and in socket.io, with `x-admin-key` in `allowedHeaders`. | `index.js:118-128`; `socket.js:46-49` | Explicit origin allow-list from the environment; drop `x-admin-key`. Never combine wildcard with credentials. | 0.5 d |
 | P1-G | JWT + **pre-impersonation super-admin token** in `localStorage`; role read from `localStorage` drives every guard. | `api/auth.js:5-8,152-153`; `store.jsx:58-59`; `App.jsx:53-63` | Move to `httpOnly; Secure; SameSite=Strict` cookie — **must land with P1-F**. Make role decisions only from the verified token. | 2 d |
 | P1-H | Donor PAN, UPI, address, DOB, screenshot, bank and mobile persisted to `localStorage`; WhatsApp agent session tokens; attendance PIN. | `Dashboard.jsx:207-225`; `MyDonors.jsx:757-764`; `WhatsAppChat.jsx:76-83`; `AdminAttendance.jsx:53` | Keep in memory or `sessionStorage` with explicit expiry. Never persist Aadhaar, PAN, bank or tokens. | 1 d |
 | P1-I | `/docs/*` open to every role — a free reconnaissance package with schema, `aadhaar_number` columns and the JWT flow. | `App.jsx:205-209`; `panels/documentation/data/*.js` | Restrict to `super_admin`/`developer`, or remove from the production bundle. | 0.5 d |
-| P1-J | `trust proxy 'loopback'` while nginx is a different hop; a limiter would see the proxy IP. | `index.js:118` | Set the hop count to match reality and verify the observed IP in staging. | 0.5 d |
+| P1-J | `trust proxy 'loopback'` while the proxy (Caddy on prod, nginx on HEAD) is a different hop; a limiter would see the proxy IP. | `index.js:118` | Set the hop count to match reality and verify the observed IP in staging. Both proxies already proxy from `127.0.0.1`, so `'loopback'` is correct as written — verify, don't assume. | 0.5 d |
 
 ### P2 — medium, defence in depth
 
@@ -588,7 +588,7 @@ required.
 | `backend/` API, authorization, SQL, uploads | Backend maintainer |
 | `client/` SPA, XSS sinks, browser storage | Frontend maintainer |
 | CI/CD, deploy pipelines, secrets | Whoever holds the deploy role |
-| nginx edge, TLS, DNS | Whoever holds the host |
+| Caddy edge (prod), nginx (HEAD), TLS, DNS | Whoever holds the host |
 | Data protection, retention, DPDP compliance | Leadership + counsel |
 
 Every `SEC-REQ` in [§3](#3-the-standard--what-ucs-crm-must-satisfy) needs a named
