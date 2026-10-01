@@ -1,5 +1,5 @@
 import pg from 'pg';
-import db from '../config/db.js';
+import db, { sql } from '../config/db.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -110,6 +110,23 @@ export const getWorkerByLoginId = async (login_id) => {
     .maybeSingle();
   if (error) throw error;
   return data;
+};
+
+// Email fallback for /auth/worker/login. Deliberately NOT .ilike(): in PostgREST
+// an underscore is a single-character wildcard, and addresses like
+// first_last@trust.org are common enough that it would match the wrong person.
+// Exact case-insensitive comparison, newest row wins to match getWorkerByLoginId.
+export const getWorkerByEmail = async (email) => {
+  const target = String(email || '').trim();
+  if (!target) return null;
+  const rows = await sql(
+    `SELECT * FROM workers
+     WHERE lower(btrim(email)) = lower(btrim($1))
+     ORDER BY created_at DESC NULLS LAST
+     LIMIT 1`,
+    [target]
+  );
+  return rows[0] || null;
 };
 
 // NGO admins are workers with department 'ngo admin'. When ngoId is null the
