@@ -16,6 +16,7 @@ import {
   nextParticipant as modelNextParticipant,
   joinEvent,
   getVoter,
+  findVoterByDevice,
   countVoters,
   insertRating,
   ratedParticipantIds,
@@ -176,8 +177,27 @@ export const rate = async (req, res) => {
     return bad(res, 'The next speaker has started — your scores were not saved', 409, 'stale_speaker');
   }
 
-  const voter = await getVoter(event.id, deviceToken);
-  if (!voter) return bad(res, 'Join the event before rating', 401, 'not_joined');
+  let voter = await getVoter(event.id, deviceToken);
+
+  // Carry the identity forward across events.
+  //
+  // The device token survives in localStorage but a voter row is scoped to one
+  // event, so the first rating after a new event opens looks like an unknown
+  // device. Re-enrolling the same person under the name they already gave is
+  // the behaviour the room expects: one link for the whole ceremony, and nobody
+  // should be asked their name again between sessions.
+  //
+  // Done here, on the rating, and not in /status: /status is polled every few
+  // seconds by every phone, and enrolling there would count people who merely
+  // held the page open as "joined".
+  if (!voter) {
+    const previous = await findVoterByDevice(deviceToken);
+    if (previous) voter = await joinEvent(event.id, previous.name, deviceToken);
+  }
+
+  if (!voter) {
+    return bad(res, 'Join the event before rating', 401, 'not_joined');
+  }
 
   const stars = {};
   for (const { key } of STAR_CRITERIA) {

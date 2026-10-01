@@ -80,6 +80,10 @@ async function ensureTables() {
     `CREATE INDEX IF NOT EXISTS idx_aud_vote_voters_event ON aud_vote_voters (event_id)`,
     `CREATE INDEX IF NOT EXISTS idx_aud_vote_ratings_participant ON aud_vote_ratings (participant_id)`,
     `CREATE INDEX IF NOT EXISTS idx_aud_vote_ratings_event ON aud_vote_ratings (event_id, participant_id)`,
+    // Not the same as idx_aud_vote_voters_event: findVoterByDevice() has no
+    // event_id to filter on, because it deliberately searches every event to
+    // carry a returning audience member's name into the one now running.
+    `CREATE INDEX IF NOT EXISTS idx_aud_vote_voters_device ON aud_vote_voters (device_token)`,
   ];
 
   for (const sql of steps) {

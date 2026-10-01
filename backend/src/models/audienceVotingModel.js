@@ -335,6 +335,31 @@ export const getVoter = async (eventId, deviceToken) => {
   return rows[0] || null;
 };
 
+/**
+ * The name this device has registered under most recently, in ANY event.
+ *
+ * This exists because the two halves of the identity have different lifetimes.
+ * The device token is stored in localStorage and outlives any single event,
+ * while a voter row is scoped to one event (UNIQUE is on event_id+device_token).
+ * So the first time somebody rates after a new event opens, they are a known
+ * device holding a token that names no voter in the event now running.
+ *
+ * Ordered by id DESC rather than created_at: id is monotonic and cannot be
+ * defeated by two rows written in the same clock tick, which matters because
+ * these inserts happen in the same millisecond when a phone submits fast.
+ *
+ * Returns the newest row, so a name corrected during an earlier event is the one
+ * carried forward.
+ */
+export const findVoterByDevice = async (deviceToken) => {
+  if (!deviceToken) return null;
+  const { rows } = await db._pool.query(
+    `SELECT * FROM ${VOTERS_TABLE} WHERE device_token = $1 ORDER BY id DESC LIMIT 1`,
+    [deviceToken],
+  );
+  return rows[0] || null;
+};
+
 export const countVoters = async (eventId) => {
   const { rows } = await db._pool.query(
     `SELECT count(*)::int AS n FROM ${VOTERS_TABLE} WHERE event_id = $1`,

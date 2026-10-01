@@ -29,6 +29,21 @@ export function setDeviceToken(token) {
   }
 }
 
+/**
+ * Forget this device.
+ *
+ * Only used when the server says the token means nothing to it — otherwise a
+ * stored token is exactly what stops somebody rating the same speaker twice, and
+ * throwing it away re-opens that door.
+ */
+export function clearDeviceToken() {
+  try {
+    localStorage.removeItem(DEVICE_KEY)
+  } catch {
+    /* see getDeviceToken */
+  }
+}
+
 async function request(method, path, body, query) {
   const url = new URL(`${ENDPOINT}${path}`, window.location.origin)
   for (const [k, v] of Object.entries(query || {})) {

@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS aud_vote_voters (
   UNIQUE (event_id, device_token)
 );
 
+-- findVoterByDevice() looks a device up across ALL events, to carry a returning
+-- audience member's name into the event that just started. Without this the
+-- lookup can only use the (event_id, device_token) unique index, which cannot
+-- serve a query with no event_id in it, and every first rating of a new session
+-- degrades to a sequential scan as events accumulate.
+CREATE INDEX IF NOT EXISTS idx_aud_vote_voters_device ON aud_vote_voters (device_token);
+
 CREATE TABLE IF NOT EXISTS aud_vote_ratings (
   id             BIGSERIAL PRIMARY KEY,
   event_id       INT NOT NULL REFERENCES aud_vote_events(id) ON DELETE CASCADE,
