@@ -10,7 +10,7 @@ where they consume the same API.
  Browsers (client/ SPA, plus other static panels)
         |  HTTPS
         v
- Reverse proxy  (nginx on the app host — config NOT in version control)
+ Reverse proxy  (Caddy on prod, nginx on HEAD — see infra/README.md)
         |
         +---> /            static SPA bundles          (unauthenticated)
         |

@@ -1,25 +1,54 @@
 # Reverse Proxy, TLS and Edge Hardening
 
-## Current state — read this first
+> **This document was wrong about production.** It originally described nginx on the
+> app host. Production actually runs **Caddy v2.11.4**; only the HEAD host runs nginx.
+> The nginx sample config further down has therefore never described the live
+> production edge. See [infra/README.md](../../infra/README.md) for the captured real
+> configs and [EDGE-HARDENING-PLAN.md](EDGE-HARDENING-PLAN.md) for the phased work.
 
-**There is no reverse proxy configuration in version control.** A repository-wide
-search for `*.conf`, `Caddyfile`, `add_header`, and security-header directives
-returns no applicable file for `client/`. `client/` is deployed by copying
-`client/dist` into `/var/www/crm` on host `13.207.47.116`
-(`.github/workflows/deploy-frontend.yml:76-100`), and `backend/` runs under PM2
-on the same host (`.github/workflows/deploy.yml:22-45`).
+## Current state — audited on the host, 2026-09-30
 
-Two consequences:
+Both proxies were read directly from the hosts. Configs are now committed.
 
-1. Whatever headers are served today are unversioned, unreviewed, and cannot be
-   confirmed from the repository. Treat the edge as **unknown** until audited on
-   the host.
-2. There is no committed record of TLS versions, cipher policy, or which
-   hostnames are served — so a config change is unreviewable and a rollback is
-   guesswork.
+| | Production `13.207.47.116` | HEAD `52.66.211.205` |
+| --- | --- | --- |
+| Proxy | **Caddy v2.11.4** | **nginx** |
+| Live config | `/etc/caddy/Caddyfile` | `/etc/nginx/sites-available/ucs-crm` |
+| Committed copy | `infra/caddy/Caddyfile` | `infra/nginx/head.conf` |
+| TLS | automatic ACME | none — `listen 80` only |
 
-**The first action for this area is to bring the nginx site config into the
-repository** under `infra/nginx/`, so it is reviewed like code.
+The live production config is:
+
+```caddy
+api.beingsevak.org, 13-207-47-116.sslip.io {
+    reverse_proxy 127.0.0.1:5000
+}
+
+crm.beingsevak.org, crm.13-207-47-116.sslip.io {
+    root * /var/www/crm
+    encode gzip
+    try_files {path} /index.html
+    file_server
+}
+```
+
+It serves **six domains** from one file (see `infra/README.md`), so a syntax error
+takes down every site on the box. `caddy validate` before every reload.
+
+### Measured gaps
+
+- **Zero security headers.** `curl -sI https://crm.beingsevak.org` confirms no HSTS,
+  no CSP, no `frame-ancestors`, no `nosniff`, no `Referrer-Policy`, no
+  `Permissions-Policy`.
+- **`X-Powered-By: Express`** leaks on the API origin. Strip it in `index.js`;
+  Caddy does not remove it.
+- **`Access-Control-Allow-Origin: *`** on API responses.
+- **`GET /api/db/tables` returns `200` from the internet.** The unauthenticated
+  arbitrary-SQL finding is confirmed reachable through the live edge.
+- **No body-size limit** in production (HEAD does set `client_max_body_size 100M`).
+- **Node binds `0.0.0.0:5000`**; only the security group prevents direct origin access.
+
+See `EDGE-HARDENING-PLAN.md` for the phased remediation.
 
 ## What the edge must do
 
@@ -35,10 +64,132 @@ repository** under `infra/nginx/`, so it is reviewed like code.
 | Logging | Log status, method, path, upstream status and client IP — never bodies or headers |
 | Rate limiting | Coarse edge limit to absorb floods before they reach the app |
 
-## Sample nginx configuration
+## Target Caddy configuration (production)
 
-Baseline for `infra/nginx/crm.conf`. Review before use; it assumes the Node
-backend listens on `127.0.0.1:5000` and the site root is `/var/www/crm`.
+This is the **proposed** hardened config for `/etc/caddy/Caddyfile`. It is not
+applied yet — the live file is still the plain version captured in
+`infra/caddy/Caddyfile`. Apply per `infra/README.md`: back up, edit,
+`caddy validate`, `systemctl reload caddy`, then verify all six sites.
+
+```caddy
+# Security headers. 'header' blocks inherit to sub-paths, so one per site
+# covers the HTML and its assets.
+#
+# Applied first without Content-Security-Policy, because these four are purely
+# additive and cannot break rendering. CSP is deliberately absent here - see
+# "CSP rollout" below. Do not add it in the same edit.
+(common_security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=(), payment=()"
+		# Caddy ships the 'Server' header; blank it to remove the fingerprint.
+		-Server
+	}
+}
+
+# --- CRM: static SPA ---------------------------------------------------
+crm.beingsevak.org, crm.13-207-47-116.sslip.io {
+	import common_security_headers
+
+	root * /var/www/crm
+	encode gzip
+	try_files {path} /index.html
+	file_server
+
+	# Hashed assets may be cached for a year.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# Never cache the entry point, or clients pin an old bundle.
+	@entry path /index.html
+	header @entry Cache-Control "no-store, must-revalidate"
+}
+
+# --- API: proxy to Node ------------------------------------------------
+api.beingsevak.org, 13-207-47-116.sslip.io {
+	import common_security_headers
+
+	# Bound the body before Node buffers it. Match the largest legitimate
+	# letter/PDF upload; the process heap is 640MB with a history of OOM
+	# restarts, so this is a one-request DoS control.
+	request_body {
+		max_size 12MB
+	}
+
+	reverse_proxy 127.0.0.1:5000 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# --- Other sites sharing this file ------------------------------------
+# Unchanged in this proposal. They exist on the same host, so a syntax error
+# anywhere above takes them all down. Do not edit them while hardening.
+aflf.ngo, www.aflf.ngo {
+	root * /var/www/aflf
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}
+
+manncarefoundation.org, www.manncarefoundation.org {
+	root * /var/www/mann
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}
+
+beingsevak.org, www.beingsevak.org {
+	root * /var/www/being
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}
+
+ultimateconsultancy.services, www.ultimateconsultancy.services {
+	root * /var/www/ucs
+	encode gzip
+	try_files {path} /index.html
+	file_server
+}
+```
+
+### What changed and why
+
+| Change | Reason |
+| --- | --- |
+| `header` blocks | Caddy omits headers unless asked; there were none. |
+| `-Server` | Suppresses the stack fingerprint. Cosmetic, not a control. |
+| `request_body.max_size 12MB` | Production had no body limit. Bounds memory before Node sees it. |
+| `Cache-Control` on `/assets` and `/index.html` | Correct caching; `index.html` must never be cached. |
+| `X-Forwarded-*` | The backend sets `app.set('trust proxy','loopback')` (`index.js:118`), so these must be right or `req.ip` is wrong. Caddy sets them automatically; stated explicitly to match the nginx equivalent. |
+| Other four sites | **Untouched.** Included only to show the full file that will be written. |
+
+**No rate limiting here, deliberately.** Caddy has no built-in limiter. `express-rate-limit`
+is already a dependency (`backend/package.json:34`), so do it in the app — and never on
+`/api/workers/` or `/api/attendance/`, which field phones poll every 30 s behind shared
+carrier NAT. See `EDGE-HARDENING-PLAN.md` Phase 5.
+
+**`/uploads` is not handled in this config** on purpose. `backend/src/index.js:505`
+serves it as unauthenticated static. Decide in code whether to authorise or remove it —
+`EDGE-HARDENING-PLAN.md` Phase 4.
+
+## HEAD host: current nginx config
+
+Captured verbatim in `infra/nginx/head.conf`. As deployed it has **no TLS**
+(`listen 80` only), no security headers, and no body-size limit beyond
+`client_max_body_size 100M`. That is a P2: HEAD appears to be a staging/HEAD-of-git
+box, but it proxies `/api` to a **production** database, so an untls box in front of
+production data is worth revisiting rather than dismissing.
+
+## Sample nginx hardening reference (not production)
+
+Retained for the HEAD host and for anyone adding a new nginx front end. **This is not
+the production config** — production is Caddy, above.
 
 ```nginx
 # Rate limit zones. Tune the numbers to real traffic before enforcing.
@@ -162,21 +313,44 @@ extensively, so `style-src` will need `'unsafe-inline'` or a nonce strategy.
 
 ## Certificate handling
 
-- Use certbot with a renewal timer; confirm the deploy hook reloads nginx.
-- Cover every hostname served, including any `*.sslip.io` names.
-- Enable OCSP stapling and monitor expiry — an expired certificate on this host
-  takes the CRM down entirely.
+Production runs Caddy, which obtains and renews certificates automatically over ACME.
+There is no certbot, no renewal timer, and no reload hook to wire up.
+
+- Confirm certificates are being issued and renewed by monitoring the Caddy log and
+  expiry, not a timer. Caddy retries on its own; a silent failure is the risk.
+- Every hostname in `infra/caddy/Caddyfile` gets a certificate automatically. If one
+  ever stops resolving, that site's TLS breaks on its own.
+- OCSP stapling is on by default in Caddy. Nothing to configure.
+- Monitor expiry regardless — an expired certificate on this host takes the CRM down
+  entirely, and six domains ride on one file.
+
+The HEAD host is the opposite: plain `listen 80`, no TLS at all. It proxies `/api` to a
+production database. Whether that is acceptable is a question about what HEAD is *for*;
+flagging it rather than deciding it.
 
 ## Verification checklist
 
 Run from outside the app network:
 
 ```bash
-curl -sI https://crm.beingsevak.org | grep -iE 'strict-transport|content-security|x-frame|x-content-type|referrer-policy'
-curl -sI --tlsv1.2 --tls-max 1.1 https://crm.beingsevak.org   # must fail
-curl -sI https://13.207.47.116 -H 'Host: crm.beingsevak.org'  # must not serve content
-curl -s  https://crm.beingsevak.org/uploads/../package.json   # path traversal, must 400/404
+# Security headers now present (this is what returns 200 today with none of them)
+curl -sI https://crm.beingsevak.org | grep -iE 'strict-transport|x-frame|x-content-type|referrer-policy|permissions-policy'
+
+# TLS floor - must fail
+curl -sI --tls-max 1.1 https://crm.beingsevak.org
+
+# Path traversal - must be 400/404
+curl -s https://crm.beingsevak.org/uploads/../package.json
+
+# All six sites must still respond after any Caddyfile change
+for h in crm.beingsevak.org api.beingsevak.org aflf.ngo \
+         manncarefoundation.org beingsevak.org ultimateconsultancy.services; do
+  printf "%-36s %s\n" "$h" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://$h)"
+done
+
+# Node port must not be reachable from outside
+curl -s --max-time 5 http://13.207.47.116:5000/api/db/tables   # expect timeout/refused
 ```
 
-Also confirm the Node port is unreachable from outside (see SEC-005) and that
-`/uploads` no longer serves files.
+Also confirm `/uploads` no longer serves files anonymously, and that the five
+non-CRM sites are unharmed.

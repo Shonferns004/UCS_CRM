@@ -1,0 +1,7 @@
+﻿{
+    "LoggingEnabled": {
+        "TargetBucket": "ucs-crm-audit-logs-938364502045",
+        "TargetPrefix": "ucs-crm-uploads-mumbai/"
+    }
+}
+
