@@ -47,6 +47,30 @@ const istDateOf = (ts) => {
 
 const todayIst = () => istDateOf(Date.now());
 
+// Someone who has left the company does not belong in today's report. The
+// attendance roster already drops them (see the `roster` CTE in
+// hrDailyReportController.ATTENDANCE_SUMMARY_SQL, which filters on is_active and
+// employment_status), so leaving them in the recruiter dropdown made this screen
+// contradict its own headcount: the total on the left excluded them while the
+// table beside it still listed them.
+//
+// Deliberately NOT isActiveRecruiter() from ../recruiterFilters: that helper also
+// requires department to match /recruit/i, which would drop a recruiter whose
+// department is plain 'HR' — including whoever is filling in the report, since
+// this is keyed on employment state alone, not on who ranks on the leaderboard.
+//
+// A missing employment_status is treated as still-employed rather than as a
+// departure: a projected row that omits the column must not empty the dropdown.
+const isStillEmployed = (r) => {
+  if (!r) return false;
+  if (r.is_active === false) return false;
+  const status = r.employment_status;
+  if (status != null && status !== '') {
+    return String(status).toLowerCase() === 'active';
+  }
+  return true;
+};
+
 // Day arithmetic on bare 'YYYY-MM-DD' strings. Parsing them as UTC midnight and
 // doing the maths in UTC is DST-proof, unlike new Date(y, m, d ± n).
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -245,7 +269,9 @@ export default function Reports() {
     setLoading(true);
     Promise.all([fetchRecruiters(), fetchLeads()])
       .then(([rs, ls]) => {
-        setRecruiters(Array.isArray(rs) ? rs : []);
+        // Filtered on arrival so the dropdown and the MIS table are built from
+        // the same list; see isStillEmployed for why.
+        setRecruiters((Array.isArray(rs) ? rs : []).filter(isStillEmployed));
         setLeads(Array.isArray(ls) ? ls : []);
       })
       .catch(err => toast(err.message || 'Could not load recruiters and leads', 'error'))
@@ -288,6 +314,10 @@ export default function Reports() {
   // Recruiter MIS, derived from the leads for this date only.
   const mis = useMemo(() => {
     const byRecruiter = new Map();
+    // `recruiters` already excludes anyone who has left (see isStillEmployed), so
+    // the same list drives the table, the totals and the WhatsApp body. Their rows
+    // drop out of the report entirely rather than showing as a row of zeros, which
+    // would read as a data-entry failure rather than an absence.
     for (const recruiter of recruiters) {
       const leadsForRecruiter = leads.filter(l => belongsTo(l, recruiter) && activeOn(l, date));
       const roles = new Set();
