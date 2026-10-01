@@ -17,12 +17,21 @@ export default function MyTarget() {
   if (loading) return <SkeletonRow cols={3} height={100} />;
   if (!data) return <div className="empty-state"><p>Could not load target data.</p></div>;
 
-  const { target, collected, remaining, target_source, salary, months_employed, stats } = data;
+  const { target, collected, remaining, target_source, target_source_month, salary, months_employed, stats } = data;
   const progress = target > 0 ? Math.min(100, (collected / target) * 100) : 0;
+
+  const monthLabel = (v) => {
+    if (!v) return '';
+    const [y, m] = String(v).slice(0, 7).split('-');
+    if (!y || !m) return String(v);
+    return new Date(Number(y), Number(m) - 1, 1)
+      .toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+  };
 
   const sourceLabel = {
     auto: 'Auto-calculated (based on salary & joining date)',
     manual: 'Set by Admin',
+    carried_forward: `Carried over from ${monthLabel(target_source_month) || 'an earlier month'}`,
     not_set: 'Not set by Admin yet',
   };
 

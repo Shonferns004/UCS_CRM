@@ -104,7 +104,16 @@ router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_a
 
 // Accounts reports need stations/targets/ngos — allow accounts role for these read-only endpoints
 router.get('/stations', authenticateRole('admin', 'super_admin', 'accounts'), getStations);
-router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts'), getTargets);
+router.get('/targets', authenticateRole('admin', 'super_admin', 'accounts', 'hr'), getTargets);
+
+// Setting an FRO's monthly collection target is a people decision, not an
+// accounts one: HR sets it from the roster and Accounts reconciles against it.
+// This sits ABOVE the router.use below on purpose — anything registered after
+// that line inherits the admin-only guard, which is why a route declared down
+// there could not simply be widened in place.
+router.post('/targets', authenticateRole('admin', 'super_admin', 'accounts', 'hr'), setTarget);
+
+router.use(authenticateRole('admin', 'super_admin'));
 router.get('/ngos', authenticateRole('admin', 'super_admin', 'accounts'), getAccessibleNgos);
 router.post('/ngos/ensure', authenticateRole('admin', 'super_admin'), ensureStandardNgos);
 router.get('/ngos/all', authenticateRole('admin', 'super_admin', 'accounts'), getAllNgosForTabs);
@@ -154,7 +163,6 @@ router.get('/donors/:mobile', getDonorDetail);
 router.get('/donors-by-fro', getDonorsByFro);
 router.get('/fro-workers', getFroWorkers);
 router.get('/assignments', getAssignments);
-router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
 router.get('/fro-performance', getFroPerformance);
 router.get('/fro/:id/summary', getFroSummary);

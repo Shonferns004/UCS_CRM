@@ -40,7 +40,10 @@ export { counterDayOf, isCounterDayStale };
 /** A single day cannot physically contain more than this much idle. */
 export const MAX_IDLE_SECONDS_PER_DAY = 24 * 60 * 60;
 
-const COUNTER_COLUMNS = [
+// Exported so any path that re-arms a stale live row zeroes exactly the same set
+// the rollover does - a partial list here is how yesterday's count survives into
+// today under a fresh stats_date.
+export const COUNTER_COLUMNS = [
   'today_idle_seconds',
   'today_calls',
   'today_talk_seconds',

@@ -87,6 +87,7 @@ import operatorRoutes from './routes/operatorRoutes.js';
 import aadhaarRoutes from './aadhaar/routes.js';
 import metropadRouter from './metropad/router.js';
 import votingRoutes from './routes/votingRoutes.js';
+import audienceVotingRoutes from './routes/audienceVotingRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { startMemoryWatchdog } from './services/memoryWatchdog.js';
 import { authenticate } from './middleware/authMiddleware.js';
@@ -108,6 +109,7 @@ import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTyp
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
 import { ensureVotingSchema } from './bootstrap/ensureVotingSchema.js';
+import { ensureAudienceVotingSchema } from './bootstrap/ensureAudienceVotingSchema.js';
 import { ensureSignatureSchema } from './bootstrap/ensureSignatureSchema.js';
 import { ensureDocumentsSchema } from './bootstrap/ensureDocumentsSchema.js';
 import { aiSuggestionsStartupReport } from './utils/aiSuggestions.js';
@@ -151,6 +153,7 @@ const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
 const databaseDist = path.resolve(__dirname, '../../database/dist');
 const recruitDist = path.resolve(__dirname, '../../recruit-quizz/dist');
 const votingDist = path.resolve(__dirname, '../../others/voting/dist');
+const audienceVotingDist = path.resolve(__dirname, '../../others/audience-voting/dist');
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 let gitCommit = 'unknown';
@@ -296,6 +299,7 @@ app.use('/api/operator', operatorRoutes);
 app.use('/api/aadhaar', aadhaarRoutes);
 app.use('/api/metropad', metropadRouter);
 app.use('/api/voting', votingRoutes);
+app.use('/api/audience-voting', audienceVotingRoutes);
 
 app.get('/api/deploy-test', (req, res) => {
   res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });
@@ -803,7 +807,11 @@ if (fs.existsSync(databaseDist)) {
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database|voting).*$/, (req, res) => {
+  // `audience-voting` is excluded from the FRO catch-all below, which is
+  // registered BEFORE this app's own mount and would otherwise answer every
+  // /audience-voting request with the FRO SPA. Note that `voting` in this list
+  // does not cover it: the path starts with "audience-", not "voting".
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database|voting|audience-voting).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
@@ -843,6 +851,17 @@ if (fs.existsSync(votingDist)) {
   app.use('/voting/assets', express.static(path.join(votingDist, 'assets')));
   app.get('/voting*', (req, res) => {
     res.sendFile(path.join(votingDist, 'index.html'));
+  });
+}
+
+// Audience voting booth. Same arrangement as the ceremony booth above: served
+// from the API origin so the app can reach /api/audience-voting without a
+// cross-origin preflight, which matters because that app has no auth header to
+// preflight with.
+if (fs.existsSync(audienceVotingDist)) {
+  app.use('/audience-voting/assets', express.static(path.join(audienceVotingDist, 'assets')));
+  app.get('/audience-voting*', (req, res) => {
+    res.sendFile(path.join(audienceVotingDist, 'index.html'));
   });
 }
 
@@ -977,6 +996,7 @@ if (!process.env.VERCEL) {
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
     await ensureOperatorSchema().catch(e => console.error('ensureOperatorSchema failed:', e?.message || e));
     await ensureVotingSchema().catch(e => console.error('ensureVotingSchema failed:', e?.message || e));
+    await ensureAudienceVotingSchema().catch(e => console.error('ensureAudienceVotingSchema failed:', e?.message || e));
     await ensureReminderPushSchema().catch(e => console.error('ensureReminderPushSchema failed:', e?.message || e));
     await ensureChatSchema().catch(e => console.error('ensureChatSchema failed:', e?.message || e));
     await ensureSimInventorySchema().catch(e => console.error('ensureSimInventorySchema failed:', e?.message || e));
