@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from './lib/api.js';
+import { api, getApiConfig, setApiEnvironment, ENV_PRESETS } from './lib/api.js';
 import Icon from './components/Icon.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import Header from './components/Header.jsx';
@@ -38,6 +38,20 @@ export default function App() {
   const [runnerResult, setRunnerResult] = useState(null);
 
   const [capData, setCapData] = useState(null);
+
+  const [envConfig, setEnvConfig] = useState(() => getApiConfig());
+
+  const changeEnv = (env, customBase) => {
+    setApiEnvironment(env, customBase);
+    setEnvConfig(getApiConfig());
+    setTables([]);
+    setCurrent(null);
+    setSelected(new Map());
+    setErr(null);
+    setRunnerResult(null);
+    setCapData(null);
+    loadTables();
+  };
 
   const [confirm, setConfirm] = useState(null);
   const confirmResolve = useRef(null);
@@ -285,7 +299,12 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col h-full bg-surface overflow-hidden relative z-10">
-        <Header status={status} onToggleRunner={toggleRunner} />
+        <Header
+          status={status}
+          onToggleRunner={toggleRunner}
+          envConfig={envConfig}
+          onChangeEnv={changeEnv}
+        />
 
         <main className="flex-1 overflow-hidden flex flex-col bg-surface">
           <Toolbar

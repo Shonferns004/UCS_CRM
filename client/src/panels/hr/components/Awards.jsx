@@ -284,6 +284,10 @@ function DeptCard({ dept, index, onClose, busy }) {
   // `candidates` is how many names are on this ballot; `eligible` is everyone in
   // the company, because they can all vote here.
   const candidates = dept.candidates ?? dept.eligible
+  // The teams a voter picks one person from each in. A single-team department
+  // has one, and is shown as it always was rather than as a per-team list.
+  const teams = dept.teams || []
+  const teamWinners = teams.filter((t) => t.winner)
 
   return (
     <div
@@ -334,7 +338,15 @@ function DeptCard({ dept, index, onClose, busy }) {
           {dept.results.slice(0, 5).map((r) => (
             <div key={r.nominee_id}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 3 }}>
-                <span style={{ fontWeight: r.votes === top ? 700 : 400 }}>{r.name}</span>
+                <span style={{ fontWeight: r.votes === top ? 700 : 400 }}>
+                  {r.name}
+                  {/* One pick per team, so a nominee's count is only comparable
+                      with others from the same team. Naming the team keeps the
+                      bar from reading as a department-wide ranking. */}
+                  {teams.length > 1 && r.team ? (
+                    <span style={{ color: 'var(--ink-soft)' }}> · {r.team}</span>
+                  ) : null}
+                </span>
                 <span style={{ color: 'var(--ink-soft)', fontVariantNumeric: 'tabular-nums' }}>{r.votes}</span>
               </div>
               <div style={{ height: 7, background: 'var(--sand)', borderRadius: 4, overflow: 'hidden' }}>
@@ -376,6 +388,39 @@ function DeptCard({ dept, index, onClose, busy }) {
         <Note tone="warn">
           {dept.tied_count} people are tied. HR decides the award, or run a second round.
         </Note>
+      )}
+
+      {dept.turn_status === 'closed' && teamWinners.length > 1 && (
+        <div style={{ marginBottom: 12 }}>
+          <div
+            style={{
+              fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em',
+              color: 'var(--ink-soft)', marginBottom: 6,
+            }}
+          >
+            Winners by team
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {teamWinners.map((t) => (
+              <div
+                key={t.key || 'no-team'}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                  gap: 10, fontSize: 12.5, paddingTop: 6, borderTop: '1px solid var(--line)',
+                }}
+              >
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--ink-soft)' }}>{t.label} · </span>
+                  <span style={{ fontWeight: 700 }}>{t.winner.name}</span>
+                </span>
+                <span style={{ color: 'var(--ink-soft)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                  {t.winner.votes}
+                  {t.is_tie ? ` (${t.tied_count}-way tie)` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {dept.turn_status === 'pending' && dept.candidates === 0 && (
@@ -521,6 +566,7 @@ export default function Awards() {
       if (!d.results.length) {
         rows.push({
           Department: d.name,
+          Team: '',
           'Employee ID': '',
           Nominee: '(no votes)',
           Votes: 0,
@@ -533,6 +579,12 @@ export default function Awards() {
       for (const r of d.results) {
         rows.push({
           Department: d.name,
+          // Votes are counted within a team, so the team is what a row's count
+          // is comparable against - it cannot be left out of the export.
+          // An empty team means this row came from the single-group fallback, so
+          // the department is the honest label. A literal "No team" here would be
+          // a team that does not exist on the ballot HR is looking at.
+          Team: r.team || d.name,
           'Employee ID': r.employee_id || '',
           Nominee: r.name,
           Votes: r.votes,

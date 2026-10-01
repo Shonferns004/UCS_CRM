@@ -88,9 +88,10 @@ async function ensureTables() {
     turn_id       INT NOT NULL REFERENCES voting_turns(id) ON DELETE CASCADE,
     department_id INT NOT NULL REFERENCES voting_departments(id) ON DELETE CASCADE,
     nominee_id    UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    team_key      TEXT NOT NULL DEFAULT '',
     voter_hash    TEXT NOT NULL,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (turn_id, voter_hash)
+    UNIQUE (turn_id, voter_hash, team_key)
   )`);
 
   await db._pool.query(`CREATE TABLE IF NOT EXISTS voting_audit (
@@ -116,6 +117,79 @@ async function ensureTables() {
   for (const sql of steps) {
     await db._pool.query(sql);
   }
+
+  await upgradeTeamBallots();
+}
+
+/**
+ * Bring an already-created voting_ballots table up to the one-pick-per-team shape.
+ *
+ * CREATE TABLE IF NOT EXISTS silently leaves an older table alone, so the column
+ * and the constraint swap have to be stated separately for installs that predate
+ * team voting. Idempotent, and deliberately a no-op on a fresh install.
+ */
+async function upgradeTeamBallots() {
+  await db._pool.query(
+    'ALTER TABLE voting_ballots ADD COLUMN IF NOT EXISTS team_key TEXT NOT NULL DEFAULT \'\'',
+  );
+
+  // Existing ballots were one pick for the whole department, so give each the
+  // team its nominee was on. A team edited since the vote is unknowable from
+  // here, and the alternative — dropping history — is worse than a stale key.
+  await db._pool.query(
+    `UPDATE voting_ballots b
+        SET team_key = lower(btrim(COALESCE(w.team, '')))
+       FROM workers w
+      WHERE w.id = b.nominee_id
+        AND b.team_key = ''`,
+  );
+
+  // The old constraint is what stopped a second vote; the new one stops a second
+  // pick for the same team while allowing the other teams on that ballot. It is
+  // located by its columns rather than by name, because 158_voting.sql created
+  // it unnamed and so it carries a generated name — and leaving it in place
+  // would reject the second row of every multi-team ballot.
+  await db._pool.query(
+    `DO $$
+     DECLARE
+       old_constraint TEXT;
+     BEGIN
+       SELECT c.conname INTO old_constraint
+         FROM pg_constraint c
+        WHERE c.conrelid = 'voting_ballots'::regclass
+          AND c.contype = 'u'
+          AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text)
+                 FROM unnest(c.conkey) AS k
+                 JOIN pg_attribute a
+                   ON a.attrelid = c.conrelid AND a.attnum = k) = ARRAY['turn_id', 'voter_hash'];
+
+       IF old_constraint IS NOT NULL THEN
+         EXECUTE format('ALTER TABLE voting_ballots DROP CONSTRAINT %I', old_constraint);
+       END IF;
+     END $$`,
+  );
+  await db._pool.query(
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (
+         SELECT 1
+           FROM pg_constraint c
+          WHERE c.conrelid = 'voting_ballots'::regclass
+            AND c.contype = 'u'
+            AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text)
+                   FROM unnest(c.conkey) AS k
+                   JOIN pg_attribute a
+                     ON a.attrelid = c.conrelid AND a.attnum = k) = ARRAY['team_key', 'turn_id', 'voter_hash']
+       ) THEN
+         ALTER TABLE voting_ballots
+           ADD CONSTRAINT voting_ballots_turn_voter_team_key UNIQUE (turn_id, voter_hash, team_key);
+       END IF;
+     END $$`,
+  );
+
+  await db._pool.query(
+    'CREATE INDEX IF NOT EXISTS idx_voting_ballots_turn_voter ON voting_ballots (turn_id, voter_hash)',
+  );
 }
 
 async function seedDepartments() {

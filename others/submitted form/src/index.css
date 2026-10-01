@@ -1,0 +1,256 @@
+/* Must be first: Tailwind v4 requires the import at the top of the file. */
+@import "tailwindcss";
+
+/* Poppins, self-hosted. The HR form (client) loads it from Google Fonts; this
+   app vendors the latin subset instead, because it ships a service worker and
+   a remote <link> would leave the typography unstyled on a cold offline load.
+   `font-display: swap` means a blocked or missing file still falls back to
+   system-ui rather than leaving the sheet blank.
+   Only latin is vendored - the form is English-only, and any other script
+   falls back to the system font rather than pulling a fifth file. */
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/poppins-latin-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/poppins-latin-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/poppins-latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/poppins-latin-700.woff2') format('woff2');
+}
+
+/* Remaps the palette the component already uses onto the HR form's (client
+   .panel-hr, client/src/index.css:552) so the two apps read as one product.
+   Overriding these scales rather than rewriting classNames moves every button,
+   chip, border and placeholder at once, with no markup churn. */
+@theme {
+  /* HR form --sage */
+  --color-blue-500: #5B6B4E;
+  --color-blue-600: #4E5C42;
+  /* Success/affirmative states become sage too: in the HR form sage IS the
+     affirmative colour (active nav, primary button, progress fill). */
+  --color-emerald-100: #E8EDE1;
+  --color-emerald-500: #5B6B4E;
+  --color-emerald-600: #5B6B4E;
+  --color-emerald-700: #4E5C42;
+  /* Warm neutrals in place of the cool Tailwind greys. */
+  --color-gray-50: #FBFAF6;
+  --color-gray-200: #E4DECF;
+  --color-gray-300: #DED7C6;
+  --color-gray-400: #A79F8D;
+  --color-gray-500: #6F6857;
+  --color-gray-600: #55503F;
+  --color-gray-700: #3A362C;
+  --color-gray-900: #232019;
+  /* HR form --danger */
+  --color-red-50: #F3DDD8;
+  --color-red-200: #E3BEB6;
+  --color-red-500: #9E3B2E;
+  --color-red-600: #8A3428;
+  --font-sans: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* The HR form's tokens, verbatim, so this form inherits its palette. */
+:root{
+  --sand:#F3EFE7; --paper:#FBFAF6; --ink:#232019; --ink-soft:#6F6857; --line:#E4DECF;
+  --sage:#5B6B4E; --sage-soft:#E8EDE1; --sage-ink:#3F4C34;
+  --clay:#B5603A; --clay-soft:#F4E4DA;
+  --danger:#9E3B2E; --danger-soft:#F3DDD8;
+  --radius:12px; --radius-sm:8px;
+  --shadow:0 1px 2px rgba(35,32,25,.04),0 8px 24px rgba(35,32,25,.05);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;-webkit-text-size-adjust:100%}
+body{font-family:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--sand);min-height:100vh;color:var(--ink)}
+input,select,button,textarea{font-family:inherit;font-size:inherit}
+
+/* The HR form focuses fields with a sage border and a soft sage halo. Its
+   buttons have no focus state at all, so :focus-visible is added here rather
+   than copied - keyboard users could not see where they were. */
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 3px var(--sage-soft)}
+button:focus-visible,[role=button]:focus-visible{outline:2px solid var(--sage);outline-offset:2px}
+button:disabled{cursor:not-allowed}
+
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%236F6857' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fadeIn .3s ease both}
+@media(prefers-reduced-motion:reduce){
+  .anim{animation:none}
+  *{transition-duration:.01ms!important}
+}
+
+/* Long API errors were nowrap on a fixed, centred element, so a message like
+   "Failed: <text>" ran off a 320px viewport. */
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;max-width:calc(100vw - 32px);padding:10px 18px;border-radius:10px;color:#fff;font-size:13px;font-weight:600;line-height:1.45;text-align:center;text-wrap:balance;box-shadow:var(--shadow)}
+.toast-success{background:var(--sage)}
+.toast-error{background:var(--danger)}
+
+/* ── Page shell ────────────────────────────────────────────────────────── */
+
+.sf-page{min-height:100vh;background:var(--sand);padding:20px 16px 56px}
+
+/* Login: centred card on the sand page, the HR form's own .card surface. */
+.sf-auth{min-height:calc(100vh - 76px);display:flex;align-items:center;justify-content:center}
+.sf-auth-card{width:100%;max-width:380px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px 24px}
+.sf-auth-brand{text-align:center;margin-bottom:22px}
+/* Matches .panel-hr .brand-mark: 36px sage square, radius 10, white bold glyph. */
+.sf-mark{width:56px;height:56px;margin:0 auto 14px;border-radius:16px;background:var(--sage);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700}
+.sf-auth-title{font-size:1.25rem;font-weight:700;letter-spacing:-.01em}
+.sf-auth-sub{font-size:13px;color:var(--ink-soft);margin-top:3px}
+/* Mirrors the HR form's .login-error, warmed to the HR palette. */
+.sf-alert{padding:9px 12px;margin-bottom:16px;border-radius:var(--radius-sm);background:var(--danger-soft);color:var(--danger);font-size:12px;text-align:center;overflow-wrap:anywhere}
+
+.sf-stack{display:flex;flex-direction:column;gap:16px}
+.sf-stack-lg{display:flex;flex-direction:column;gap:16px;width:100%;max-width:520px;margin:0 auto}
+
+/* ── Wizard header ─────────────────────────────────────────────────────── */
+
+.sf-wizard{width:100%;max-width:520px;margin:0 auto}
+.sf-topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+/* Mirrors .panel-hr .eyebrow */
+.sf-kicker{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+.sf-who{font-size:1rem;font-weight:600;margin-top:1px}
+.sf-icon-btn{width:36px;height:36px;flex:0 0 auto;border-radius:var(--radius-sm);border:1px solid var(--line);background:transparent;color:var(--ink-soft);display:flex;align-items:center;justify-content:center;transition:color .15s,background .15s,border-color .15s}
+.sf-icon-btn:hover{color:var(--danger);background:var(--danger-soft);border-color:#E3BEB6}
+
+/* ── Cards and section headings ────────────────────────────────────────── */
+
+/* The HR form's .card, verbatim. */
+.sf-sheet{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px}
+
+/* Mirrors .hrf-section-title / .hrf-section-icon: a soft sage chip with the
+   section's glyph, a 15px heading beside it, then the section's own spacing. */
+.sf-section-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.sf-section-icon{width:32px;height:32px;flex:0 0 auto;border-radius:9px;background:var(--sage-soft);color:var(--sage);display:flex;align-items:center;justify-content:center}
+.sf-h2{font-size:15px;font-weight:600;line-height:1.25}
+.sf-h1{font-size:1.25rem;font-weight:700;letter-spacing:-.01em}
+.sf-muted{font-size:13.5px;line-height:1.65;color:var(--ink-soft)}
+
+/* The crash message from ErrorBoundary. Kept small and monospaced so a
+   volunteer can read it out to support without it looking like a second call to
+   action. It is a diagnostic, not something to act on. */
+.sf-crash-ref{margin:14px 0 0;padding:9px 12px;border-radius:var(--radius-sm);background:var(--sand);color:var(--ink-soft);font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:11.5px;line-height:1.5;overflow-wrap:anywhere}
+
+/* ── Policy text ───────────────────────────────────────────────────────── */
+
+/* Serif is deliberate: this is a policy the volunteer reads and accepts, and
+   the HR letters use a serif face for body copy.
+   One box holds the whole listing, because company_policies is a list HR edits
+   (ten rows today) and ten separate cards with ten "Read more" buttons buried
+   the form. The box is bounded and scrolls in place, so the accept row below it
+   is always reachable without scrolling past the text. overscroll-behavior stops
+   reaching the end of the list from chaining on to the page. */
+.sf-policies{
+  padding:4px 18px; border:1px solid var(--line); border-radius:var(--radius-sm);
+  background:var(--sand);
+  max-height:min(52vh,460px); overflow-y:auto; overscroll-behavior:contain;
+  /* Firefox */
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+}
+.sf-policies::-webkit-scrollbar{width:10px}
+.sf-policies::-webkit-scrollbar-track{background:transparent}
+.sf-policies::-webkit-scrollbar-thumb{background:var(--line);border:3px solid var(--sand);border-radius:99px}
+.sf-policies::-webkit-scrollbar-thumb:hover{background:#D6D0BF}
+/* tabIndex makes the box keyboard-scrollable, so it needs a visible focus. */
+.sf-policies:focus-visible{outline:2px solid var(--sage);outline-offset:2px}
+
+/* Items are borderless; a hairline divides them so the column reads as one
+   document rather than a box nested inside every policy. */
+.sf-policy{padding:16px 0}
+.sf-policy + .sf-policy{border-top:1px solid var(--line)}
+.sf-policy-title{font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+/* overflow-wrap stops a long unbroken run in an HR-entered policy overflowing. */
+.sf-policy-text{font-family:Georgia,"Times New Roman",serif;white-space:pre-line;overflow-wrap:anywhere;font-size:14.5px;line-height:1.7;color:var(--ink)}
+
+/* ── Accept row ────────────────────────────────────────────────────────── */
+
+.sf-accept{display:flex;align-items:flex-start;gap:12px;margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);cursor:pointer;transition:border-color .15s,background-color .15s,box-shadow .15s}
+.sf-accept:hover{border-color:var(--sage)}
+/* :has rather than a class, so the state cannot drift from the checkbox. */
+.sf-accept:has(.sf-check:checked){border-color:var(--sage);background:var(--sage-soft);box-shadow:0 0 0 3px rgba(91,107,78,.12)}
+.sf-check{flex:0 0 auto;width:20px;height:20px;margin-top:1px;accent-color:var(--sage);cursor:pointer}
+.sf-check:disabled{cursor:not-allowed}
+.sf-accept-text{font-size:13.5px;font-weight:600;line-height:1.5}
+
+/* ── Fields (mirrors the HR form's .field / .hrf-grid) ─────────────────── */
+
+.sf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px 14px}
+.sf-field{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12px;font-weight:500;color:var(--ink-soft)}
+.sf-label{font-size:12px;font-weight:500;color:var(--ink-soft)}
+.sf-control{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s}
+.sf-control:disabled{opacity:.6;background:var(--sand);cursor:not-allowed}
+.sf-control::placeholder{color:#A79F8D}
+.sf-hint{font-size:11px;color:var(--ink-soft);margin-top:8px}
+
+/* ── Buttons (mirrors the HR form's .btn family) ───────────────────────── */
+
+.sf-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 15px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);color:var(--ink);font-family:inherit;font-size:13px;font-weight:500;line-height:1.4;white-space:nowrap;cursor:pointer;transition:all .15s}
+.sf-btn:hover{background:var(--sand)}
+/* HR hovers its primary with brightness rather than a colour change, so the
+   sage stays put and only the value shifts. */
+.sf-btn-primary{background:var(--sage);border-color:var(--sage);color:#fff}
+.sf-btn-primary:hover{background:var(--sage);border-color:var(--sage);color:#fff;filter:brightness(1.15)}
+.sf-btn-secondary{background:var(--sage-soft);border-color:#D6DEC9;color:var(--sage-ink)}
+.sf-btn-secondary:hover{background:#DDE4D2;border-color:#C6D0B4}
+.sf-btn-ghost{background:transparent;border-color:var(--line);color:var(--ink-soft)}
+.sf-btn-ghost:hover{background:var(--sand);color:var(--ink)}
+.sf-btn:disabled{opacity:.5}
+.sf-btn-block{width:100%;padding:11px 15px;font-size:14px;font-weight:600}
+.sf-btn-busy{display:inline-flex;align-items:center;gap:8px}
+
+.sf-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+
+/* ── Signature ─────────────────────────────────────────────────────────── */
+
+.sf-pad{display:block;width:100%;height:180px;margin-top:12px;border:1.5px dashed var(--line);border-radius:var(--radius-sm);background:var(--paper);cursor:crosshair;touch-action:none;transition:border-color .15s,background-color .15s}
+.sf-pad:hover{border-color:var(--sage);background:var(--sand)}
+
+.sf-signature-view{text-align:center;margin-top:4px}
+.sf-locked{text-align:center}
+.sf-locked-note{font-size:13px;color:var(--ink-soft);margin-bottom:12px}
+/* object-fit:contain is the point - the captured PNG is a wide canvas and a
+   stretched fit squashed every signature. */
+.sf-sig-frame{max-width:340px;margin:0 auto 14px;padding:10px 0 6px;border-bottom:1px solid var(--line)}
+.sf-sig-img{display:block;width:100%;max-width:320px;height:96px;max-height:96px;object-fit:contain;object-position:left center;margin:0 auto}
+/* Mirrors the HR form's .pill: an affirmative state reads as sage on soft. */
+.sf-ok{display:inline-block;padding:3px 9px;border-radius:20px;background:var(--sage-soft);color:var(--sage-ink);font-size:11px;font-weight:500}
+.sf-notice{font-size:12.5px;line-height:1.6;color:var(--clay);background:var(--clay-soft);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:4px}
+.sf-placeholder{padding:32px 20px;border:1.5px dashed var(--line);border-radius:var(--radius-sm);background:var(--sand);text-align:center}
+
+/* ── Confirmation ──────────────────────────────────────────────────────── */
+
+.sf-done{text-align:center;padding:8px 0}
+.sf-done-tick{width:76px;height:76px;margin:0 auto 18px;border-radius:50%;background:var(--sage-soft);color:var(--sage);display:flex;align-items:center;justify-content:center}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media(min-width:640px){
+  .sf-page{padding:28px 24px 64px}
+}
+@media(max-width:420px){
+  .sf-sheet{padding:18px 16px}
+  .sf-policies{max-height:min(46vh,340px);padding:2px 14px}
+  .sf-grid{grid-template-columns:1fr}
+  .sf-pad{height:150px}
+  .sf-auth-card{padding:24px 18px}
+}

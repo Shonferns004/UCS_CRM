@@ -75,9 +75,9 @@ export default function PrintForms({ data, onClose }) {
         <Template1 personal={data.personal} education={data.education} family={data.family || []} organizations={data.organizations || []} photo_url={data.photo_url || ''} />
         <Template2 />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
-        <Template4 personal={data.personal} />
-        <Template5 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
-        <Template6 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
+        <Template4 personal={data.personal} signatureUrl={data.signature_url || ''} />
+        <Template5 personal={data.personal} declarationDate={data.declarationDate} place={data.place} signatureUrl={data.signature_url || ''} signatureDate={data.signature_signed_at || null} />
+        <Template6 personal={data.personal} declarationDate={data.declarationDate} place={data.place} signatureUrl={data.signature_url || ''} />
       </div>
     </div>
   )

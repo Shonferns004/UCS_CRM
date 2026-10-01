@@ -36,6 +36,41 @@ export function initials(name) {
     .toUpperCase()
 }
 
+/**
+ * Group nominees by worker team — the ballot is drawn one section per team,
+ * because the pick is per team.
+ *
+ * Mirrors the server's grouping so the booth reads the same way even if it is
+ * handed a flat nominee list. The key is only used locally, to hold a selection
+ * per team; the server re-derives the team when the ballot is cast.
+ *
+ * Nominees with no team are left off, matching the server: a "No team" section
+ * is a team nobody is on, so it can only hand someone a prize nobody chose them
+ * for. A roster with no teams at all still gets one group, so such a department
+ * remains votable instead of silently losing its whole ballot.
+ */
+export function groupByTeam(nominees, { fallbackLabel = '' } = {}) {
+  const byKey = new Map()
+  for (const n of nominees || []) {
+    const label = String(n?.team ?? '').trim()
+    const key = label.toLowerCase()
+    if (!key) continue
+    if (!byKey.has(key)) byKey.set(key, { key, label, nominees: [] })
+    byKey.get(key).nominees.push(n)
+  }
+  const groups = [...byKey.values()]
+  if (!groups.length && nominees?.length) {
+    groups.push({ key: '', label: String(fallbackLabel || '').trim(), nominees: [...nominees] })
+  }
+  return groups.sort((a, b) => {
+    if (a.key === b.key) return 0
+    if (!a.key) return 1
+    if (!b.key) return -1
+    // Numeric-aware so UFS2 sorts before UFS10.
+    return a.label.localeCompare(b.label, 'en', { numeric: true, sensitivity: 'base' })
+  })
+}
+
 // One accent per group, assigned by ceremony position rather than by name, so
 // reordering the groups in HR recolours the board consistently.
 const ACCENTS = [
