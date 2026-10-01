@@ -1,9 +1,14 @@
 // Enforces a hard ceiling on the process's resident memory from inside the
-// process itself. The 2 GB host has no swap and the backend's RSS used to
-// grow unmeasured until the OS OOM-killer stepped in (850+ PM2 restarts).
-// PM2's max_memory_restart (1100M) is the backstop; this watchdog trips
-// earlier (default 900 MB) but only on *sustained* usage, so a single heavy
-// job that briefly needs headroom is not restarted.
+// process itself. The backend's RSS used to grow until V8 hit its heap cap,
+// threw "JavaScript heap out of memory", and PM2 restarted the app. This
+// watchdog exists to trip *before* that, and only on *sustained* usage, so a
+// single heavy job that briefly needs headroom is not restarted.
+//
+// The 900 MB default was correct for a 2 GB host but wrong for the 15.8 GB box
+// this actually runs on, where it was killing legitimate work. The default now
+// matches the 5 GB set in ecosystem.config.cjs, which is also where production
+// gets its value (PM2 passes env through on restart). Keep the two in step:
+// PM2's max_memory_restart is the backstop and must stay above this.
 //
 // On a sustained overrun it signals SIGTERM, which the supervisor (PM2 in
 // production, nodemon under `npm run dev`) turns into a restart, so memory can
@@ -11,13 +16,13 @@
 // instead.
 //
 // Env knobs:
-//   MEM_WATCHDOG_MB        limit in MB (default 900, must be < max_memory_restart;
+//   MEM_WATCHDOG_MB        limit in MB (default 5000, must be < max_memory_restart;
 //                          0 disables the watchdog entirely)
 //   MEM_WATCHDOG_INTERVAL_MS  poll interval (default 5000)
 //   MEM_WATCHDOG_GRACE_MS     how long RSS may stay over before restart (default 20000)
 
 export function startMemoryWatchdog(options = {}) {
-  const limitMb = Number(options.limitMb ?? process.env.MEM_WATCHDOG_MB ?? 900);
+  const limitMb = Number(options.limitMb ?? process.env.MEM_WATCHDOG_MB ?? 5000);
   const intervalMs = Number(options.intervalMs ?? process.env.MEM_WATCHDOG_INTERVAL_MS ?? 5000);
   const graceMs = Number(options.graceMs ?? process.env.MEM_WATCHDOG_GRACE_MS ?? 20000);
   const limitBytes = limitMb * 1024 * 1024;

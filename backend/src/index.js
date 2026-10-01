@@ -105,7 +105,6 @@ import { ensureMeetingSchema } from './bootstrap/ensureMeetingSchema.js';
 import { ensureReminderPushSchema } from './bootstrap/ensureReminderPushSchema.js';
 import { ensureChatSchema } from './bootstrap/ensureChatSchema.js';
 import { ensureSimInventorySchema } from './bootstrap/ensureSimInventorySchema.js';
-import { ensureNotificationLogTypes } from './bootstrap/ensureNotificationLogTypes.js';
 import { ensureBeneficiarySchema } from './bootstrap/ensureBeneficiarySchema.js';
 import { ensureOperatorSchema } from './bootstrap/ensureOperatorSchema.js';
 import { ensureVotingSchema } from './bootstrap/ensureVotingSchema.js';
@@ -950,7 +949,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.get('/api/debug', authenticate, async (req, res) => {
-  const tables = ['rejected_lead_tickets', 'alerts', 'notification_log', 'fcm_tokens'];
+  const tables = ['rejected_lead_tickets', 'alerts', 'fcm_tokens'];
   const results = {};
   for (const t of tables) {
     try {
@@ -992,7 +991,6 @@ if (!process.env.VERCEL) {
     await ensureFroLiveStatusSchema().catch(e => console.error('ensureFroLiveStatusSchema failed:', e?.message || e));
     await ensureMeetingSchema().catch(e => console.error('ensureMeetingSchema failed:', e?.message || e));
     await ensureAuthSessionSchema().catch(e => console.error('ensureAuthSessionSchema failed:', e?.message || e));
-    await ensureNotificationLogTypes().catch(e => console.error('ensureNotificationLogTypes failed:', e?.message || e));
     await ensureBeneficiarySchema().catch(e => console.error('ensureBeneficiarySchema failed:', e?.message || e));
     await ensureOperatorSchema().catch(e => console.error('ensureOperatorSchema failed:', e?.message || e));
     await ensureVotingSchema().catch(e => console.error('ensureVotingSchema failed:', e?.message || e));

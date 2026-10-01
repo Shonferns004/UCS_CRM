@@ -28,7 +28,15 @@ export const getAllFcmTokens = async () => {
   return data;
 };
 
+// The notification_log table was retired, so this no longer records anything.
+// The signature is kept because callers (fcmService, chat notifications,
+// incentive broadcasts) still call it; they must not start failing because a
+// feature was turned off. Returns a shape that satisfies the old .single()
+// read-back so no caller has to change.
 export const logNotification = async (entry) => {
+  if (process.env.NOTIFICATION_LOG_RETIRED !== 'off') {
+    return { id: null, worker_id: entry?.worker_id ?? null, type: entry?.type ?? null, sent_at: new Date().toISOString() };
+  }
   const { data, error } = await db
     .from('notification_log')
     .insert([entry])

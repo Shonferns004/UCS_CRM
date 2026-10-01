@@ -76,7 +76,7 @@ const PGRST116 = { message: 'JSON object requested, multiple (or no) rows return
 // -- Realtime -----------------------------------------------------------------
 // Tables whose row writes are broadcast to socket.io clients as db:change events.
 const REALTIME_TABLES = new Set([
-  'notification_log', 'fro_donor_logs', 'bank_audit_entries', 'rejected_lead_tickets',
+  'fro_donor_logs', 'bank_audit_entries', 'rejected_lead_tickets',
   'fro_assignments', 'fro_live_status', 'messages', 'conversations',
   'attendance', 'leaves', 'worker_loans', 'attendance_corrections', 'impersonation_codes',
   'receipts', 'leads', 'special_incentives', 'special_incentive_progress',
@@ -515,6 +515,71 @@ function nestRows(rows, embedPaths) {
 // ---------------------------------------------------------------------------
 // Query builder (thenable)
 // ---------------------------------------------------------------------------
+// Tables that were deliberately retired. The physical table is dropped, but
+// feature code across the codebase still calls db.from() on them, so these
+// resolve to empty results instead of throwing "relation does not exist" —
+// which would otherwise turn every call site into a 500. Writing is a silent
+// no-op, so retiring a table is one edit here instead of ~90 scattered ones.
+//
+// Add a table here ONLY when it is genuinely being retired. A typo would
+// silently swallow real queries.
+const RETIRED_TABLES = new Set(['notification_log']);
+
+// Chainable no-op stand-in for a retired table. It mimics enough of the
+// QueryBuilder surface (fluent filters + thenable) that existing call sites
+// keep working unchanged and simply see an empty table.
+class RetiredTableQuery {
+  constructor(table) {
+    this.table = table;
+    this.op = 'select';
+  }
+
+  select() { this.op = 'select'; return this; }
+  eq() { return this; }
+  neq() { return this; }
+  gt() { return this; }
+  gte() { return this; }
+  lt() { return this; }
+  lte() { return this; }
+  is() { return this; }
+  like() { return this; }
+  ilike() { return this; }
+  in() { return this; }
+  not() { return this; }
+  or() { return this; }
+  order() { return this; }
+  limit() { return this; }
+  range() { return this; }
+  single() { this.op = 'select'; this._single = true; return this; }
+  maybeSingle() { this.op = 'select'; this._single = true; return this; }
+  insert() { this.op = 'insert'; return this; }
+  update() { this.op = 'update'; return this; }
+  upsert() { this.op = 'upsert'; return this; }
+  ignoreDuplicates() { return this; }
+  delete() { this.op = 'delete'; return this; }
+
+  // Mirrors the real builder's result shape: reads hand back an empty table,
+  // writes hand back the "done, nothing to return" shape.
+  _result() {
+    if (this.op === 'select') {
+      if (this._single) {
+        const empty = { data: null, count: null, error: { ...PGRST116 } };
+        return empty;
+      }
+      return { data: [], count: 0, error: null };
+    }
+    return { data: null, count: null, error: null };
+  }
+
+  then(onFulfilled, onRejected) { return Promise.resolve(this._result()).then(onFulfilled, onRejected); }
+  catch(onRejected) { return Promise.resolve(this._result()).then(undefined, onRejected); }
+  finally(fn) { return Promise.resolve(this._result()).finally(fn); }
+}
+
+function makeQuery(table) {
+  return RETIRED_TABLES.has(table) ? new RetiredTableQuery(table) : new QueryBuilder(table);
+}
+
 class QueryBuilder {
   constructor(table) {
     this.table = table;
@@ -1455,13 +1520,13 @@ async function testConnection() {
 }
 
 const db = {
-  from(table) { return new QueryBuilder(table); },
+  from(table) { return makeQuery(table); },
   async transaction(callback) {
     const client = await pgPool.connect();
     try {
       await client.query('BEGIN');
       const result = await txStore.run({ client }, async () => {
-        return await callback({ from: (table) => new QueryBuilder(table) });
+        return await callback({ from: (table) => makeQuery(table) });
       });
       await client.query('COMMIT');
       return result;
