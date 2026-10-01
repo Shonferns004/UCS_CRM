@@ -92,25 +92,40 @@ export function accentFor(index = 0) {
  * matter where HR has ordered it. Falls back to the positional accent above for
  * any department not listed, so a newly added group still gets a colour.
  *
+ * Five values per department:
+ *   base  - the bright accent: card top edge, icon and icon tile tint source
+ *   soft  - the pale tile background behind the icon
+ *   edge  - the card's border while it is still open for voting
+ *   ink   - the dark accent, for accent-coloured text on a light background
+ *   cta   - the button fill, always dark enough for white text (>= 4.5:1)
+ *
+ * `cta` exists because `base` is deliberately bright: the light accents (gold,
+ * digital blue, housekeeping blue) cannot carry white button text without
+ * dropping under 4.5:1, so the button uses a deeper shade of the same hue
+ * instead. Five of the six simply reuse `ink`; only gold needs its own, since
+ * its ink (#9A6100) is still too light for white text.
+ *
  * Only presentation is keyed by name - who may vote, and on which roster, is
  * decided by the server and is never touched here.
  */
 const DEPARTMENT_ACCENTS = {
-  FRO: { base: '#c78e1e', soft: '#fff6df', edge: '#f0d79a' },
-  Digital: { base: '#0e8fa8', soft: '#e6f6f9', edge: '#a8dde8' },
-  Developers: { base: '#6d4bc4', soft: '#f1ecfd', edge: '#cbb9f0' },
-  HR: { base: '#c2453f', soft: '#fdecea', edge: '#f2bdb8' },
-  Admin: { base: '#16845b', soft: '#e9f7f0', edge: '#a9dcc5' },
-  Housekeeping: { base: '#2b62c4', soft: '#eaf1fd', edge: '#b3c9ee' },
+  FRO: { base: '#e59a00', soft: '#fff4d8', edge: '#f7d98c', ink: '#9a6100', cta: '#96620a' },
+  Digital: { base: '#078edb', soft: '#e8f7ff', edge: '#b9e5ff', ink: '#0877b8', cta: '#0a6fa8' },
+  Developers: { base: '#6d35e8', soft: '#f1eafe', edge: '#d9c8ff', ink: '#5b2bc5', cta: '#5b2bc5' },
+  HR: { base: '#f04452', soft: '#fff0f1', edge: '#ffd0d4', ink: '#c82e3b', cta: '#c82e3b' },
+  Admin: { base: '#07966b', soft: '#e8faf3', edge: '#b9ebd8', ink: '#087b59', cta: '#087b59' },
+  Housekeeping: { base: '#1875e8', soft: '#eaf3ff', edge: '#c4dcff', ink: '#155bb8', cta: '#155bb8' },
 }
 
+/* Same six sets, so an unlisted department still gets a legible, accessible
+   button rather than a bright accent it cannot put white text on. */
 const FALLBACK_ACCENTS = [
-  { base: '#c78e1e', soft: '#fff6df', edge: '#f0d79a' },
-  { base: '#0e8fa8', soft: '#e6f6f9', edge: '#a8dde8' },
-  { base: '#6d4bc4', soft: '#f1ecfd', edge: '#cbb9f0' },
-  { base: '#c2453f', soft: '#fdecea', edge: '#f2bdb8' },
-  { base: '#16845b', soft: '#e9f7f0', edge: '#a9dcc5' },
-  { base: '#2b62c4', soft: '#eaf1fd', edge: '#b3c9ee' },
+  { base: '#e59a00', soft: '#fff4d8', edge: '#f7d98c', ink: '#9a6100', cta: '#96620a' },
+  { base: '#078edb', soft: '#e8f7ff', edge: '#b9e5ff', ink: '#0877b8', cta: '#0a6fa8' },
+  { base: '#6d35e8', soft: '#f1eafe', edge: '#d9c8ff', ink: '#5b2bc5', cta: '#5b2bc5' },
+  { base: '#f04452', soft: '#fff0f1', edge: '#ffd0d4', ink: '#c82e3b', cta: '#c82e3b' },
+  { base: '#07966b', soft: '#e8faf3', edge: '#b9ebd8', ink: '#087b59', cta: '#087b59' },
+  { base: '#1875e8', soft: '#eaf3ff', edge: '#c4dcff', ink: '#155bb8', cta: '#155bb8' },
 ]
 
 export function departmentAccent(department) {
