@@ -35,6 +35,16 @@ const NOT_CONNECTED_OPTIONS = [
 ];
 const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
 
+// Keys and labels mirror the Recruiter Overview date filter so the two panels
+// describe the same window the same way.
+const DATE_RANGES = [
+  { value: 'all', label: 'All Time' },
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: '7days', label: 'Last 7 Days' },
+  { value: 'month', label: 'This Month' },
+];
+
 const formatDT = (ts) => {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -51,6 +61,7 @@ export default function Recruiters() {
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [rangeKey, setRangeKey] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
@@ -64,7 +75,36 @@ export default function Recruiters() {
     fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); }).finally(() => setRecruitersLoading(false));
   }, []);
 
-  const filteredLeads = leads.filter(l => {
+  // The date range is the widest filter on the page, so it narrows the raw lead
+  // list first and everything downstream — stat cards, leaderboard and both tab
+  // tables — reads from this instead of `leads`. Comparing `.slice(0, 10)` of the
+  // stored ISO string buckets by UTC, exactly as the Recruiter Overview filter
+  // does, so the two panels always report the same window.
+  const scopedLeads = useMemo(() => {
+    if (rangeKey === 'all') return leads;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    if (rangeKey === 'today') return leads.filter(l => l.created_at?.slice(0, 10) === todayStr);
+    if (rangeKey === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const ys = yesterday.toISOString().slice(0, 10);
+      return leads.filter(l => l.created_at?.slice(0, 10) === ys);
+    }
+    if (rangeKey === '7days') {
+      const since = new Date(now);
+      since.setDate(since.getDate() - 7);
+      const sinceStr = since.toISOString().slice(0, 10);
+      return leads.filter(l => l.created_at?.slice(0, 10) >= sinceStr);
+    }
+    if (rangeKey === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      return leads.filter(l => l.created_at?.slice(0, 10) >= monthStart);
+    }
+    return leads;
+  }, [leads, rangeKey]);
+
+  const filteredLeads = scopedLeads.filter(l => {
     if (recruiterFilter && String(l.recruiter_id) !== recruiterFilter) return false;
     if (statusFilter && l.status !== statusFilter) return false;
     if (sourceFilter && l.source !== sourceFilter) return false;
@@ -75,22 +115,22 @@ export default function Recruiters() {
     return true;
   });
 
-  const scheduledLeads = leads.filter(l => l.status === 'scheduled');
+  const scheduledLeads = scopedLeads.filter(l => l.status === 'scheduled');
 
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); const tomorrowStr = tomorrow.toISOString().slice(0, 10);
   const stats = {
-    total: leads.length,
+    total: scopedLeads.length,
     filtered: filteredLeads.length,
-    newToday: leads.filter(l => l.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
-    scheduled: leads.filter(l => l.status === 'scheduled').length,
-    scheduledTomorrow: leads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
+    newToday: scopedLeads.filter(l => l.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
+    scheduled: scopedLeads.filter(l => l.status === 'scheduled').length,
+    scheduledTomorrow: scopedLeads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
 
   };
 
   const leaderboard = useMemo(() => {
     return recruiters
       .map(r => {
-        const rLeads = leads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);
+        const rLeads = scopedLeads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);
         const total = rLeads.length;
         const scheduled = rLeads.filter(l => l.status === 'scheduled').length;
         const joined = rLeads.filter(l => l.status === 'joined').length;
@@ -99,7 +139,7 @@ export default function Recruiters() {
       .filter(isActiveRecruiter)
       .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
       .sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount);
-  }, [recruiters, leads]);
+  }, [recruiters, scopedLeads]);
 
   const openForm = (lead) => {
     if (lead) {
@@ -230,17 +270,29 @@ export default function Recruiters() {
         </div>
       </div>
 
-      <div className="tabs" style={{marginBottom:0}}>
-        <button className={`tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All</button>
-        <button className={`tab ${tab === 'scheduled' ? 'active' : ''}`} onClick={() => setTab('scheduled')}>
-          Scheduled{scheduledLeads.length > 0 && ` (${scheduledLeads.length})`}
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 8 }}>
+        <div className="tabs" style={{marginBottom:0}}>
+          <button className={`tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All</button>
+          <button className={`tab ${tab === 'scheduled' ? 'active' : ''}`} onClick={() => setTab('scheduled')}>
+            Scheduled{scheduledLeads.length > 0 && ` (${scheduledLeads.length})`}
+          </button>
+        </div>
+        <div className="ro-filters" style={{ paddingBottom: 8 }}>
+          <select
+            className="ro-filter-select"
+            value={rangeKey}
+            onChange={e => setRangeKey(e.target.value)}
+            aria-label="Filter leads by date"
+          >
+            {DATE_RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {tab === 'all' && (
         <div className="card" style={{marginTop:20}}>
           <div className="card-head">
-            <h3>Leads {filteredLeads.length !== leads.length && <span className="sub">({filteredLeads.length} of {leads.length})</span>}</h3>
+            <h3>Leads {filteredLeads.length !== scopedLeads.length && <span className="sub">({filteredLeads.length} of {scopedLeads.length})</span>}</h3>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input className="filter-select" placeholder="Search name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
             </div>
