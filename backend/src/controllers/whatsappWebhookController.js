@@ -207,6 +207,29 @@ export async function whatsappWebhookEntry(req, res) {
             status_updated_at: new Date().toISOString(),
           })
           .eq('wa_message_id', status.id);
+
+        // Receipts are sent straight to a donor's phone, often to someone who
+        // has never messaged the NGO, so there may be no `messages` row above for
+        // this wamid at all. Recording the verdict on the receipt itself is what
+        // lets the Accounts panel show a real delivery status instead of a green
+        // tick that Meta later contradicts with error 131053.
+        //
+        // sent=false on failure is load-bearing: getPendingReceipts() keys off
+        // it, so a failed receipt walks itself back into the pending queue for a
+        // retry instead of disappearing into history with no explanation.
+        const receiptPatch = {
+          wa_status: status.status,
+          wa_status_at: new Date().toISOString(),
+          wa_failure_reason: status.status === 'failed' ? (update.failure_reason || null) : null,
+        };
+        if (status.status === 'failed') {
+          receiptPatch.sent = false;
+          receiptPatch.sent_at = null;
+        }
+        await db
+          .from('receipts')
+          .update(receiptPatch)
+          .eq('wa_message_id', status.id);
       }
     }
 
