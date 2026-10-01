@@ -26,6 +26,7 @@ export async function resolveAccount(project) {
     } catch (err) {
       console.error(`Failed to resolve WhatsApp account for project "${project}":`, err.message);
     }
+    throw new Error(`No active WhatsApp account is configured for project "${project}". Add it under Accounts > WhatsApp before sending.`);
   }
   if (config.enabled) {
     return {
