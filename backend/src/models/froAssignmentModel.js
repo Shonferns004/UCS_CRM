@@ -79,9 +79,22 @@ export const findAssignmentsByNgo = async (ngoId, filters = {}) => {
 };
 
 export const updateAssignmentStatus = async (id, updates) => {
+  // fro_assignments has no trigger maintaining updated_at, and the disposition
+  // path only sets status/last_contacted_at, so updated_at silently lagged the
+  // real edit time by days or weeks. The monthly rollover relies on an accurate
+  // "last active" stamp to avoid resetting leads worked in the current month, so
+  // stamp it on every status write here (the single chokepoint all callers use).
+  const patch = { ...updates, updated_at: new Date().toISOString() };
+  // A real disposition retires the month-boundary marker: once the FRO works the
+  // lead again, "was ringing / reset on <date>" is stale and must not keep
+  // showing on the row or in the CRM timeline (migration 167).
+  if (updates.status && updates.status !== 'pending') {
+    patch.rollover_from_status = null;
+    patch.rollover_at = null;
+  }
   const { data, error } = await db
     .from('fro_assignments')
-    .update(updates)
+    .update(patch)
     .eq('id', id)
     .select()
     .single();
