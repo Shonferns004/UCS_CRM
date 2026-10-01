@@ -107,11 +107,20 @@ dependency of `jspdf` and is **never imported** — the vite chunk rule at
 | `receipts_verified_data` | donor name, address, **PAN**, UPI ID, bank, mobile | `accounts/pages/Dashboard.jsx:207-225` — SEC-008 |
 | `wa_agents` | WhatsApp agent session tokens | `panels/fro/pages/WhatsAppChat.jsx:76-83` |
 | `wrk` (sessionStorage) | worker record incl. **Aadhaar**, bank/IFSC | `panels/hr/components/Workers.jsx:12-16` |
-| `receipt_template_settings` | organisation receipt data | `accounts/pages/TemplateSettings.jsx:41,48` |
+| `mydonors_form_state_<id>` | donor address, **PAN**, DOB, UPI transaction ID, amount, screenshot | `panels/fro/pages/MyDonors.jsx:757-764` |
+| `admin_attendance_pin_*` | attendance PIN | `panels/super-admin/pages/AdminAttendance.jsx:53` |
+| `receipt_template_settings` | receipt-design choices only — **no donor PII** | `accounts/pages/TemplateSettings.jsx:41,48` |
 
 None of this is encrypted and all of it survives until logout. The logout handler
 (`store.jsx:75-99`) calls `localStorage.clear()` but preserves `si_*` and `nc_*`
 keys, so it is not a reliable wipe.
+
+**Correction (2026-09-30, reviewed at `0ab8562a`):** the earlier claim that the
+`wrk` key held Aadhaar and bank details is **stale**. `Workers.jsx:14-16` now
+persists UI state only (search, page, status and role filters) — the persistence
+pattern is unchanged, but no Aadhaar, bank, IFSC or salary is written to that
+key. `receipt_template_settings` likewise holds no donor data. Two leaks not
+previously listed are recorded above.
 
 **Rule:** never persist Aadhaar, PAN, bank details, or session tokens to browser
 storage. Keep them in memory for the life of the request.
