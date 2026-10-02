@@ -3333,6 +3333,125 @@ const NOT_CONNECTED_DISPOSITIONS = ['busy', 'ringing', 'call_waiting', 'unreacha
 
 // Three-tier classifier: known disposition set first, then disposition_category
 // (every FRO save carries it), else unclassified. Mirrors fro/dispositions.js.
+// The donation funnel only ever needs four DISTINCT DONOR counts per NGO, but it
+// was computing them by pulling every matching fro_donor_logs row into Node and
+// building four Sets. That is ~205k rows per request for the current data size,
+// and the per-NGO variant did it once per NGO in a loop.
+//
+// This reduces in the database instead: collapse the log rows to one row per
+// (ngo, donor) first, then count. Same numbers, three rows out.
+//
+// The CASE is a deliberate mirror of classifyLogSide(), including the fall
+// through to disposition_category when disposition_detail is NULL. Writing it as
+// "NOT (detail = ANY(not_connected)) AND category = 'connected'" looks
+// equivalent but silently drops the NULL-detail rows, which is what
+// classifyLogSide() counts as connected. Verified against the JS on live data.
+const FUNNEL_INTERESTED_DISPOSITIONS = ['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending'];
+
+// combinedOnly skips the per-NGO roll-up for callers that only need the
+// selection-wide totals, which is the NGO Admin dashboard. Grouping by ngo_id
+// there is pure overhead: those numbers are computed and then thrown away.
+export async function getDonationFunnelCounts(ngoIds, { combinedOnly = false } = {}) {
+  const empty = { assignments: new Map(), logs: new Map(), combined: null };
+  if (!ngoIds || ngoIds.length === 0) return empty;
+
+  const perNgoSql = combinedOnly ? '' : `
+     assigned AS (
+       SELECT ngo_id, count(*) AS assigned
+         FROM (SELECT DISTINCT ON (ngo_id, donor_id) ngo_id, donor_id
+                 FROM fro_assignments
+                WHERE status <> 'reassigned'
+                  AND donor_id IS NOT NULL
+                  AND ngo_id = ANY($1::uuid[])) d
+        GROUP BY ngo_id
+     ),
+     per_ngo AS (
+       SELECT coalesce(a.ngo_id, p.ngo_id) AS ngo_id,
+              coalesce(a.assigned, 0)    AS assigned,
+              coalesce(p.called, 0)      AS called,
+              coalesce(p.connected, 0)   AS connected,
+              coalesce(p.interested, 0)  AS interested,
+              coalesce(p.received, 0)    AS received
+         FROM assigned a
+         FULL OUTER JOIN (
+           SELECT ngo_id,
+                  count(*) AS called,
+                  count(*) FILTER (WHERE connected)  AS connected,
+                  count(*) FILTER (WHERE interested) AS interested,
+                  count(*) FILTER (WHERE received)  AS received
+             FROM per_donor GROUP BY ngo_id
+         ) p ON p.ngo_id = a.ngo_id
+     ),`;
+
+  const perNgoSelect = combinedOnly ? '' : `
+     SELECT ngo_id, assigned, called, connected, interested, received FROM per_ngo
+     UNION ALL`;
+
+  const { rows } = await db._pool.query(
+    `WITH per_donor AS (
+       SELECT e.ngo_id,
+              l.donor_id,
+              bool_or(CASE
+                WHEN l.disposition_detail = ANY($2::text[]) THEN true
+                WHEN l.disposition_detail = ANY($3::text[]) THEN false
+                ELSE lower(coalesce(l.disposition_category, '')) = 'connected'
+              END) AS connected,
+              bool_or(l.disposition_detail = ANY($4::text[])) AS interested,
+              bool_or(l.accounts_status = 'verified') AS received
+         FROM fro_donor_logs l
+         JOIN fro_assignments e ON e.id = l.assignment_id
+        WHERE l.donor_id IS NOT NULL
+          AND e.ngo_id = ANY($1::uuid[])
+        GROUP BY e.ngo_id, l.donor_id
+     ),${perNgoSql}
+     combined AS (
+       -- A donor working two of the selected NGOs must still count once, so the
+       -- roll-up de-duplicates donor_id before counting rather than summing the
+       -- per-NGO rows.
+       SELECT NULL::uuid AS ngo_id,
+              (SELECT count(*) FROM (SELECT DISTINCT donor_id FROM fro_assignments
+                                       WHERE status <> 'reassigned'
+                                         AND donor_id IS NOT NULL
+                                         AND ngo_id = ANY($1::uuid[])) x) AS assigned,
+              count(*) AS called,
+              count(*) FILTER (WHERE connected)  AS connected,
+              count(*) FILTER (WHERE interested) AS interested,
+              count(*) FILTER (WHERE received)  AS received
+         FROM (SELECT donor_id,
+                      bool_or(connected)  AS connected,
+                      bool_or(interested) AS interested,
+                      bool_or(received)  AS received
+                 FROM per_donor GROUP BY donor_id) d
+     )${perNgoSelect}
+     SELECT ngo_id, assigned, called, connected, interested, received FROM combined`,
+    [ngoIds, CONNECTED_DISPOSITIONS, NOT_CONNECTED_DISPOSITIONS, FUNNEL_INTERESTED_DISPOSITIONS]
+  );
+
+  const assignments = new Map();
+  const logs = new Map();
+  let combined = null;
+  for (const r of rows) {
+    if (r.ngo_id === null) {
+      combined = {
+        assigned: Number(r.assigned),
+        called: Number(r.called),
+        connected: Number(r.connected),
+        interested: Number(r.interested),
+        received: Number(r.received),
+      };
+      continue;
+    }
+    assignments.set(r.ngo_id, Number(r.assigned));
+    logs.set(r.ngo_id, {
+      called: Number(r.called),
+      connected: Number(r.connected),
+      interested: Number(r.interested),
+      received: Number(r.received),
+    });
+  }
+  return { assignments, logs, combined };
+}
+
 export function classifyLogSide(l) {
   const detail = l?.disposition_detail || '';
   if (CONNECTED_DISPOSITIONS.includes(detail)) return 'connected';
@@ -5246,25 +5365,18 @@ export const getTLDashboard = async (req, res) => {
     const targetPct = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
 
     // 5. Donation Funnel
-    const { data: funnelAssignments } = await db.from('fro_assignments').select('donor_id').in('ngo_id', ngoIds).neq('status', 'reassigned');
-    const assignedDonorIds = new Set((funnelAssignments || []).map(a => a.donor_id).filter(Boolean));
-    
-    const { data: funnelLogs } = await db
-      .from('fro_donor_logs')
-      .select('donor_id, disposition_detail, disposition_category, accounts_status, fro_assignments!inner(ngo_id)')
-      .in('fro_assignments.ngo_id', ngoIds);
-
-    const calledDonorIds = new Set((funnelLogs || []).map(l => l.donor_id).filter(Boolean));
-    const connectedDonorIds = new Set((funnelLogs || []).filter(l => classifyLogSide(l) === 'connected').map(l => l.donor_id).filter(Boolean));
-    const interestedDonorIds = new Set((funnelLogs || []).filter(l => interestedStatuses.has(l.disposition_detail)).map(l => l.donor_id).filter(Boolean));
-    const receivedDonorIds = new Set((funnelLogs || []).filter(l => l.accounts_status === 'verified').map(l => l.donor_id).filter(Boolean));
-
+    // The roll-up counts distinct donors across the whole selection, so a donor
+    // attached to two of the chosen NGOs counts once. Summing the per-NGO rows
+    // would double count them.
+    const { combined: funnelTotals } = await getDonationFunnelCounts(ngoIds, { combinedOnly: true });
+    const totals = funnelTotals || { assigned: 0, called: 0, connected: 0, interested: 0, received: 0 };
+    const funnelPct = (n) => (totals.assigned > 0 ? Math.round((n / totals.assigned) * 100) : 0);
     const funnel = [
-      { stage: 'Assigned', count: assignedDonorIds.size, pct: 100 },
-      { stage: 'Called', count: calledDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((calledDonorIds.size / assignedDonorIds.size) * 100) : 0 },
-      { stage: 'Connected', count: connectedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((connectedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
-      { stage: 'Interested', count: interestedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((interestedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
-      { stage: 'Received', count: receivedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((receivedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+      { stage: 'Assigned', count: totals.assigned, pct: 100 },
+      { stage: 'Called', count: totals.called, pct: funnelPct(totals.called) },
+      { stage: 'Connected', count: totals.connected, pct: funnelPct(totals.connected) },
+      { stage: 'Interested', count: totals.interested, pct: funnelPct(totals.interested) },
+      { stage: 'Received', count: totals.received, pct: funnelPct(totals.received) },
     ];
 
     // 6. Hourly Performance
@@ -5770,32 +5882,25 @@ export const getDonationFunnel = async (req, res) => {
 
     if (ngoIds.length === 0) return res.json([]);
 
-    const connectedStatuses = new Set(CONNECTED_DISPOSITIONS);
-    const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
+    const { assignments: assignedByNgo, logs: logsByNgo } = await getDonationFunnelCounts(ngoIds);
 
-    const allFunnel = [];
-    for (const ngoId of ngoIds) {
-      const { data: assignments } = await db.from('fro_assignments').select('donor_id').eq('ngo_id', ngoId).neq('status', 'reassigned');
-      const assignedDonorIds = new Set((assignments || []).map(a => a.donor_id).filter(Boolean));
-      
-      const { data: logs } = await db.from('fro_donor_logs').select('donor_id, disposition_detail, disposition_category, accounts_status, fro_assignments!inner(ngo_id)').eq('fro_assignments.ngo_id', ngoId);
-      
-      const calledDonorIds = new Set((logs || []).map(l => l.donor_id).filter(Boolean));
-      const connectedDonorIds = new Set((logs || []).filter(l => classifyLogSide(l) === 'connected').map(l => l.donor_id).filter(Boolean));
-      const interestedDonorIds = new Set((logs || []).filter(l => interestedStatuses.has(l.disposition_detail)).map(l => l.donor_id).filter(Boolean));
-      const receivedDonorIds = new Set((logs || []).filter(l => l.accounts_status === 'verified').map(l => l.donor_id).filter(Boolean));
-
-      allFunnel.push({
+    // Iterate the requested NGO ids rather than the aggregate's rows, so an NGO
+    // with no activity still reports its five zeroed stages exactly as before.
+    const allFunnel = ngoIds.map((ngoId) => {
+      const assignedDonorCount = assignedByNgo.get(ngoId) || 0;
+      const counts = logsByNgo.get(ngoId) || { called: 0, connected: 0, interested: 0, received: 0 };
+      const pct = (n) => (assignedDonorCount > 0 ? Math.round((n / assignedDonorCount) * 100) : 0);
+      return {
         ngo_id: ngoId,
         stages: [
-          { stage: 'Assigned', count: assignedDonorIds.size, pct: 100 },
-          { stage: 'Called', count: calledDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((calledDonorIds.size / assignedDonorIds.size) * 100) : 0 },
-          { stage: 'Connected', count: connectedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((connectedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
-          { stage: 'Interested', count: interestedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((interestedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
-          { stage: 'Received', count: receivedDonorIds.size, pct: assignedDonorIds.size > 0 ? Math.round((receivedDonorIds.size / assignedDonorIds.size) * 100) : 0 },
+          { stage: 'Assigned', count: assignedDonorCount, pct: 100 },
+          { stage: 'Called', count: counts.called, pct: pct(counts.called) },
+          { stage: 'Connected', count: counts.connected, pct: pct(counts.connected) },
+          { stage: 'Interested', count: counts.interested, pct: pct(counts.interested) },
+          { stage: 'Received', count: counts.received, pct: pct(counts.received) },
         ],
-      });
-    }
+      };
+    });
 
     return res.json(allFunnel);
   } catch (error) {
