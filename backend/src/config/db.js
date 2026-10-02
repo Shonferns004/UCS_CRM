@@ -1531,6 +1531,37 @@ const storage = {
       return { data: [], error: null };
     }
   },
+  // Account registry for the bucket browser: names, regions and the bucket
+  // each account points at. Never exposes access keys.
+  accounts() {
+    return Object.entries(S3_ACCOUNTS).map(([name, cfg]) => ({
+      name,
+      region: cfg.region,
+      bucket: cfg.bucket || null,
+      configured: Boolean(cfg.accessKeyId && cfg.bucket),
+    }));
+  },
+  // Raw handle for tooling that needs commands the object API does not wrap —
+  // ListBuckets, ListObjectsV2, DeleteObjects, CopyObject. Credential
+  // resolution matches from() exactly (an unconfigured 'head' falls back to
+  // the legacy AWS_*/S3_* pair), so the bucket browser reads through the same
+  // keys the app writes with.
+  raw(account) {
+    let s3 = null;
+    let name = null;
+    if (account) {
+      s3 = getS3Client(account) || (account === 'head' || account === 'legacy' ? getS3() : null);
+      name = account;
+    } else if (getS3Client('head')) {
+      s3 = getS3Client('head');
+      name = 'head';
+    } else {
+      s3 = getS3();
+      name = 'legacy';
+    }
+    if (!s3) return null;
+    return { client: s3.client, bucket: s3.bucket, region: s3.region, account: name };
+  },
 };
 
 // ---------------------------------------------------------------------------
