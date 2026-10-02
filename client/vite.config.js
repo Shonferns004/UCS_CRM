@@ -23,11 +23,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/jspdf') || id.includes('node_modules/canvg') || id.includes('node_modules/dompurify')) return 'pdf'
-          if (id.includes('node_modules/xlsx-js-style') || id.includes('node_modules/xlsx')) return 'excel'
-          if (id.includes('node_modules/exceljs')) return 'exceljs'
-        },
+        // xlsx / jspdf / exceljs are only ever used behind click handlers in
+        // already-lazy panel pages. Forcing them into named chunks made Rollup
+        // add a static edge from the entry chunk, so every login downloaded
+        // ~1.9 MB of export libraries no one had opened yet. Leaving them out
+        // lets Rollup keep each library inside whichever lazy chunk needs it.
       },
     },
   },
