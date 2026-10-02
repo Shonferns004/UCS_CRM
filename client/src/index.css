@@ -666,6 +666,11 @@
 .panel-hr .dp-year:hover { background:var(--sand); }
 .panel-hr .dp-year.today { font-weight:700; color:var(--sage); }
 .panel-hr .dp-year.selected { background:var(--sage); color:white; }
+.panel-hr .dp-day.disabled { opacity:.28; cursor:not-allowed; pointer-events:none; }
+.panel-hr .dp-month-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:4px; }
+.panel-hr .dp-month { padding:8px 2px; font-size:13px; text-align:center; cursor:pointer; border-radius:var(--radius-sm); color:var(--ink); }
+.panel-hr .dp-month:hover { background:var(--sand); }
+.panel-hr .dp-month.selected { background:var(--sage); color:white; }
 .panel-hr .back-btn { display:inline-flex; align-items:center; gap:6px; margin-bottom:16px; font-size:13px; color:var(--ink-soft); background:none; border:none; padding:6px 0; }
 .panel-hr .back-btn:hover { color:var(--ink); }
 .panel-hr .detail-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:1px; background:var(--line); border-radius:var(--radius-sm); overflow:hidden; }
@@ -784,6 +789,205 @@
 .panel-hr .empty-state p { font-size:14px; }
 .panel-hr .empty-text { text-align:center; color:var(--ink-soft); padding:24px; }
 .panel-hr .err-banner { color:var(--danger); font-size:13px; margin-bottom:16px; padding:8px 14px; background:var(--danger-soft); border-radius:var(--radius-sm); }
+
+/* ── HR > Reports (daily report) ────────────────────────────────────────────
+   Prefixed .hpr-* to avoid collisions with the rest of the HR panel. Every
+   class used here is defined in this file; nothing here relies on a class from
+   another panel.
+
+   Deliberately does NOT reuse .stats/.stat, .card-title or the bare th/td rules:
+   those are shared with Quizzes, Recruiters, Awards and Attendance, so tightening
+   them here would restyle pages this screen does not own. .hpr-* mirrors them at
+   an even, denser pitch so the four report blocks read as one dashboard. Colour
+   comes only from theme vars, so all ten themes keep working - the KPI accents
+   replace hardcoded hexes that used to ignore the theme switcher entirely. */
+.panel-hr .hpr-page { display:flex; flex-direction:column; gap:18px; }
+.panel-hr .hpr-block { display:flex; flex-direction:column; gap:10px; }
+
+/* ── Page caption ───────────────────────────────────────────────────────────
+   The topbar already carries "Reports" and the DAILY eyebrow, and it is shared
+   by every HR page, so it is left alone. This strip adds the section context,
+   the period being reported and who is filing it. The period line used to sit
+   under the date picker, where its extra height knocked the recruiter dropdown
+   out of line with the date field: the toolbar is align-items:flex-end, so a
+   taller first group lifts every other control. */
+.panel-hr .hpr-caption { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+.panel-hr .hpr-caption-main { min-width:0; }
+.panel-hr .hpr-caption-title { font-size:19px; font-weight:700; letter-spacing:-.01em; color:var(--ink); }
+.panel-hr .hpr-caption-sub { font-size:12.5px; color:var(--ink-soft); margin-top:2px; }
+.panel-hr .hpr-caption-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.panel-hr .hpr-caption-pill { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-soft); padding:5px 12px; background:var(--paper); border:1px solid var(--line); border-radius:20px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.panel-hr .hpr-caption-pill svg { color:var(--ink-soft); flex-shrink:0; }
+
+/* ── Toolbar ────────────────────────────────────────────────────────────────*/
+.panel-hr .hpr-toolbar > .card-pad { padding:13px 18px; }
+.panel-hr .hpr-bar { display:flex; flex-wrap:wrap; gap:14px 18px; align-items:flex-end; }
+.panel-hr .hpr-bar .filter-group { gap:5px; }
+.panel-hr .hpr-bar .filter-group label { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-soft); }
+.panel-hr .hpr-date { width:200px; }
+.panel-hr .hpr-recruiter { width:250px; }
+.panel-hr .hpr-date .datepicker, .panel-hr .hpr-recruiter .dropdown { display:block; width:100%; }
+.panel-hr .hpr-date .dp-trigger, .panel-hr .hpr-recruiter .dropdown-trigger { padding:7px 10px; font-size:13px; }
+.panel-hr .hpr-quick { display:inline-flex; border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; background:var(--paper); }
+.panel-hr .hpr-quick button { padding:7px 14px; font-size:12px; font-family:inherit; background:none; border:none; color:var(--ink-soft); cursor:pointer; white-space:nowrap; }
+.panel-hr .hpr-quick button + button { border-left:1px solid var(--line); }
+.panel-hr .hpr-quick button:hover { background:var(--sand); color:var(--ink); }
+.panel-hr .hpr-quick button.active { background:var(--sage); color:#fff; font-weight:600; }
+
+.panel-hr .hpr-actions { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; align-items:center; padding-left:18px; border-left:1px solid var(--line); }
+.panel-hr .hpr-actions .btn { padding:8px 14px; font-size:13px; }
+.panel-hr .hpr-dirty { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:500; color:var(--ink-soft); white-space:nowrap; padding:5px 11px; background:var(--sand); border:1px solid var(--line); border-radius:20px; }
+.panel-hr .hpr-dirty .dot { width:6px; height:6px; border-radius:50%; background:var(--sage); flex-shrink:0; }
+.panel-hr .hpr-dirty.pending { background:var(--gold-soft); border-color:var(--gold-soft); color:#8a6217; }
+.panel-hr .hpr-dirty.pending .dot { background:var(--gold); }
+
+/* ── Section headers ─────────────────────────────────────────────────────────
+   The card headings used to live in .card-head, which forces the screen to
+   repeat the title. Lifting them here lets the KPI strip, the heading and the
+   table sit under one label. .no-print keeps the printed sheet as it was - the
+   .print-section-title blocks carry it there. */
+.panel-hr .hpr-section { display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+.panel-hr .hpr-section-label { display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--ink); }
+.panel-hr .hpr-section-label::before { content:''; width:3px; height:13px; border-radius:2px; background:var(--sage); flex-shrink:0; }
+.panel-hr .hpr-section-sub { font-size:12px; color:var(--ink-soft); }
+
+/* ── KPI cards ───────────────────────────────────────────────────────────────
+   sage = present/positive, sand = informational, danger = absent/negative.
+   Numbers stay --ink so the row does not read as a traffic light; the tinted
+   icon chip is what separates the cards. */
+.panel-hr .hpr-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.panel-hr .hpr-kpis.att { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.panel-hr .hpr-kpi { display:flex; align-items:center; gap:11px; min-width:0; padding:12px 14px; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); }
+.panel-hr .hpr-kpi-icon { width:32px; height:32px; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-radius:var(--radius-sm); background:var(--sage-soft); color:var(--sage); }
+.panel-hr .hpr-kpi-icon.tone-neutral { background:var(--sand); color:var(--ink-soft); }
+.panel-hr .hpr-kpi-icon.tone-bad { background:var(--danger-soft); color:var(--danger); }
+.panel-hr .hpr-kpi-body { min-width:0; flex:1; }
+.panel-hr .hpr-kpi-label { font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); line-height:1.3; }
+.panel-hr .hpr-kpi-value { font-size:22px; font-weight:700; line-height:1.15; letter-spacing:-.01em; color:var(--ink); font-variant-numeric:tabular-nums; margin-top:2px; }
+.panel-hr .hpr-kpi-value.bad { color:var(--danger); }
+.panel-hr .hpr-kpi-value.muted { color:var(--ink-soft); }
+
+/* ── Recruiter MIS table ────────────────────────────────────────────────────
+   min-width on the inner table makes narrow viewports scroll the wrapper
+   instead of squeezing the columns. The header is a styled band rather than
+   position:sticky on purpose: overflow-x makes overflow-y compute to auto, so
+   the wrapper becomes the sticky container and sticky would be a no-op that
+   can only clip. */
+.panel-hr .hpr-legend { display:flex; flex-wrap:wrap; gap:8px; font-size:11px; color:var(--ink-soft); margin-bottom:12px; align-items:center; }
+.panel-hr .hpr-legend-item { display:inline-flex; align-items:center; gap:6px; padding:4px 11px; background:var(--sand); border:1px solid var(--line); border-radius:20px; }
+.panel-hr .hpr-legend-item b { font-weight:600; color:var(--ink); }
+.panel-hr .hpr-table { overflow-x:auto; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); }
+.panel-hr .hpr-table > table { min-width:860px; }
+.panel-hr .hpr-table th { background:var(--sand); font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-soft); padding:9px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+.panel-hr .hpr-table td { padding:10px 14px; font-size:13px; }
+.panel-hr .hpr-table td.hpr-num { white-space:nowrap; }
+.panel-hr .hpr-name { display:flex; align-items:center; gap:8px; font-weight:500; }
+.panel-hr .hpr-name svg { color:var(--ink-soft); flex-shrink:0; }
+.panel-hr .hpr-roles { font-size:11px; color:var(--ink-soft); margin-top:2px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Sortable header cells. <th> already carries the uppercase label styling, so
+   these only supply the hit area and the caret. */
+.panel-hr .hpr-sort { display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0; margin:0; font:inherit; color:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer; }
+.panel-hr .hpr-sort:hover { color:var(--sage); }
+.panel-hr .hpr-sort .caret { font-size:9px; opacity:.45; }
+.panel-hr .hpr-sort.on .caret { opacity:1; color:var(--sage); }
+.panel-hr .hpr-num { text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Manual figures are typed, not derived. They get a dotted underline so nobody
+   reads them as a system count, and render as a muted dash when left blank. */
+.panel-hr .hpr-typed { border-bottom:1px dotted var(--gold); padding-bottom:1px; }
+.panel-hr .hpr-blank { color:var(--ink-soft); opacity:.6; }
+
+/* Totals row sits above .panel-hr tr:hover td, so it needs its own weight. */
+.panel-hr tr.hpr-total td { background:var(--sand); font-weight:700; border-top:2px solid var(--ink); color:var(--ink); }
+.panel-hr tr.hpr-total:hover td { background:var(--sand); }
+.panel-hr td.hpr-expander { padding:0; background:var(--paper); }
+.panel-hr tr.hpr-open td { background:var(--paper); }
+
+.panel-hr .hpr-edit { padding:14px 16px 16px; background:var(--sand); border-bottom:1px solid var(--line); }
+.panel-hr .hpr-edit-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px; }
+.panel-hr .hpr-note { font-size:11px; color:var(--ink-soft); margin-bottom:10px; line-height:1.5; }
+.panel-hr .hpr-btn-link { background:var(--paper); border:1px solid var(--line); border-radius:20px; padding:4px 12px; font:inherit; font-size:11px; font-weight:600; color:var(--ink-soft); cursor:pointer; white-space:nowrap; transition:background .15s,border-color .15s,color .15s; }
+.panel-hr .hpr-btn-link:hover { background:var(--sage-soft); border-color:var(--sage); color:var(--sage); }
+
+/* ── Fields (attendance panel and the per-recruiter editor) ─────────────────*/
+.panel-hr .hpr-field { display:flex; flex-direction:column; gap:5px; font-size:11px; color:var(--ink-soft); min-width:0; }
+.panel-hr .hpr-field-label { font-weight:600; color:var(--ink-soft); }
+.panel-hr .hpr-field-note { font-style:normal; font-weight:400; }
+.panel-hr .hpr-field input, .panel-hr .hpr-field textarea { width:100%; box-sizing:border-box; padding:8px 10px; font-size:13px; font-family:inherit; color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); outline:none; }
+.panel-hr .hpr-field textarea { resize:vertical; line-height:1.5; }
+.panel-hr .hpr-field input::placeholder, .panel-hr .hpr-field textarea::placeholder { color:var(--ink-soft); opacity:.7; }
+.panel-hr .hpr-field input:focus, .panel-hr .hpr-field textarea:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.panel-hr .hpr-count { align-self:flex-end; font-size:11px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.panel-hr .hpr-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+
+/* ── Attendance summary strip ───────────────────────────────────────────────
+   Same 1px-gap-on-the-line-border idiom as .detail-grid. */
+.panel-hr .hpr-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin-bottom:16px; background:var(--line); border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; }
+.panel-hr .hpr-summary-cell { min-width:0; padding:10px 14px; background:var(--paper); }
+.panel-hr .hpr-summary-label { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); }
+.panel-hr .hpr-summary-value { font-size:18px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; margin-top:2px; }
+
+/* ── WhatsApp preview ──────────────────────────────────────────────────────
+   Capped so a busy date cannot push the Send button off the screen. */
+.panel-hr .hpr-msg { max-height:360px; overflow-y:auto; overflow-wrap:anywhere; padding:16px 18px; background:var(--sand); border:1px solid var(--line); border-radius:var(--radius-sm); }
+.panel-hr .hpr-msg pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; line-height:1.5; font-family:inherit; color:var(--ink); }
+.panel-hr .hpr-msg-foot { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:12px; }
+
+/* Print-only helpers for this screen. .print-section-title and friends have no
+   screen rule anywhere in the sheet, so they would render as unstyled blocks in
+   the app; scoping the hide to .hpr-* keeps other panels untouched. */
+.panel-hr .hpr-print-only { display:none; }
+
+/* ── Reports-only responsive rules ───────────────────────────────────────────
+   Kept local rather than added to the shared 820/480 blocks so no other panel
+   inherits them. Breakpoints sit either side of the shared ones so the two
+   never disagree about the same element. */
+@media (max-width:1180px) {
+  .panel-hr .hpr-kpis.att { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (max-width:900px) {
+  .panel-hr .hpr-kpis, .panel-hr .hpr-kpis.att { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .panel-hr .hpr-actions { margin-left:0; padding-left:0; border-left:none; width:100%; }
+}
+@media (max-width:760px) {
+  .panel-hr .hpr-toolbar > .card-pad { padding:12px 14px; }
+  .panel-hr .hpr-bar { gap:12px 14px; }
+  .panel-hr .hpr-date, .panel-hr .hpr-recruiter { width:100%; }
+  .panel-hr .hpr-dirty { width:100%; }
+  .panel-hr .hpr-actions { flex-direction:column; align-items:stretch; }
+  .panel-hr .hpr-actions .btn { width:100%; }
+  .panel-hr .hpr-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .panel-hr .hpr-caption { align-items:flex-start; }
+}
+
+@media print {
+  .panel-hr .hpr-print-only { display:block !important; }
+  .panel-hr .hpr-caption, .panel-hr .hpr-toolbar, .panel-hr .hpr-bar, .panel-hr .hpr-quick, .panel-hr .hpr-actions, .panel-hr .hpr-legend, .panel-hr .hpr-section, .panel-hr .hpr-kpi-icon { display:none !important; }
+  .panel-hr .hpr-msg { max-height:none !important; overflow:visible !important; padding:0 !important; background:none !important; border:none !important; }
+  .panel-hr .hpr-table { overflow:visible !important; border:none !important; background:none !important; }
+  .panel-hr .hpr-table > table { min-width:0 !important; }
+  .panel-hr .table-wrap { overflow:visible !important; border:none !important; }
+  .panel-hr .hpr-table th { background:none !important; }
+  .panel-hr .hpr-edit { background:none !important; }
+  .panel-hr .hpr-btn-link { border:none !important; padding:0 !important; color:#000 !important; }
+  .panel-hr table { font-size:10px; }
+  .panel-hr th, .panel-hr td { padding:5px 6px !important; }
+  .panel-hr thead { display:table-header-group; }
+  .panel-hr tr { page-break-inside:avoid; }
+  .panel-hr .hpr-typed { border-bottom:none; }
+  .panel-hr tr.hpr-total td { background:#eee !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .panel-hr .hpr-kpis { gap:6px; }
+  .panel-hr .hpr-kpi { padding:6px 8px; min-width:0; }
+  .panel-hr .hpr-kpi-value { font-size:17px; }
+  .panel-hr .hpr-summary-value { font-size:14px; }
+  /* .stats/.stat are left in place: they still belong to the other HR pages,
+     which print through this same rule set. */
+  .panel-hr .stats { gap:6px; margin-bottom:12px; }
+  .panel-hr .stat { padding:8px 10px; box-shadow:none; min-width:0; }
+  .panel-hr .stat-value { font-size:18px; }
+  .panel-hr .hpr-roles { max-width:none; white-space:normal; }
+}
 .panel-hr .load-overlay { position:fixed; inset:0; background:rgba(255,255,255,.7); display:flex; align-items:center; justify-content:center; z-index:2000; }
 .panel-hr .spinner { width:36px; height:36px; border:3px solid var(--line); border-top-color:var(--sage); border-radius:50%; animation:att-spin .6s linear infinite; }
 @keyframes att-spin { to{transform:rotate(360deg)} }
