@@ -82,6 +82,9 @@ const REALTIME_TABLES = new Set([
   'attendance', 'leaves', 'worker_loans', 'attendance_corrections', 'impersonation_codes',
   'receipts', 'leads', 'special_incentives', 'special_incentive_progress',
   'lead_champion_announcements', 'incentive_slabs',
+  // Ticket threads: without these a team reply only reaches the raising FRO on
+  // the next 30s poll. Low write volume, so no bulk coalescing is needed.
+  'support_tickets', 'ticket_replies',
 ]);
 
 // High-volume tables whose rows are written in bulk (imports, scrapes, donor
