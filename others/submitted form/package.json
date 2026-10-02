@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/check-api-url.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node scripts/run-all.mjs"
