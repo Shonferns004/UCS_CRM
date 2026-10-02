@@ -463,8 +463,12 @@ export const unifiedLogin = async (req, res) => {
     else if (dept === 'digital' || dept.includes('develop')) role = 'digital';
     else if (dept.includes('event')) role = 'event_head';
     else role = 'worker';
+    // name is included because lead ownership falls back to a name match for rows
+    // that carry no id (recruiterOwner() -> ownerName). The other three worker sign
+    // sites already pass it; without it a recruiter logging in this way loses that
+    // fallback for their token's whole lifetime.
     const token = jwt.sign(
-      { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
+      { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department },
       process.env.JWT_SECRET,
       signOptions
     );
