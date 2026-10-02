@@ -106,6 +106,39 @@ test('prompt lists existing programmes so the model can avoid them', () => {
   assert.match(p, /Basic Computer Course/);
 });
 
+test('prompt grounds the suggestions in the NGO code and the beneficiary group', () => {
+  const p = buildActivityProgramPrompt({
+    ...ctx,
+    ngoCode: 'BSCT',
+    beneficiaryGroup: 'Visually Impaired',
+  });
+  assert.match(p, /Its code is BSCT\./);
+  assert.match(p, /This activity serves: "Visually Impaired"\./);
+  assert.match(p, /must suit this group/);
+});
+
+test('the NGO code and beneficiary lines are omitted when not supplied', () => {
+  // A blank value must not reach the model as an empty instruction line.
+  const p = buildActivityProgramPrompt({ ...ctx, ngoCode: '', beneficiaryGroup: '' });
+  assert.doesNotMatch(p, /Its code is/);
+  assert.doesNotMatch(p, /This activity serves/);
+});
+
+test('the beneficiary line is capped so a long group cannot flood the prompt', () => {
+  const p = buildActivityProgramPrompt({ ...ctx, beneficiaryGroup: 'V'.repeat(400) });
+  const line = p.split('\n').find((l) => l.includes('This activity serves')) || '';
+  const quoted = (line.match(/"([^"]*)"/) || [])[1] || '';
+  assert.ok(quoted.length > 0, 'the group must still reach the model');
+  assert.ok(quoted.length <= 120, `quoted group was ${quoted.length} chars`);
+});
+
+test('the beneficiary context costs input tokens only — the output budget is untouched', () => {
+  const bare = buildActivityProgramPrompt(ctx);
+  const rich = buildActivityProgramPrompt({ ...ctx, ngoCode: 'BSCT', beneficiaryGroup: 'Women' });
+  assert.equal(bare.match(/EXACTLY 6 objects/) !== null, rich.match(/EXACTLY 6 objects/) !== null);
+  assert.equal(bare.match(/about 950 output tokens/) !== null, rich.match(/about 950 output tokens/) !== null);
+});
+
 /* ── Enum coercion ───────────────────────────────────────────────────────── */
 
 test('matchEnum prefers exact, then contains, then the fallback', () => {
