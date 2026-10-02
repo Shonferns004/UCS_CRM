@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireAdminKey } from '../middleware/requireAdminKey.js';
 import {
   listBuckets,
   listObjects,
@@ -12,24 +13,10 @@ import {
 //
 // Guarded by ENV_ADMIN_KEY (x-admin-key), the same shared secret the env
 // admin tool uses. Unlike the table browser, this one can delete production
-// documents — selfies, Aadhaar scans, receipts — so it is worth a secret. The
-// guard passes through only when ENV_ADMIN_KEY is unset, which mirrors
-// envAdminRoutes.js; the warning below says so out loud on boot.
+// documents — selfies, Aadhaar scans, receipts — so it is worth a secret.
 // ---------------------------------------------------------------------------
-const ADMIN_KEY = process.env.ENV_ADMIN_KEY;
-if (!ADMIN_KEY) {
-  console.warn('WARNING: ENV_ADMIN_KEY is not set. S3 browser endpoints are OPEN.');
-}
-
-const requireKey = (req, res, next) => {
-  if (!ADMIN_KEY) return next();
-  const key = req.headers['x-admin-key'] || req.query.key;
-  if (key !== ADMIN_KEY) return res.status(401).json({ message: 'Unauthorized — admin key required' });
-  next();
-};
-
 const router = Router();
-router.use(requireKey);
+router.use(requireAdminKey);
 
 // Route handlers are thin: pass the request through, and let the service's own
 // status/message shape come back so the UI can render one error path.
