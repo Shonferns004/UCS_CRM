@@ -7,6 +7,11 @@ import {
   sendHrWhatsAppText,
 } from '../store';
 import { toast } from '../../../components/Toast';
+import {
+  belongsToLead as belongsTo,
+  isRejectedStatus as isRejected,
+  isPendingFollowUpStatus,
+} from '../../../utils/leads';
 import { Dropdown, DatePicker } from './ui';
 import { Users, Clock, Check, X, Send, WhatsApp, ChartBar, Cal, Printer } from '../icons';
 
@@ -124,21 +129,8 @@ const parseLeadNotes = (raw) => {
 // though the row is weeks old.
 const activeOn = (lead, date) => istDateOf(lead.created_at) === date || istDateOf(lead.updated_at) === date;
 
-// Same rule the Recruiters leaderboard uses, plus the name columns: a good share
-// of leads have recruiter_id NULL and only carry who entered them.
-const belongsTo = (lead, recruiter) => {
-  if (!recruiter) return false;
-  if (lead.recruiter_id && String(lead.recruiter_id) === String(recruiter.id)) return true;
-  if (lead.created_by && String(lead.created_by) === String(recruiter.id)) return true;
-  const name = String(recruiter.name || '').trim().toLowerCase();
-  if (!name) return false;
-  return [lead.created_by_name, lead.scheduled_by_name].some(n => String(n || '').trim().toLowerCase() === name);
-};
-
-// 'rejected' alone reads as 2 leads while 'not_interested' reads as 67; both are
-// the recruiter turning a candidate down, so Rejected counts the pair.
-const isRejected = (status) => status === 'rejected' || status === 'not_interested';
-const isPendingFollowUp = (status) => status === 'followed_up' || status === 'call_back';
+// Ownership, rejection, and follow-up rules are shared with the Recruiters
+// leaderboard via utils/leads.js so the two screens cannot disagree.
 const isScheduled = (lead, meta) => lead.status === 'scheduled' || meta.stages.includes('Interview Scheduled');
 
 const MANUAL_FIELDS = [
@@ -330,7 +322,7 @@ export default function Reports() {
         if (lead.status === 'selected') auto.selected += 1;
         if (isRejected(lead.status)) auto.rejected += 1;
         if (meta.stages.includes('Offer Released')) auto.offers += 1;
-        if (isPendingFollowUp(lead.status)) auto.pending += 1;
+        if (isPendingFollowUpStatus(lead.status)) auto.pending += 1;
         for (const role of meta.jobRoles) roles.add(role);
       }
       byRecruiter.set(recruiter.id, {

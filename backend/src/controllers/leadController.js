@@ -8,6 +8,18 @@ import {
   getLeadsDashboard,
 } from '../models/leadModel.js';
 
+// Roles allowed to see the whole pipeline rather than their own slice.
+const CAN_SCOPE_ALL = new Set(['super_admin', 'admin', 'hr', 'master']);
+
+// A recruiter's panel is their own pipeline by default. Without this the panel
+// received every lead in the CRM sorted newest-first, so a recruiter's own older
+// leads sat dozens of pages deep with no control to isolate them. Only a
+// privileged role may opt out with ?scope=all.
+const recruiterOwner = (req, scope) =>
+  req.user.role === 'recruiter' && !(scope === 'all' && CAN_SCOPE_ALL.has(req.user.role))
+    ? { ownerId: req.user.id, ownerName: req.user.name }
+    : {};
+
 export const addLead = async (req, res) => {
   try {
     const { name, phone, age, source, status, notes, recruiter_id, created_by_name, dob, scheduled_date } = req.body;
@@ -41,11 +53,12 @@ export const addLead = async (req, res) => {
 
 export const listLeads = async (req, res) => {
   try {
-    const { recruiter_id, status, search, source } = req.query;
+    const { recruiter_id, status, search, source, scope, created_by } = req.query;
     const filters = { recruiter_id, status, search, source };
     const isTelecaller = req.user.role === 'telecaller' || (req.user.role === 'worker' && (req.user.department || '').toLowerCase().trim() === 'fro');
     if (isTelecaller) filters.created_by = req.user.id;
-    if (req.user.role === 'recruiter' && req.query.created_by) filters.created_by = req.query.created_by;
+    else if (created_by) filters.created_by = created_by;
+    Object.assign(filters, recruiterOwner(req, scope));
     const leads = await getAllLeads(filters);
     return res.json(leads);
   } catch (error) {
@@ -126,7 +139,7 @@ export const transferLeadOwner = async (req, res) => {
 
 export const dashboard = async (req, res) => {
   try {
-    const stats = await getLeadsDashboard();
+    const stats = await getLeadsDashboard(recruiterOwner(req, req.query.scope));
     return res.json(stats);
   } catch (error) {
     return res.status(500).json({ message: error.message });
