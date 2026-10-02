@@ -628,6 +628,62 @@ export const insertActivitiesBulk = async (rows) => {
   return data || [];
 };
 
+// ─── PLANNER SUGGESTIONS (Monthly Planner: AI ideas kept for the report) ───
+
+// Store one generated batch of AI ideas. ignoreDuplicates + the unique key on
+// (activity, month, year, batch, title) means re-running the generator cannot
+// create duplicates — and critically it cannot reset a user's existing ticks,
+// because a conflicting row is skipped rather than updated.
+export const savePlannerSuggestions = async ({ ngo_id, activity_id, month, year, batch_no = 1, suggestions = [], created_by = null }) => {
+  if (!activity_id || !suggestions.length) return [];
+  const rows = suggestions.map((s) => ({
+    ngo_id: ngo_id ?? null,
+    activity_id,
+    month,
+    year,
+    batch_no,
+    title: String(s.title || '').trim(),
+    format: s.format || null,
+    priority: s.priority || null,
+    audience: s.audience || null,
+    duration: s.duration || null,
+    objective: s.objective || null,
+    rationale: s.rationale || null,
+    materials: Array.isArray(s.materials) ? s.materials : [],
+    created_by,
+  })).filter((r) => r.title);
+
+  if (!rows.length) return [];
+
+  const { error } = await db.from('event_head_planner_suggestions')
+    .upsert(rows, { onConflict: 'activity_id,month,year,batch_no,title', ignoreDuplicates: true });
+  if (error) throw error;
+
+  // Re-read the batch so the caller gets real ids and the user's current ticks.
+  return getPlannerSuggestions({ activity_id, month, year, batch_no });
+};
+
+export const getPlannerSuggestions = async ({ ngo_id, activity_id, month, year, batch_no, selected_only = false } = {}) => {
+  let query = db.from('event_head_planner_suggestions').select('*').order('created_at', { ascending: true });
+  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (activity_id) query = query.eq('activity_id', activity_id);
+  if (month) query = query.eq('month', Number(month));
+  if (year) query = query.eq('year', Number(year));
+  if (batch_no) query = query.eq('batch_no', Number(batch_no));
+  if (selected_only) query = query.eq('is_selected', true);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+export const setPlannerSuggestionSelected = async (id, is_selected) => {
+  const { data, error } = await db.from('event_head_planner_suggestions')
+    .update({ is_selected: Boolean(is_selected) })
+    .eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+};
+
 export const getAllActivities = async ({ ngo_id, sector_id } = {}) => {
   let query = db.from('event_head_activities').select('*').order('created_at', { ascending: false });
   if (ngo_id) query = query.eq('ngo_id', ngo_id);
