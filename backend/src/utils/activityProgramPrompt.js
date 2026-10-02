@@ -82,7 +82,9 @@ export const monthEndExclusive = (monthYmd) => {
  * @param {object}  o
  * @param {string}  o.activityName  resolved from the DB, never client-supplied
  * @param {string=} o.ngoName
+ * @param {string=} o.ngoCode       short code (BSCT / MANN / AFLF)
  * @param {string=} o.sectorName
+ * @param {string=} o.beneficiaryGroup  who the activity serves
  * @param {string=} o.monthYmd      'YYYY-MM'
  * @param {Array=}  o.observances   [{ name, scope, kind }] for the month
  * @param {Array=}  o.existingTitles  programmes already planned this month
@@ -91,7 +93,9 @@ export const monthEndExclusive = (monthYmd) => {
 export function buildActivityProgramPrompt({
   activityName,
   ngoName = '',
+  ngoCode = '',
   sectorName = '',
+  beneficiaryGroup = '',
   monthYmd = '',
   observances = [],
   existingTitles = [],
@@ -120,7 +124,11 @@ export function buildActivityProgramPrompt({
     '',
     `The activity is: "${activity}". Every suggestion must be a programme of this activity. Do not drift into another activity.`,
     ngoName ? `The NGO is ${String(ngoName).slice(0, 120)}.` : '',
+    ngoCode ? `Its code is ${String(ngoCode).slice(0, 24)}.` : '',
     sectorName ? `Its sector is: "${String(sectorName).slice(0, 120)}".` : '',
+    beneficiaryGroup
+      ? `This activity serves: "${String(beneficiaryGroup).slice(0, 120)}". Every programme must suit this group — its needs, its accessibility, and how this group is actually reached.`
+      : '',
     `The planning month is ${month}. Do NOT output any date, day, month, year or "when" field — the planner assigns dates itself.`,
     '',
     occasionLines.length

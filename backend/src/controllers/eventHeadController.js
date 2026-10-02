@@ -2618,7 +2618,7 @@ export const suggestActivityPrograms = async (req, res) => {
       month,
       ngo_id: ngoId,
       ngo_name: ngoRow?.name || null,
-      activity: { id: activity.id, name: activity.name, sector_id: activity.sector_id, sector_name: sectorName },
+      activity: { id: activity.id, name: activity.name, sector_id: activity.sector_id, sector_name: sectorName, beneficiary_group: activity.beneficiary_group || null },
       observances: (observances || []).map((o) => ({ date: o.date, name: o.name, scope: o.scope, kind: o.kind })),
       suggestions: [],
     };
@@ -2633,6 +2633,12 @@ export const suggestActivityPrograms = async (req, res) => {
     const prompt = buildActivityProgramPrompt({
       activityName: activity.name,
       ngoName: ngoRow?.name,
+      // The short code plus who the activity serves, so the ideas are aimed at
+      // this NGO's beneficiary group instead of coming back generic. Both are
+      // optional: an NGO with no code, or an activity created before migration
+      // 168, simply drops the line.
+      ngoCode: ngoRow?.code,
+      beneficiaryGroup: activity.beneficiary_group,
       sectorName,
       monthYmd: month,
       observances: payload.observances,
