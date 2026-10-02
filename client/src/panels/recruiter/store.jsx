@@ -2,7 +2,6 @@ import { createContext, useContext, useCallback, useState, useMemo, useEffect, u
 import { useUcs } from '../../store'
 import { api } from '../../api/auth'
 import { useRealtime } from '../../hooks/useRealtime'
-import { API_BASE as apiBase } from '../../lib/apiBase'
 
 const RecContext = createContext(null)
 export const useRec = () => useContext(RecContext)
@@ -295,18 +294,13 @@ export function RecProvider({ children }) {
   }, [fetchLeads, log])
 
   const deleteLead = useCallback(async (id) => {
-    try {
-      const res = await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs', raw: true })
-      if (!res.ok) throw new Error('Failed to delete lead')
-    } catch (e) {
-      const leadId = String(id).trim()
-      if (!leadId) throw e
-      const res = await fetch(`${apiBase}/db/rows/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: 'leads', rows: [{ id: leadId }] }),
-      })
-      if (!res.ok) throw new Error('Failed to delete lead')
+    // No unauthenticated fallback here. The old version retried through
+    // POST /api/db/rows/delete with a bare fetch, which would have deleted the
+    // row even after the server correctly refused it as someone else's lead.
+    const res = await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs', raw: true })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.message || 'Failed to delete lead')
     }
     delete createdLeadsRef.current[id]
     setLeads(p => p.filter(l => l.id !== id))
