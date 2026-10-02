@@ -4,6 +4,7 @@ import { Download, Trophy, TrendingUp, TriangleAlert, Phone, Target, CircleCheck
 import { apiGet, apiPost, apiPut, getFroHourlyPerformance, getFroDailyStats, getStationWiseCollection } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { SkeletonDashboard } from '../../../components/Skeleton';
+import TeamWiseCollection from '../components/TeamWiseCollection';
 import { useMeeting } from '../../../meetingStore';
 import { onDbChange } from '../../../lib/socket';
 import { formatDuration } from '../../../utils/formatDuration';
@@ -1887,51 +1888,63 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Top 4 Summary Cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: 14, marginBottom: 16,
-      }}>
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setSelectedPeriod('today')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 2 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 700, letterSpacing: .5, textTransform: 'uppercase', flex: 1 }}>Collection</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>₹{Number(tlData?.kpis?.received_amount ?? today_collection).toLocaleString('en-IN')}</span>
+      {/* Top Summary Cards.
+          Two columns: the two money/verification cards stack on the left, and the
+          team race fills the right column across both rows. The race reads the
+          same `activeRange` the whole dashboard obeys, so the card sitting next to
+          the Collection total cannot quote a different set of receipts.
+          Layout lives in CSS (.dash-summary-grid) rather than inline styles so the
+          narrow-viewport collapse is overridable - inline grid-template-columns
+          would win over a media query. */}
+      <div className="dash-summary-grid">
+        <div className="dash-summary-col">
+          <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setSelectedPeriod('today')}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 2 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 700, letterSpacing: .5, textTransform: 'uppercase', flex: 1 }}>Collection</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>₹{Number(tlData?.kpis?.received_amount ?? today_collection).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 10 }}>
+              {Number(tlData?.kpis?.received_amount ?? today_collection) === 0 ? 'No collections yet' : `(As per global filter — e.g. ${PERIOD_LABELS[dashPeriod]})`}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              {(tlData?.collections_per_ngo?.length > 0 ? tlData.collections_per_ngo : (accessibleNgos || []).filter(n => NGO_TABS.some(([c]) => (n.name || '').toLowerCase().includes(c))).map(n => ({ ngo_id: n.id, ngo_name: n.name, amount: 0 })))
+                .slice(0, 9)
+                .sort((a, b) => ngoSortRank(a.ngo_name) - ngoSortRank(b.ngo_name))
+                .slice(0, 3)
+                .map(n => {
+                  const color = ngoColorOf(n.ngo_name);
+                  return (
+                    <div key={n.ngo_id ?? n.ngo_name} style={{ padding: '10px 8px 11px', borderRadius: 10, border: '1px solid var(--line)', background: `${color}0d`, textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: .5, color, textTransform: 'uppercase' }}>{n.ngo_name}</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginTop: 2 }}>₹{Number(n.amount || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                  );
+                })}
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 10 }}>
-            {Number(tlData?.kpis?.received_amount ?? today_collection) === 0 ? 'No collections yet' : `(As per global filter — e.g. ${PERIOD_LABELS[dashPeriod]})`}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-            {(tlData?.collections_per_ngo?.length > 0 ? tlData.collections_per_ngo : (accessibleNgos || []).filter(n => NGO_TABS.some(([c]) => (n.name || '').toLowerCase().includes(c))).map(n => ({ ngo_id: n.id, ngo_name: n.name, amount: 0 })))
-              .slice(0, 9)
-              .sort((a, b) => ngoSortRank(a.ngo_name) - ngoSortRank(b.ngo_name))
-              .slice(0, 3)
-              .map(n => {
-                const color = ngoColorOf(n.ngo_name);
-                return (
-                  <div key={n.ngo_id ?? n.ngo_name} style={{ padding: '10px 8px 11px', borderRadius: 10, border: '1px solid var(--line)', background: `${color}0d`, textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: .5, color, textTransform: 'uppercase' }}>{n.ngo_name}</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginTop: 2 }}>₹{Number(n.amount || 0).toLocaleString('en-IN')}</div>
-                  </div>
-                );
-              })}
+
+          <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{Number(tlData?.kpis?.received_amount ?? verified_month_amount).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+              <span>{tlData?.kpis?.donations ?? verified_month_count} verified donations</span>
+              <span>{PERIOD_LABELS[dashPeriod]}</span>
+            </div>
+            <div style={{ fontSize: 10, color: '#16a34a', marginTop: 4 }}>Verified by Accounts panel</div>
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{Number(tlData?.kpis?.received_amount ?? verified_month_amount).toLocaleString('en-IN')}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
-            <span>{tlData?.kpis?.donations ?? verified_month_count} verified donations</span>
-            <span>{PERIOD_LABELS[dashPeriod]}</span>
-          </div>
-          <div style={{ fontSize: 10, color: '#16a34a', marginTop: 4 }}>Verified by Accounts panel</div>
-        </div>
-
+        <TeamWiseCollection
+          from={activeRange.from}
+          to={activeRange.to}
+          ngoId={selectedNgoId}
+          froId={selectedFroId}
+          periodLabel={PERIOD_LABELS[dashPeriod]}
+        />
       </div>
 
       {/* Meeting in-progress banner: live counters are frozen */}

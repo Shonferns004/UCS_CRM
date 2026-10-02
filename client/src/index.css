@@ -3631,3 +3631,317 @@
 .av-count { color: var(--ink-soft); }
 
 .av-foot { padding: 12px 18px; border-top: 1px solid var(--line); }
+
+/* ---------------------------------------------------------------------------
+   TEAM-WISE COLLECTION - the racing leaderboard on the NGO admin dashboard.
+
+   The card animates ORDER, not just width: each row is absolutely positioned at
+   rank * 40px and gets its `transform` transitioned, so when the data changes the
+   rows physically slide past each other. That is why the rows are position:absolute
+   inside a fixed-height track instead of being a normal flex column - a flowing
+   list re-orders in a single frame and there is nothing to animate.
+
+   `transition-delay` is staggered per row (set inline from the index) so the teams
+   surge forward in sequence, one after another, instead of all at once.
+--------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   DASHBOARD TOP SUMMARY - two columns, three cards.
+
+   Left column stacks Collection above Verified; the team race occupies the right
+   column and stretches to match their combined height. This lives in CSS rather
+   than inline styles specifically so the narrow-viewport collapse below can win -
+   an inline grid-template-columns outranks any media query.
+
+   `minmax(0, ...)` rather than plain `1fr`: grid items default to min-width:auto,
+   which stops a wide child (the Collection card's 3-up NGO strip) from forcing
+   the column wider than its share and squeezing the race track out.
+--------------------------------------------------------------------------- */
+
+.dash-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 14px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+
+.dash-summary-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.twc-card { position: relative; }
+
+/* Height comes from the grid's align-items:stretch; this makes the card a flex
+   column so the track can absorb the slack when the left column happens to be
+   taller. The track carries an explicit inline height (rank * 40px), and
+   flex-grow lets it exceed that without disturbing the absolutely-positioned
+   rows, which sit at fixed 40px intervals from the top. */
+.panel-ngo-admin .twc-card { display: flex; flex-direction: column; }
+
+/* A soft top-lit wash on the leader's card, so the winning side is obvious at a
+   glance even before the confetti fires. */
+.twc-has-lead::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, #fbbf24, #f59e0b 45%, transparent);
+  pointer-events: none;
+}
+
+.twc-track {
+  position: relative;
+  /* Lets the track take up the slack when the card is stretched taller than its
+     rows need (the left column can be the taller side). The rows are absolutely
+     positioned from the top, so extra height is absorbed at the bottom and the
+     40px row rhythm is unaffected. */
+  flex: 1 1 auto;
+}
+
+/* Each row is placed by rank; the component supplies translateY(rank * 40px).
+   `will-change` promotes the rows so a 5-team reorder stays on the compositor
+   instead of relaying out the card on every frame of the slide. */
+.twc-row {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform 620ms cubic-bezier(.34, 1.3, .5, 1);
+  will-change: transform;
+}
+
+/* The re-race wipe: the component snaps rows to rank 0 with the bar at 0% for one
+   frame, then restores. Transitions must be off during that snap, otherwise the
+   "restore" is itself animated from the wrong place and the race replays halfway. */
+.twc-row.is-wiped, .twc-row.is-wiped .twc-bar { transition: none !important; }
+
+.twc-rank {
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.twc-rank-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.twc-name {
+  width: 62px;
+  flex-shrink: 0;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.twc-bar-track {
+  flex: 1;
+  min-width: 0;
+  height: 12px;
+  border-radius: 6px;
+  background: #F1F5F9;
+  overflow: hidden;
+}
+
+/* The bar itself is the racing part. Cubic-bezier overshoots past 1, which is what
+   makes a team lunge past its final length and settle back - the "surge" that a
+   linear ease-out reads as merely filling in. */
+.twc-bar {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  transition: width 720ms cubic-bezier(.3, 1.25, .45, 1);
+  will-change: width;
+}
+
+.twc-row.is-lead .twc-bar-track { box-shadow: inset 0 0 0 1px #fcd34d; }
+
+/* The viewer's OWN team lane. Outlined rather than filled, with a left rule instead
+   of a background wash: the lane's rank colour already carries meaning (medal, bar
+   tint), so filling the row would make the viewer's team look like a different rank
+   than it actually is. A hairline outline plus a bolder name reads as "this is you"
+   without touching the rank encoding - which matters most exactly when the viewer's
+   team is in the middle of the pack, where a wash would be most misleading. */
+.twc-row.is-you {
+  box-shadow: inset 3px 0 0 #f59e0b, inset 0 0 0 1px #f59e0b;
+  border-radius: 5px;
+}
+.twc-row.is-you .twc-name { font-weight: 700; }
+.twc-row.is-you .twc-amount { color: #92400e; }
+
+.twc-amount {
+  width: 74px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.twc-meta {
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 11px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.twc-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.twc-motto {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.twc-foot-stats { font-size: 11px; color: var(--ink-soft); }
+
+.twc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card-bg, #fff);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.twc-icon-btn:hover { background: var(--bg); color: var(--ink); }
+
+.twc-celebrate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid #b45309;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.twc-celebrate:hover:not(:disabled) { background: #fde68a; }
+.twc-celebrate:disabled { opacity: .45; cursor: not-allowed; }
+
+.twc-skel {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #F1F5F9 25%, #e2e8f0 37%, #F1F5F9 63%);
+  background-size: 400% 100%;
+  animation: twc-skeleton 1.3s ease-in-out infinite;
+}
+
+/* Period picker for the FRO popup: today / week / month. Segmented pills rather than
+   a <select> so the whole range is visible at once - the point of the control is to
+   make "today" vs "this week" a one-glance comparison, which a collapsed dropdown
+   hides. */
+.twc-periods {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 12px;
+}
+
+.twc-period {
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.twc-period:hover { background: var(--bg); color: var(--ink); }
+
+.twc-period.is-active {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+}
+
+@keyframes twc-skeleton {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Confetti. The container is a non-interactive overlay pinned to the card's top
+   edge (pointer-events:none) so falling pieces never eat a click on Re-race or
+   Celebrate. `overflow:hidden` on the card clips them at the card's bottom. */
+.twc-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.twc-confetti-piece {
+  position: absolute;
+  top: -14px;
+  border-radius: 1px;
+  animation: twc-confetti-fall linear forwards;
+}
+
+@keyframes twc-confetti-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(340px) rotate(560deg); opacity: 0; }
+}
+
+/* Below ~1240px the side-by-side columns squeeze the race track's bars into
+   uselessness (the team-name column plus two fixed numeric columns stop leaving
+   anything for the bar), so the columns stack and the race gets the full width. */
+@media (max-width: 1240px) {
+  .dash-summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-summary-col { flex-direction: row; }
+  .dash-summary-col > .card { flex: 1 1 0; min-width: 0; }
+}
+
+@media (max-width: 640px) {
+  .twc-name { width: 52px; }
+  .twc-amount { width: 64px; }
+  .twc-meta { display: none; }
+}
+
+/* Respect the OS "Animation effects -> Off" setting: every animation in this card
+   lands on its final state instantly. The JS also reads the same media query and
+   skips the count-up rAF loop and the confetti burst, so nothing is merely made
+   faster - it is not rendered at all. */
+@media (prefers-reduced-motion: reduce) {
+  .twc-row, .twc-bar { transition: none; }
+  .twc-confetti, .twc-skel { display: none; }
+  .twc-skel { animation: none; background: #F1F5F9; }
+}

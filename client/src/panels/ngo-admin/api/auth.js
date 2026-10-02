@@ -30,6 +30,11 @@ export async function getStationWiseCollection(params = {}) {
   return apiGet(`/ngo-admin/station-collection${qs ? '?' + qs : ''}`)
 }
 
+export async function getTeamWiseCollection(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/team-collection${qs ? '?' + qs : ''}`)
+}
+
 export function notifyFro(workerId) {
   return apiPost('/ngo-admin/notify-fro', { workerId })
 }
