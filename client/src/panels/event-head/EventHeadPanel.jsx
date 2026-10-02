@@ -9,6 +9,7 @@ import Overview from './components/Overview'
 import EventDashboard from './pages/EventDashboard'
 import CreateEvent from './pages/CreateEvent'
 import MonthlyPlanner from './pages/MonthlyPlanner'
+import ActivityPlanner from './pages/ActivityPlanner'
 import AssetRegister from './pages/AssetRegister'
 import MaterialRegister from './pages/MaterialRegister'
 import BeneficiaryDistribution from './pages/BeneficiaryDistribution'
@@ -37,6 +38,10 @@ const NAV = [
   { id:'dashboard',      path:'/event-head/dashboard',        label:'Dashboard',             icon:Grid, section:'Overview' },
   { id:'events',         path:'/event-head/events',           label:'Events',                icon:Cal, section:'Programs' },
   { id:'monthly-planner',path:'/event-head/monthly-planner',  label:'Calendar',              icon:Cal, section:'Programs' },
+  /* Second entry for the same page under its real name. It gets its own alias
+     route (`/event-head/planner`) so that only one of the two links is ever
+     highlighted as active — sharing one path would light up both at once. */
+  { id:'planner',         path:'/event-head/planner',           label:'Monthly Planner',       icon:Plane, section:'Programs' },
   { id:'ngos',           path:'/event-head/ngos',             label:'NGOs',                  icon:Brief, section:'Programs' },
   { id:'sectors',        path:'/event-head/sectors',          label:'Sectors',               icon:Grid, section:'Programs' },
   { id:'activities',     path:'/event-head/activities',       label:'Activities',            icon:Star, section:'Programs' },
@@ -311,6 +316,12 @@ export default function EventHeadPanel() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<EventDashboard />} />
             <Route path="monthly-planner" element={<MonthlyPlanner />} />
+              {/* The "Monthly Planner" nav entry is its own screen: NGO-wise ->
+                  month-wise activity planning with AI programme suggestions.
+                  It gets its own route so only one of the two nav links is ever
+                  highlighted as active, and so the Calendar grid above stays
+                  exactly as it is. */}
+              <Route path="planner" element={<ActivityPlanner />} />
             <Route path="create" element={<CreateEvent />} />
             <Route path="ngos" element={<NGOs />} />
             <Route path="sectors" element={<Sectors />} />

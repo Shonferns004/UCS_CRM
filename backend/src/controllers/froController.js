@@ -267,6 +267,84 @@ function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol
   return queryBuilder;
 }
 
+// ─── donor_dnd: explicit "do not contact" registry (migration 165) ────────────
+// Before 165 a DND mark deleted the assignment, its logs and its scheduled
+// contacts, so the decision left no trace and could never be explained, audited
+// or released. donor_dnd records it durably instead.
+//
+// Scope is (donor_id, ngo_id), NOT donor_id alone: 41k donors in this system sit
+// under more than one NGO, so a global suppression would silently strip donors
+// from stations whose FRO never marked them DND.
+
+// Fetch the set of DND'd donors for a worker's (station, ngo) scope, keyed
+// "donorId|ngoId". Any failure degrades to an empty set rather than throwing:
+// this table is read on the My Leads hot path, and before migration 165 is
+// applied it does not exist. Returning "nothing is suppressed" is the safe
+// fallback — the worst case is a previously-deletion-based flow behaving as it
+// did before, never a dead page for the FRO.
+async function fetchActiveDndIds(scope) {
+  try {
+    const pairs = (scope || []).filter(s => s.ngo_id);
+    if (pairs.length === 0) return new Set();
+    const ngoIds = [...new Set(pairs.map(s => s.ngo_id))];
+    const { rows, error } = await db._pool.query(
+      `SELECT DISTINCT donor_id, ngo_id
+         FROM public.donor_dnd
+        WHERE released_at IS NULL
+          AND ngo_id = ANY($1::uuid[])`,
+      [ngoIds]
+    );
+    if (error) throw new Error(error.message);
+    return new Set((rows || []).map(r => `${r.donor_id}|${r.ngo_id}`));
+  } catch (err) {
+    console.warn('donor_dnd unavailable, treating no donor as suppressed:', err.message);
+    return new Set();
+  }
+}
+
+// Record a DND mark. Upserts on the partial unique index so marking the same
+// donor twice is a no-op rather than an error, and is deliberately best-effort:
+// failing to write the registry must never abort the disposition the FRO is
+// trying to save.
+async function recordDndMark({ donorId, ngoId, station, markedBy, reason = 'dnd', note = null }) {
+  if (!donorId || !ngoId) return false;
+  try {
+    const { rows, error } = await db._pool.query(
+      `INSERT INTO public.donor_dnd (donor_id, ngo_id, station, reason, note, marked_by, source)
+       VALUES ($1, $2, $3, $4, $5, $6, 'manual')
+       ON CONFLICT (donor_id, ngo_id) WHERE released_at IS NULL
+       DO UPDATE SET note = COALESCE(EXCLUDED.note, donor_dnd.note),
+                     marked_at = now(),
+                     marked_by = EXCLUDED.marked_by
+       RETURNING id`,
+      [donorId, ngoId, station || null, reason, note, markedBy || null]
+    );
+    if (error) throw new Error(error.message);
+    return !!(rows && rows.length);
+  } catch (err) {
+    console.error('Failed to record DND mark for donor', donorId, 'ngo', ngoId, ':', err.message);
+    return false;
+  }
+}
+
+// Lift a DND without losing the audit trail (released_at is set, the row stays).
+async function releaseDndMark({ donorId, ngoId, releasedBy }) {
+  if (!donorId || !ngoId) return false;
+  try {
+    const { rowCount, error } = await db._pool.query(
+      `UPDATE public.donor_dnd
+          SET released_at = now(), released_by = $3
+        WHERE donor_id = $1 AND ngo_id = $2 AND released_at IS NULL`,
+      [donorId, ngoId, releasedBy || null]
+    );
+    if (error) throw new Error(error.message);
+    return (rowCount || 0) > 0;
+  } catch (err) {
+    console.error('Failed to release DND for donor', donorId, 'ngo', ngoId, ':', err.message);
+    return false;
+  }
+}
+
 // Defense-in-depth: withStationNgoPairs applies the strict (station, ngo_id) pair
 // filter at SQL level for all columns, but callers that join through an embedded
 // resource (e.g. fro_donor_logs -> fro_assignments) also enforce it here in JS so
@@ -2032,7 +2110,7 @@ export const getMyDonors = async (req, res) => {
     // only unclaimed, available rows surface in the queue.
     // Narrow columns (not SELECT *): this pulls the FRO's whole station
     // scope (often thousands of rows) over mobile data on every list load.
-    const ASSIGNMENT_COLS = 'id, donor_id, ngo_id, station, status, batch_type, is_new, notes, last_contacted_at, next_follow_up, hidden_until, assigned_at, ngos(name)';
+    const ASSIGNMENT_COLS = 'id, donor_id, ngo_id, station, status, batch_type, is_new, notes, last_contacted_at, next_follow_up, hidden_until, assigned_at, rollover_from_status, rollover_at, ngos(name)';
     if (effectiveStations.length > 0) {
       let query = db
         .from('fro_assignments')
@@ -2198,6 +2276,12 @@ export const getMyDonors = async (req, res) => {
       'office_program_visit', 'promise_pay_wa_email', 'not_interested_np',
       'others',
     ]);
+    // Soft refusals. Unlike the other terminal dispositions, these are re-opened
+    // by the monthly rollover's cooldown, so they must not stay "terminal forever"
+    // once the assignment carries a rollover marker (see isRolloverReopenedRefusal).
+    const NOT_INTERESTED_DISPOSITION_DETAILS = new Set([
+      'not_interested', 'not_interested_now', 'not_interested_np',
+    ]);
 
     // Dedup-ready ordering: within the same (donor_id, ngo_id), sort so the
     // "most terminal" row comes first and wins the keep-first dedup below. A
@@ -2273,6 +2357,8 @@ export const getMyDonors = async (req, res) => {
         next_follow_up: a.next_follow_up || null,
         hidden_until: a.hidden_until || null,
         assigned_at: a.assigned_at || null,
+        rollover_from_status: a.rollover_from_status || null,
+        rollover_at: a.rollover_at || null,
         is_new: a.is_new !== false,
         batch_type: a.batch_type || null,
         next_scheduled_at: s?.scheduled_at || null,
@@ -2356,15 +2442,21 @@ export const getMyDonors = async (req, res) => {
     // wrong_number/terminal disposition must never hide this FRO's lead.
     const notConnectedForeverIds = new Set();
     const terminalForeverIds = new Set();
+    // Latest disposition detail + timestamp per donor: the detail decides whether
+    // a donor is terminal-forever, and the timestamp lets a monthly rollover that
+    // re-opened a soft refusal be told apart from one that is still genuinely
+    // terminal.
+    const latestDispByDonor = {};
     if (donorIds.length > 0) {
       const { rows: latestDisps } = await db._pool.query(
-        `SELECT DISTINCT ON (donor_id) donor_id, disposition_detail
+        `SELECT DISTINCT ON (donor_id) donor_id, disposition_detail, created_at
          FROM fro_donor_logs
          WHERE donor_id = ANY($1) AND action = 'disposition' AND fro_worker_id = $2
          ORDER BY donor_id, created_at DESC`,
         [donorIds, workerId]
       );
       for (const log of latestDisps || []) {
+        latestDispByDonor[log.donor_id] = log;
         if (NOT_CONNECTED_DISPOSITION_DETAILS.has(log.disposition_detail)) {
           notConnectedForeverIds.add(log.donor_id);
         }
@@ -2373,6 +2465,18 @@ export const getMyDonors = async (req, res) => {
         }
       }
     }
+
+    // A lead the rollover cooldown re-opened carries rollover_at; if its last
+    // disposition was a soft refusal (not_interested), that disposition no longer
+    // holds the lead forever — the rollover intentionally made it callable again.
+    // Hard terminals (wrong_number, dnd, …) are not in the soft-refusal set, so
+    // they stay blocked even if a rollover marker happens to be present.
+    const isRolloverReopenedRefusal = (r) => {
+      if (!r.rollover_at || !terminalForeverIds.has(r.donor_id)) return false;
+      const d = latestDispByDonor[r.donor_id];
+      if (d && !NOT_INTERESTED_DISPOSITION_DETAILS.has(d.disposition_detail)) return false;
+      return !d || new Date(r.rollover_at) > new Date(d.created_at);
+    };
 
     // ─── Same-day suppression (per worker + current work scope) ──────────────
     // Business rule: if the donor already has ANY disposition TODAY (IST) for
@@ -2409,30 +2513,108 @@ export const getMyDonors = async (req, res) => {
       'others',
     ]);
 
+    // ─── Suppression flags ──────────────────────────────────────────────────
+    // Suppression is now ANNOTATED, not applied by deletion. Previously this
+    // block silently dropped rows (605 of Mamta Shah's 671 BOD-15 old leads were
+    // removed here with no indication in the response), which is why a FRO's
+    // allotment count and their visible list disagreed and nothing could explain
+    // the difference.
+    //
+    // Every reason is computed per row and returned as is_suppressed +
+    // suppress_reason so the UI can show the donor behind a "Show suppressed"
+    // toggle and explain exactly why it is parked. `workableFiltered` below keeps
+    // the ORIGINAL exclusion semantics for the controlled-queue path, so the
+    // auto-advance cursor still never re-serves a donor who was already worked.
+    const activeDndIds = await fetchActiveDndIds(effectiveScope);
+    const dndKey = (r) => `${r.donor_id}|${r.ngo_id}`;
+
+    const SUPPRESS_REASONS = {
+      DND: 'dnd',
+      DONATED_THIS_MONTH: 'donated_this_month',
+      HIDDEN_UNTIL: 'hidden_until',
+      DISPOSED_TODAY: 'disposed_today',
+      HARD_TERMINAL: 'hard_terminal',
+      MONEY_DONE: 'money_done',
+      SCHEDULED: 'scheduled',
+      TERMINAL_FOREVER: 'terminal_forever',
+      NOT_CONNECTED_FOREVER: 'not_connected_forever',
+    };
+
+    // The ONLY reasons that hide a lead by default. A donor who refused, was
+    // unreachable or was already worked stays VISIBLE in My Leads — that is the
+    // whole point of the "show me all my data" rule. These three are the
+    // automatic holds: an explicit DND, a completed donation this month, and a
+    // lead parked until a later date.
+    const AUTO_HIDE_REASONS = new Set([
+      SUPPRESS_REASONS.DND,
+      SUPPRESS_REASONS.DONATED_THIS_MONTH,
+      SUPPRESS_REASONS.HIDDEN_UNTIL,
+    ]);
+
     let baseFiltered;
     if (req.query.verified_only === 'true') {
       baseFiltered = null;
     } else {
       baseFiltered = result.filter(r => {
-        // Same-day suppression (primary): if this donor already has ANY
-        // disposition today (IST) for this worker, it must not appear again in
-        // any queue view today — even for a retryable disposition (ringing/busy).
-        // Scoped per worker so it never blocks the donor for another FRO.
-        if (disposedTodayIds.has(r.donor_id)) return false;
-        // Status is authoritative for hard-terminal dispositions: a donor already
-        // marked not_interested / dnd / wrong_person / not_possible / wrong_number
-        // etc. must NOT be workable even if its disposition log wasn't captured —
-        // otherwise it leaks into the work queue and reappears.
-        if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
+        // Only two automatic suppressions remain, per the "show me all my data"
+        // rule: an explicit DND mark, and a donation completed in the current
+        // period (nothing left to collect). Everything else — worked,
+        // terminal, scheduled — stays VISIBLE and is surfaced through the status
+        // filters instead of being dropped.
+        if (activeDndIds.has(dndKey(r))) return false;
+        if (monthDonatedSet.has(r.assignment_id)) return false;
         if (r.hidden_until && new Date(r.hidden_until) > now) return false;
-        if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
-        if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
-        if (terminalForeverIds.has(r.donor_id)) return false;
-        if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
         return true;
       });
     }
     let filtered = baseFiltered === null ? result : baseFiltered;
+
+    // The suppression reason for every row, including the ones just filtered
+    // out above, so the client can badge them when "Show suppressed" is on.
+    const suppressedReasonFor = (r) => {
+      if (activeDndIds.has(dndKey(r))) return SUPPRESS_REASONS.DND;
+      if (monthDonatedSet.has(r.assignment_id)) return SUPPRESS_REASONS.DONATED_THIS_MONTH;
+      if (r.hidden_until && new Date(r.hidden_until) > now) return SUPPRESS_REASONS.HIDDEN_UNTIL;
+      if (disposedTodayIds.has(r.donor_id)) return SUPPRESS_REASONS.DISPOSED_TODAY;
+      if (HARD_TERMINAL_STATUSES.has(r.status)) return SUPPRESS_REASONS.HARD_TERMINAL;
+      if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return SUPPRESS_REASONS.MONEY_DONE;
+      if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return SUPPRESS_REASONS.SCHEDULED;
+      if (terminalForeverIds.has(r.donor_id) && !isRolloverReopenedRefusal(r)) return SUPPRESS_REASONS.TERMINAL_FOREVER;
+      if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) {
+        return SUPPRESS_REASONS.NOT_CONNECTED_FOREVER;
+      }
+      return null;
+    };
+    for (const r of result) {
+      const reason = suppressedReasonFor(r);
+      // is_suppressed drives the "Show suppressed" toggle, so it must ONLY be
+      // set for the three automatic holds. A worked/closed lead keeps
+      // suppress_reason for the explanatory row badge but stays in the list.
+      r.suppress_reason = reason;
+      r.is_suppressed = !!reason && AUTO_HIDE_REASONS.has(reason);
+    }
+
+    // include_suppressed=true serves the FULL list (allotted rows) with each
+    // donor flagged, which is what "show me all my data" means. The counts in
+    // the response make the split self-explanatory instead of a mystery.
+    const includeSuppressed = req.query.include_suppressed === 'true';
+    if (includeSuppressed && baseFiltered !== null) {
+      filtered = result;
+    }
+
+    // The workable set — original exclusion semantics, preserved verbatim for the
+    // controlled queue so a lead already worked today (or already terminal) can
+    // never be handed back out by the auto-advance cursor.
+    const workableFiltered = result.filter(r => {
+      if (disposedTodayIds.has(r.donor_id)) return false;
+      if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
+      if (r.hidden_until && new Date(r.hidden_until) > now) return false;
+      if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
+      if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
+      if (terminalForeverIds.has(r.donor_id) && !isRolloverReopenedRefusal(r)) return false;
+      if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
+      return true;
+    });
 
     const isNewAssignment = (r) => r.batch_type === 'new_data' || (r.batch_type == null && r.is_new !== false);
     const groupOf = (r) => {
@@ -2463,11 +2645,16 @@ export const getMyDonors = async (req, res) => {
         const operatorId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : null;
         const queueTab = req.query.new_only === 'true' ? 'new' : 'old';
         const queueStation = req.query.station && req.query.station !== 'all' ? req.query.station : null;
-        const donorObjs = filtered.map(r => ({ donor_id: r.donor_id, ngo_id: r.ngo_id, id: r.donor_id }));
+        // The queue is fed `workableFiltered`, NOT `filtered`. `filtered` now
+        // serves the full allotted list when include_suppressed is set, and the
+        // auto-advance cursor must never hand back a donor who was already worked
+        // or already terminal — otherwise the FRO would be re-called on people
+        // who refused.
+        const donorObjs = workableFiltered.map(r => ({ donor_id: r.donor_id, ngo_id: r.ngo_id, id: r.donor_id }));
         await reconcileQueue({ workerId, operatorId, donors: donorObjs, station: queueStation, tab: queueTab });
         await clearActiveRowsNotIn({ workerId, donorIds: donorObjs.map(o => o.donor_id), station: queueStation, tab: queueTab });
         const activeRows = await getActiveQueueRows({ workerId, station: queueStation, tab: queueTab });
-        const byId = new Map(filtered.map(r => [r.donor_id, r]));
+        const byId = new Map(workableFiltered.map(r => [r.donor_id, r]));
 
         // The cursor is STRICTLY FORWARD — no wrap-around, never `% length`, never
         // `idx<0 → idx=0`. `filtered` already excludes every donor with a
@@ -2502,7 +2689,7 @@ export const getMyDonors = async (req, res) => {
       } catch (queueErr) {
         console.error('queue_current error for worker', workerId, ':', queueErr.message);
         // Fall back to the plain list behaviour so the FRO does not dead-end.
-        return res.json({ donors: filtered, total: filtered.length });
+        return res.json({ donors: workableFiltered, total: workableFiltered.length });
       }
     }
 
@@ -2523,7 +2710,35 @@ export const getMyDonors = async (req, res) => {
         '| result_before_hide:', result.length);
     }
 
-    return res.json({ donors: page, total });
+    // A breakdown of why rows are suppressed, so "N of M" is explainable in the
+    // UI instead of the FRO guessing why their allotment is larger than the
+    // list. Ordered by how many leads each reason accounts for.
+    const suppressedBreakdown = {};
+    for (const r of result) {
+      if (r.suppress_reason) suppressedBreakdown[r.suppress_reason] = (suppressedBreakdown[r.suppress_reason] || 0) + 1;
+    }
+
+    const suppressedTotal = result.reduce((n, r) => n + (r.is_suppressed ? 1 : 0), 0);
+    const workedTotal = result.reduce((n, r) => n + (!r.is_suppressed && r.suppress_reason ? 1 : 0), 0);
+
+    return res.json({
+      donors: page,
+      total,
+      counts: {
+        // Raw allotment for this scope (what the dashboard reports).
+        allotted: result.length,
+        // Rows returned in this response.
+        visible: total,
+        // Held back by default: DND, donated this month, or parked.
+        suppressed: suppressedTotal,
+        // Leads with a status (worked/closed) — visible, just badged.
+        worked: workedTotal,
+        // Leads still workable right now (what the queue cursor walks).
+        workable: workableFiltered.length,
+        by_reason: suppressedBreakdown,
+      },
+      include_suppressed: includeSuppressed,
+    });
   } catch (error) {
     console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
     return res.status(500).json({ message: error.message });
@@ -2668,6 +2883,31 @@ export const updateDonorStatus = async (req, res) => {
     if (notes !== undefined) updates.notes = notes;
     if (next_follow_up !== undefined) updates.next_follow_up = next_follow_up;
 
+    // DND via the status dropdown is a SECOND write path for the same decision
+    // (the disposition modal is the first). Both must land in donor_dnd or the
+    // registry silently under-reports and DND'd donors keep reappearing.
+    // Switching back OFF dnd releases the mark instead of deleting the row, so
+    // the audit trail survives a mistake.
+    const resolvedNgo = ngo_id || assignment.ngo_id;
+    if (status === 'dnd') {
+      updates.hidden_until = firstOfNextMonthIST();
+      await recordDndMark({
+        donorId: assignment.donor_id ?? donorId,
+        ngoId: resolvedNgo,
+        station: assignment.station,
+        markedBy: workerId,
+        reason: 'dnd',
+        note: typeof notes === 'string' && notes ? notes.slice(0, 500) : null,
+      });
+      try {
+        await removeFromQueue({ workerId, donorId });
+      } catch (queueErr) {
+        console.warn('DND work_queue removal skipped for donor', donorId, ':', queueErr.message);
+      }
+    } else {
+      await releaseDndMark({ donorId: assignment.donor_id ?? donorId, ngoId: resolvedNgo, releasedBy: workerId });
+    }
+
     const result = await updateAssignmentStatus(assignment.id, updates);
     return res.json({ message: 'Status updated', data: result });
   } catch (error) {
@@ -2713,11 +2953,12 @@ export const getDonorLogs = async (req, res) => {
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { ngo_id } = req.query;
 
+    const ASSIGN_COLS = 'id, ngo_id, rollover_from_status, rollover_at';
     let assignment = null;
     if (ngo_id) {
       const { data } = await db
         .from('fro_assignments')
-        .select('id, ngo_id')
+        .select(ASSIGN_COLS)
         .eq('donor_id', donorId)
         .eq('fro_worker_id', workerId)
         .eq('ngo_id', ngo_id)
@@ -2728,7 +2969,7 @@ export const getDonorLogs = async (req, res) => {
     if (!assignment) {
       const { data } = await db
         .from('fro_assignments')
-        .select('id, ngo_id')
+        .select(ASSIGN_COLS)
         .eq('donor_id', donorId)
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned')
@@ -2741,6 +2982,23 @@ export const getDonorLogs = async (req, res) => {
     let nextSchedule = null;
     if (assignment) {
       logs = await findLogsByAssignment(assignment.id);
+      // Surface the month-boundary reset in the CRM timeline. The underlying
+      // disposition logs still show the real history; this synthetic entry is
+      // only the "and then the monthly rollover sent it back to pending" step,
+      // carrying the status it came from. Cleared by updateAssignmentStatus once
+      // the FRO dispositions the lead again, so it never lingers.
+      if (assignment.rollover_at) {
+        logs = [
+          {
+            id: 'rollover',
+            assignment_id: assignment.id,
+            action: 'month_reset',
+            notes: `Monthly rollover: status reset from ${(assignment.rollover_from_status || 'previous').replace(/_/g, ' ')} to pending`,
+            created_at: assignment.rollover_at,
+          },
+          ...logs,
+        ];
+      }
       totalCollected = await getTotalCollectedByAssignment(assignment.id);
       nextSchedule = await getScheduledByAssignment(assignment.id);
     }
@@ -3001,26 +3259,36 @@ export const createDonorLogHandler = async (req, res) => {
         }
       }
 
-      // DND: remove the FRO's station + agent assignment entirely so the lead
-      // stops appearing in this FRO's list and can never be re-enqueued. Deletes
-      // the assignment row and its associated logs / scheduled contacts (mirrors
-      // the manual deleteAssignment cleanup) and hard-removes the donor from the
-      // work_queue (which has no public FK cascade to fro_assignments). The
-      // donor profile / receipts / donations are left untouched. Runs inside the
-      // same transaction so a partial failure rolls back atomically.
+      // DND: record the mark in the donor_dnd registry (migration 165) instead
+      // of destroying the record. This previously DELETED the assignment row,
+      // its fro_donor_logs and its scheduled contacts, which meant a DND'd donor
+      // left no trace anywhere — nothing to audit, explain or release, and the
+      // lead simply vanished from every list (the root cause of "my data is
+      // missing" reports).
+      //
+      // The assignment row is now KEPT so the decision stays visible and
+      // reversible: status='dnd' plus a hidden_until park it out of the working
+      // stack, donor_dnd suppresses it globally within this (donor, ngo) scope,
+      // and the FRO can still see it under "Show suppressed". Removing it from
+      // the controlled queue (removeFromQueue) is kept so a DND'd donor can
+      // never be handed out again by the auto-advance cursor.
       if (action === 'disposition' && disposition_detail === 'dnd') {
         try {
-          const { data: rmLogs } = await db.from('fro_donor_logs').select('id').eq('assignment_id', assignment.id);
-          const rmLogIds = (rmLogs || []).map(l => l.id);
-          if (rmLogIds.length > 0) {
-            await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', rmLogIds);
-            await db.from('fro_donor_logs').delete().in('id', rmLogIds);
-          }
-          await db.from('fro_scheduled_contacts').delete().eq('assignment_id', assignment.id);
-          await db.from('fro_assignments').delete().eq('id', assignment.id);
-          await removeFromQueue({ workerId, donorId });
+          await recordDndMark({
+            donorId: assignment.donor_id,
+            ngoId: assignment.ngo_id,
+            station: assignment.station,
+            markedBy: workerId,
+            reason: 'dnd',
+            note: notes ? String(notes).slice(0, 500) : null,
+          });
         } catch (dndErr) {
-          console.error('Failed to fully remove DND assignment', assignment.id, ':', dndErr.message);
+          console.error('Failed to record DND mark for assignment', assignment.id, ':', dndErr.message);
+        }
+        try {
+          await removeFromQueue({ workerId, donorId: assignment.donor_id });
+        } catch (queueErr) {
+          console.warn('DND work_queue removal skipped for assignment', assignment.id, ':', queueErr.message);
         }
       }
 
