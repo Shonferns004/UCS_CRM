@@ -2,7 +2,7 @@ import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTempl
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
 import { checkAttachmentReachable, describeUnreachableAttachment } from '../services/mediaReachability.js';
-import { verifyReceiptFile, describeStoredObjectUrl } from '../services/receiptFileLink.js';
+import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } from '../services/receiptFileLink.js';
 import db from '../config/db.js';
 
 const TEMPLATE_PROJECT_MAP = {
@@ -328,16 +328,28 @@ export async function sendReceipt(req, res) {
     // it cannot be handed to Meta as-is. Re-issue it as a time-limited S3
     // presigned URL: same bucket and object, credential moved into the URL so
     // nothing about the donor becomes world-readable.
+    //
+    // If the URL cannot be mapped back to a configured bucket and a signable key
+    // there is no link to issue, and the send must stop. Falling through to probe
+    // the raw bucket URL used to turn that into a 403 that read exactly like "the
+    // bucket is not public" -- a wrong diagnosis that sent the operator off to
+    // grant s3:GetObject to Principal "*" and would have published every donor
+    // PAN and address in the bucket. So it is refused here, with the real reason.
     let attachmentUrl = documentUrl;
     if (documentUrl) {
       const located = describeStoredObjectUrl(documentUrl);
-      if (located) {
-        const presigned = await db.storage.from(located.account, 'receipts').presignDownload(located.key);
-        if (presigned.error) {
-          return res.status(500).json({ message: `Could not sign the receipt PDF: ${presigned.error.message}` });
-        }
-        attachmentUrl = presigned.data.url;
+      if (!located) {
+        return res.status(422).json({
+          message: explainStoredObjectUrl(documentUrl),
+          code: 'receipt_url_unlocatable',
+          attachmentUrl: documentUrl,
+        });
       }
+      const presigned = await db.storage.from(located.account, 'receipts').presignDownload(located.key);
+      if (presigned.error) {
+        return res.status(500).json({ message: `Could not sign the receipt PDF: ${presigned.error.message}` });
+      }
+      attachmentUrl = presigned.data.url;
       const attachmentError = await preflightAttachment(attachmentUrl);
       if (attachmentError) {
         return res.status(422).json({ message: attachmentError, code: 'attachment_unreachable', attachmentUrl });
