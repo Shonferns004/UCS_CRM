@@ -12,6 +12,7 @@ import {
   suggestActivityPrograms,
   fetchPlannerSuggestions,
   setPlannerSuggestionSelected,
+  generateNgoMonthlyReport,
 } from '../store.jsx'
 
 /* ── Month helpers (local, so this page shares nothing with the Calendar) ── */
@@ -53,6 +54,11 @@ const shortDate = (ymd) => {
   return `${MONTHS[m - 1].slice(0, 3)} ${d}`
 }
 
+/* The team calls these NGOs by their codes (BSCT, AFLF, MANN), so codes win over
+   the long registered names wherever a short label is needed. */
+const ngoShortLabel = (n) =>
+  String(n?.code || '').trim() || String(n?.name || '').trim() || 'NGO'
+
 /* ── Report helpers (date-wise monthly planner download) ─────────────────── */
 
 // The report is date-wise, so it must NOT go through toISOString(): in IST,
@@ -60,15 +66,21 @@ const shortDate = (ymd) => {
 // back a day.
 const reportDate = (d) => `${pad2(d.getDate())}-${MONTHS[d.getMonth()].slice(0, 3)}-${String(d.getFullYear()).slice(2)}`
 
-/** "Completed" reads as Done in the report; the rest keep their own label. */
-const doneLabel = (status) => {
-  const s = String(status || '').trim()
-  if (!s) return ''
-  if (s.toLowerCase() === 'completed') return 'Done'
-  return s
-}
+/* ── Report layout ─────────────────────────────────────────────────────────
+   The header block above the table is the client's: Monthly Planner Report, NGO,
+   Month and Generated. Those lines stay exactly as they are. What changed is the
+   table — it is one row per event with only the AI programme that belongs to
+   that event, because the social-post columns were always empty and the Event
+   Done column repeated what the calendar already shows. */
+const REPORT_HEADERS = ['Date', 'Event', 'AI Suggested Programme']
 
-const REPORT_SOCIAL_COLS = ['Post/Static', 'Reel /Thumbnail', 'Carousel Post', 'Post/YouTube', 'Images Send']
+/* Joined as \n so Excel shows each programme on its own line and no programme
+   title gets clipped; PDF gets \n converted to <br> for the same reason. */
+const reportSuggestionCell = (suggestions) => {
+  const list = (suggestions || []).filter(Boolean)
+  if (!list.length) return '—'
+  return list.map((s) => (s.programme_name ? `${s.suggested_title} — ${s.programme_name}` : s.suggested_title)).join('\n')
+}
 
 /* ── Shared pieces ──────────────────────────────────────────────────────── */
 
@@ -137,30 +149,80 @@ function Field({ label, hint, children }) {
 
 /* ── Step 3 · Add Activity (NGO-wise) ────────────────────────────────────── */
 
-function AddActivityModal({ ngo, sectors, onClose, onSaved }) {
+function AddActivityModal({ ngo, sectors, month, beneficiaryOptions = [], onClose, onSaved }) {
   const [name, setName] = useState('')
   const [sectorId, setSectorId] = useState('')
   const [description, setDescription] = useState('')
+  const [beneficiaryGroup, setBeneficiaryGroup] = useState('')
+  // Optional. Empty means "just register the activity"; a day means "and run its
+  // first programme on that date".
+  const [date, setDate] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  // Only days of the month on screen, so the programme it creates always lands
+  // in this month's counts and download rather than somewhere invisible.
+  const days = useMemo(() => daysInMonth(month), [month])
 
   const submit = async () => {
     if (!ngo) return setError('Choose an NGO first.')
     if (!name.trim()) return setError('Activity name is required.')
     if (!sectorId) return setError('Choose a sector for the activity.')
     setBusy(true); setError('')
+
+    const activityName = name.trim()
+    const desc = description.trim() || null
+
+    let created
     try {
-      const created = await createActivity({
-        name: name.trim(),
+      const payload = {
+        name: activityName,
         sector_id: Number(sectorId),
         ngo_id: ngo.id,
-        description: description.trim() || null,
-      })
-      onSaved(created)
+        description: desc,
+      }
+      /* Free text per activity: what the NGOs call their own groups. It drives
+         the Beneficiary filter and the AI prompt.
+         Sent only when typed. The column is added by migration 168, and an insert
+         naming a column the database does not have yet fails as a whole — so an
+         untagged activity must omit the key, not send it as NULL. */
+      const group = beneficiaryGroup.trim()
+      if (group) payload.beneficiary_group = group
+
+      created = await createActivity(payload)
     } catch (e) {
-      setError(e?.message || 'Could not save the activity.')
-    } finally {
       setBusy(false)
+      return setError(e?.message || 'Could not save the activity.')
+    }
+
+    if (!date) {
+      setBusy(false)
+      return onSaved({ activity: created, programme: null })
+    }
+
+    // The programme is a second record, created only after the activity exists.
+    // activity_ids is what links the two, and it is also what lets the monthly
+    // report show this event's AI suggestions.
+    try {
+      const programme = await createEvent({
+        name: activityName,
+        ngo_id: ngo.id,
+        sector_id: Number(sectorId),
+        activity_ids: created?.id ? [created.id] : [],
+        date,
+        status: 'Draft',
+        description: desc,
+      })
+      setBusy(false)
+      onSaved({ activity: created, programme })
+    } catch (e) {
+      // Never imply the whole thing failed: the activity is already saved.
+      setBusy(false)
+      onSaved({
+        activity: created,
+        programme: null,
+        programmeError: `saved the activity, but could not schedule its programme on ${shortDate(date)} — ${e?.message || 'please try again'}`,
+      })
     }
   }
 
@@ -173,7 +235,7 @@ function AddActivityModal({ ngo, sectors, onClose, onSaved }) {
         <>
           <button className="eh-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="eh-btn eh-btn-primary" onClick={submit} disabled={busy}>
-            {busy ? 'Saving…' : 'Save Activity'}
+            {busy ? 'Saving…' : date ? 'Save & Schedule' : 'Save Activity'}
           </button>
         </>
       }
@@ -181,12 +243,12 @@ function AddActivityModal({ ngo, sectors, onClose, onSaved }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {!ngo && (
           <div style={{ padding: '11px 14px', borderRadius: 12, background: 'var(--eh-warn-soft, #fff8e1)', color: 'var(--eh-ink)', fontSize: 13 }}>
-            Pick an NGO in step 1 before adding an activity.
+            Pick a single NGO above before adding an activity.
           </div>
         )}
 
         <Field label="NGO">
-          <input className="eh-select" value={ngo ? ngo.name : ''} disabled placeholder="From step 1" readOnly />
+          <input className="eh-select" value={ngo ? ngo.name : ''} disabled placeholder="Selected above" readOnly />
         </Field>
 
         <Field label="Sector" hint="Every activity must belong to exactly one sector.">
@@ -203,6 +265,33 @@ function AddActivityModal({ ngo, sectors, onClose, onSaved }) {
             onChange={(e) => setName(e.target.value)}
             placeholder="What does this NGO do under this sector?"
           />
+        </Field>
+
+        <Field
+          label="Beneficiary group (optional)"
+          hint="Who this activity serves. Used to filter the month and to aim the AI suggestions at this group."
+        >
+          <input
+            className="eh-select"
+            list="ap-beneficiary-options"
+            value={beneficiaryGroup}
+            onChange={(e) => setBeneficiaryGroup(e.target.value)}
+            placeholder="E.g. Visually Impaired, Women, Persons with Disabilities"
+          />
+        </Field>
+        {/* Suggests the groups already in use, while still allowing a new one. */}
+        <datalist id="ap-beneficiary-options">
+          {beneficiaryOptions.map((g) => <option key={g} value={g} />)}
+        </datalist>
+
+        <Field
+          label="First programme date (optional)"
+          hint={`Any day of ${monthLabel(month)}. Leave empty to just register the activity.`}
+        >
+          <Select value={date} onChange={setDate}>
+            <option value="">Do not schedule yet</option>
+            {days.map((d) => <option key={d} value={d}>{shortDate(d)}</option>)}
+          </Select>
         </Field>
 
         <Field label="Description (optional)">
@@ -225,7 +314,9 @@ function AddActivityModal({ ngo, sectors, onClose, onSaved }) {
 
 /* ── AI programme suggestions for one activity ──────────────────────────── */
 
-function SuggestModal({ activity, ngo, month, onClose, onPlan }) {
+/* Renders inline under the activity row that asked for it — no modal, so the
+   activity list stays visible while ideas are read, ticked or discarded. */
+function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0 }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [dismissed, setDismissed] = useState(() => new Set())
@@ -235,8 +326,11 @@ function SuggestModal({ activity, ngo, month, onClose, onPlan }) {
   const monthNum = Number(String(month).split('-')[1])
   const yearNum = Number(String(month).split('-')[0])
 
-  /* Reopening the modal restores what the user ticked last time, so selecting
-     ideas is not lost by closing the modal or reloading the page. */
+  /* Reopening the panel restores what the user ticked last time, so selecting
+     ideas is not lost by closing the panel or reloading the page.
+     refreshRev is bumped after a suggestion is converted into a programme,
+     which ticks it server-side — the mirror has to re-read or the box would
+     show unticked while the report already contains it. */
   useEffect(() => {
     let alive = true
     fetchPlannerSuggestions({ ngo_id: ngo?.id, activity_id: activity?.id, month: monthNum, year: yearNum })
@@ -246,7 +340,7 @@ function SuggestModal({ activity, ngo, month, onClose, onPlan }) {
       })
       .catch(() => { /* keep whatever is on screen */ })
     return () => { alive = false }
-  }, [activity?.id, ngo?.id, monthNum, yearNum])
+  }, [activity?.id, ngo?.id, monthNum, yearNum, refreshRev])
 
   const toggleSelected = async (s) => {
     if (!s?.id) return
@@ -295,13 +389,16 @@ function SuggestModal({ activity, ngo, month, onClose, onPlan }) {
   const observances = data?.observances || []
 
   return (
-    <ModalShell
-      title="Programme Suggestions"
-      subtitle={`${activity.name} · ${monthLabel(month)}${ngo ? ` · ${ngo.name}` : ''}`}
-      onClose={onClose}
-      width={760}
-      footer={<button className="eh-btn" onClick={onClose}>Close</button>}
-    >
+    <div style={{ border: '1px solid var(--eh-line)', borderRadius: 12, padding: '12px 14px', background: 'var(--eh-tint-1)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink)' }}>
+          Programme suggestions · {activity.name}
+        </span>
+        <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>
+          {monthLabel(month)}{ngo ? ` · ${ngoShortLabel(ngo)}` : ''}
+        </span>
+        <button className="eh-btn eh-btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}>Close</button>
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <button className="eh-btn eh-btn-primary" onClick={run} disabled={loading}>
@@ -392,7 +489,9 @@ function SuggestModal({ activity, ngo, month, onClose, onPlan }) {
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="eh-btn eh-btn-primary eh-btn-sm" onClick={() => onPlan(s)}>Add as programme</button>
+                <button className="eh-btn eh-btn-primary eh-btn-sm" onClick={() => onPlan(s)} title="Save this as a real programme in the month. It stays ticked, so the download lists it under that event.">
+                  Add as programme
+                </button>
                 <button
                   className="eh-btn eh-btn-sm"
                   onClick={() => setDismissed((prev) => new Set(prev).add(i))}
@@ -423,7 +522,7 @@ function SuggestModal({ activity, ngo, month, onClose, onPlan }) {
           ))}
         </div>
       </div>
-    </ModalShell>
+    </div>
   )
 }
 
@@ -474,7 +573,7 @@ function PlanModal({ entry, ngo, month, onClose, onSaved }) {
         priority,
         category: suggestion?.format || null,
       })
-      onSaved()
+      onSaved({ suggestion })
     } catch (e) {
       setError(e?.message || 'Could not create the programme.')
     } finally {
@@ -562,6 +661,7 @@ export default function ActivityPlanner() {
   const [ngoId, setNgoId] = useState('')
   const [month, setMonth] = useState(currentMonthYmd)
   const [sectorFilter, setSectorFilter] = useState('')
+  const [beneficiaryFilter, setBeneficiaryFilter] = useState('')
   const [search, setSearch] = useState('')
 
   const [activities, setActivities] = useState([])
@@ -574,8 +674,9 @@ export default function ActivityPlanner() {
   const [toast, setToast] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [suggestFor, setSuggestFor] = useState(null)
-  // Bumped after a programme is saved so the report reloads its ticks.
-  const [suggestionsRev, setSuggestionsRev] = useState(0)
+  // Bumped after a suggestion is converted into a programme, so the open panel
+  // re-reads its ticks from the server instead of showing a stale box.
+  const [suggestRev, setSuggestRev] = useState(0)
   // { activity, suggestion } — an object, not a bare suggestion, so "Add
   // programme" with no suggestion is still a distinct, openable state.
   const [planEntry, setPlanEntry] = useState(null)
@@ -604,22 +705,23 @@ export default function ActivityPlanner() {
   }, [])
 
   // Preselect when there is only one NGO, so a single-NGO Event Head lands on a
-  // usable page instead of an empty step 1.
+  // usable page instead of the cross-NGO overview.
   useEffect(() => {
     if (!ngoId && ngos.length === 1) setNgoId(String(ngos[0].id))
   }, [ngos, ngoId])
 
+  /* "All NGOs" is a real choice, not an empty state: with no ngoId both
+     endpoints drop the filter and return every row, which is what the
+     cross-NGO totals, the overview and the all-NGO report are built from. */
   const loadActivities = useCallback(() => {
-    if (!ngoId) { setActivities([]); setActsError(''); return }
     setLoadingActs(true); setActsError('')
-    fetchActivities({ ngo_id: ngoId })
+    fetchActivities(ngoId ? { ngo_id: ngoId } : {})
       .then((l) => setActivities(Array.isArray(l) ? l : []))
       .catch((e) => { setActivities([]); setActsError(e?.message || 'Could not load activities.') })
       .finally(() => setLoadingActs(false))
   }, [ngoId])
 
   const loadMonthEvents = useCallback(() => {
-    if (!ngoId) { setMonthEvents([]); return }
     const [start, end] = monthBounds(month)
     setLoadingEvents(true)
     fetchCalendarEvents({ start, end, ngoId })
@@ -628,8 +730,28 @@ export default function ActivityPlanner() {
       .finally(() => setLoadingEvents(false))
   }, [ngoId, month])
 
+  /* Per-NGO event counts for the chosen month. The existing monthly report
+     endpoint already groups the month NGO-wise, so no new API is needed — and
+     calling it without ngo_id returns every NGO at once for the overview. */
+  const [ngoStats, setNgoStats] = useState({})
+  const [loadingCounts, setLoadingCounts] = useState(false)
+
+  const loadNgoStats = useCallback(() => {
+    const [y, m] = month.split('-').map(Number)
+    setLoadingCounts(true)
+    generateNgoMonthlyReport({ month: m, year: y })
+      .then((r) => {
+        const map = {}
+        for (const n of (r?.ngos || [])) map[String(n.ngo_id)] = n
+        setNgoStats(map)
+      })
+      .catch(() => setNgoStats({}))
+      .finally(() => setLoadingCounts(false))
+  }, [month])
+
   useEffect(() => { loadActivities() }, [loadActivities])
   useEffect(() => { loadMonthEvents() }, [loadMonthEvents])
+  useEffect(() => { loadNgoStats() }, [loadNgoStats])
 
   /* Bucket the month's events by activity id so each row can show what it
      already has. The calendar feed returns an activities[] array per event,
@@ -651,25 +773,88 @@ export default function ActivityPlanner() {
   const rows = useMemo(() => {
     let list = activities
     if (sectorFilter) list = list.filter((a) => String(a.sector_id) === String(sectorFilter))
+    // Free-text groups, so match the same way the search box does — trimmed and
+    // case-insensitively, or the filter would drop rows on a stray double space.
+    if (beneficiaryFilter) {
+      const want = beneficiaryFilter.trim().toLowerCase()
+      list = list.filter((a) => String(a.beneficiary_group || '').trim().toLowerCase() === want)
+    }
     const q = search.trim().toLowerCase()
-    if (q) list = list.filter((a) => [a.name, a.sector_name, a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
+    if (q) list = list.filter((a) => [a.name, a.sector_name, a.beneficiary_group, a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
     return list
-  }, [activities, sectorFilter, search])
+  }, [activities, sectorFilter, beneficiaryFilter, search])
 
+  /* The Beneficiary filter lists the groups actually in use for the loaded
+     activities, so there is no taxonomy to keep in step with the NGOs. */
+  const beneficiaryOptions = useMemo(() => {
+    const set = new Set()
+    for (const a of activities) {
+      const g = String(a.beneficiary_group || '').trim()
+      if (g) set.add(g)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [activities])
+
+  /* A filter still pointing at a group the current NGO does not use would show an
+     empty list with no way back, because that option no longer exists. */
+  useEffect(() => {
+    if (beneficiaryFilter && !beneficiaryOptions.includes(beneficiaryFilter)) setBeneficiaryFilter('')
+  }, [beneficiaryFilter, beneficiaryOptions])
+
+  /* Grouped through a Map rather than by comparing against the previous row:
+     activities arrive in created_at order, so one sector used to be split into
+     two headers. Sectors and the activities inside them are both sorted, so the
+     same month always reads in the same order. */
   const bySector = useMemo(() => {
-    const groups = []
+    const map = new Map()
     for (const a of rows) {
       const key = a.sector_name || 'Uncategorised'
-      const last = groups[groups.length - 1]
-      if (!last || last.key !== key) groups.push({ key, rows: [a] })
-      else last.rows.push(a)
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(a)
     }
-    return groups
+    return [...map.entries()]
+      .sort((x, y) => x[0].localeCompare(y[0]))
+      .map(([key, list]) => ({
+        key,
+        rows: [...list].sort((x, y) => String(x.name || '').localeCompare(String(y.name || ''))),
+      }))
   }, [rows])
 
-  const isPlanned = (a) => (plannedByActivity.get(String(a.id)) || []).length > 0
-  const plannedCount = rows.filter(isPlanned).length
-  const unplannedCount = rows.filter((a) => !isPlanned(a)).length
+  /* One chip per NGO carrying that NGO's event count for the chosen month. */
+  const ngoOverview = useMemo(() => {
+    const list = ngos.map((n) => {
+      const s = ngoStats[String(n.id)] || {}
+      return {
+        ngo: n,
+        label: ngoShortLabel(n),
+        events: Number(s.events_count) || 0,
+        done: Number(s.completed) || 0,
+      }
+    })
+    return list.sort((a, b) => a.label.localeCompare(b.label))
+  }, [ngos, ngoStats])
+
+  /* Counts for whatever is in scope: the selected NGO, or every NGO on
+     "All NGOs". Activities come from the activity feed, events from the
+     report feed — the two answer different questions, so both are shown. */
+  const scopeStats = useMemo(() => {
+    const list = ngo
+      ? ngoOverview.filter((r) => String(r.ngo.id) === String(ngo.id))
+      : ngoOverview
+    const events = list.reduce((s, r) => s + r.events, 0)
+    const done = list.reduce((s, r) => s + r.done, 0)
+    return { events, done, remaining: Math.max(0, events - done) }
+  }, [ngo, ngoOverview])
+
+  /* What the report's header states about the month. Taken from the same place
+     as the cards, so the file and the screen can never disagree. Deliberately
+     not counted from reportRows: that is one row per *day*, with several events
+     sharing a day, so the totals are not recoverable from it. */
+  const reportCounts = useMemo(() => ({
+    events: scopeStats.events,
+    completed: scopeStats.done,
+    remaining: scopeStats.remaining,
+  }), [scopeStats])
 
   /* ── Selected AI suggestions for this NGO + month. Fetched for the report
         only, so the download reflects every tick the user made across all
@@ -678,15 +863,31 @@ export default function ActivityPlanner() {
   const reportRef = useRef(null)
   const [downloading, setDownloading] = useState('')
 
+/* No early return for "All NGOs": the report is downloadable from that scope
+     too, and its AI column has to be filled from every NGO's ticked ideas. An
+     empty ngo_id is dropped from the query, which is exactly the "all" case. */
   const loadSelectedSuggestions = useCallback(() => {
-    if (!ngoId) { setSelectedSuggestions([]); return Promise.resolve() }
     const [y, m] = month.split('-').map(Number)
     return fetchPlannerSuggestions({ ngo_id: ngoId, month: m, year: y, selected_only: true })
       .then((l) => setSelectedSuggestions(Array.isArray(l) ? l : []))
       .catch(() => setSelectedSuggestions([]))
   }, [ngoId, month])
 
-  useEffect(() => { loadSelectedSuggestions() }, [loadSelectedSuggestions, suggestionsRev])
+  useEffect(() => { loadSelectedSuggestions() }, [loadSelectedSuggestions])
+
+  /* Selected ideas indexed by the activity they were suggested for. The join key
+     is the event's extendedProps.activities[].id — the same ids the calendar
+     writes — rather than the name, which the NGOs spell inconsistently. */
+  const suggestionsByActivity = useMemo(() => {
+    const map = new Map()
+    for (const s of selectedSuggestions) {
+      const id = Number(s?.activity_id)
+      if (!Number.isFinite(id) || id <= 0) continue
+      if (!map.has(id)) map.set(id, [])
+      map.get(id).push(s)
+    }
+    return map
+  }, [selectedSuggestions])
 
   /* One row per calendar day. Events already planned that day fill the row;
      days with nothing stay blank so the sheet reads like a calendar month. */
@@ -697,7 +898,19 @@ export default function ActivityPlanner() {
       const p = ev.extendedProps || {}
       const d = String(p.date || '').slice(0, 10)
       if (!byDay.has(d)) continue
-      byDay.get(d).push({ title: String(ev.title || '').split(' · ')[0], status: p.status })
+      const ids = (Array.isArray(p.activities) ? p.activities : [])
+        .map((a) => Number(a?.id))
+        .filter((n) => Number.isFinite(n) && n > 0)
+      // One suggestion belongs to one activity, so a suggestion on an activity
+      // that three events share shows under all three. Deduplicated per event so
+      // an activity listed twice on the same event cannot repeat a line.
+      const linked = []
+      for (const id of new Set(ids)) {
+        for (const s of suggestionsByActivity.get(id) || []) {
+          if (!linked.includes(s)) linked.push(s)
+        }
+      }
+      byDay.get(d).push({ title: String(ev.title || '').split(' � ')[0], suggestions: linked })
     }
     return days.map((d) => {
       const hit = byDay.get(d) || []
@@ -706,21 +919,39 @@ export default function ActivityPlanner() {
         date: `${pad2(dd)}-${MONTHS[m - 1].slice(0, 3)}-${String(y).slice(2)}`,
         weekday: new Date(y, m - 1, dd).toLocaleDateString('en-US', { weekday: 'long' }),
         event: hit.map((h) => h.title).join('\n'),
-        done: hit.map((h) => doneLabel(h.status)).filter(Boolean).join('\n'),
-        social: ['', '', '', '', ''],
+        suggestions: hit.flatMap((h) => h.suggestions),
       }
     })
-  }, [month, monthEvents])
+  }, [month, monthEvents, suggestionsByActivity])
+
+  /* Ticked ideas whose activity has no event this month. They are real decisions
+     the user made, so dropping them would lose work — they go below the table
+     rather than into a day they have not been scheduled for yet. The activity
+     name is resolved from the loaded activities: the saved suggestion row keeps
+     only activity_id. */
+  const unlinkedSuggestions = useMemo(() => {
+    const linkedIds = new Set()
+    for (const ev of monthEvents) {
+      for (const a of (ev.extendedProps?.activities || [])) {
+        const id = Number(a?.id)
+        if (Number.isFinite(id) && id > 0) linkedIds.add(id)
+      }
+    }
+    const nameById = new Map(activities.map((a) => [Number(a.id), a.name]))
+    return selectedSuggestions
+      .filter((s) => !linkedIds.has(Number(s?.activity_id)))
+      .map((s) => ({ ...s, activityName: nameById.get(Number(s?.activity_id)) || null }))
+  }, [monthEvents, selectedSuggestions, activities])
 
   const reportMeta = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
     const label = `${MONTHS[m - 1]} ${y}`
-    const code = String(ngo?.code || ngo?.id || 'ngo').replace(/[^A-Za-z0-9_-]/g, '')
+    const code = String(ngo?.code || ngo?.id || 'all-ngos').replace(/[^A-Za-z0-9_-]/g, '')
     return {
       label,
       code,
       base: `monthly-planner-${code}-${MONTHS[m - 1]}-${y}`,
-      ngoName: ngo?.name || '',
+      ngoName: ngo?.name || 'All NGOs',
     }
   }, [month, ngo])
 
@@ -729,29 +960,32 @@ export default function ActivityPlanner() {
     setDownloading('excel')
     try {
       const XLSX = await import('xlsx-js-style')
-      const headers = ['Date', 'Event', 'Event Done', ...REPORT_SOCIAL_COLS]
+      // Shared with the PDF node so the two downloads can never drift apart.
+      const headers = REPORT_HEADERS
 
       const head = [
         ['Monthly Planner Report'],
         ['NGO', reportMeta.ngoName],
         ['Month', reportMeta.label],
         ['Generated', new Date().toLocaleString('en-IN')],
+        ['Events', reportCounts.events, 'Completed', reportCounts.completed, 'Remaining', reportCounts.remaining],
         [],
         headers,
       ]
-      const body = reportRows.map((r) => [r.date, r.event, r.done, ...r.social])
+      const body = reportRows.map((r) => [r.date, r.event, reportSuggestionCell(r.suggestions)])
 
+      /* Only the ideas with no event this month. Ones already placed are in the
+         AI column of their own row, and repeating them here would double-count. */
       const footer = []
-      if (selectedSuggestions.length) {
+      if (unlinkedSuggestions.length) {
         footer.push([])
         footer.push(['AI Suggestions — To Be Scheduled'])
-        footer.push(['Date', 'Event', 'Event Done', ...REPORT_SOCIAL_COLS])
-        for (const s of selectedSuggestions) {
+        footer.push(['AI Suggested Programme', 'Activity', 'Objective / Materials'])
+        for (const s of unlinkedSuggestions) {
           footer.push([
-            'TBD',
-            [s.title, s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n'),
-            'Suggested',
-            '', '', '', '', '',
+            s.title,
+            s.activityName || '—',
+            [s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n'),
           ])
         }
       } else {
@@ -762,8 +996,10 @@ export default function ActivityPlanner() {
       const aoa = [...head, ...body, ...footer]
       const ws = XLSX.utils.aoa_to_sheet(aoa)
 
-      // Style every header row: row 6 (index 5) plus the suggestion header.
-      const headerRows = [5]
+      // Located by content, never by a fixed index: the counts row above the table
+      // means the header is no longer at a known row number.
+      const tableHeaderIdx = aoa.findIndex((r) => r && r[0] === 'Date' && r[1] === 'Event')
+      const headerRows = tableHeaderIdx >= 0 ? [tableHeaderIdx] : []
       const sugHeaderIdx = aoa.findIndex((r) => r && r[0] === 'AI Suggestions — To Be Scheduled')
       if (sugHeaderIdx >= 0) headerRows.push(sugHeaderIdx + 1)
       const thin = { style: 'thin', color: { rgb: 'D5D9E4' } }
@@ -783,11 +1019,13 @@ export default function ActivityPlanner() {
       const t = ws['A1']
       if (t) t.s = { font: { bold: true, sz: 14, color: { rgb: '1F2430' } } }
 
-      ws['!cols'] = [{ wch: 14 }, { wch: 38 }, { wch: 14 }, { wch: 13 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 13 }]
+      // Date, Event, AI Suggested Programme. The AI column carries the most text, so
+      // it takes the width the five empty social columns used to share.
+      ws['!cols'] = [{ wch: 14 }, { wch: 38 }, { wch: 62 }]
       ws['!rows'] = []
       ws['!rows'][0] = { hpt: 22 }
       for (const r of headerRows) ws['!rows'][r] = { hpt: 20 }
-      for (let r = 6; r < aoa.length; r++) if (!ws['!rows'][r]) ws['!rows'][r] = {};
+      for (let r = tableHeaderIdx + 1; r < aoa.length; r++) if (!ws['!rows'][r]) ws['!rows'][r] = {};
 
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Monthly Planner')
@@ -834,24 +1072,48 @@ export default function ActivityPlanner() {
     }
   }
 
-  const onActivityAdded = (created) => {
+  /* The modal reports what it managed to save: an activity on its own, an
+     activity plus its first programme, or an activity whose programme failed. */
+  const onActivityAdded = ({ activity, programme, programmeError } = {}) => {
     setAddOpen(false)
     loadActivities()
-    showToast(`Activity “${created?.name}” added.`)
+    if (programme) {
+      // A new event changes this month's counts and the report, so reload both.
+      loadMonthEvents()
+      loadNgoStats()
+      showToast(`Activity “${activity?.name}” added and its programme scheduled.`)
+      return
+    }
+    showToast(programmeError
+      ? `Activity “${activity?.name}” ${programmeError}`
+      : `Activity “${activity?.name}” added.`)
     // Straight into suggestions, which is the point of adding one from here.
-    if (created?.id) {
+    if (ngo && activity?.id) {
       setSuggestFor({
-        ...created,
-        sector_name: sectors.find((s) => String(s.id) === String(created.sector_id))?.name || null,
+        ...activity,
+        sector_name: sectors.find((s) => String(s.id) === String(activity.sector_id))?.name || null,
       })
     }
   }
 
-  const afterPlanned = () => {
+  /* `suggestion` is set when the programme came from an AI idea rather than from
+     the row's own "Add programme" button. */
+  const afterPlanned = ({ suggestion } = {}) => {
     setPlanEntry(null)
     loadMonthEvents()
-    setSuggestionsRev((v) => v + 1)
-    showToast('Programme added to this month.')
+    loadNgoStats()
+    if (suggestion?.id) {
+      // Converting an idea into a programme keeps it ticked, so the report lists
+      // it as that event's AI suggestion instead of quietly dropping it.
+      setPlannerSuggestionSelected(suggestion.id, true)
+        .then(loadSelectedSuggestions)
+        // The programme is already saved; a failed tick must not say otherwise.
+        .catch(() => showToast('Programme added, but it could not be marked for the report.'))
+        .finally(() => setSuggestRev((v) => v + 1))
+      showToast('Programme added and kept in the report.')
+    } else {
+      showToast('Programme added to this month.')
+    }
   }
 
   const monthName = monthLabel(month).split(' ')[0]
@@ -863,35 +1125,32 @@ export default function ActivityPlanner() {
         title="Monthly Planner"
         subtitle={`Plan activities NGO-wise, month-wise · ${monthLabel(month)}`}
         actions={
-          <button className="eh-btn eh-btn-primary" onClick={() => setAddOpen(true)}>+ Add Activity</button>
+          <button
+            className="eh-btn eh-btn-primary"
+            onClick={() => setAddOpen(true)}
+            disabled={!ngo}
+            title={ngo ? `Add an activity to ${ngo.name}` : 'Pick a single NGO to add an activity to it'}
+          >
+            + Add Activity
+          </button>
         }
       />
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
-        {[
-          { n: 1, label: 'Choose NGO', done: Boolean(ngo) },
-          { n: 2, label: 'Choose Month', done: Boolean(month) },
-          { n: 3, label: 'Activities', done: rows.length > 0 },
-        ].map((s) => (
-          <div key={s.n} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: s.done ? 'var(--eh-primary)' : 'var(--eh-ink-faint)' }}>
-            <span style={{ width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: s.done ? 'var(--eh-primary)' : 'var(--eh-tint-1)', color: s.done ? '#fff' : 'var(--eh-ink-soft)', fontSize: 11 }}>
-              {s.n}
-            </span>
-            {s.label}
-          </div>
-        ))}
-      </div>
-
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-          <Field label="1 · NGO">
-            <Select value={ngoId} onChange={(v) => { setNgoId(v); setSectorFilter(''); setSearch('') }} style={{ minWidth: 190 }}>
+          <Field label="NGO">
+            {/* Names only. A count here would sit above the cards that already
+                report the numbers for the NGO in scope, and go stale the moment
+                a month loads. */}
+            <Select value={ngoId} onChange={(v) => { setNgoId(v); setSectorFilter(''); setBeneficiaryFilter(''); setSearch('') }} style={{ minWidth: 210 }}>
               <option value="">All NGOs</option>
-              {ngos.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+              {ngos.map((n) => (
+                <option key={n.id} value={n.id}>{ngoShortLabel(n)}</option>
+              ))}
             </Select>
           </Field>
 
-          <Field label="2 · Month">
+          <Field label="Month">
             <div style={{ display: 'flex', gap: 8 }}>
               <Select value={Number(month.split('-')[1]) - 1} onChange={(v) => setMonthPart('month', v)} style={{ minWidth: 120 }}>
                 {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
@@ -909,27 +1168,54 @@ export default function ActivityPlanner() {
             </Select>
           </Field>
 
+          <Field label="Beneficiary">
+            <Select value={beneficiaryFilter} onChange={setBeneficiaryFilter} style={{ minWidth: 190 }}>
+              {/* An empty dropdown with no explanation reads as a broken filter.
+                  Say what is actually true: nothing in scope is tagged yet. */}
+              <option value="">{beneficiaryOptions.length ? 'All beneficiaries' : 'No beneficiary groups yet'}</option>
+              {beneficiaryOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+            </Select>
+          </Field>
+
           <SearchInput value={search} onChange={setSearch} placeholder="Search activities…" style={{ flex: '1 1 180px', minWidth: 160 }} />
 
-          {ngo && (
-            <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')} title="Open the Calendar view">
-              View in Calendar
-            </button>
-          )}
+          <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')} title="Open the Calendar view">
+            View in Calendar
+          </button>
+        </div>
+      </div>
 
-          {ngo && (
-            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>
-                {selectedSuggestions.length} suggestion{selectedSuggestions.length === 1 ? '' : 's'} selected
-              </span>
-              <button className="eh-btn" onClick={downloadExcel} disabled={downloading === 'excel'} title="Date-wise monthly report as Excel">
-                {downloading === 'excel' ? 'Building…' : 'Download Excel'}
-              </button>
-              <button className="eh-btn" onClick={downloadPdf} disabled={downloading === 'pdf'} title="Date-wise monthly report as PDF">
-                {downloading === 'pdf' ? 'Building…' : 'Download PDF'}
-              </button>
-            </div>
-          )}
+      {/* Slim bar: what the download will contain, and the buttons themselves.
+          There used to be a row of NGO chips here too, but that put a second
+          set of event counts on screen — next to the NGO dropdown and the
+          cards — and the three could disagree while a month was still loading.
+          Counts now live in one place only: the cards, for the NGO in scope. */}
+      <div className="card" style={{ marginBottom: 0 }}>
+        <div
+          className="card-pad"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}
+        >
+          <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>
+            {reportMeta.ngoName} · {monthLabel(month)} · {selectedSuggestions.length} suggestion{selectedSuggestions.length === 1 ? '' : 's'} selected
+          </span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="eh-btn"
+              onClick={downloadExcel}
+              disabled={downloading === 'excel'}
+              title={`Date-wise monthly report for ${reportMeta.ngoName}, ${monthLabel(month)} — as Excel`}
+            >
+              {downloading === 'excel' ? 'Building…' : 'Download Excel'}
+            </button>
+            <button
+              className="eh-btn"
+              onClick={downloadPdf}
+              disabled={downloading === 'pdf'}
+              title={`Date-wise monthly report for ${reportMeta.ngoName}, ${monthLabel(month)} — as PDF`}
+            >
+              {downloading === 'pdf' ? 'Building…' : 'Download PDF'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -937,40 +1223,64 @@ export default function ActivityPlanner() {
         <div style={{ padding: '11px 16px', borderRadius: 12, background: 'var(--eh-success-soft)', color: 'var(--eh-success)', fontSize: 13, fontWeight: 600 }}>{toast}</div>
       )}
 
-      {ngo && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          {[
-            { label: 'Activities', value: rows.length, color: 'var(--eh-ink)' },
-            { label: `Planned in ${monthName}`, value: plannedCount, color: 'var(--eh-success)' },
-            { label: 'Not planned yet', value: unplannedCount, color: unplannedCount ? '#9a8200' : 'var(--eh-ink-faint)' },
-          ].map((c) => (
-            <div key={c.label} className="card" style={{ marginBottom: 0, flex: '1 1 150px' }}>
+      {/* Activities and events answer different questions, so both are kept:
+          activities are what can be planned, events are what this NGO already
+          has in the month. Counts ignore the search/sector boxes on purpose and
+          always describe the NGO in scope, so each card names that NGO — a bare
+          "25" next to a chip for some other NGO is not readable. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {[
+          { label: 'Activities', value: activities.length, color: 'var(--eh-ink)', title: 'activities that can be planned this month' },
+          { label: `Events in ${monthName}`, value: scopeStats.events, color: 'var(--eh-primary)', title: 'events already saved for this month', countsLoad: true },
+          /* Zero is left out rather than shown as "Done 0": nothing completed is
+             a normal state, not a fault. loadingCounts keeps the card from
+             blinking out and back on every NGO/month change before the numbers
+             arrive, which would make the strip jump around. */
+          { label: 'Completed', value: scopeStats.done, color: 'var(--eh-success)', title: 'events marked Completed', countsLoad: true, hideWhenZero: true },
+          { label: 'Remaining', value: scopeStats.remaining, color: scopeStats.remaining ? '#9a8200' : 'var(--eh-ink-faint)', title: 'events still to be completed', countsLoad: true },
+        ]
+          .filter((c) => !c.hideWhenZero || loadingCounts || c.value > 0)
+          .map((c) => (
+            <div
+              key={c.label}
+              className="card"
+              style={{ marginBottom: 0, flex: '1 1 150px' }}
+              title={ngo ? `${ngo.name} — ${c.title}` : c.title}
+            >
               <div className="card-pad" style={{ padding: '13px 15px' }}>
+                {/* Which NGO these numbers belong to: BSCT when BSCT is picked,
+                    MANN when MANN is. Muted so the count stays the loudest
+                    thing on the card, and absent on "All NGOs" where there is no
+                    single NGO to name. */}
+                {ngo && (
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', color: 'var(--eh-primary)', marginBottom: 1 }}>
+                    {ngoShortLabel(ngo)}
+                  </div>
+                )}
                 <div style={LABEL}>{c.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: c.color }}>{c.value}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: c.color }}>{c.countsLoad && loadingCounts ? '…' : c.value}</div>
               </div>
             </div>
           ))}
-        </div>
-      )}
+      </div>
 
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ padding: '13px 15px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <span style={LABEL}>3 · Activities</span>
-          {ngo && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{ngo.name} · {monthLabel(month)}</span>}
+          <span style={LABEL}>Activities</span>
+          <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{reportMeta.ngoName} · {monthLabel(month)}</span>
           {loadingActs && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Loading activities…</span>}
           {loadingEvents && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Loading month…</span>}
         </div>
 
-        {!ngo && <Empty icon="◎">Choose an NGO in step 1 to see its activities.</Empty>}
-
-        {ngo && actsError && (
+        {actsError && (
           <div style={{ margin: '0 15px 15px', padding: '11px 14px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13 }}>{actsError}</div>
         )}
 
-        {ngo && !actsError && rows.length === 0 && !loadingActs && (
+        {!actsError && rows.length === 0 && !loadingActs && (
           <Empty icon="＋">
-            No activities for {ngo.name} yet. Use <b>+ Add Activity</b> to add one, then ask AI for programme suggestions.
+            {ngo
+              ? <>No activities for {ngo.name} yet. Use <b>+ Add Activity</b> to add one, then ask AI for programme suggestions.</>
+              : 'No activities to plan yet. Pick a single NGO to add and plan its activities.'}
           </Empty>
         )}
 
@@ -979,60 +1289,106 @@ export default function ActivityPlanner() {
             <table>
               <thead>
                 <tr>
+                  {/* On "All NGOs" the rows span NGOs, so the list has to say
+                      which one each activity belongs to. */}
+                  {!ngo && <th style={{ width: 100 }}>NGO</th>}
                   <th>Activity</th>
                   <th style={{ width: '30%' }}>Planned in {monthName}</th>
-                  <th style={{ width: 200 }}>Programmes</th>
+                  <th style={{ width: 210 }}>Programmes</th>
                 </tr>
               </thead>
               <tbody>
                 {bySector.map((g) => (
                   <Fragment key={g.key}>
                     <tr>
-                      <td colSpan={3} style={{ padding: '9px 14px', background: 'var(--eh-tint-1)', borderBottom: '1px solid var(--eh-line)', fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
+                      <td colSpan={ngo ? 3 : 4} style={{ padding: '9px 14px', background: 'var(--eh-tint-1)', borderBottom: '1px solid var(--eh-line)', fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
                         {g.key} · {g.rows.length}
                       </td>
                     </tr>
                     {g.rows.map((a) => {
                       const planned = plannedByActivity.get(String(a.id)) || []
+                      // Each activity belongs to one NGO, so its own NGO is used
+                      // when the page is on "All NGOs" and it has none.
+                      const rowNgo = ngo || ngos.find((x) => String(x.id) === String(a.ngo_id)) || null
+                      const open = suggestFor?.id === a.id
                       return (
-                        <tr key={a.id}>
-                          <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--eh-ink)' }}>{a.name}</span>
-                              {a.description && (
-                                <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>
-                                  {String(a.description).slice(0, 90)}{String(a.description).length > 90 ? '…' : ''}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td>
-                            {planned.length === 0 ? (
-                              <Badge tone="muted">Not planned</Badge>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                {planned.map((p) => (
-                                  <div key={p.id} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>
-                                      <b style={{ fontWeight: 700 }}>{shortDate(p.date)}</b> · {p.title}
-                                    </span>
-                                    <StatusPill status={p.status} />
-                                  </div>
-                                ))}
-                              </div>
+                        <Fragment key={a.id}>
+                          <tr>
+                            {!ngo && (
+                              <td>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{ngoShortLabel(rowNgo)}</span>
+                              </td>
                             )}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                              <button className="eh-btn eh-btn-primary eh-btn-sm" onClick={() => setSuggestFor(a)}>
-                                ✦ Suggest programmes
-                              </button>
-                              <button className="eh-btn eh-btn-sm" onClick={() => setPlanEntry({ activity: a, suggestion: null })}>
-                                Add programme
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--eh-ink)' }}>{a.name}</span>
+                                {/* Who this activity serves, on the row itself — that is
+                                    the "which programme does what for whom" answer. */}
+                                {a.beneficiary_group && (
+                                  <span>
+                                    <Badge tone="secondary">{String(a.beneficiary_group).trim()}</Badge>
+                                  </span>
+                                )}
+                                {a.description && (
+                                  <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>
+                                    {String(a.description).slice(0, 90)}{String(a.description).length > 90 ? '…' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              {planned.length === 0 ? (
+                                <Badge tone="muted">Not planned</Badge>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {planned.map((p) => (
+                                    <div key={p.id} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: 12, color: 'var(--eh-ink)' }}>
+                                        <b style={{ fontWeight: 700 }}>{shortDate(p.date)}</b> · {p.title}
+                                      </span>
+                                      <StatusPill status={p.status} />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                  className={open ? 'eh-btn eh-btn-sm' : 'eh-btn eh-btn-primary eh-btn-sm'}
+                                  disabled={!rowNgo}
+                                  title={rowNgo ? `Show AI programme ideas for ${a.name}` : 'This activity has no NGO assigned'}
+                                  onClick={() => setSuggestFor(open ? null : a)}
+                                >
+                                  {open ? '✕ Close suggestions' : '✦ Suggest programmes'}
+                                </button>
+                                <button
+                                  className="eh-btn eh-btn-sm"
+                                  disabled={!rowNgo}
+                                  onClick={() => setPlanEntry({ activity: a, suggestion: null })}
+                                >
+                                  Add programme
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Suggestions open under their own activity row, so the
+                              list never disappears behind a modal. */}
+                          {open && (
+                            <tr>
+                              <td colSpan={ngo ? 3 : 4} style={{ padding: '0 14px 14px' }}>
+                                <SuggestionPanel
+                                  activity={a}
+                                  ngo={rowNgo}
+                                  month={month}
+                                  refreshRev={suggestRev}
+                                  onClose={() => { setSuggestFor(null); loadSelectedSuggestions() }}
+                                  onPlan={(s) => { setSuggestFor(null); setPlanEntry({ activity: a, suggestion: s }) }}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       )
                     })}
                   </Fragment>
@@ -1054,11 +1410,15 @@ export default function ActivityPlanner() {
         <div style={{ fontSize: 12, color: '#4A5061', marginTop: 4 }}>NGO: {reportMeta.ngoName}</div>
         <div style={{ fontSize: 12, color: '#4A5061' }}>Month: {reportMeta.label}</div>
         <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Generated: {new Date().toLocaleString('en-IN')}</div>
+        {/* Same counts as the cards and the Excel header, in one line. */}
+        <div style={{ fontSize: 11, color: '#1F2430', marginTop: 6 }}>
+          Events: {reportCounts.events} · Completed: {reportCounts.completed} · Remaining: {reportCounts.remaining}
+        </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12, fontSize: 11 }}>
           <thead>
             <tr>
-              {['Date', 'Event', 'Event Done', ...REPORT_SOCIAL_COLS].map((h) => (
+              {REPORT_HEADERS.map((h) => (
                 <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
               ))}
             </tr>
@@ -1068,8 +1428,13 @@ export default function ActivityPlanner() {
               <tr key={r.date} style={{ background: i % 2 ? '#F7F8FC' : '#fff' }}>
                 <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.date}</td>
                 <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.event}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.done}</td>
-                {r.social.map((s, k) => <td key={k} style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }} />)}
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>
+                  {/* \n is a line break in Excel; html2canvas needs <br> for the
+                      same visual break in the captured image. */}
+                  {reportSuggestionCell(r.suggestions).split('\n').map((line, k) => (
+                    <span key={k}>{k > 0 && <br />}{line}</span>
+                  ))}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1078,7 +1443,7 @@ export default function ActivityPlanner() {
         <div style={{ fontSize: 13, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>
           AI Suggestions — To Be Scheduled
         </div>
-        {selectedSuggestions.length === 0 ? (
+        {unlinkedSuggestions.length === 0 ? (
           <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
             No AI suggestions were selected for this month.
           </div>
@@ -1086,22 +1451,19 @@ export default function ActivityPlanner() {
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 11 }}>
             <thead>
               <tr>
-                {['Date', 'Event', 'Event Done', ...REPORT_SOCIAL_COLS].map((h) => (
+                {['AI Suggested Programme', 'Activity', 'Objective / Materials'].map((h) => (
                   <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {selectedSuggestions.map((s) => (
+              {unlinkedSuggestions.map((s) => (
                 <tr key={s.id}>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', fontWeight: 600 }}>TBD</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{s.title}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{s.activityName || '—'}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>
-                    <b>{s.title}</b>
-                    {s.objective ? `\nObjective: ${s.objective}` : ''}
-                    {s.materials?.length ? `\nMaterials: ${s.materials.join(', ')}` : ''}
+                    {[s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n')}
                   </td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>Suggested</td>
-                  {[0, 1, 2, 3, 4].map((k) => <td key={k} style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }} />)}
                 </tr>
               ))}
             </tbody>
@@ -1110,16 +1472,13 @@ export default function ActivityPlanner() {
       </div>
 
       {addOpen && (
-        <AddActivityModal ngo={ngo} sectors={sectors} onClose={() => setAddOpen(false)} onSaved={onActivityAdded} />
-      )}
-
-      {suggestFor && (
-        <SuggestModal
-          activity={suggestFor}
+        <AddActivityModal
           ngo={ngo}
+          sectors={sectors}
           month={month}
-          onClose={() => { setSuggestFor(null); loadSelectedSuggestions() }}
-          onPlan={(s) => { setSuggestFor(null); setPlanEntry({ activity: suggestFor, suggestion: s }) }}
+          beneficiaryOptions={beneficiaryOptions}
+          onClose={() => setAddOpen(false)}
+          onSaved={onActivityAdded}
         />
       )}
 
