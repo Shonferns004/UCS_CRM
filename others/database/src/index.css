@@ -106,6 +106,75 @@ body {
 tr.sel-row td { background: rgba(78, 222, 163, 0.10); }
 tr.sel-row:hover td { background: rgba(78, 222, 163, 0.16); }
 
+/* Inline cell editing (double-click a cell) */
+td.cell-editable { cursor: cell; }
+td.cell-editable:hover { box-shadow: inset 0 0 0 1px rgba(78, 222, 163, 0.55); }
+td.cell-editing { overflow: visible !important; white-space: normal !important; max-width: none !important; }
+td.cell-editing > .cell-editor { position: relative; min-width: 220px; max-width: 520px; }
+
+.cell-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #0e0e0e;
+  border: 1px solid #4edea3;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+  z-index: 30;
+}
+
+.cell-editor-input {
+  width: 100%;
+  min-width: 200px;
+  background: #20201f;
+  color: #e5e2e1;
+  border: 1px solid #2e2e2e;
+  border-radius: 4px;
+  padding: 4px 6px;
+  outline: none;
+  line-height: 20px;
+}
+.cell-editor-input:focus { border-color: #4edea3; }
+textarea.cell-editor-input { min-height: 120px; resize: vertical; }
+
+.cell-editor-bar { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.cell-editor-btn {
+  font-family: Geist, ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #bbcabf;
+  background: #20201f;
+  border: 1px solid #2e2e2e;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.cell-editor-btn:hover:not(:disabled) { color: #e5e2e1; border-color: #4edea3; }
+.cell-editor-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cell-editor-save { background: #10b981; border-color: #10b981; color: #002113; font-weight: 600; }
+.cell-editor-save:hover:not(:disabled) { color: #002113; background: #6ffbbe; }
+.cell-editor-err { font-size: 11px; color: #ffb4ab; white-space: pre-wrap; }
+
+/* Query editor */
+.sql-handle { height: 7px; cursor: ns-resize; background: transparent; flex-shrink: 0; }
+.sql-handle:hover { background: rgba(78, 222, 163, 0.35); }
+.sql-editor {
+  width: 100%;
+  background: #232323;
+  color: #e5e2e1;
+  font-family: Geist, ui-monospace, Consolas, monospace;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 12px 14px;
+  outline: none;
+  overflow: auto;
+  white-space: pre;
+  tab-size: 2;
+  resize: none;
+}
+
 /* Query history items */
 .hist-item { padding: 8px 12px; cursor: pointer; font-family: Geist, ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; border-bottom: 1px solid #2e2e2e; color: #e5e2e1; }
 .hist-item:hover { background: #1b1b1b; }

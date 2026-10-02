@@ -9,6 +9,7 @@ import Pager from './components/Pager.jsx';
 import QueryRunner from './components/QueryRunner.jsx';
 import CapacityPanel from './components/CapacityPanel.jsx';
 import ProvisionPanel from './components/ProvisionPanel.jsx';
+import StoragePanel from './components/StoragePanel.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 
 const DESTRUCTIVE = /\b(DROP|DELETE|TRUNCATE|UPDATE|INSERT|ALTER|CREATE|GRANT|REVOKE|REINDEX|VACUUM|COPY)\b/i;
@@ -26,6 +27,7 @@ export default function App() {
   const [runnerOpen, setRunnerOpen] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
   const [provOpen, setProvOpen] = useState(false);
+  const [storageOpen, setStorageOpen] = useState(false);
 
   const [searchText, setSearchText] = useState('');
   const [searchCol, setSearchCol] = useState('');
@@ -211,11 +213,50 @@ export default function App() {
     }
   };
 
+  // ---- inline cell edit ----
+  const updateCell = async ({ row, column, value, pk }) => {
+    if (!current) throw new Error('No table open');
+    const pkValues = {};
+    for (const col of pk) pkValues[col] = row[col];
+    const sameRow = (x) => pk.length > 0 && pk.every((c) => String(x[c]) === String(pkValues[c]));
+    const swapCell = (patch) => setCurrent((prev) => ({
+      ...prev,
+      rows: prev.rows.map((x) => (sameRow(x) ? { ...x, ...patch } : x)),
+    }));
+    // Optimistic write so the cell updates without a round-trip flicker. The
+    // server row is authoritative and replaces the local one on success; a
+    // failure restores the original value and rethrows for the grid banner.
+    const before = row[column];
+    swapCell({ [column]: value });
+    try {
+      const r = await api('/api/db/rows/update', {
+        method: 'POST',
+        body: JSON.stringify({ table: current.table, pk: pkValues, values: { [column]: value } }),
+      });
+      setCurrent((prev) => ({
+        ...prev,
+        rows: prev.rows.map((x) => (sameRow(x) ? r.row : x)),
+      }));
+      setErr(null);
+      setStatus({ msg: `Updated ${current.table}.${column}`, ok: true });
+    } catch (e) {
+      swapCell({ [column]: before });
+      throw e;
+    }
+  };
+
   // ---- panels ----
+  const closeOthers = () => {
+    setRunnerOpen(false);
+    setCapOpen(false);
+    setProvOpen(false);
+    setStorageOpen(false);
+  };
   const toggleRunner = () => {
     setRunnerOpen((o) => !o);
     setCapOpen(false);
     setProvOpen(false);
+    setStorageOpen(false);
   };
   const toggleCapacity = () => {
     setCapOpen((o) => {
@@ -224,11 +265,19 @@ export default function App() {
     });
     setRunnerOpen(false);
     setProvOpen(false);
+    setStorageOpen(false);
   };
   const toggleProvision = () => {
     setProvOpen((o) => !o);
     setRunnerOpen(false);
     setCapOpen(false);
+    setStorageOpen(false);
+  };
+  const toggleStorage = () => {
+    setStorageOpen((o) => !o);
+    setRunnerOpen(false);
+    setCapOpen(false);
+    setProvOpen(false);
   };
   const newTable = () => {
     if (!runnerOpen) toggleRunner();
@@ -289,6 +338,7 @@ export default function App() {
         activeTable={view.table}
         capOpen={capOpen}
         provOpen={provOpen}
+        storageOpen={storageOpen}
         filterText={filterText}
         setFilterText={setFilterText}
         onSelectTable={openTable}
@@ -296,6 +346,7 @@ export default function App() {
         onOpenSqlEditor={toggleRunner}
         onToggleCapacity={toggleCapacity}
         onToggleProvision={toggleProvision}
+        onToggleStorage={toggleStorage}
       />
 
       <div className="flex-1 flex flex-col h-full bg-surface overflow-hidden relative z-10">
@@ -329,6 +380,7 @@ export default function App() {
 
           <CapacityPanel open={capOpen} data={capData} onRefresh={loadCapacity} />
           <ProvisionPanel open={provOpen} onClose={() => setProvOpen(false)} />
+          <StoragePanel open={storageOpen} onClose={() => setStorageOpen(false)} confirmDialog={confirmDialog} />
           <QueryRunner
             open={runnerOpen}
             sqlText={sqlText}
@@ -353,6 +405,8 @@ export default function App() {
                 selected={selected}
                 onToggleRow={toggleRow}
                 onToggleAll={toggleAll}
+                onUpdateCell={updateCell}
+                resetKey={`${current.table}|${view.offset}|${view.order}|${view.desc}`}
               />
             ) : (
               <div className="h-full flex items-center justify-center">
