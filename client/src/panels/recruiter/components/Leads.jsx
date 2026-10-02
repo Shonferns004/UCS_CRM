@@ -143,7 +143,7 @@ const TABS = [
 ];
 
 export default function Leads() {
-  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters, jobs } = useRec();
+  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters, leadScope, setLeadScope, canViewAllLeads, jobs } = useRec();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
@@ -559,6 +559,15 @@ export default function Leads() {
                 options={[{value:'',label:'All statuses'}, ...statusFilterOptions]} />
               <Dropdown className="filter-select" value={leadFilters.source} onChange={e=>setLeadFilters(p=>({...p,source:e.target.value}))}
                 options={[{value:'',label:'All sources'}, ...sources]} />
+              {canViewAllLeads && (
+                <Dropdown className="filter-select" value={leadScope} onChange={e=>setLeadScope(e.target.value)}
+                  options={[{value:'mine',label:'My leads'}, {value:'all',label:'All leads'}]} />
+              )}
+            </div>
+            <div className="sub" style={{padding:'0 0 10px'}}>
+              {leadScope === 'mine'
+                ? 'Assigned to you or entered by you.'
+                : 'Every lead in the CRM, newest first.'}
             </div>
           </div>
           {leadsLoading ? (

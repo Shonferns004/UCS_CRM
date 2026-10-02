@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useHR } from '../store';
 import { DISPLAY_NAME, isActiveRecruiter } from '../recruiterFilters';
+import { belongsToLead, countConverted, countRejected, conversionRate, istDateOf } from '../../../utils/leads';
+import { istDayKey, istMonthKey } from '../../../utils/istDate';
 import { Users, Check, Clock, Bell, Cal } from '../icons';
 
 const RCOLORS = ['#5B6B4E','#1565C0','#7A5C7E','#B5603A','#C08A2E','#00838F','#6A1B9A','#2E7D32','#E65100','#4F6472'];
@@ -133,28 +135,30 @@ export default function RecruiterOverview() {
     if (!rawData) return null;
     const { recruiters, leads } = rawData;
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
+    // IST day keys throughout: the server buckets these figures on the IST
+    // calendar, and toISOString() is UTC, which mislabels the evening before.
+    const today = istDayKey(now);
+    const dayKey = (offsetDays) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - offsetDays);
+      return istDayKey(d);
+    };
 
     let filteredLeads = leads;
     if (filterDate === 'today') {
-      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) === today);
+      filteredLeads = leads.filter((l) => istDateOf(l.created_at) === today);
     } else if (filterDate === 'yesterday') {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const ys = yesterday.toISOString().slice(0, 10);
-      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) === ys);
+      filteredLeads = leads.filter((l) => istDateOf(l.created_at) === dayKey(1));
     } else if (filterDate === '7days') {
-      const since = new Date(now);
-      since.setDate(since.getDate() - 7);
-      const sinceStr = since.toISOString().slice(0, 10);
-      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) >= sinceStr);
+      const sinceStr = dayKey(7);
+      filteredLeads = leads.filter((l) => istDateOf(l.created_at) >= sinceStr);
     } else if (filterDate === 'month') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) >= monthStart);
+      const monthStart = istMonthKey(now);
+      filteredLeads = leads.filter((l) => (istDateOf(l.created_at) || '').slice(0, 7) >= monthStart);
     }
 
     const recruiterStats = recruiters.map((r) => {
-      const rLeads = filteredLeads.filter((l) => l.recruiter_id === r.id || l.created_by === r.id);
+      const rLeads = filteredLeads.filter((l) => belongsToLead(l, r));
       const total = rLeads.length;
       const byStatus = {};
       rLeads.forEach((l) => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; });
@@ -162,13 +166,12 @@ export default function RecruiterOverview() {
       const scheduled = byStatus['scheduled'] || 0;
       const pending = (byStatus['hold'] || 0) + (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0) + (byStatus['ringing'] || 0) + (byStatus['unreachable'] || 0) + (byStatus['busy'] || 0) + (byStatus['switched_off'] || 0);
       const interviewed = byStatus['selected'] || 0;
-      const joined = byStatus['joined'] || 0;
-      const rejected = byStatus['rejected'] || 0;
+      const joined = countConverted(rLeads);
+      const rejected = countRejected(rLeads);
       const followUp = (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0);
 
-      const convBase = joined + rejected;
-      const conversionRate = convBase > 0 ? parseFloat(((joined / convBase) * 100).toFixed(1)) : 0;
-      const todayLeads = rLeads.filter((l) => l.created_at?.slice(0, 10) === today).length;
+      const convRate = conversionRate(rLeads);
+      const todayLeads = rLeads.filter((l) => istDateOf(l.created_at) === today).length;
 
       const recentActivity = rLeads
         .filter((l) => l.updated_at)
@@ -188,7 +191,7 @@ export default function RecruiterOverview() {
         // recruiter was rejected and the leaderboard rendered empty.
         is_active: r.is_active, employment_status: r.employment_status,
         leadsCount: total, scheduled, pending, interviewed, joined, rejected, followUp,
-        conversionRate, todayLeads, lastActivity, avgResponseTime, byStatus,
+        conversionRate: convRate, todayLeads, lastActivity, avgResponseTime, byStatus,
       };
     });
 

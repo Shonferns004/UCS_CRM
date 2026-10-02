@@ -1,4 +1,6 @@
 import db from '../config/db.js';
+import { istDateString } from '../utils/ist.js';
+import { conversionRate } from '../utils/leads.js';
 
 export const createLead = async (data) => {
   const { data: lead, error } = await db
@@ -16,6 +18,12 @@ export const createLead = async (data) => {
 // (the panel records created_by). Both have to be accepted or a recruiter loses
 // sight of leads that were assigned to them rather than typed by them.
 //
+// A third case matters too: older rows and transfers can carry neither id, only
+// the *_by_name stamps. Those leads exist and belong to somebody, so a name
+// match counts as well -- otherwise the recruiter who really did the work sees
+// nothing. Keep this clause in step with leadBelongsTo() in
+// backend/src/utils/leads.js and belongsToLead() in client/src/utils/leads.js.
+//
 // Ids are compared numerically: JWT ids arrive as numbers while PostgREST hands
 // back numbers too, but a caller-supplied id may be a string.
 const normalizeOwnerIds = (ownerIds) => {
@@ -27,9 +35,21 @@ const normalizeOwnerIds = (ownerIds) => {
   return [...new Set(ids)];
 };
 
+// `.or()` conditions are comma-separated and paren-balanced, and the ilike value
+// treats % and _ as wildcards, so a display name carrying any of them has to be
+// flattened or it would corrupt the filter string (or match every lead).
+const sanitizeOrValue = (value) =>
+  String(value == null ? '' : value).replace(/[,()*%_]/g, ' ').replace(/\s+/g, ' ').trim();
+
 // One top-level OR per query, which is all PostgREST accepts.
-const ownerOrFilter = (ownerIds) =>
-  ownerIds.map((id) => `recruiter_id.eq.${id},created_by.eq.${id}`).join(',');
+const ownerOrFilter = (ownerIds, ownerName) => {
+  const parts = ownerIds.map((id) => `recruiter_id.eq.${id},created_by.eq.${id}`);
+  const name = sanitizeOrValue(ownerName);
+  if (name) {
+    parts.push(`created_by_name.ilike.${name}`, `scheduled_by_name.ilike.${name}`);
+  }
+  return parts.join(',');
+};
 
 const escapeIlike = (term) =>
   String(term).replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '');
@@ -50,16 +70,24 @@ const matchesSearch = (rows, term) => {
 
 // Exported for the controllers and tests so ownership is defined in exactly one
 // place: whoever routes decide who "me" is, this decides what "mine" means.
-export const ownsLead = (lead, ownerIds) => {
+// The name is optional so a caller that only has an id still gets an answer.
+export const ownsLead = (lead, ownerIds, ownerName) => {
   const ids = normalizeOwnerIds(Array.isArray(ownerIds) ? ownerIds : [ownerIds]);
-  if (!lead || !ids || ids.length === 0) return false;
+  if (!lead) return false;
   // An unset column must not be coerced to 0, or a NULL recruiter_id would look
   // like a match for whoever happens to be recruiter 0.
   const matches = (value) => {
     if (value === null || value === undefined || value === '') return false;
-    return ids.includes(Number(value));
+    return ids ? ids.includes(Number(value)) : false;
   };
-  return matches(lead.recruiter_id) || matches(lead.created_by);
+  if (ids && ids.length > 0 && (matches(lead.recruiter_id) || matches(lead.created_by))) {
+    return true;
+  }
+  const name = sanitizeOrValue(ownerName).toLowerCase();
+  if (!name) return false;
+  return [lead.created_by_name, lead.scheduled_by_name].some(
+    (value) => sanitizeOrValue(value).toLowerCase() === name
+  );
 };
 
 export const getAllLeads = async (filters = {}) => {
@@ -71,7 +99,7 @@ export const getAllLeads = async (filters = {}) => {
     .select('*, users!leads_recruiter_id_fkey(name, email)')
     .order('created_at', { ascending: false });
 
-  if (ownerIds) query = query.or(ownerOrFilter(ownerIds));
+if (ownerIds) query = query.or(ownerOrFilter(ownerIds, filters.ownerName));
   if (filters.recruiter_id) query = query.eq('recruiter_id', filters.recruiter_id);
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.source) query = query.eq('source', filters.source);
@@ -118,16 +146,6 @@ export const deleteLead = async (id) => {
   return { message: 'Lead deleted successfully' };
 };
 
-export const getLeadsByRecruiter = async (recruiterId) => {
-  const { data, error } = await db
-    .from('leads')
-    .select('*')
-    .or(`recruiter_id.eq.${recruiterId},created_by.eq.${recruiterId}`)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data;
-};
-
 export const transferLead = async (id, newCreatedBy, newCreatedByName) => {
   const { data, error } = await db
     .from('leads')
@@ -148,30 +166,30 @@ export const getLeadsDashboard = async (filters = {}) => {
       .from('leads')
       .select('*')
       .order('created_at', { ascending: false });
-    if (ownerIds) query = query.or(ownerOrFilter(ownerIds));
+    if (ownerIds) query = query.or(ownerOrFilter(ownerIds, filters.ownerName));
     const { data: rows, error } = await query;
     if (error) throw error;
     data = rows || [];
   }
 
   const total = data.length;
-  const today = new Date().toISOString().slice(0, 10);
-  const newToday = data.filter((l) => l.created_at?.slice(0, 10) === today).length;
+  // Sessions are pinned to Asia/Kolkata, so "today" has to be an IST day here
+  // too; toISOString() would label the evening before as the next day.
+  const today = istDateString();
+  const newToday = data.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === today).length;
   const byStatus = {};
   data.forEach((l) => {
     byStatus[l.status] = (byStatus[l.status] || 0) + 1;
   });
-  const selected = byStatus['selected'] || 0;
-  const rejected = byStatus['rejected'] || 0;
-  const conversionRate = total > 0 ? ((selected / (selected + rejected)) * 100).toFixed(1) : 0;
+  const conversion = conversionRate(data);
 
   const last7 = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const ds = d.toISOString().slice(0, 10);
-    last7.push({ date: ds, count: data.filter((l) => l.created_at?.slice(0, 10) === ds).length });
+    const ds = istDateString(d);
+    last7.push({ date: ds, count: data.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === ds).length });
   }
 
-  return { total, newToday, byStatus, conversionRate: parseFloat(conversionRate), last7 };
+  return { total, newToday, byStatus, conversionRate: conversion, last7 };
 };

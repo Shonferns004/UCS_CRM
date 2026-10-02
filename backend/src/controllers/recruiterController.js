@@ -1,6 +1,8 @@
 import { getUserById } from '../models/userModel.js';
 import { getRecruiterWorkers } from '../models/workerModel.js';
-import { getAllLeads, getLeadsByRecruiter } from '../models/leadModel.js';
+import { getAllLeads } from '../models/leadModel.js';
+import { leadBelongsTo, countConverted, countRejected, conversionRate } from '../utils/leads.js';
+import { istParts, istDateString, istMonthBounds } from '../utils/ist.js';
 import db from '../config/db.js';
 
 export const listRecruiters = async (req, res) => {
@@ -9,7 +11,7 @@ export const listRecruiters = async (req, res) => {
 
     const leads = await getAllLeads();
       const withStats = recruiters.map((r) => {
-        const recruiterLeads = leads.filter((l) => l.recruiter_id === r.id || l.created_by === r.id);
+        const recruiterLeads = leads.filter((l) => leadBelongsTo(l, r));
         const total = recruiterLeads.length;
         const scheduled = recruiterLeads.filter((l) => l.status === 'scheduled').length;
         return { ...r, leadsCount: total, scheduled };
@@ -24,30 +26,35 @@ export const listRecruiters = async (req, res) => {
 export const getRecruiterStats = async (req, res) => {
   try {
     const recruiter = await getRecruiterWorkers();
-    const thisRecruiter = recruiter.find(r => r.id === req.params.id);
+    const thisRecruiter = recruiter.find((r) => String(r.id) === String(req.params.id));
     if (!thisRecruiter) return res.status(404).json({ message: 'Recruiter not found' });
 
-    const leads = await getLeadsByRecruiter(req.params.id);
+    // Fetched unfiltered and matched in JS so name-only leads count here too. An
+    // id-only `.or()` in SQL drops every row that never stored recruiter_id or
+    // created_by, which is what left the leaderboard empty for real recruiters.
+    const leads = (await getAllLeads()).filter((l) => leadBelongsTo(l, thisRecruiter));
     const total = leads.length;
     const byStatus = {};
     leads.forEach((l) => {
       byStatus[l.status] = (byStatus[l.status] || 0) + 1;
     });
-    const joined = byStatus['joined'] || 0;
-    const rejected = byStatus['rejected'] || 0;
-    const conversionRate = joined + rejected > 0 ? ((joined / (joined + rejected)) * 100).toFixed(1) : 0;
+    const joined = countConverted(leads);
+    const rejected = countRejected(leads);
 
     const last7 = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const ds = d.toISOString().slice(0, 10);
-      last7.push({ date: ds, count: leads.filter((l) => l.created_at?.slice(0, 10) === ds).length });
+      const ds = istDateString(d);
+      last7.push({
+        date: ds,
+        count: leads.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === ds).length,
+      });
     }
 
     return res.json({
       recruiter: thisRecruiter,
-      stats: { total, byStatus, conversionRate: parseFloat(conversionRate), joined, rejected, last7 },
+      stats: { total, byStatus, conversionRate: conversionRate(leads), joined, rejected, last7 },
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -59,26 +66,28 @@ export const getRecruiterOverview = async (req, res) => {
     const recruiters = await getRecruiterWorkers();
     const allLeads = await getAllLeads();
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = istDateString();
     const now = new Date();
 
     const recruiterStats = recruiters.map((r) => {
-      const rLeads = allLeads.filter((l) => l.recruiter_id === r.id || l.created_by === r.id);
+      const rLeads = allLeads.filter((l) => leadBelongsTo(l, r));
       const total = rLeads.length;
       const byStatus = {};
       rLeads.forEach((l) => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; });
 
       const scheduled = byStatus['scheduled'] || 0;
       const pending = (byStatus['hold'] || 0) + (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0) + (byStatus['ringing'] || 0) + (byStatus['unreachable'] || 0) + (byStatus['busy'] || 0) + (byStatus['switched_off'] || 0);
+      // `selected` is the recruiter UI's label for "cleared the first round", so
+      // it is the interview stage here; `joined` counts every converted status.
       const interviewed = byStatus['selected'] || 0;
-      const joined = byStatus['joined'] || 0;
-      const rejected = byStatus['rejected'] || 0;
+      const joined = countConverted(rLeads);
+      const rejected = countRejected(rLeads);
       const followUp = (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0);
 
       const convBase = joined + rejected;
-      const conversionRate = convBase > 0 ? parseFloat(((joined / convBase) * 100).toFixed(1)) : 0;
+      const convRate = convBase > 0 ? parseFloat(((joined / convBase) * 100).toFixed(1)) : 0;
 
-      const todayLeads = rLeads.filter((l) => l.created_at?.slice(0, 10) === today).length;
+      const todayLeads = rLeads.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === today).length;
 
       const recentActivity = rLeads
         .filter((l) => l.updated_at)
@@ -99,7 +108,7 @@ export const getRecruiterOverview = async (req, res) => {
         joined,
         rejected,
         followUp,
-        conversionRate,
+        conversionRate: convRate,
         todayLeads,
         lastActivity,
         avgResponseTime,
@@ -112,11 +121,10 @@ export const getRecruiterOverview = async (req, res) => {
     const totalScheduled = allLeads.filter((l) => l.status === 'scheduled').length;
     const totalPending = allLeads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
     const totalInterviewed = allLeads.filter((l) => l.status === 'selected').length;
-    const totalJoined = allLeads.filter((l) => l.status === 'joined').length;
-    const totalRejected = allLeads.filter((l) => l.status === 'rejected').length;
+    const totalJoined = countConverted(allLeads);
+    const totalRejected = countRejected(allLeads);
     const totalFollowUp = allLeads.filter((l) => ['followed_up', 'call_back'].includes(l.status)).length;
-    const overallConvBase = totalJoined + totalRejected;
-    const overallConversionRate = overallConvBase > 0 ? parseFloat(((totalJoined / overallConvBase) * 100).toFixed(1)) : 0;
+    const overallConversionRate = conversionRate(allLeads);
 
     const statusBreakdown = {};
     allLeads.forEach((l) => {
@@ -128,36 +136,43 @@ export const getRecruiterOverview = async (req, res) => {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      const ds = d.toISOString().slice(0, 10);
+      const ds = istDateString(d);
       const dayLabel = d.toLocaleDateString('en', { weekday: 'short' });
       last7Days.push({
         date: ds,
         label: dayLabel,
-        count: allLeads.filter((l) => l.created_at?.slice(0, 10) === ds).length,
+        count: allLeads.filter((l) => istDateString(l.created_at ? new Date(l.created_at) : null) === ds).length,
       });
     }
 
     const monthlyData = [];
+    // Day-of-month math on `new Date(y, m, 1)` overflows when the current day is
+    // the 29th-31st, and its local midnight shifts across the IST month when the
+    // server runs on UTC. Anchor on the 1st of each month inside IST.
+    const nowIst = istParts();
     for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthLabel = d.toLocaleDateString('en', { month: 'short' });
-      const monthStart = d.toISOString().slice(0, 10);
-      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const anchor = new Date(Date.UTC(nowIst.year, nowIst.month - 1 - i, 1, 12));
+      const monthLabel = new Intl.DateTimeFormat('en', { month: 'short', timeZone: 'Asia/Kolkata' }).format(anchor);
+      const { start, end } = istMonthBounds(anchor);
       const monthLeads = allLeads.filter((l) => {
-        const cd = l.created_at?.slice(0, 10);
-        return cd >= monthStart && cd <= monthEnd;
+        if (!l.created_at) return false;
+        const t = new Date(l.created_at).getTime();
+        return t >= start.getTime() && t <= end.getTime();
       });
       monthlyData.push({
         month: monthLabel,
         total: monthLeads.length,
         scheduled: monthLeads.filter((l) => l.status === 'scheduled').length,
-        joined: monthLeads.filter((l) => l.status === 'joined').length,
-        rejected: monthLeads.filter((l) => l.status === 'rejected').length,
+        joined: countConverted(monthLeads),
+        rejected: countRejected(monthLeads),
       });
     }
 
     const todayActivities = allLeads
-      .filter((l) => l.updated_at?.slice(0, 10) === today || l.created_at?.slice(0, 10) === today)
+      .filter((l) => {
+        const t = l.updated_at || l.created_at;
+        return t && istDateString(new Date(t)) === today;
+      })
       .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
       .slice(0, 20)
       .map((l) => ({
