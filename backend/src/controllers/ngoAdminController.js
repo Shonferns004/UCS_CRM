@@ -23,6 +23,7 @@ import {
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive, getLatestTargetsBeforeMonthForWorkers } from '../models/froTargetModel.js';
 import { resolveMonthlyTarget } from '../services/froMonthlyTarget.js';
 import { istMonthBounds } from '../utils/ist.js';
+import { buildTeamCollection, resolveRange } from '../services/teamCollectionService.js';
 import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats, getRangeCollectionByWorker } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
@@ -6995,6 +6996,45 @@ export const getStationWiseCollection = async (req, res) => {
       unattributed: { amount: unattributedAmount, count: unattributedCount },
       total,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// TEAM-WISE COLLECTION (admin)
+//
+// Scoping and access only - the board itself is built by
+// services/teamCollectionService.js, which the FRO panel's Collection Race popup
+// calls too. Two panels render this board, so they share one query rather than
+// each carrying a copy; otherwise the same leaderboard would eventually quote two
+// different totals on two screens.
+//
+// Same scoping rule as getStationWiseCollection (narrow to one NGO you already
+// have), except an explicitly-requested NGO you do NOT have access to is refused
+// instead of silently falling back to everything you can see - that fallback would
+// answer "show me BSCT" with every NGO's numbers.
+// ---------------------------------------------------------------------------
+
+export const getTeamWiseCollection = async (req, res) => {
+  try {
+    const range = resolveRange({ from: req.query.from, to: req.query.to, strict: true });
+    if (!range) return res.status(400).json({ message: 'from and to are required as YYYY-MM-DD' });
+
+    let ngoIds = await getUserNgoIds(req.user);
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const match = ngoIds.find(id => String(id) === String(filterNgoId));
+      if (!match) return res.status(403).json({ message: 'No access to that NGO' });
+      ngoIds = [match];
+    }
+
+    return res.json(await buildTeamCollection({
+      from: range.from,
+      to: range.to,
+      ngoIds,
+      froId: req.query.fro_id,
+    }));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

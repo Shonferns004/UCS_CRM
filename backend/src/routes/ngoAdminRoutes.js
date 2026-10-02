@@ -89,6 +89,7 @@ import {
   restoreWrongAssignments,
   getFroHourlyPerformance,
   getStationWiseCollection,
+  getTeamWiseCollection,
   ensureStandardNgos,
   getAllNgosForTabs,
   getNonConnectedFresh,
@@ -215,6 +216,11 @@ router.get('/master-search', masterSearch);
 router.get('/call-analytics', getCallAnalytics);
 router.get('/fro-hourly-performance', getFroHourlyPerformance);
 router.get('/station-collection', getStationWiseCollection);
+// No extra authenticateRole here: the router.use(authenticateRole('admin',
+// 'super_admin')) gates above already, and this endpoint is deliberately gated the
+// same as its sibling /station-collection so the two cannot disagree on who may read
+// the same receipts.
+router.get('/team-collection', getTeamWiseCollection);
 
 router.post('/stations/seed', seedStations);
 router.post('/stations/cleanup', cleanupOrphanedStations);
