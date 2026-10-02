@@ -23,6 +23,30 @@ const PROBE_ATTEMPTS = [
   { method: 'GET', headers: { Range: 'bytes=0-0' } },
 ];
 
+// A SigV4 presigned URL carries its authorization in the query string, and the
+// HTTP method is part of what it signs. So S3 answers 403 to a HEAD of a URL that
+// returns the object perfectly well to a GET -- verified against the live
+// bucket: HEAD 403, ranged GET 206, plain GET 200 with all 124105 bytes.
+//
+// That combination is fatal here, because the 403 from the HEAD probe used to end
+// the check before the ranged GET was ever tried, so a completely healthy receipt
+// was refused and the operator was told the bucket needed to be made world
+// readable -- the opposite of the fix, and a step that would expose every donor
+// PAN and address in it.
+//
+// So a presigned URL is only ever probed with GET, which is also what Meta does.
+export function isPresignedAttachment(url) {
+  let parsed;
+  try { parsed = new URL(url); } catch { return false; }
+  return parsed.searchParams.has('X-Amz-Signature') && parsed.searchParams.has('X-Amz-Credential');
+}
+
+function probeAttemptsFor(url) {
+  return isPresignedAttachment(url)
+    ? [PROBE_ATTEMPTS[1]]
+    : PROBE_ATTEMPTS;
+}
+
 const isHttpStatus = (value) => Number.isInteger(value) && value >= 100 && value < 600;
 
 export function describeUnreachableAttachment(url, result) {
@@ -30,13 +54,40 @@ export function describeUnreachableAttachment(url, result) {
     try { return new URL(url).host; } catch { return url; }
   })();
   const where = `${host} answered HTTP ${result.status}`;
-  if (result.status === 403 || result.status === 401) {
+  if (isPresignedAttachment(url) && (result.status === 403 || result.status === 401)) {
+    // Not a permissions problem on the bucket. The signature in the URL was
+    // rejected, which in practice means it expired or was signed with a key the
+    // bucket no longer accepts. Saying "grant public access" here would be both
+    // wrong and dangerous.
     return (
-      `The receipt PDF is not publicly readable, so WhatsApp cannot download it. ` +
-      `${where}. This is an S3 permissions problem on the upload bucket, not a ` +
-      `donor or template problem: the object exists but anonymous reads are denied. ` +
-      `Grant s3:GetObject to Principal "*" on the receipts/ prefix of that bucket, ` +
-      `or point the backend at a bucket that already serves it.`
+      `The receipt PDF's signed download link was rejected (${where}). ` +
+      `The link is self-authorised, so the object is readable and the bucket does ` +
+      `not need to be made public -- do not add a public bucket policy. This link ` +
+      `had most likely expired: it is generated per send, so re-send the receipt. ` +
+      `If it keeps happening, the signing credentials no longer match the bucket.`
+    );
+  }
+  if (result.status === 403 || result.status === 401) {
+    // The URL Meta was handed carried no authorisation at all: no X-Amz-Signature,
+    // no signed proxy token, just a bare bucket path. A private bucket refuses
+    // exactly that, so the 403 is the bucket working as intended and says nothing
+    // about its policy.
+    //
+    // This branch used to tell the operator to grant s3:GetObject to Principal
+    // "*". That is wrong twice over: the bucket is meant to stay private, and
+    // following the instruction would have published every donor PAN, address and
+    // amount in it. It also sent a real investigation off to fix AWS instead of
+    // the link-issuing path that actually dropped the credential.
+    return (
+      `WhatsApp was given a bare bucket URL with no credential in it, and the ` +
+      `bucket correctly refused the anonymous read (${where}). This is not a ` +
+      `donor or template problem, and the fix is NOT to grant s3:GetObject to ` +
+      `Principal "*" -- the receipts bucket is meant to stay private, and doing ` +
+      `that would expose every donor PAN, address and amount already in it. A ` +
+      `receipt link must be an S3 presigned URL or a signed ` +
+      `/api/whatsapp/receipt-file link, both of which carry their own ` +
+      `authorisation. This URL carried neither, so the link-issuing path did not ` +
+      `run and the send should have been refused rather than attempted.`
     );
   }
   if (result.status === 404) {
@@ -75,7 +126,7 @@ export async function checkAttachmentReachable(url, options = {}) {
   }
 
   let last = null;
-  for (const attempt of PROBE_ATTEMPTS) {
+  for (const attempt of probeAttemptsFor(url)) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -94,6 +145,11 @@ export async function checkAttachmentReachable(url, options = {}) {
         ok: false, url, status: res.status, statusText: res.statusText || '',
         method: attempt.method, reason: 'http', timeoutMs,
       };
+      // A hard refusal is not retried with another verb: if the bucket or origin
+      // denied this read, changing the verb cannot turn that into a 2xx. Only a
+      // "this verb is not implemented" answer is worth retrying as a GET. The
+      // verb-sensitive presigned case is handled before this loop, by probing
+      // those URLs with GET to begin with.
       if (res.status !== 405 && res.status !== 501) return last;
     } catch (err) {
       const aborted = err?.name === 'AbortError';

@@ -20,6 +20,7 @@ import userRoutes from './routes/userRoutes.js';
 import hrRoutes from './routes/hrRoutes.js';
 import letterRoutes from './routes/letterRoutes.js';
 import hrWhatsAppRoutes from './routes/hrWhatsAppRoutes.js';
+import hrDailyReportRoutes from './routes/hrDailyReportRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import eventRoutes from './routes/eventRoutes.js';
 import noticeRoutes from './routes/noticeRoutes.js';
@@ -80,6 +81,7 @@ import beneficiaryRoutes from './routes/beneficiaryRoutes.js';
 import beneficiaryImportRoutes from './routes/beneficiaryImportRoutes.js';
 import programRoutes from './routes/programRoutes.js';
 import s3BrowserRoutes from './routes/s3BrowserRoutes.js';
+import { requireAdminKey } from './middleware/requireAdminKey.js';
 import benefitRoutes from './routes/benefitRoutes.js';
 import distributionRoutes from './routes/distributionRoutes.js';
 import biometricRoutes from './routes/biometricRoutes.js';
@@ -230,6 +232,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/hrs', hrRoutes);
 app.use('/api/letters', letterRoutes);
 app.use('/api/hr/whatsapp', hrWhatsAppRoutes);
+app.use('/api/hr-reports', hrDailyReportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/notices', noticeRoutes);
@@ -835,6 +838,65 @@ app.get('/api/db/capacity', async (req, res) => {
     res.json(await getRDSCapacity());
   } catch (err) {
     res.status(500).json({ ok: false, configured: false, reason: err.message });
+  }
+});
+
+// Image/file preview for a stored URL: GET /api/db/media?url=<value>
+//
+// The table browser hands this whatever a photo/signature/scan column holds.
+// Supabase public URLs are redirected straight through (the browser can fetch
+// those on its own); private S3 buckets come back 403 from a plain <img>, so
+// they are streamed with the app's own credentials. Behind the same
+// ENV_ADMIN_KEY guard as the S3 browser — this reads Aadhaar scans and
+// signatures, which should not be served to anyone who asks.
+app.get('/api/db/media', requireAdminKey, async (req, res) => {
+  const url = String(req.query.url || '').trim();
+  if (!url) return res.status(400).json({ message: 'Missing url' });
+
+  let parsed = null;
+  try { parsed = new URL(url); } catch (e) { /* handled below */ }
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+    return res.status(400).json({ message: 'Only http(s) URLs can be previewed' });
+  }
+
+  try {
+    const { parseS3Url, openStoredObject } = await import('./services/mediaProxy.js');
+    if (!parseS3Url(url)) {
+      // Not ours to fetch — hand the browser the original URL.
+      return res.redirect(302, url);
+    }
+
+    const o = await openStoredObject(url);
+    if (!o) {
+      const bucket = parseS3Url(url).bucket;
+      return res.status(404).json({
+        message: `No configured S3 account can read "${bucket}" — its access key is not in backend/.env`,
+      });
+    }
+
+    res.setHeader('Content-Type', o.contentType);
+    if (o.contentLength != null) res.setHeader('Content-Length', String(o.contentLength));
+    if (o.lastModified) res.setHeader('Last-Modified', new Date(o.lastModified).toUTCString());
+    // Private, short-lived: these are PII documents and a dev tool has no
+    // business leaving them in a shared disk cache.
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // inline (unlike the S3 browser's download route) so it can render in an
+    // <img>; scripts are neutralised because the source is a bucket, not us.
+    if (/^image\//.test(o.contentType) && o.contentType !== 'image/svg+xml') {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    } else {
+      res.setHeader('Content-Disposition', 'attachment');
+    }
+
+    const body = o.body;
+    if (body && typeof body.pipe === 'function') {
+      body.on('error', (e) => { console.error(`[db-media] stream failed for ${o.key}: ${e.message}`); res.destroy(); });
+      return body.pipe(res);
+    }
+    return res.send(Buffer.from(await body.transformToByteArray()));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

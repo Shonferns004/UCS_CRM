@@ -65,71 +65,123 @@ function ChevronDown() {
   )
 }
 
-export function DatePicker({ value, onChange, placeholder }) {
+export function DatePicker({ value, onChange, placeholder, min, max }) {
+  // Callers are not all consistent: Reports passes a bare 'YYYY-MM-DD', but
+  // EmployeeDetail passes created_at straight from the API, i.e. a full
+  // timestamp. Normalising to the date half fixes both the label (appending
+  // 'T00:00:00' to a timestamp yields Invalid Date) and the selected-day
+  // highlight (which compares against a bare date key and so never matched).
+  const iso = value ? String(value).slice(0, 10) : '';
   const [open, setOpen] = useState(false)
-  const [viewDate, setViewDate] = useState(value ? new Date(value) : new Date())
+  const [viewDate, setViewDate] = useState(iso ? new Date(`${iso}T00:00:00`) : new Date())
   const [viewMode, setViewMode] = useState('days')
+  const [popupStyle, setPopupStyle] = useState({})
   const ref = useRef(null)
 
   useEffect(() => {
+    if (!open) return
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open])
 
-  const formatDate = (d) => {
-    if (!d) return ''
-    const dd = String(d.getDate()).padStart(2, '0')
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const yyyy = d.getFullYear()
-    return `${yyyy}-${mm}-${dd}`
+  const key = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+
+  // Jump the calendar back to the selected month every time it opens, otherwise
+  // reopening after paging through months silently shows a stale one.
+  const openPicker = () => {
+    if (iso) {
+      const [y, m] = iso.split('-')
+      const picked = new Date(Number(y), Number(m) - 1, 1)
+      if (!Number.isNaN(picked.getTime())) setViewDate(picked)
+    }
+    setViewMode('days')
+    // Fixed positioning against a measured anchor: the panel scrolls, and an
+    // absolutely-positioned popup would be clipped by any overflow container.
+    // The clamp keeps the 270px-wide popup fully on screen near either edge.
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      setPopupStyle({
+        left: Math.min(Math.max(rect.left + rect.width / 2, 145), Math.max(window.innerWidth - 145, 145)),
+        top: rect.bottom + 4,
+        transform: 'translateX(-50%)',
+      })
+    }
+    setOpen(true)
   }
 
-  const displayDate = value ? new Date(value + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+  const year = viewDate.getFullYear()
+  const month = viewDate.getMonth()
+  const today = new Date()
+  const todayKey = key(today.getFullYear(), today.getMonth(), today.getDate())
 
-  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate()
-  const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay()
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const displayDate = iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : ''
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const yearStart = year - 6
+  const yearEnd = year + 7
+  const years = Array.from({ length: yearEnd - yearStart + 1 }, (_, i) => yearStart + i)
+
+  const isDisabled = (k) => (min && k < min) || (max && k > max)
 
   const handleDayClick = (day) => {
-    const d = new Date(viewDate.getFullYear(), viewDate.getMonth(), day)
-    onChange(formatDate(d))
+    const k = key(year, month, day)
+    if (isDisabled(k)) return
+    // The payload is a bare string, not a synthetic event. Callers rely on that:
+    // Recruiters.jsx does `onChange={v => setForm(f => ({ ...f, dob: v }))}` and
+    // would store [object Object] if this ever became an event.
+    onChange(k)
     setOpen(false)
   }
 
-  const handleMonthSelect = (m) => {
-    setViewDate(new Date(viewDate.getFullYear(), m, 1))
-    setViewMode('days')
-  }
-
-  const handleYearSelect = (y) => {
-    setViewDate(new Date(y, viewDate.getMonth(), 1))
-    setViewMode('days')
-  }
-
-  const years = []
-  const cy = viewDate.getFullYear()
-  for (let i = cy - 6; i <= cy + 6; i++) years.push(i)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const firstDay = new Date(year, month, 1).getDay()
 
   return (
     <div className="datepicker" ref={ref}>
-      <input type="text" readOnly value={displayDate} placeholder={placeholder || 'Select date'} onClick={() => setOpen(true)} className="datepicker-input" />
+      <button type="button" className="dp-trigger" onClick={openPicker}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" style={{ flexShrink: 0 }}>
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <span style={{ opacity: displayDate ? 1 : 0.55 }}>{displayDate || placeholder || 'Select date'}</span>
+      </button>
       {open && (
-        <div className="dp-dropdown">
+        <div className="dp-popup" style={{ position: 'fixed', zIndex: 10000, ...popupStyle }}>
+          <div className="dp-header">
+            {viewMode === 'days' ? (
+              <>
+                <button type="button" className="dp-nav" onClick={() => setViewDate(new Date(year, month - 1, 1))}>&lsaquo;</button>
+                <button type="button" className="dp-title-btn" onClick={() => setViewMode('months')}>{monthNames[month]} {year}</button>
+                <button type="button" className="dp-nav" onClick={() => setViewDate(new Date(year, month + 1, 1))}>&rsaquo;</button>
+              </>
+            ) : viewMode === 'months' ? (
+              <>
+                <button type="button" className="dp-nav" onClick={() => setViewDate(new Date(year - 1, month, 1))}>&laquo;</button>
+                <span className="dp-title">{year}</span>
+                <button type="button" className="dp-nav" onClick={() => setViewDate(new Date(year + 1, month, 1))}>&raquo;</button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="dp-nav" onClick={() => setViewDate(new Date(year - 14, month, 1))}>&laquo;</button>
+                <span className="dp-title">{yearStart} &ndash; {yearEnd}</span>
+                <button type="button" className="dp-nav" onClick={() => setViewDate(new Date(year + 14, month, 1))}>&raquo;</button>
+              </>
+            )}
+          </div>
           {viewMode === 'days' && (
             <>
-              <div className="dp-header">
-                <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))}>&lt;</button>
-                <span onClick={() => setViewMode('months')}>{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</span>
-                <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))}>&gt;</button>
+              <div className="dp-weekdays">
+                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d} className="dp-wd">{d}</div>)}
               </div>
               <div className="dp-grid">
-                {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => <div key={d} className="dp-dow">{d}</div>)}
-                {Array.from({ length: firstDay }, (_, i) => <div key={`e${i}`} className="dp-empty" />)}
+                {Array.from({ length: firstDay }, (_, i) => <div key={`e${i}`} />)}
                 {Array.from({ length: daysInMonth }, (_, i) => {
                   const day = i + 1
-                  const sel = value === formatDate(new Date(viewDate.getFullYear(), viewDate.getMonth(), day))
-                  return <div key={day} className={`dp-day ${sel ? 'selected' : ''}`} onClick={() => handleDayClick(day)}>{day}</div>
+                  const k = key(year, month, day)
+                  const cls = (k === iso ? ' selected' : '') + (k === todayKey ? ' today' : '') + (isDisabled(k) ? ' disabled' : '')
+                  return <div key={day} className={`dp-day${cls}`} onClick={() => handleDayClick(day)}>{day}</div>
                 })}
               </div>
             </>
@@ -137,14 +189,14 @@ export function DatePicker({ value, onChange, placeholder }) {
           {viewMode === 'months' && (
             <div className="dp-month-grid">
               {monthNames.map((m, i) => (
-                <div key={m} className={`dp-month ${viewDate.getMonth() === i ? 'selected' : ''}`} onClick={() => handleMonthSelect(i)}>{m}</div>
+                <div key={m} className={`dp-month${i === month ? ' selected' : ''}`} onClick={() => { setViewDate(new Date(year, i, 1)); setViewMode('days') }}>{m.slice(0, 3)}</div>
               ))}
             </div>
           )}
           {viewMode === 'years' && (
             <div className="dp-year-grid">
               {years.map(y => (
-                <div key={y} className={`dp-year ${viewDate.getFullYear() === y ? 'selected' : ''}`} onClick={() => handleYearSelect(y)}>{y}</div>
+                <div key={y} className={`dp-year${y === year ? ' selected' : ''}${y === today.getFullYear() ? ' today' : ''}`} onClick={() => { setViewDate(new Date(y, month, 1)); setViewMode('days') }}>{y}</div>
               ))}
             </div>
           )}

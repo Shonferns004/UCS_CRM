@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { emitDbChange } from '../socket.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
@@ -1491,6 +1492,42 @@ const storage = {
           return { data: null, error: { message: e && e.message ? e.message : String(e), code: e?.name || 'S3_READ_FAILED' } };
         }
       },
+      // Time-limited S3 URL for one object in this handle's bucket.
+      //
+      // This is what Meta is handed for a HEADER document. Meta fetches that URL
+      // itself, from outside this deployment, so it has to be an ordinary public
+      // HTTPS GET against infrastructure Meta can already reach -- which rules
+      // out a link served by this app (it sits behind Azure Front Door + Caddy
+      // and a send pointed at it was accepted by the API yet never delivered).
+      //
+      // It deliberately runs through s3Key() like every other method here, so it
+      // can only ever address the object that upload()/readStream() would. Signing
+      // a hand-assembled key is how you get a 404 that looks exactly like "Meta
+      // cannot download the file".
+      //
+      // The bucket stays private: authorization travels in the query string and
+      // expires, so no bucket policy, no public ACL and no PublicAccessBlock
+      // relaxation are involved.
+      async presignDownload(fileName, expiresIn = 3600) {
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+        try {
+          // A non-positive or non-numeric expiry falls back to the default rather than
+// clamping down to the 60s floor. Shortening a receipt link to a minute is
+// exactly the wrong failure mode: Meta fetches the document asynchronously, and
+// a link that expires while it is still queued fails with 131053 and no visible
+// cause.
+const wanted = Number(expiresIn);
+const secs = Math.min(Math.max(Number.isFinite(wanted) && wanted > 0 ? wanted : 3600, 60), 7 * 24 * 60 * 60);
+          const url = await getSignedUrl(
+            s3.client,
+            new GetObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, fileName) }),
+            { expiresIn: secs },
+          );
+          return { data: { url, expiresAt: new Date(Date.now() + secs * 1000).toISOString() }, error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_PRESIGN_FAILED' } };
+        }
+      },
       async remove(paths) {
         const list = Array.isArray(paths) ? paths : [paths];
         if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
@@ -1614,6 +1651,12 @@ export const sql = async (text, params = []) => {
   const { rows } = await pool.query(text, params);
   return rows;
 };
+
+// Named exports of the internals that storage.presignDownload() depends on.
+// They exist for tests: the prefixing behaviour below is what silently
+// mis-addressed a presigned URL once already, and it is not reachable from the
+// outside because from() resolves its client from the environment.
+export { storage, s3Key };
 
 export const getTableColumns = async (table) => getColumns(table);
 
