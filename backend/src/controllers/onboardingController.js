@@ -14,6 +14,7 @@ import {
   saveSignatureRecord,
   commitSignature,
 } from '../models/onboardingModel.js';
+import { presignSignatureUrl } from '../services/signatureMediaLink.js';
 
 const BUCKET_NAME = 'worker-documents';
 
@@ -357,7 +358,7 @@ export const uploadWorkerSignature = async (req, res) => {
     if (isLocked && !wantsResign) {
       return res.status(409).json({
         message: 'Signature already recorded. Use "Update signature" to replace it.',
-        signature_url: current.signature_url,
+        signature_url: await presignSignatureUrl(current.signature_url),
         signature_status: current.signature_status,
         signature_signed_at: current.signature_signed_at,
         can_resign: true,
@@ -385,7 +386,10 @@ export const uploadWorkerSignature = async (req, res) => {
 
     return res.json({
       message: commitNow ? 'Signature recorded' : 'Signature saved',
-      signature_url: signatureUrl,
+      // The form renders this straight back to the volunteer, so it is signed.
+      // `signatureUrl` above is what was written to the column and stays the
+      // plain object URL -- only the response carries a signature.
+      signature_url: await presignSignatureUrl(signatureUrl),
       signature_status: saved?.signature_status ?? (commitNow ? 'signed' : 'draft'),
       signature_signed_at: saved?.signature_signed_at ?? null,
       resigned: Boolean(wantsResign && isLocked),
@@ -411,7 +415,7 @@ export const commitWorkerSignature = async (req, res) => {
       // Idempotent: a double submit must not move the signed date.
       return res.json({
         message: 'Signature already recorded',
-        signature_url: current.signature_url,
+        signature_url: await presignSignatureUrl(current.signature_url),
         signature_status: 'signed',
         signature_signed_at: current.signature_signed_at,
       });
@@ -430,7 +434,10 @@ export const commitWorkerSignature = async (req, res) => {
 
     return res.json({
       message: 'Signature recorded',
-      signature_url: saved.signature_url,
+      // saved.signature_url is the stored object URL. The column is left holding
+      // that; the volunteer only ever needs to see the image, so the response
+      // carries a short-lived signed URL.
+      signature_url: await presignSignatureUrl(saved.signature_url),
       signature_status: saved.signature_status,
       signature_signed_at: saved.signature_signed_at,
     });
@@ -451,6 +458,9 @@ export const getWorkerSignature = async (req, res) => {
     ]);
     return res.json({
       ...state,
+      // Signed for the form to render. state.signature_url is the stored object
+      // URL and stays that way in the column; only the response is signed.
+      signature_url: await presignSignatureUrl(state.signature_url),
       // NULL status on a stored image means "uploaded before migration 159".
       // Treat it as signed so an older volunteer is never asked to sign again.
       signature_status: state.signature_url && !state.signature_status ? 'signed' : state.signature_status,
@@ -489,7 +499,7 @@ export const uploadSignature = async (req, res) => {
 
     return res.json({
       message: 'Signature uploaded successfully',
-      signature_url: signatureUrl,
+      signature_url: await presignSignatureUrl(signatureUrl),
       signature_status: saved?.signature_status ?? 'signed',
     });
   } catch (error) {
