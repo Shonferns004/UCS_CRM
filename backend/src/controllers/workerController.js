@@ -17,6 +17,7 @@ import {
   setAllocations,
 } from '../models/workerNgoAllocationModel.js';
 import { updateWorkerPersonalDetails, getFullWorkerProfile } from '../models/onboardingModel.js';
+import { presignSignatureUrl, presignSignatureUrls } from '../services/signatureMediaLink.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
   parseDocumentsValue,
@@ -251,7 +252,16 @@ export const getWorkers = async (req, res) => {
         pincode: w.pincode,
         permanent_address: w.permanent_address,
         photo_url: w.photo_url,
+        // Signed just below, before the response is sent.
         signature_url: w.signature_url,
+        // The ODAR letter and the HR forms gate the signature on
+        // signature_status (see client/src/panels/hr/signatureUtils.js). Without
+        // these three, isSignatureSigned() saw an undefined status and treated
+        // every row as signed -- including drafts that were saved but never
+        // submitted.
+        signature_status: w.signature_status ?? null,
+        signature_signed_at: w.signature_signed_at ?? null,
+        signature_source: w.signature_source ?? null,
         is_active: w.is_active,
         is_test: !!w.is_test,
         employment_status: w.employment_status || 'active',
@@ -300,6 +310,14 @@ export const getWorkers = async (req, res) => {
       }
       return base;
     });
+    // signature_url holds a raw, unsigned bucket URL. It 403s for any anonymous
+    // reader since the bucket's public-access block was applied, so the browser
+    // was handed a link that could not load. Sign each one here, at response
+    // time, as a short-lived GetObject URL. Signing is local SigV4 maths, so this
+    // costs no S3 round trips, and the stored column is left alone -- a signed
+    // URL must never be persisted.
+    const signedSignatures = await presignSignatureUrls(safeWorkers.map((w) => w.signature_url));
+    safeWorkers.forEach((w, i) => { w.signature_url = signedSignatures[i]; });
     return res.json(safeWorkers);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -312,7 +330,14 @@ export const getMyProfile = async (req, res) => {
     if (!profile) {
       return res.status(404).json({ message: 'Worker not found' });
     }
-    return res.json(profile);
+    // The volunteer and HR onboarding forms both read signature_url off this
+    // payload and render it, so it has to be signed on the way out for the same
+    // reason as the list. Copied rather than mutated: the row object is the
+    // caller's to keep.
+    return res.json({
+      ...profile,
+      signature_url: await presignSignatureUrl(profile.signature_url),
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -343,6 +368,13 @@ export const getWorker = async (req, res) => {
       pincode: p.pincode,
       permanent_address: p.permanent_address,
       photo_url: p.photo_url,
+      // Was absent entirely, so the EmployeeDetail signature card and the HR
+      // forms declaration block could never show a signature even though the
+      // column had a value. Signed on the way out, same reason as the list.
+      signature_url: await presignSignatureUrl(p.signature_url),
+      signature_status: p.signature_status ?? null,
+      signature_signed_at: p.signature_signed_at ?? null,
+      signature_source: p.signature_source ?? null,
       is_active: p.is_active,
       employment_status: p.employment_status || 'active',
       onboarding_completed: p.onboarding_completed,

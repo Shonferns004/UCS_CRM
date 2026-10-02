@@ -44,6 +44,11 @@ function isSafeKey(key) {
   return key.split('/').every((seg) => seg.length > 0 && seg !== '.' && seg !== '..');
 }
 
+// Exported so services that sign an object from a database column rather than
+// from a token can apply the same guard. S3 resolves `..` inside a key, so a
+// value that merely *starts* with an allowed prefix is not necessarily inside it.
+export { isSafeKey };
+
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 function secretBytes() {
