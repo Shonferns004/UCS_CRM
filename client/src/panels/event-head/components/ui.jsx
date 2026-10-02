@@ -63,9 +63,9 @@ export function SearchInput({ value, onChange, placeholder = 'Search...', style 
   )
 }
 
-export function Select({ value, onChange, children, style }) {
+export function Select({ value, onChange, children, style, disabled }) {
   return (
-    <select className="eh-select" value={value} onChange={e => onChange(e.target.value)} style={style}>
+    <select className="eh-select" value={value} onChange={e => onChange(e.target.value)} style={style} disabled={disabled}>
       {children}
     </select>
   )
