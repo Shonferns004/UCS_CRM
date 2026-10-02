@@ -1,23 +1,26 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
 import { SalaryPrivacyProvider } from './context/SalaryPrivacyContext'
-import { Component } from 'react'
+import { lazy, Suspense, Component } from 'react'
 import Login from './pages/Login'
-import SuperAdminPanel from './panels/super-admin/SuperAdminPanel'
-import HRPanel from './panels/hr/HRPanel'
-import AccountsPanel from './panels/accounts/AccountsPanel'
-import NgoAdminPanel from './panels/ngo-admin/NgoAdminPanel'
-import FROPanel from './panels/fro/FROPanel'
-import RecruiterPanel from './panels/recruiter/RecruiterPanel'
-import EventHeadPanel from './panels/event-head/EventHeadPanel'
-import DocumentationPanel from './panels/documentation/DocumentationPanel'
-import WhatsAppPanel from './panels/whatsapp/WhatsAppPanel'
-import DevPanel from './panels/dev-panel/DevPanel'
-import SimCardPanel from './panels/sim-card/SimCardPanel'
 import NoticesBar from './components/NoticesBar'
 import MeetingGate from './components/MeetingGate'
 import { ChatUnreadProvider } from './components/chat/ChatUnreadProvider'
 import ChatFabHost from './components/chat/ChatFabHost'
+
+// Each panel is a separate download. A user only ever pays for the panel they
+// are routed into instead of every panel on every login.
+const SuperAdminPanel = lazy(() => import('./panels/super-admin/SuperAdminPanel'))
+const HRPanel = lazy(() => import('./panels/hr/HRPanel'))
+const AccountsPanel = lazy(() => import('./panels/accounts/AccountsPanel'))
+const NgoAdminPanel = lazy(() => import('./panels/ngo-admin/NgoAdminPanel'))
+const FROPanel = lazy(() => import('./panels/fro/FROPanel'))
+const RecruiterPanel = lazy(() => import('./panels/recruiter/RecruiterPanel'))
+const EventHeadPanel = lazy(() => import('./panels/event-head/EventHeadPanel'))
+const DocumentationPanel = lazy(() => import('./panels/documentation/DocumentationPanel'))
+const WhatsAppPanel = lazy(() => import('./panels/whatsapp/WhatsAppPanel'))
+const DevPanel = lazy(() => import('./panels/dev-panel/DevPanel'))
+const SimCardPanel = lazy(() => import('./panels/sim-card/SimCardPanel'))
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -62,6 +65,19 @@ function ProtectedRoute({ role, children }) {
   return children
 }
 
+function PanelFallback() {
+  return (
+    <div className="login-page">
+      <div className="login-card" style={{ textAlign: 'center' }}>
+        <div className="login-logo">UCS</div>
+        <p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>
+          Loading your panel...
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function PanelWrapper({ roleKey }) {
   const location = useLocation()
   const mapping = ROLE_PANELS[roleKey]
@@ -75,7 +91,9 @@ function PanelWrapper({ roleKey }) {
   return (
     <ChatUnreadProvider>
       <div className={onChatRoute ? `${mapping.cls} is-chat-route` : mapping.cls}>
-        <Panel />
+        <Suspense fallback={<PanelFallback />}>
+          <Panel />
+        </Suspense>
         <NoticesBar />
         {chatPath && <ChatFabHost chatPath={chatPath} />}
       </div>
@@ -198,19 +216,25 @@ export default function App() {
 
         <Route path="/wa/*" element={
           <ProtectedRoute role={['*']}>
-            <WhatsAppPanel />
+            <Suspense fallback={<PanelFallback />}>
+              <WhatsAppPanel />
+            </Suspense>
           </ProtectedRoute>
         } />
 
         <Route path="/docs/*" element={
           <ProtectedRoute role={['*']}>
-            <DocumentationPanel />
+            <Suspense fallback={<PanelFallback />}>
+              <DocumentationPanel />
+            </Suspense>
           </ProtectedRoute>
         } />
 
         <Route path="/sim/*" element={
           <ProtectedRoute role={['super_admin', 'admin', 'hr', 'accounts']}>
-            <SimCardPanel />
+            <Suspense fallback={<PanelFallback />}>
+              <SimCardPanel />
+            </Suspense>
           </ProtectedRoute>
         } />
 
