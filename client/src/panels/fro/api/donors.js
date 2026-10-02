@@ -103,6 +103,20 @@ export async function getMyCollections(ngoId, month) {
   return api(`/fro/dashboard/collections${qs}`, { _prefix: 'ucs' })
 }
 
+// Team-wise collection board for the Collection Race popup - the same card the
+// NGO-admin dashboard shows, from the same backend service.
+//
+// The window is chosen by `period` (today / week / month) rather than by sending
+// from/to dates: the server owns "today" in IST, so a client in another timezone
+// cannot shift the board's day boundary. It also resolves the viewer's own team so
+// the card can flag their lane.
+export async function getFroTeamCollection(period) {
+  const params = new URLSearchParams();
+  if (period) params.set('period', period);
+  const qs = params.toString() ? `?${params}` : '';
+  return api(`/fro/dashboard/team-collection${qs}`, { _prefix: 'ucs' })
+}
+
 export async function getSuspenseReceipts() {
   return api('/fro/dashboard/suspense', { _prefix: 'ucs' })
 }

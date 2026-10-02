@@ -9,6 +9,7 @@ import {
   getMyAllotmentSummary,
   getMyPerformance,
   getMyCollections,
+  getMyTeamsCollection,
   getMyDonors,
   getTransferredLeads,
   updateDonorStatus,
@@ -91,6 +92,10 @@ router.get('/dashboard', getDashboard);
 router.get('/allotment-summary', getMyAllotmentSummary);
 router.get('/my-performance', getMyPerformance);
 router.get('/dashboard/collections', getMyCollections);
+// Team-wise collection board for the FRO's Collection Race popup - the same board
+// the NGO-admin header shows. Sits after router.use(requireFro) (line ~87), so only
+// a real FRO account can reach it.
+router.get('/dashboard/team-collection', getMyTeamsCollection);
 router.get('/dashboard/suspense', getSuspenseReceipts);
 router.post('/dashboard/suspense/:receiptId/claim', claimSuspenseReceipt);
 router.get('/reactivated-donors', getReactivatedDonors);
