@@ -17,9 +17,22 @@ const isRecruiter = (user) => user?.role === 'recruiter';
 
 const isTelecaller = (user) =>
   user?.role === 'telecaller' ||
-  (user?.role === 'worker' && (user.department || '').toLowerCase().trim() === 'fro');
+  (user?.role === 'worker' && (user?.department || '').toLowerCase().trim() === 'fro');
 
-const owns = (lead, user) => ownsLead(lead, [user.id]);
+// Roles allowed to ask for the whole pipeline with ?scope=all. The recruiter's
+// own panel stays on their slice unless they hold one of these, so the parameter
+// can never widen a plain recruiter's access.
+const CAN_SCOPE_ALL = new Set(['super_admin', 'admin', 'hr', 'master']);
+
+// The name travels with the id because leads entered before created_by was
+// recorded, or moved by hand, carry only a display name.
+const owns = (lead, user) => ownsLead(lead, [user.id], user.name);
+
+// The owner filter a recruiter gets, or nothing when they may see everything.
+const recruiterOwner = (req) =>
+  isRecruiter(req.user) && !(req.query.scope === 'all' && CAN_SCOPE_ALL.has(req.user.role))
+    ? { ownerIds: [req.user.id], ownerName: req.user.name }
+    : {};
 
 export const addLead = async (req, res) => {
   try {
@@ -54,13 +67,13 @@ export const addLead = async (req, res) => {
 
 export const listLeads = async (req, res) => {
   try {
-    const { recruiter_id, status, search, source } = req.query;
+const { recruiter_id, status, search, source } = req.query;
     const filters = { status, search, source };
 
     if (isRecruiter(req.user)) {
       // recruiter_id / created_by from the query string are ignored on purpose:
       // they used to let a recruiter ask for any colleague's leads by id.
-      filters.ownerIds = [req.user.id];
+      Object.assign(filters, recruiterOwner(req));
     } else {
       filters.recruiter_id = recruiter_id;
       if (isTelecaller(req.user)) filters.created_by = req.user.id;
@@ -162,9 +175,7 @@ export const dashboard = async (req, res) => {
   try {
     // Aggregates are computed from the same rows the caller may read, so a
     // recruiter's totals can never include a colleague's leads.
-    const stats = await getLeadsDashboard(
-      isRecruiter(req.user) ? { ownerIds: [req.user.id] } : {}
-    );
+    const stats = await getLeadsDashboard(recruiterOwner(req));
     return res.json(stats);
   } catch (error) {
     return res.status(500).json({ message: error.message });

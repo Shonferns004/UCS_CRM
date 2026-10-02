@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useHR } from '../store';
 import { DISPLAY_NAME, isActiveRecruiter } from '../recruiterFilters';
+import { belongsToLead, countConverted, istDateOf } from '../../../utils/leads';
+import { istDayKey } from '../../../utils/istDate';
 import { Pill, Dropdown, DatePicker, cleanField } from './ui';
 import { Users, Clock, Check, X, Cal, Heart, Plus } from '../icons';
 
@@ -121,7 +123,7 @@ export default function Recruiters() {
   const stats = {
     total: scopedLeads.length,
     filtered: filteredLeads.length,
-    newToday: scopedLeads.filter(l => l.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
+    newToday: scopedLeads.filter(l => istDateOf(l.created_at) === istDayKey(new Date())).length,
     scheduled: scopedLeads.filter(l => l.status === 'scheduled').length,
     scheduledTomorrow: scopedLeads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
 
@@ -130,10 +132,10 @@ export default function Recruiters() {
   const leaderboard = useMemo(() => {
     return recruiters
       .map(r => {
-        const rLeads = scopedLeads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);
+        const rLeads = scopedLeads.filter(l => belongsToLead(l, r));
         const total = rLeads.length;
         const scheduled = rLeads.filter(l => l.status === 'scheduled').length;
-        const joined = rLeads.filter(l => l.status === 'joined').length;
+        const joined = countConverted(rLeads);
         return { ...r, leadsCount: total, scheduled, joined };
       })
       .filter(isActiveRecruiter)
