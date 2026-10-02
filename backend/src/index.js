@@ -80,6 +80,7 @@ import certificateRoutes from './routes/certificateRoutes.js';
 import beneficiaryRoutes from './routes/beneficiaryRoutes.js';
 import beneficiaryImportRoutes from './routes/beneficiaryImportRoutes.js';
 import programRoutes from './routes/programRoutes.js';
+import s3BrowserRoutes from './routes/s3BrowserRoutes.js';
 import benefitRoutes from './routes/benefitRoutes.js';
 import distributionRoutes from './routes/distributionRoutes.js';
 import biometricRoutes from './routes/biometricRoutes.js';
@@ -282,6 +283,7 @@ app.use('/api/profile-update-requests', profileUpdateRequestRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/envadmin', envAdminRoutes);
+app.use('/api/s3', s3BrowserRoutes);
 app.use('/api/temp-cleanup', tempCleanupRoutes);
 app.use('/api/ngo-allocations', ngoAllocationRoutes);
 app.use('/api/sim-cards', simCardRoutes);
@@ -532,6 +534,7 @@ app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 //   GET /api/db/tables              -> [{ name, approx_rows }]
 //   GET /api/db/table/:table        -> { columns, rows, count } with optional
 //                                      ?limit, ?offset, ?order, ?desc, ?search, ?column
+//   POST /api/db/rows/update        -> update cells of one row by primary key
 // ---------------------------------------------------------------------------
 app.get('/db-viewer', (req, res) => {
   res.sendFile(path.resolve(__dirname, '../../db-viewer.html'));
@@ -560,8 +563,11 @@ app.get('/api/db/tables', async (req, res) => {
 app.get('/api/db/table/:table', async (req, res) => {
   try {
     const t = String(req.params.table);
+    // is_generated / is_identity / is_updatable let the grid know which cells
+    // can be edited in place: generated columns (stored generated, identity)
+    // and view columns cannot be written by a plain UPDATE.
     const schema = await db._pool.query(
-      `SELECT column_name, data_type
+      `SELECT column_name, data_type, is_generated, is_identity, is_updatable
        FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = $1
        ORDER BY ordinal_position`,
@@ -758,6 +764,72 @@ app.post('/api/db/rows/delete', async (req, res) => {
   }
 });
 
+// Columns a plain UPDATE may write: skips stored-generated columns, identity
+// columns and anything marked read-only. Used to validate grid cell edits.
+async function getEditableCols(table) {
+  const { rows } = await db._pool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1
+       AND is_generated = 'NEVER' AND is_identity = 'NO' AND is_updatable = 'YES'`,
+    [table]
+  );
+  return rows.map((r) => r.column_name);
+}
+
+// Update individual columns on one row, located by primary key (dev tool).
+// Powers in-place cell editing in the db-viewer grid. A value of null stores
+// SQL NULL; anything else is sent as a text parameter and Postgres casts it
+// to the column type, so the same endpoint serves text, numeric, boolean,
+// uuid, date and json/jsonb columns.
+app.post('/api/db/rows/update', async (req, res) => {
+  try {
+    const t = String(req.body && req.body.table || '').trim();
+    const pk = (req.body && req.body.pk) || {};
+    const values = (req.body && req.body.values) || {};
+    if (!/^[A-Za-z0-9_]+$/.test(t)) return res.status(400).json({ message: 'Invalid table name' });
+    const cols = Object.keys(values);
+    if (cols.length === 0) return res.status(400).json({ message: 'No column values provided' });
+    if (!(await tableExists(t))) return res.status(404).json({ message: `Table "${t}" not found` });
+
+    const pkCols = await getPkCols(t);
+    if (pkCols.length === 0) return res.status(400).json({ message: 'Table has no primary key — use the query runner to update rows' });
+
+    const editable = new Set(await getEditableCols(t));
+    for (const col of cols) {
+      if (!editable.has(col)) return res.status(400).json({ message: `Column "${col}" cannot be edited` });
+    }
+
+    const params = [];
+    const sets = [];
+    for (const col of cols) {
+      const v = values[col];
+      if (typeof v === 'object' && v !== null) {
+        return res.status(400).json({ message: `Value for "${col}" must be text or null` });
+      }
+      params.push(v);
+      sets.push(`"${col}" = $${params.length}`);
+    }
+    const conds = [];
+    for (const col of pkCols) {
+      if (pk[col] === undefined || pk[col] === null) {
+        return res.status(400).json({ message: `Missing primary key value "${col}"` });
+      }
+      params.push(pk[col]);
+      conds.push(`"${col}" = $${params.length}`);
+    }
+
+    const r = await db._pool.query(
+      `UPDATE "${t}" SET ${sets.join(', ')} WHERE ${conds.join(' AND ')} RETURNING *`,
+      params
+    );
+    if (r.rowCount === 0) return res.status(404).json({ message: 'Row no longer exists — reload the table' });
+    res.json({ ok: true, table: t, rowCount: r.rowCount, row: r.rows[0] });
+  } catch (err) {
+    res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
+  }
+});
+
 // Amazon RDS instance capacity (storage / CPU / memory / connections).
 app.get('/api/db/capacity', async (req, res) => {
   try {
@@ -941,6 +1013,18 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
+    app.post('/api/cron/fro-month-rollover', requireCronAuth, async (req, res) => {
+      try {
+        const { runMonthlyRollover } = await import('./services/froMonthlyRollover.js');
+        const force = req.body?.force === true || req.query?.force === 'true';
+        const result = await runMonthlyRollover({ force });
+        res.json({ success: true, ...result });
+      } catch (error) {
+        console.error('FRO month-rollover cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });
@@ -1006,6 +1090,7 @@ if (!process.env.VERCEL) {
     import('./services/froAutoLogoutScheduler.js');
     import('./services/dbHealthWatchdog.js');
     import('./services/reminderNotificationScheduler.js').then((m) => m.startReminderNotificationScheduler?.());
+    import('./services/froMonthlyRollover.js').then((m) => m.start?.());
     // Hard ceiling on resident memory: restart (via PM2) if RSS stays over
     // MEM_WATCHDOG_MB (default 900) for 20s, so the 2 GB box can never OOM.
     startMemoryWatchdog();

@@ -1,5 +1,6 @@
 const ENV_KEY = 'db-viewer-env';
 const CUSTOM_KEY = 'db-viewer-custom-api';
+const ADMIN_KEY_STORE = 'db-viewer-admin-key';
 
 export const ENV_PRESETS = {
   production: { label: 'Production', base: 'https://api.beingsevak.org' },
@@ -77,16 +78,34 @@ export function getApiConfig() {
 export const API_BASE = apiBase || '';
 export const WAS_API_BASE = (apiBase || '') + '/api/whatsapp';
 
+// The S3 browser sits behind ENV_ADMIN_KEY on the backend. Sending it on every
+// request costs nothing when it is unset, and the table routes ignore it.
+export function getAdminKey() {
+  try { return localStorage.getItem(ADMIN_KEY_STORE) || ''; } catch (e) { return ''; }
+}
+export function setAdminKey(v) {
+  try { if (v) localStorage.setItem(ADMIN_KEY_STORE, v); else localStorage.removeItem(ADMIN_KEY_STORE); } catch (e) {}
+}
+
+function headers() {
+  const h = { 'X-Client-Type': 'db-viewer', 'Content-Type': 'application/json' };
+  const k = getAdminKey();
+  if (k) h['X-Admin-Key'] = k;
+  return h;
+}
+
+function errorFrom(res) {
+  return res.text().then((t) => {
+    let msg = `HTTP ${res.status}`;
+    try { const j = JSON.parse(t); if (j.message) msg = j.message; } catch (e) { if (t) msg = t.slice(0, 200); }
+    return new Error(msg);
+  });
+}
+
 export async function api(path, opts) {
   const attempt = async (base) => {
-    const res = await fetch(base + path, Object.assign({
-      headers: { 'X-Client-Type': 'db-viewer', 'Content-Type': 'application/json' },
-    }, opts));
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try { const j = await res.json(); if (j.message) msg = j.message; } catch (e) {}
-      throw new Error(msg);
-    }
+    const res = await fetch(base + path, Object.assign({ headers: headers() }, opts));
+    if (!res.ok) throw await errorFrom(res);
     return res.json();
   };
   if (!apiBase) {
@@ -101,4 +120,12 @@ export async function api(path, opts) {
     apiBaseSource = 'production';
     return await attempt(apiBase);
   }
+}
+
+// Same as api() but hands back the raw body — used for object downloads, where
+// the response is bytes and a blob URL, not JSON.
+export async function apiBlob(path) {
+  const res = await fetch(apiBase + path, { headers: headers() });
+  if (!res.ok) throw await errorFrom(res);
+  return res.blob();
 }

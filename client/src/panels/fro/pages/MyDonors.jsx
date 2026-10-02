@@ -47,11 +47,15 @@ const RETRYABLE_NOT_CONNECTED = new Set([
   'ringing', 'unreachable', 'busy', 'out_of_coverage', 'voicemail', 'call_waiting', 'switched_off',
   'ringing_voicemail', 'busy_call_waiting', 'ooc_unreachable_network',
 ]);
-// Mirrors the backend baseFiltered hidden-by-status sets exactly (money-done +
-// schedule/callback + hard-terminal). Connected-terminal dispositions
-// (email_sent, whatsapp_sent, query_complaint, …) are NOT hidden here — the
-// backend only hides them once this worker logs them (terminalForeverIds), so
-// hiding by status alone made the list shorter than the backend total.
+// Statuses the QUEUE treats as not-workable-anymore. This is deliberately NOT
+// applied to the My Leads list: the list shows every allotted donor and filters
+// through DONOR_STATUS_GROUPS + the "Show suppressed" toggle instead, so a FRO's
+// allotment and their visible list always reconcile and nothing silently vanishes
+// (it previously removed 6+ leads on top of the backend's own filtering).
+//
+// It is still used by applyDonorPatch, which is what advances the #1 -> #2
+// cursor: a lead that was just dispositioned must leave the queue immediately or
+// the next donor served is the one that was just worked.
 const HIDDEN_STATUSES = new Set([
   'lead_done', 'donation_collected', 'done', 'visit_donate',
   'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
@@ -62,6 +66,20 @@ const HIDDEN_STATUSES = new Set([
   'call_disconnected',
   'others',
 ]);
+// Why a donor is held back, as flagged by the backend (is_suppressed /
+// suppress_reason). Used for the per-row badge so "why can't I work this lead?"
+// is always answerable on screen.
+const SUPPRESS_REASON_LABELS = {
+  dnd: 'DND — do not contact',
+  donated_this_month: 'Donated this month',
+  hidden_until: 'Parked — revisit later',
+  disposed_today: 'Already dispositioned today',
+  hard_terminal: 'Closed — do not rework',
+  money_done: 'Donation completed',
+  scheduled: 'Scheduled / callback',
+  terminal_forever: 'Closed — do not rework',
+  not_connected_forever: 'Closed — do not rework',
+};
 // Status-group buckets for the MY LEADS list filter. Grouped so the FRO can scan
 // "what still needs a call" vs "already scheduled / done / rejected".
 const DONOR_STATUS_GROUPS = {
@@ -83,11 +101,10 @@ const DONOR_STATUS_GROUP_LABELS = {
 function isNewDonor(d) {
   return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
 }
+// Queue-only filter: drops donors the backend already considers worked/done so
+// the auto-advance cursor never re-serves them. The My Leads LIST does not go
+// through this (see HIDDEN_STATUSES) — it shows all allotted donors.
 function filterDonors(list) {
-  // Backend is authoritative for workability — only drop rows it guarantees
-  // hidden by status. Current-month donations stay in the list here and are
-  // hidden by the listHideDonated toggle in the visible filter so the
-  // "Showing X of Y" count stays explainable.
   return list.filter(d => !HIDDEN_STATUSES.has(d.status));
 }
 
@@ -103,10 +120,20 @@ function dedupeDonors(list) {
   return out;
 }
 
+// Sorts the fetched list WITHOUT dropping anything by status. The backend
+// already returns the full allotment (worked and closed leads included, flagged
+// via is_suppressed / suppress_reason), and the list view filters that
+// explicitly — so applying filterDonors here would silently re-hide the leads
+// the new logic is meant to surface.
 function filterAndSortDonors(list) {
-  return filterDonors(dedupeDonors(list)).sort((a, b) => {
+  return dedupeDonors(list).sort((a, b) => {
       const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
       const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
+      // Suppressed (DND / donated this month / parked) always sorts last so the
+      // workable stack stays on top even with "Show suppressed" on.
+      const aHidden = a.is_suppressed ? 1 : 0;
+      const bHidden = b.is_suppressed ? 1 : 0;
+      if (aHidden !== bHidden) return aHidden - bHidden;
       // tier: 0 = new workable, 1 = old workable, 2 = retryable tail
       const aNew = isNewDonor(a);
       const bNew = isNewDonor(b);
@@ -258,14 +285,13 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const initialMountRef = useRef(true);
   const pendingSelectRef = useRef(null);
   const manualTabSwitchRef = useRef(false);
-  const autoFallbackToOldRef = useRef(false);
+  // True while the current tab was chosen by the empty-tab probe (not by an
+  // explicit FRO click). While true, saveProgress omits data_tab so an automatic
+  // Old<->New shunt never gets persisted as the FRO's permanent tab, which could
+  // otherwise pin them to the wrong tab next session (the "incognito shows data /
+  // Old tab empty" confusion). Cleared on a manual tab switch.
+  const autoChoseTabRef = useRef(false);
   const autoFallbackAttemptedRef = useRef(false);
-  // True while the current tab was chosen by the empty-tab auto-fallback (not by
-  // an explicit FRO click). While true, saveProgress omits data_tab so an
-  // automatic Old<->New shunt never gets persisted as the FRO's permanent tab,
-  // which could otherwise pin them to the wrong tab next session (the "incognito
-  // shows data / Old tab empty" confusion). Cleared on a manual tab switch.
-  const autoTabRef = useRef(false);
   // Suppresses realtime-triggered reloads right after the FRO saves a
   // disposition. Logging a lead often causes the backend to INSERT/UPDATE a
   // fro_assignments row (findOrCreateAssignment), whose realtime event would
@@ -282,6 +308,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const [activeDonor, setActiveDonor] = useState(null);
   const [listStatusFilter, setListStatusFilter] = useState('all');
   const [listHideDonated, setListHideDonated] = useState(true);
+  // Whether the MY LEADS list includes donors the backend flagged as suppressed
+  // (DND, donated this month, parked, or already worked/closed). Default OFF so
+  // the working stack stays clean, but every one of those donors is reachable in
+  // one click and always counted — nothing is silently missing.
+  const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
   useEffect(() => {
     if (listView === 'leads' && listStatusFilter !== 'all' && listStatusFilter !== 'pending') setListStatusFilter('all');
@@ -320,7 +351,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         // stale filter and surface the real queue instead of an empty list.
         const staleFilterActive = !!((selectedStation && selectedStation !== 'all') || selectedNgo);
         if (staleFilterActive && sortedDonors.length === 0) {
-          const br = await getMyDonors(null, null, { newOnly: tab === 'new', oldOnly: tab === 'old' });
+          const br = await getMyDonors(null, null, {
+            newOnly: tab === 'new',
+            oldOnly: tab === 'old',
+            includeSuppressed: true,
+          });
           if (cancelled) return;
           const broad = filterAndSortDonors(normalizeDonorResponse(br).donors);
           if (broad.length > 0) {
@@ -330,34 +365,33 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             rTotal = broad.length;
           }
         }
-        // Auto-fallback: if current tab is empty, try the other tab (new<->old) once.
-        // Prevents bounce loop when both tabs are empty.
+        // Auto-fallback: if the current tab is genuinely empty, probe the other tab
+        // (new<->old) ONCE and, if it has leads, switch — but only after telling
+        // the user, via the autoFallbackAttemptedRef banner, rather than silently.
+        // The previous version switched tabs with no indication at all, which is
+        // how an FRO could sit on the New tab convinced their Old allotment was
+        // empty. The combined-empty banner below already covers the both-empty
+        // case, so we no longer need autoTabRef / autoFallbackToOldRef.
         if (sortedDonors.length === 0 && !manualTabSwitchRef.current && !autoFallbackAttemptedRef.current) {
-          autoTabRef.current = true;
-          if (tab === 'new') {
-            autoFallbackToOldRef.current = true;
-            autoFallbackAttemptedRef.current = true;
-            setDataTab('old');
-            setSelected(null);
-            return;
-          }
-          if (tab === 'old') {
-            autoFallbackAttemptedRef.current = true;
-            setDataTab('new');
+          autoFallbackAttemptedRef.current = true;
+          const otherTab = tab === 'new' ? 'old' : 'new';
+          const alt = await getMyDonors(null, null, {
+            ...stationOpts(otherTab, selectedStation),
+            includeSuppressed: true,
+          });
+          if (cancelled) return;
+          const altList = filterAndSortDonors(normalizeDonorResponse(alt).donors);
+          if (altList.length > 0) {
+            autoChoseTabRef.current = true;
+            setDataTab(otherTab);
             setSelected(null);
             return;
           }
         }
-        // Reset fallback flags when data found or manual switch
+        // Data found (in either tab) — clear the "we already looked" flag so a
+        // later empty load can probe again.
         if (sortedDonors.length > 0) {
-          autoFallbackToOldRef.current = false;
           autoFallbackAttemptedRef.current = false;
-        } else if (autoFallbackToOldRef.current && tab === 'old') {
-          // Both tabs empty after new->old fallback; keep flag to show combined empty message
-        } else if (tab === 'old' && autoFallbackAttemptedRef.current) {
-          // Both empty after old->new fallback; flag already true, stay on current
-        } else {
-          autoFallbackToOldRef.current = false;
         }
         setDonors(sortedDonors);
         setTotal(rTotal);
@@ -503,6 +537,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
   const stationOpts = (tab, station) => {
     const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
+    // Ask the backend for the FULL allotted list. It returns every assigned donor
+    // and flags the suppressed ones (is_suppressed / suppress_reason) rather than
+    // deleting them, so the list can show everything behind the "Show
+    // suppressed" toggle and reconcile with the allotment count.
+    opts.includeSuppressed = true;
     if (station && station !== 'all') opts.station = station;
     if (selectedNgo) opts.ngoId = selectedNgo;
     return opts;
@@ -665,7 +704,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     // saved data_tab. Otherwise a shunted FRO stays pinned to the wrong tab on
     // their next session.
     const body = { station: selectedStation !== 'all' ? selectedStation : null };
-    if (!autoTabRef.current) body.data_tab = tab;
+    // Don't persist a fallback-chosen tab as the FRO's permanent tab. The
+    // empty-tab probe is transient; only an explicit tab click should move the
+    // saved data_tab. Otherwise a shunted FRO stays pinned to the wrong tab on
+    // their next session.
+    if (!autoChoseTabRef.current) body.data_tab = tab;
     if (tab === 'new') {
       body.new_donor_id = donorId;
       body.new_donor_index = donorIndex;
@@ -680,9 +723,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
   const switchTab = (tab) => {
     manualTabSwitchRef.current = true;
-    autoTabRef.current = false;
+    autoChoseTabRef.current = false;
     autoFallbackAttemptedRef.current = false;
-    autoFallbackToOldRef.current = false;
     if (donor) {
       saveProgress(dataTab, donor.id, index);
       localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
@@ -1331,7 +1373,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
 
   const timelineIcon = (log) => {
     if (log.action === 'disposition') return log.disposition_category === 'connected' ? 'check_circle' : 'cancel';
-    const map = { call: 'call', visit: 'home', message: 'mail', follow_up: 'history', donation: 'payments', note: 'note' };
+    const map = { call: 'call', visit: 'home', message: 'mail', follow_up: 'history', donation: 'payments', note: 'note', month_reset: 'restart_alt' };
     return map[log.action] || 'circle';
   };
 
@@ -1362,7 +1404,17 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       .filter(s => !selectedNgo || s.ngo_id === selectedNgo)
       .reduce((acc, s) => { if (s.station && !acc.includes(s.station)) acc.push(s.station); return acc; }, []);
 
+    // The list shows EVERY allotted donor. Nothing is dropped for having a status —
+    // the backend now returns the full list with is_suppressed flags instead of
+    // deleting rows, so the FRO's allotment and their visible list always agree.
+    // Only two things still narrow it by default: the status-group dropdown, and
+    // the "Show suppressed" toggle.
+    // Only DND / donated-this-month / parked leads are held back by default. Leads
+    // that were merely worked or closed stay in the list (badged, filterable).
+    const suppressedCount = donors.filter(d => d.is_suppressed).length;
+    const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
     const visible = donors.filter(d => {
+      if (!listShowSuppressed && d.is_suppressed) return false;
       if (listStatusFilter !== 'all' && !(DONOR_STATUS_GROUPS[listStatusFilter] || []).includes(d.status)) return false;
       if (listHideDonated && d.has_donated_current_month) return false;
       return true;
@@ -1496,6 +1548,23 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                 {listHideDonated ? 'Donated: hidden' : 'Donated: shown'}
               </button>
             )}
+            {listView === 'leads' && (
+              <button onClick={() => setListShowSuppressed(v => !v)}
+                title={listShowSuppressed
+                  ? 'Hide leads held back (DND, donated this month, parked)'
+                  : `Show the ${suppressedCount} leads held back (DND, donated this month, parked)`}
+                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listShowSuppressed ? 'var(--sage)' : 'var(--bg)', color: listShowSuppressed ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
+                {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
+              </button>
+            )}
+            {listView === 'leads' && (
+              <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
+                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listStatusFilter !== 'all' ? 'var(--sage)' : 'var(--bg)', color: listStatusFilter !== 'all' ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
+                {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => (
+                  <option key={k} value={k} style={{ color: 'var(--ink)' }}>{l}</option>
+                ))}
+              </select>
+            )}
             {isHistory && (
               <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
                 style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listStatusFilter !== 'all' ? 'var(--sage)' : 'var(--bg)', color: listStatusFilter !== 'all' ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
@@ -1571,7 +1640,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                       ? 'New data will appear here once distributed to your station.'
                       : 'Old data will appear here once uploaded to your station.')}
                 </div>
-                {(autoFallbackToOldRef.current || autoFallbackAttemptedRef.current) && (
+                {(autoFallbackAttemptedRef.current) && (
                   <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
                     No new or old data is currently available at your station. Contact your admin if you expect data here.
                   </div>
@@ -1662,6 +1731,32 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                             {d.disposed_at && <span style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(d.disposed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
                           </>
                         ) : statusPill(d.status)}
+                        {/* Month-boundary context: this lead was worked before and
+                            the rollover sent it back to pending, from the status
+                            shown. Cleared once the FRO works it again. */}
+                        {!d.is_disposed && d.rollover_from_status && (
+                          <span title={`Monthly reset from ${String(d.rollover_from_status).replace(/_/g, ' ')}`}
+                            style={{ padding: '2px 7px', borderRadius: 999, fontSize: 8.5, fontWeight: 800, whiteSpace: 'nowrap', background: '#eef2ff', color: '#4338ca' }}>
+                            ↺ {String(d.rollover_from_status).replace(/_/g, ' ')}
+                          </span>
+                        )}
+                        {/* Why this lead is held back, so "why isn't this in my
+                            list?" is always answerable on the row itself. */}
+                        {d.suppress_reason && (
+                          <span
+                            title={SUPPRESS_REASON_LABELS[d.suppress_reason] || d.suppress_reason}
+                            style={{
+                              padding: '2px 7px', borderRadius: 999, fontSize: 8.5, fontWeight: 800, whiteSpace: 'nowrap',
+                              background: d.suppress_reason === 'dnd' ? '#fee2e2' : d.is_suppressed ? '#fef3c7' : '#f1f5f9',
+                              color: d.suppress_reason === 'dnd' ? '#b91c1c' : d.is_suppressed ? '#92400e' : '#64748b',
+                            }}>
+                            {d.suppress_reason === 'dnd' ? 'DND'
+                              : d.suppress_reason === 'donated_this_month' ? 'DONATED'
+                                : d.suppress_reason === 'hidden_until' ? 'PARKED'
+                                  : d.suppress_reason === 'disposed_today' ? 'DONE TODAY'
+                                    : 'CLOSED'}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <span className="material-symbols-outlined" style={{ fontSize: isCompact ? 15 : 16, color: 'var(--sage)', flexShrink: 0 }}>chevron_right</span>
@@ -1682,7 +1777,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   ? `${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
                   ? `${listItems.length} lead(s) found`
-                  : `Showing ${listItems.length} of ${total || donors.length} leads`}
+                  : `Showing ${listItems.length} of ${total || donors.length} allotted leads`
+                    + (closedCount ? ` \u00b7 ${closedCount} already worked \u2014 filter by status` : '')
+                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month, parked) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
         </div>
       </div>
     );
@@ -1711,6 +1808,12 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#7c3aed', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>OLD</span>
                   )}
                 {statusPill(donor.status || 'pending')}
+                {donor.rollover_from_status && (
+                  <span title={`Monthly reset from ${String(donor.rollover_from_status).replace(/_/g, ' ')}${donor.rollover_at ? ' on ' + new Date(donor.rollover_at).toLocaleDateString('en-GB') : ''}`}
+                    style={{ background: '#eef2ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700, border: '1px solid #c7d2fe' }}>
+                    ↺ was {String(donor.rollover_from_status).replace(/_/g, ' ')}
+                  </span>
+                )}
                 {donor.ngo_name && (
                   <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_names?.join(', ') || donor.ngo_name}</span>
                 )}
@@ -2144,7 +2247,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                     const cat = log.disposition_category;
                     const icon = timelineIcon(log);
                     const connected = isDisp && cat === 'connected';
-                    const lbl = isDisp ? (findDisp(log.disposition_detail)?.label || String(log.disposition_detail || '').replace(/_/g, ' ') || '') : log.action.replace(/_/g, ' ');
+                    const lbl = isDisp ? (findDisp(log.disposition_detail)?.label || String(log.disposition_detail || '').replace(/_/g, ' ') || '') : (log.action === 'month_reset' ? 'Monthly reset' : log.action.replace(/_/g, ' '));
                     const bg = isDisp ? (connected ? '#f0fdf4' : '#fef2f2') : 'var(--bg)';
                     return (
                       <div key={log.id} className="detail-timeline-item" style={{ background: bg }}>
