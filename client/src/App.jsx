@@ -199,7 +199,9 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/recruiter/*" element={
-          <ProtectedRoute role={['recruiter', 'HR-Recruiter']}>
+          // super_admin is here because the super-admin panel renders this panel
+          // in an iframe at /recruiter; without it that frame renders AccessDenied.
+          <ProtectedRoute role={['recruiter', 'HR-Recruiter', 'super_admin']}>
             <PanelWrapper roleKey="recruiter" />
           </ProtectedRoute>
         } />
