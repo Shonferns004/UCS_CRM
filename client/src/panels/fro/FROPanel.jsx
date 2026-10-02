@@ -44,6 +44,12 @@ import ChatNavBadge from '../../components/chat/ChatNavBadge'
 import reelMp3 from '../../assets/audio/reel.mp3'
 import congratsMp3 from '../../assets/audio/congrats.mp3'
 
+// Realtime events on fro_donor_logs / fro_assignments arrive one per row write
+// and are broadcast to every open FRO, not just the one who caused them. A short
+// trailing window is invisible to a person (the drawer is a summary list) and
+// turns a burst of events into a single pair of queries.
+const REMINDER_RELOAD_COALESCE_MS = 5000;
+
 const suspenseAlertAudio = new Audio(teleWav);
 suspenseAlertAudio.preload = 'auto';
 const followDueAudio = new Audio(followDueMp3);
@@ -1020,15 +1026,34 @@ useEffect(() => onFroAction((action) => {
   };
   useEffect(() => { loadReminders(); }, [refetch]);
 
+  // Realtime on these two tables used to refetch the reminder lists directly on
+  // every single insert or update. Each refetch is two queries against
+  // fro_scheduled_contacts, and the events are global rather than per-worker, so
+  // one FRO logging a call made every other open FRO refetch too. That turned
+  // into millions of queries and kept the five connection pool busy enough to
+  // stall every other request. Coalescing into one trailing reload keeps the
+  // list fresh while collapsing a burst of events into a single query pair.
+  const reminderReloadTimer = useRef(null);
+  const queueReminderReload = useCallback(() => {
+    if (reminderReloadTimer.current) return;
+    reminderReloadTimer.current = setTimeout(() => {
+      reminderReloadTimer.current = null;
+      loadReminders();
+    }, REMINDER_RELOAD_COALESCE_MS);
+  }, []);
+  useEffect(() => () => {
+    if (reminderReloadTimer.current) clearTimeout(reminderReloadTimer.current);
+  }, []);
+
   useRealtime('fro_donor_logs', {
     event: '*',
-    onInsert: loadReminders,
-    onUpdate: loadReminders,
+    onInsert: queueReminderReload,
+    onUpdate: queueReminderReload,
   })
   useRealtime('fro_assignments', {
     event: '*',
-    onInsert: loadReminders,
-    onUpdate: loadReminders,
+    onInsert: queueReminderReload,
+    onUpdate: queueReminderReload,
   })
 
   const dedupedRows = rows.filter((r, i, a) => i === a.findIndex(x => x.id === r.id));
