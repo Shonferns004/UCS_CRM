@@ -44,11 +44,33 @@ export const listMyTickets = async (req, res) => {
     const workerId = req.user.id;
     const { data, error } = await db
       .from('support_tickets')
-      .select('*, ticket_replies(count)')
+      .select('*')
       .eq('raised_by', workerId)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return res.json(data || []);
+    const tickets = data || [];
+
+    // Reply counts come from a grouped aggregate, never an embed. db.js only
+    // resolves to-one embeds (child -> parent FK), so a to-many embed such as
+    // `ticket_replies(count)` throws "Could not resolve relationship
+    // support_tickets -> ticket_replies" and 500s this whole list — which is why
+    // the FRO's Raise Ticket page appeared empty and no team reply was visible.
+    const countMap = {};
+    if (tickets.length) {
+      try {
+        const rc = await db
+          .from('ticket_replies')
+          .select('ticket_id, count')
+          .in('ticket_id', tickets.map(t => t.id));
+        // Postgres COUNT returns bigint, which node-postgres hands back as a
+        // string, so coerce it before it reaches JSON consumers doing maths.
+        for (const c of rc.data || []) countMap[c.ticket_id] = Number(c.count);
+      } catch (countError) {
+        // A failed count must degrade to "no replies", never hide the tickets.
+        console.warn('[tickets] reply counts unavailable:', countError.message);
+      }
+    }
+    return res.json(tickets.map(t => ({ ...t, reply_count: countMap[t.id] || 0 })));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

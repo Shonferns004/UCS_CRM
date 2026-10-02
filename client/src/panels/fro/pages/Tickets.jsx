@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import { Inbox, Loader, CheckCircle2, Archive } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Inbox, Loader, CheckCircle2, Archive, AlertTriangle } from 'lucide-react';
 import { api } from '../../../api/auth';
 import { toast } from '../../../components/Toast';
+import { useRealtime } from '../../../hooks/useRealtime';
 import { deptLabel } from '../../../lib/labels';
 import { routeFor, routeLabel } from '../../../lib/ticketRouting';
 
@@ -49,6 +50,10 @@ const PANEL_LABELS = {
 const apiGet = (p) => api(p, { _prefix: 'ucs' });
 const apiPost = (p, b) => api(p, { method: 'POST', body: JSON.stringify(b), _prefix: 'ucs' });
 
+// Never `.catch(() => [])` a ticket list: it renders a backend failure as
+// "No tickets yet", which looks identical to "the team never replied".
+const settle = (p) => p.then(data => ({ data, error: null })).catch(error => ({ data: [], error }));
+
 const readKey = (workerId) => `fro_ticket_read_${workerId}`;
 const getReadMap = (workerId) => { try { return JSON.parse(localStorage.getItem(readKey(workerId))) || {}; } catch { return {}; } };
 const setReadMap = (workerId, map) => { try { localStorage.setItem(readKey(workerId), JSON.stringify(map)); } catch {} };
@@ -62,6 +67,7 @@ export default function FroTickets() {
   const [raiseClosing, setRaiseClosing] = useState(false);
   const [showDetail, setShowDetail] = useState(null);
   const [replies, setReplies] = useState([]);
+  const [loadError, setLoadError] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [form, setForm] = useState({
     department: 'accounts',
@@ -82,24 +88,29 @@ export default function FroTickets() {
   const raiseBtnRef = useRef(null);
   const raiseDrawerRef = useRef(null);
   const raiseTimerRef = useRef(null);
+  // Which ticket the detail modal currently has open, so a realtime reply can be
+  // matched to it without threading state through the render tree.
+  const openTicketRef = useRef(null);
 
-  const load = async (silent = false) => {
+  const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setRefreshing(true);
     try {
-      const [regularTickets, devTickets] = await Promise.all([
-        apiGet('/tickets/my').catch(() => []),
-        apiGet('/developer-tickets/my').catch(() => []),
+      const [regular, dev] = await Promise.all([
+        settle(apiGet('/tickets/my')),
+        settle(apiGet('/developer-tickets/my')),
       ]);
+      const failure = regular.error || dev.error;
+      setLoadError(failure ? failure.message : null);
+      if (failure) console.error('[tickets] failed to load my tickets:', failure);
       const allTickets = [
-        ...(regularTickets || []).map(t => ({ ...t, _source: 'regular' })),
-        ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
+        ...(regular.data || []).map(t => ({ ...t, _source: 'regular' })),
+        ...(dev.data || []).map(t => ({ ...t, _source: 'developer' })),
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setTickets(allTickets);
       setLastUpdated(new Date());
-    } catch (err) { console.error(err); }
-    finally { setRefreshing(false); setLoading(false); }
-  };
+    } finally { setRefreshing(false); setLoading(false); }
+  }, []);
 
   const fetchMyAsset = async () => {
     setDeskLoading(true);
@@ -165,7 +176,34 @@ export default function FroTickets() {
     load();
     const id = setInterval(() => load(true), 30000);
     return () => clearInterval(id);
+  }, [load]);
+
+  // The open detail modal keeps its own `replies` copy, so refreshing the list
+  // alone would leave a reply that arrives while the modal is open invisible.
+  const refreshOpenDetail = useCallback(async () => {
+    const open = openTicketRef.current;
+    if (!open) return;
+    try {
+      const endpoint = open._source === 'developer' ? '/developer-tickets' : '/tickets';
+      const data = await apiGet(`${endpoint}/${open.id}`);
+      setShowDetail(prev => (prev ? { ...data, _source: open._source } : prev));
+      setReplies(data.replies || []);
+    } catch { /* keep the thread already on screen rather than blanking it */ }
   }, []);
+
+  // A team reply used to surface only on the next 30s poll, which read as
+  // "the reply never arrived". These tables are broadcast on write, so refetch
+  // as soon as a reply lands — the interval above stays as the fallback.
+  useRealtime('ticket_replies', {
+    onInsert: (row) => {
+      load(true);
+      if (row?.ticket_id && String(row.ticket_id) === String(openTicketRef.current?.id)) refreshOpenDetail();
+    },
+  });
+  useRealtime('support_tickets', {
+    onInsert: () => { load(true); refreshOpenDetail(); },
+    onUpdate: () => { load(true); refreshOpenDetail(); },
+  });
 
   const handleRaise = async () => {
     const errs = {};
@@ -204,10 +242,11 @@ export default function FroTickets() {
     try {
       const endpoint = ticket._source === 'developer' ? '/developer-tickets' : '/tickets';
       const data = await apiGet(`${endpoint}/${ticket.id}`);
+      openTicketRef.current = { id: ticket.id, _source: ticket._source };
       setShowDetail({ ...data, _source: ticket._source });
       setReplies(data.replies || []);
       setReplyText('');
-      const count = ticket.ticket_replies?.[0]?.count || 0;
+      const count = ticket.reply_count || 0;
       if (count && ticket.raised_by) {
         const map = getReadMap(ticket.raised_by);
         if ((map[ticket.id] || 0) < count) {
@@ -216,6 +255,11 @@ export default function FroTickets() {
         }
       }
     } catch (err) { alert(err.message); }
+  };
+
+  const closeDetail = () => {
+    openTicketRef.current = null;
+    setShowDetail(null);
   };
 
   const handleReply = async () => {
@@ -290,6 +334,19 @@ export default function FroTickets() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
+              ) : loadError ? (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="fro-ticket-empty">
+                      <div className="fro-ticket-empty-ico" style={{ color: '#dc2626' }}><AlertTriangle size={30} strokeWidth={1.6} /></div>
+                      <div className="fro-ticket-empty-title">Could not load your tickets</div>
+                      <div className="fro-ticket-empty-sub">{loadError}</div>
+                      <button className="btn btn-sm btn-primary" onClick={() => load()}>
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ) : tickets.length === 0 ? (
                 <tr>
                   <td colSpan={7}>
@@ -307,7 +364,7 @@ export default function FroTickets() {
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No tickets on this page</td></tr>
               ) : (
                 paginatedTickets.map(t => {
-                    const replyCount = t.ticket_replies?.[0]?.count || 0;
+                    const replyCount = t.reply_count || 0;
                     const readMap = getReadMap(t.raised_by);
                     const unread = replyCount > 0 && (readMap[t.id] || 0) < replyCount;
                     return (
@@ -385,7 +442,7 @@ export default function FroTickets() {
       </div>
 
       {showDetail && (
-        <div className="modal-overlay" onClick={() => setShowDetail(null)}>
+        <div className="modal-overlay" onClick={closeDetail}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
             <div className="modal-head" style={{ flexShrink: 0 }}>
               <div style={{ flex: 1 }}>
@@ -401,7 +458,7 @@ export default function FroTickets() {
                   </span>
                 </div>
               </div>
-              <button className="btn btn-sm btn-icon" onClick={() => setShowDetail(null)} style={{ padding: 4 }}>
+              <button className="btn btn-sm btn-icon" onClick={closeDetail} style={{ padding: 4 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
