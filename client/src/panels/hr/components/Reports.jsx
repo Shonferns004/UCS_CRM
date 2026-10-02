@@ -496,7 +496,7 @@ export default function Reports() {
     : '';
 
   return (
-    <>
+    <div className="hpr-page">
       {/* Print-only masthead: the screen hides every heading, so the sheet needs
           its own title or it prints as an unlabelled block of numbers. */}
       <div className="hpr-print-only" style={{ marginBottom: 14 }}>
@@ -504,17 +504,38 @@ export default function Reports() {
         <div style={{ fontSize: 12 }}>{prettyDate}{user?.name ? `  ·  ${user.name}` : ''}</div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
+      {/* The topbar already shows "Reports" under the DAILY eyebrow and is shared
+          by every HR page, so it is left alone. This strip adds the section
+          context, the period and who is filing the report. The period line used
+          to sit under the date picker, where its extra height knocked the
+          recruiter dropdown out of line with the date field. */}
+      <div className="hpr-caption no-print">
+        <div className="hpr-caption-main">
+          <div className="hpr-caption-title">Daily HR reporting</div>
+          <div className="hpr-caption-sub">Recruiter MIS and attendance</div>
+        </div>
+        <div className="hpr-caption-meta">
+          <span className="hpr-caption-pill">{relative ? <><b>{relative}</b> · {prettyDate}</> : prettyDate}</span>
+          {user?.name && (
+            <span className="hpr-caption-pill">
+              <Users width={14} />
+              Prepared by {user.name}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ---------------- Report controls ---------------- */}
+      <div className="card hpr-toolbar no-print">
         <div className="card-pad">
           <div className="hpr-bar">
-            <div className="filter-group">
+            <div className="filter-group hpr-date">
               <label>Report date</label>
               <DatePicker
                 value={date}
                 onChange={next => { const v = pickDate(next); if (v && v !== date) setDate(v); }}
                 max={todayIst()}
               />
-              <div className="hpr-rel">{relative ? <><b>{relative}</b> · {prettyDate}</> : prettyDate}</div>
             </div>
 
             <div className="filter-group">
@@ -525,7 +546,7 @@ export default function Reports() {
               </div>
             </div>
 
-            <div className="filter-group" style={{ minWidth: 220 }}>
+            <div className="filter-group hpr-recruiter">
               <label>Recruiter</label>
               <Dropdown
                 value={recruiterFilter}
@@ -557,23 +578,49 @@ export default function Reports() {
       {/* ---------------- Section 1: recruiter MIS ---------------- */}
       <div className="hpr-print-only print-section-title">Recruiter MIS</div>
 
-      <div className="stats">
-        <div className="stat"><ChartBar width={16} /> <div className="stat-label">Leads Touched</div><div className="stat-value">{totals.leads}</div></div>
-        <div className="stat"><Cal width={16} /> <div className="stat-label">Interviews Scheduled</div><div className="stat-value" style={{ color: '#3b82f6' }}>{totals.scheduled}</div></div>
-        <div className="stat"><Check width={16} /> <div className="stat-label">Selected</div><div className="stat-value" style={{ color: '#5B6B4E' }}>{totals.selected}</div></div>
-        <div className="stat"><X width={16} /> <div className="stat-label">Rejected</div><div className="stat-value" style={{ color: '#c0392b' }}>{totals.rejected}</div></div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head">
-          <h3>Recruiter MIS</h3>
-          <span className="sub">Derived from leads created or updated on the report date</span>
+      <div className="hpr-block">
+        <div className="hpr-section no-print">
+          <span className="hpr-section-label">Recruiter MIS</span>
+          <span className="hpr-section-sub">Derived from leads created or updated on the report date</span>
         </div>
-        <div className="card-pad">
-          <div className="hpr-legend">
-            <span><b>Counted from leads</b> — leads, scheduled, selected, rejected, offers, follow-ups</span>
-            <span><b>Typed by you *</b> — attended, joining, calls have no source in the system</span>
+
+        <div className="hpr-kpis">
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon tone-neutral"><ChartBar width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Leads Touched</div>
+              <div className="hpr-kpi-value">{totals.leads}</div>
+            </div>
           </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon"><Cal width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Interviews Scheduled</div>
+              <div className="hpr-kpi-value">{totals.scheduled}</div>
+            </div>
+          </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon"><Check width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Selected</div>
+              <div className="hpr-kpi-value">{totals.selected}</div>
+            </div>
+          </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon tone-bad"><X width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Rejected</div>
+              <div className="hpr-kpi-value bad">{totals.rejected}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-pad">
+            <div className="hpr-legend">
+              <span className="hpr-legend-item"><b>Counted from leads</b> — leads, scheduled, selected, rejected, offers, follow-ups</span>
+              <span className="hpr-legend-item"><b>Typed by you *</b> — attended, joining, calls have no source in the system</span>
+            </div>
 
           {loading ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 12 }} aria-hidden="true">
@@ -584,7 +631,7 @@ export default function Reports() {
               {recruiters.length === 0 ? 'No recruiters found.' : 'No recruiters match this filter.'}
             </div>
           ) : (
-            <div className="table-wrap">
+            <div className="hpr-table">
               <table>
                 <thead>
                   <tr>
@@ -598,7 +645,7 @@ export default function Reports() {
                     return [
                       <tr key={row.recruiter.id} className={open ? 'hpr-open' : undefined}>
                         <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div className="hpr-name">
                             <Users width={14} />
                             <span>{row.recruiter.name}</span>
                           </div>
@@ -636,7 +683,7 @@ export default function Reports() {
                               <div className="hpr-edit-grid">
                                 {MANUAL_FIELDS.map(f => (
                                   <label key={f.key} className="hpr-field">
-                                    {f.label}
+                                    <span className="hpr-field-label">{f.label}</span>
                                     <input
                                       type={f.type}
                                       min={f.type === 'number' ? 0 : undefined}
@@ -647,7 +694,7 @@ export default function Reports() {
                                 ))}
                               </div>
                               <label className="hpr-field">
-                                Remarks
+                                <span className="hpr-field-label">Remarks</span>
                                 <textarea
                                   rows={2}
                                   placeholder="Anything worth carrying into tomorrow"
@@ -681,83 +728,133 @@ export default function Reports() {
           )}
         </div>
       </div>
+      </div>
 
       {/* ---------------- Section 2: attendance ---------------- */}
       <div className="hpr-print-only print-section-title">Attendance</div>
 
-      <div className="stats">
-        <div className="stat"><Clock width={16} /> <div className="stat-label">Present</div><div className="stat-value">{summaryLoading ? '—' : (summary?.present ?? 0)}</div></div>
-        <div className="stat"><Clock width={16} /> <div className="stat-label">Half Day</div><div className="stat-value">{summaryLoading ? '—' : (summary?.half_day ?? 0)}</div></div>
-        <div className="stat"><Users width={16} /> <div className="stat-label">Test Members</div><div className="stat-value" style={{ color: '#6b7280' }}>{summaryLoading ? '—' : (summary?.test_members ?? 0)}</div></div>
-        <div className="stat"><X width={16} /> <div className="stat-label">Absent (WO-PI)</div><div className="stat-value" style={{ color: '#c0392b' }}>{wopiList.length}</div></div>
-        <div className="stat"><X width={16} /> <div className="stat-label">Absent (WPI)</div><div className="stat-value" style={{ color: '#c0392b' }}>{wpiList.length}</div></div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head">
-          <h3>Attendance Report</h3>
-          <span className="sub">Present, half day and test members are derived; absences and terminations are typed</span>
+      <div className="hpr-block">
+        <div className="hpr-section no-print">
+          <span className="hpr-section-label">Attendance</span>
+          <span className="hpr-section-sub">Present, half day and test members are derived; absences and terminations are typed</span>
         </div>
-        <div className="card-pad">
-          {summary && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 14 }}>
-              <span>Total staff: <strong>{summary.total_staff}</strong></span>
-              <span>On approved leave: <strong>{summary.on_leave}</strong></span>
-              <span>Absent (derived, before typing): <strong>{summary.absent}</strong></span>
-              <span>Test members excluded above: <strong>{summary.test_members}</strong></span>
+
+        <div className="hpr-kpis att">
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon"><Clock width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Present</div>
+              <div className="hpr-kpi-value">{summaryLoading ? '—' : (summary?.present ?? 0)}</div>
             </div>
-          )}
+          </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon tone-neutral"><Clock width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Half Day</div>
+              <div className="hpr-kpi-value">{summaryLoading ? '—' : (summary?.half_day ?? 0)}</div>
+            </div>
+          </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon tone-neutral"><Users width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Test Members</div>
+              <div className="hpr-kpi-value muted">{summaryLoading ? '—' : (summary?.test_members ?? 0)}</div>
+            </div>
+          </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon tone-bad"><X width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Absent (WO-PI)</div>
+              <div className="hpr-kpi-value bad">{wopiList.length}</div>
+            </div>
+          </div>
+          <div className="hpr-kpi">
+            <span className="hpr-kpi-icon tone-bad"><X width={16} /></span>
+            <div className="hpr-kpi-body">
+              <div className="hpr-kpi-label">Absent (WPI)</div>
+              <div className="hpr-kpi-value bad">{wpiList.length}</div>
+            </div>
+          </div>
+        </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
-            <label className="hpr-field">
-              Absent (WO-PI) — paid absence
-              <textarea
-                rows={3}
-                placeholder="One name per line, or separated by commas"
-                value={absences.wopi}
-                onChange={e => setAbsenceField('wopi', e.target.value)}
-              />
-              <div className="hpr-count">{wopiList.length} {wopiList.length === 1 ? 'person' : 'people'}</div>
-            </label>
+        <div className="card">
+          <div className="card-pad">
+            {summary && (
+              <div className="hpr-summary">
+                <div className="hpr-summary-cell">
+                  <div className="hpr-summary-label">Total staff</div>
+                  <div className="hpr-summary-value">{summary.total_staff}</div>
+                </div>
+                <div className="hpr-summary-cell">
+                  <div className="hpr-summary-label">On approved leave</div>
+                  <div className="hpr-summary-value">{summary.on_leave}</div>
+                </div>
+                <div className="hpr-summary-cell">
+                  <div className="hpr-summary-label">Absent (derived, before typing)</div>
+                  <div className="hpr-summary-value">{summary.absent}</div>
+                </div>
+                <div className="hpr-summary-cell">
+                  <div className="hpr-summary-label">Test members excluded above</div>
+                  <div className="hpr-summary-value">{summary.test_members}</div>
+                </div>
+              </div>
+            )}
 
-            <label className="hpr-field">
-              Absent (WPI) — unpaid absence
-              <textarea
-                rows={3}
-                placeholder="One name per line, or separated by commas"
-                value={absences.wpi}
-                onChange={e => setAbsenceField('wpi', e.target.value)}
-              />
-              <div className="hpr-count">{wpiList.length} {wpiList.length === 1 ? 'person' : 'people'}</div>
-            </label>
+            <div className="hpr-fields">
+              <label className="hpr-field">
+                <span className="hpr-field-label">Absent (WO-PI) <em className="hpr-field-note">— paid absence</em></span>
+                <textarea
+                  rows={3}
+                  placeholder="One name per line, or separated by commas"
+                  value={absences.wopi}
+                  onChange={e => setAbsenceField('wopi', e.target.value)}
+                />
+                <span className="hpr-count">{wopiList.length} {wopiList.length === 1 ? 'person' : 'people'}</span>
+              </label>
 
-            <label className="hpr-field">
-              Terminations
-              <textarea
-                rows={3}
-                placeholder="One name per line, or separated by commas"
-                value={absences.terminations}
-                onChange={e => setAbsenceField('terminations', e.target.value)}
-              />
-              <div className="hpr-count">{terminationList.length} {terminationList.length === 1 ? 'person' : 'people'}</div>
-            </label>
+              <label className="hpr-field">
+                <span className="hpr-field-label">Absent (WPI) <em className="hpr-field-note">— unpaid absence</em></span>
+                <textarea
+                  rows={3}
+                  placeholder="One name per line, or separated by commas"
+                  value={absences.wpi}
+                  onChange={e => setAbsenceField('wpi', e.target.value)}
+                />
+                <span className="hpr-count">{wpiList.length} {wpiList.length === 1 ? 'person' : 'people'}</span>
+              </label>
+
+              <label className="hpr-field">
+                <span className="hpr-field-label">Terminations</span>
+                <textarea
+                  rows={3}
+                  placeholder="One name per line, or separated by commas"
+                  value={absences.terminations}
+                  onChange={e => setAbsenceField('terminations', e.target.value)}
+                />
+                <span className="hpr-count">{terminationList.length} {terminationList.length === 1 ? 'person' : 'people'}</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="card no-print">
-        <div className="card-head">
-          <h3><Send width={15} /> WhatsApp message</h3>
-          <span className="sub">Goes to you, the reporter — recruiter MIS first, then attendance</span>
+      {/* ---------------- Section 3: WhatsApp preview ---------------- */}
+      <div className="hpr-block no-print">
+        <div className="hpr-section">
+          <span className="hpr-section-label"><Send width={14} /> WhatsApp message</span>
+          <span className="hpr-section-sub">Daily HR report preview — goes to you, the reporter; recruiter MIS first, then attendance</span>
         </div>
-        <div className="card-pad">
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit', color: 'var(--ink)' }}>
-            {buildMessage()}
-          </pre>
-          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-            <button type="button" className="btn btn-primary" onClick={sendReport} disabled={sending || !loaded}>
-              <WhatsApp width={15} /> {sending ? 'Sending…' : 'Send on WhatsApp'}
-            </button>
+
+        <div className="card">
+          <div className="card-pad">
+            <div className="hpr-msg">
+              <pre>{buildMessage()}</pre>
+            </div>
+            <div className="hpr-msg-foot">
+              <button type="button" className="btn btn-primary" onClick={sendReport} disabled={sending || !loaded}>
+                <WhatsApp width={15} /> {sending ? 'Sending…' : 'Send on WhatsApp'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -774,6 +871,6 @@ export default function Reports() {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
