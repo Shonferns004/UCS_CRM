@@ -6,7 +6,20 @@ import {
   deleteLead,
   transferLead,
   getLeadsDashboard,
+  ownsLead,
 } from '../models/leadModel.js';
+
+// ── Who is allowed to see which lead ─────────────────────────────────────────
+// A recruiter only ever sees their own work. Ownership itself lives in the model
+// (ownsLead) so the list, the detail view, the aggregates and the tests all agree
+// on one definition. HR, admin and super_admin are deliberately unrestricted.
+const isRecruiter = (user) => user?.role === 'recruiter';
+
+const isTelecaller = (user) =>
+  user?.role === 'telecaller' ||
+  (user?.role === 'worker' && (user.department || '').toLowerCase().trim() === 'fro');
+
+const owns = (lead, user) => ownsLead(lead, [user.id]);
 
 export const addLead = async (req, res) => {
   try {
@@ -42,10 +55,17 @@ export const addLead = async (req, res) => {
 export const listLeads = async (req, res) => {
   try {
     const { recruiter_id, status, search, source } = req.query;
-    const filters = { recruiter_id, status, search, source };
-    const isTelecaller = req.user.role === 'telecaller' || (req.user.role === 'worker' && (req.user.department || '').toLowerCase().trim() === 'fro');
-    if (isTelecaller) filters.created_by = req.user.id;
-    if (req.user.role === 'recruiter' && req.query.created_by) filters.created_by = req.query.created_by;
+    const filters = { status, search, source };
+
+    if (isRecruiter(req.user)) {
+      // recruiter_id / created_by from the query string are ignored on purpose:
+      // they used to let a recruiter ask for any colleague's leads by id.
+      filters.ownerIds = [req.user.id];
+    } else {
+      filters.recruiter_id = recruiter_id;
+      if (isTelecaller(req.user)) filters.created_by = req.user.id;
+    }
+
     const leads = await getAllLeads(filters);
     return res.json(leads);
   } catch (error) {
@@ -57,6 +77,9 @@ export const getLead = async (req, res) => {
   try {
     const lead = await getLeadById(req.params.id);
     if (!lead) return res.status(404).json({ message: 'Lead not found' });
+    if (isRecruiter(req.user) && !owns(lead, req.user)) {
+      return res.status(403).json({ message: 'You can only view your own leads' });
+    }
     return res.json(lead);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -68,8 +91,12 @@ export const editLead = async (req, res) => {
     const existing = await getLeadById(req.params.id);
     if (!existing) return res.status(404).json({ message: 'Lead not found' });
 
-    const isTelecaller = req.user.role === 'telecaller' || (req.user.role === 'worker' && (req.user.department || '').toLowerCase().trim() === 'fro');
-    if ((req.user.role === 'recruiter' || isTelecaller) && existing.created_by !== req.user.id) {
+    // A recruiter may edit a lead assigned to them as well as one they entered;
+    // telecallers stay on created_by only, which is how they worked before.
+    if (isRecruiter(req.user) && !owns(existing, req.user)) {
+      return res.status(403).json({ message: 'You can only edit your own leads' });
+    }
+    if (isTelecaller(req.user) && existing.created_by !== req.user.id) {
       return res.status(403).json({ message: 'You can only edit your own leads' });
     }
 
@@ -98,6 +125,13 @@ export const editLead = async (req, res) => {
 
 export const removeLead = async (req, res) => {
   try {
+    const existing = await getLeadById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Lead not found' });
+    // Deletes are irreversible, so a recruiter is held to the same ownership
+    // rule as reads instead of being able to remove anyone's lead by id.
+    if (isRecruiter(req.user) && !owns(existing, req.user)) {
+      return res.status(403).json({ message: 'You can only delete your own leads' });
+    }
     const result = await deleteLead(req.params.id);
     return res.json(result);
   } catch (error) {
@@ -126,7 +160,11 @@ export const transferLeadOwner = async (req, res) => {
 
 export const dashboard = async (req, res) => {
   try {
-    const stats = await getLeadsDashboard();
+    // Aggregates are computed from the same rows the caller may read, so a
+    // recruiter's totals can never include a colleague's leads.
+    const stats = await getLeadsDashboard(
+      isRecruiter(req.user) ? { ownerIds: [req.user.id] } : {}
+    );
     return res.json(stats);
   } catch (error) {
     return res.status(500).json({ message: error.message });
