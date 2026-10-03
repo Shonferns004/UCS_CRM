@@ -134,6 +134,7 @@ const _log = console.log;
 _log(aiSuggestionsStartupReport());
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 5000;
 
 app.set('trust proxy', 'loopback');
