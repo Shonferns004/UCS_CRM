@@ -141,7 +141,7 @@ export default function AllBeneficiaries() {
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>No beneficiaries found</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ ...styles.table, minWidth: 1500 }}>
+            <table style={{ ...styles.table, minWidth: 1600 }}>
               <thead>
                 <tr>
                   <th style={{ ...styles.th, width: 36 }}>
@@ -160,6 +160,7 @@ export default function AllBeneficiaries() {
                   <th style={styles.th}>Needed</th>
                   <th style={styles.th}>City</th>
                   <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Kit</th>
                   <th style={styles.th}>Fingerprint</th>
                   <th style={styles.th}>Registered</th>
                   <th style={styles.th}>Actions</th>
@@ -186,6 +187,14 @@ export default function AllBeneficiaries() {
                       <td style={{ ...styles.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.needed || '-'}</td>
                       <td style={styles.td}>{b.city || '-'}</td>
                       <td style={styles.td}><span style={styles.pill(bg, fg)}>{b.status}</span></td>
+                      <td style={styles.td}>
+                        <span style={styles.pill(
+                          b.kit_given ? '#dcfce7' : '#fef3c7',
+                          b.kit_given ? '#166534' : '#92400e'
+                        )}>
+                          {b.kit_given ? 'Yes' : 'No'}
+                        </span>
+                      </td>
                       <td style={styles.td}>
                         <span style={styles.pill(
                           b.fingerprint_status === 'REGISTERED' ? '#dcfce7' : b.fingerprint_status === 'REVOKED' ? '#fee2e2' : '#fef3c7',

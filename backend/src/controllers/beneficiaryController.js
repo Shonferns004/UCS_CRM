@@ -14,6 +14,7 @@ import { getCards, getActiveCard } from '../models/beneficiaryCardModel.js';
 import { getBiometricStatus } from '../models/biometricModel.js';
 import { getSourceRecords } from '../models/beneficiarySourceModel.js';
 import { getBeneficiaryDistributionHistory } from '../models/distributionModel.js';
+import { getBeneficiaryPrograms } from '../models/programBeneficiaryModel.js';
 import { logAuditEvent, getAuditLogs } from '../models/auditLogModel.js';
 import { getBnfOperatorBySession } from '../models/bnfOperatorModel.js';
 import { getTodayAssignment, listOperatorEvents, demoOperatorEvent } from '../models/operatorModel.js';
@@ -171,12 +172,16 @@ const buildFullBeneficiary = async (id) => {
   const biometric = await getBiometricStatus(beneficiary.id);
   const sourceRecords = await getSourceRecords(beneficiary.id);
   const distributions = await getBeneficiaryDistributionHistory(beneficiary.id);
+  // A profile must still load on an installation where migration 120 never ran
+  // and program_beneficiaries has no columns to query; a failure degrades to an
+  // empty list instead of a 500 on the whole profile.
+  const programs = await getBeneficiaryPrograms(beneficiary.id).catch(() => []);
 
   return {
     ...beneficiary,
     categories, disabilities, family, education, employment,
     assistances, documents, cards, activeCard, biometric,
-    sourceRecords, distributions,
+    sourceRecords, distributions, programs,
   };
 };
 
