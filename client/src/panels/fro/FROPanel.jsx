@@ -220,7 +220,7 @@ function formatClock(totalSeconds) {
 // a meeting or off shift it holds and says why, because the server issues no
 // deadline in those states.
 function DispositionTimer() {
-  const { secondsLeft, isIdle, inShift, paused, status, idleLiveSeconds, settleSecondsLeft } = useCall();
+  const { secondsLeft, isIdle, inShift, paused, status, settleSecondsLeft } = useCall();
 
   const held = paused || status === 'meeting';
   const armed = secondsLeft != null;
@@ -258,18 +258,17 @@ function DispositionTimer() {
     : warn ? 'Due'
     : 'Disposition';
 
-  // Idle counts UP and replaces the countdown: once the window is gone there is
-  // nothing left to count down, and the useful number is how long they have been
-  // idle. It ticks live between heartbeats, and the server commits the same
-  // figure into today's idle total the moment they record any activity.
+  // While idle the window is gone, so there is no number to count down and no
+  // local tally: idle seconds are the server's to measure, and recording any
+  // activity clears the state on the server.
   const display = isIdle
-    ? formatClock(idleLiveSeconds)
+    ? '—:—'
     : armed ? formatClock(value)
       : settling ? formatClock(settleSecondsLeft)
         : '—:—';
 
   const tip = isIdle
-    ? `You have been idle for ${formatClock(idleLiveSeconds)}. This is added to your idle total. Record any activity to clear it.`
+    ? 'You are idle. Record any activity to clear it.'
     : settling
       ? 'Settling in. Your 4-minute disposition window starts as soon as this runs out — nothing is counted against you until then.'
       : held
@@ -281,8 +280,8 @@ function DispositionTimer() {
             : 'Time left to record an activity. Every activity resets this to 4:00.';
 
   // Fraction of the window still remaining, for the bar underneath. While idle
-  // the bar is full-width: the countdown is over, this is an accrual now. During
-  // the grace it tracks the grace, not a window that does not exist yet.
+  // the bar is full-width: the countdown is over. During the grace it tracks the
+  // grace, not a window that does not exist yet.
   const remaining = isIdle
     ? 1
     : armed ? Math.max(0, Math.min(1, value / DISPOSITION_WINDOW))
@@ -335,68 +334,6 @@ function DispositionTimer() {
         </div>
       </div>
     </>,
-    document.body,
-  );
-}
-
-// The disposition window ran out. This used to be a full-screen, deliberately
-// undismissable overlay — and that was the real bug: logging a disposition needs
-// a donor, so an FRO with nothing assigned could never satisfy it, and the
-// overlay covered the very screen they needed in order to try. All they could do
-// was press Resume, which handed back another 4 minutes, looping forever.
-// It is now a non-blocking banner: the panel stays fully usable, idle keeps
-// accruing, and recording a disposition clears it on its own.
-//
-// There is deliberately no way to clear idle from this banner. Recording a
-// disposition is the only exit, so idle costs the same whether or not the FRO
-// reacts to it: the server back-dates the charge to the moment the window
-// expired, not to the moment the disposition was submitted. Signing out is the
-// only other exit (commitIdleOnExit banks the seconds and clears the flag).
-// Do not add a resume affordance here without changing that rule on the server
-// too, or the cost of idling becomes optional again.
-function IdleGate() {
-  const { isIdle, idleSecondsToday, fmt } = useCall();
-  if (!isIdle) return null;
-  // Portalled for the same reason as the clock: inline, a page overlay such as
-  // the detailed donor view would bury the banner and the FRO would not even
-  // know they were idle.
-  return createPortal(
-    // Anchored to the bottom, auto width, no backdrop: it reports idle without
-    // taking the app away from the FRO.
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        position: 'fixed',
-        left: '50%',
-        bottom: 18,
-        transform: 'translateX(-50%)',
-        zIndex: 99998,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 12px 10px 14px',
-        borderRadius: 14,
-        background: '#fff',
-        border: '1px solid #FCA5A5',
-        boxShadow: '0 10px 30px rgba(15,23,42,.22)',
-        maxWidth: 'min(560px, calc(100vw - 24px))',
-        pointerEvents: 'auto',
-      }}
-    >
-      <span style={{ width: 30, height: 30, flex: '0 0 auto', borderRadius: '50%', background: '#FEE2E2', color: '#DC2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-      </span>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 800, color: '#17233C', lineHeight: 1.35 }}>
-          You are idle
-        </div>
-        <div style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45 }}>
-          Record any activity to clear it
-          {idleSecondsToday > 0 ? <> · idle today {fmt(idleSecondsToday)}</> : null}
-        </div>
-      </div>
-    </div>,
     document.body,
   );
 }
@@ -1079,7 +1016,6 @@ useEffect(() => onFroAction((action) => {
   return (
     <CallProvider userId={user?.id} operatorId={user?.impersonation ? user?.imposter_id : null}>
     <PauseGate />
-    <IdleGate />
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} si={si} />
       <div className="main">

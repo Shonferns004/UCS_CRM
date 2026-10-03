@@ -46,7 +46,6 @@ export function CallProvider({ children, userId, operatorId }) {
   const [dispositionDueAt, setDispositionDueAt] = useState(null)
   const [secondsLeft, setSecondsLeft] = useState(null)
   const [isIdle, setIsIdle] = useState(false)
-  const [idleSecondsToday, setIdleSecondsToday] = useState(0)
   const [inShift, setInShift] = useState(true)
   // Mirrored into a ref so the 1s countdown tick can read it without being
   // torn down and rebuilt on every shift-boundary change.
@@ -78,11 +77,8 @@ export function CallProvider({ children, userId, operatorId }) {
   const SETTLE_CONFIRM_MAX = 4
   const SETTLE_CONFIRM_MS = 2500
   const settleAskRef = useRef({ count: 0, at: 0 })
-  // The server's committed idle total plus the monotonic reading taken when it
-  // arrived, so the "idle counter" in the clock widget can tick up live between
-  // heartbeats instead of sitting frozen for 30s at a time.
-  const idleSeedRef = useRef({ seconds: 0, at: 0 })
-  const [idleLiveSeconds, setIdleLiveSeconds] = useState(0)
+  // Idle is a server-owned state now. The panel only mirrors the server's
+  // is_idle answer; there is no locally-extrapolated "idle so far" figure.
 
   // Reaching zero asks the server whether it agrees they are idle, and the panel
   // records the transition (idle_since) as soon as it says so.
@@ -95,8 +91,6 @@ export function CallProvider({ children, userId, operatorId }) {
   const IDLE_CONFIRM_MAX = 4
   const IDLE_CONFIRM_MS = 2500
   const idleAskRef = useRef({ count: 0, at: 0 })
-  // Throttle for mirroring the running idle figure to localStorage.
-  const idlePersistAtRef = useRef(0)
 
   // Admin per-FRO pause: freezes every live counter exactly like meeting mode.
   // Only an admin resume lifts it — the panel never unpauses itself.
@@ -151,8 +145,6 @@ export function CallProvider({ children, userId, operatorId }) {
         disposition_due_at: s.dispositionDueAt ?? null,
         seconds_left: s.secondsLeft ?? null,
         is_idle: !!s.isIdle,
-        idle_total: s.idleTotal ?? null,
-        idle_live: s.idleLive ?? null,
         // Wall clock, used only to discount the reload gap on the way back in.
         saved_at: Date.now(),
       }))
@@ -238,10 +230,6 @@ export function CallProvider({ children, userId, operatorId }) {
       setInShift(s.in_shift)
       inShiftRef.current = s.in_shift
     }
-    if (typeof s.today_idle_seconds === 'number') {
-      setIdleSecondsToday(s.today_idle_seconds)
-      idleSeedRef.current = { seconds: s.today_idle_seconds, at: performance.now() }
-    }
     if (typeof s.is_idle === 'boolean') {
       setIsIdle(s.is_idle)
       isIdleRef.current = s.is_idle
@@ -253,8 +241,6 @@ export function CallProvider({ children, userId, operatorId }) {
         ? s.seconds_left
         : (s.seconds_left === null ? null : serverSecondsRef.current?.seconds ?? null),
       isIdle: typeof s.is_idle === 'boolean' ? s.is_idle : isIdleRef.current,
-      idleTotal: typeof s.today_idle_seconds === 'number' ? s.today_idle_seconds : idleSeedRef.current.seconds,
-      idleLive: isIdleRef.current ? (idleSeedRef.current.seconds + (performance.now() - idleSeedRef.current.at) / 1000) : null,
     })
   }, [persistTimer])
 
@@ -296,6 +282,62 @@ export function CallProvider({ children, userId, operatorId }) {
   const noteDispositionSaved = useCallback(() => {
     window.dispatchEvent(new CustomEvent('ucs:fro-perf-refresh'))
   }, [])
+
+  // ── Authoritative time events ────────────────────────────────
+  // This panel is the ONLY place that reports discrete time events to the server.
+  // The server owns the clock and the interval ledger: it receives an event name
+  // and decides the resulting state. Nothing here sends a duration or trusts the
+  // local clock. Every event is fire-and-forget — a transient failure or a
+  // not-yet-migrated ledger must never block the FRO's actual work, so failures
+  // are swallowed and the next event re-converges the state.
+  //
+  // DISPOSITION_SUCCESS is deliberately absent: the backend records it itself in
+  // the donor-log handler when a disposition is accepted, so emitting it here
+  // would double-book the transition.
+  const emitTimeEvent = useCallback((event) => {
+    if (!localStorage.getItem('ucs_token')) return
+    api('/fro/status/time-event', { method: 'POST', body: JSON.stringify({ event }) })
+      .then((res) => { if (res && typeof res === 'object') adoptTimer(res) })
+      .catch((err) => {
+        // 503 = ledger not migrated yet; 400 = unknown event (a bug, but not worth
+        // breaking the panel over). Anything else is transient and re-converges.
+        if (err?.status && err.status !== 503 && err.status !== 400) console.error('time event failed:', err.message)
+      })
+  }, [adoptTimer])
+
+  // Page visibility and real network reachability. These are the two signals the
+  // old engine could not distinguish: the tab being hidden is NOT the same as the
+  // worker leaving, and `navigator.onLine` being true is NOT proof the backend is
+  // reachable. The browser's offline/online events catch the genuine network loss;
+  // an approved MEETING/PAUSE/INTERNET hold overrides both on the server.
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return undefined
+    const onVisibility = () => emitTimeEvent(document.hidden ? 'PAGE_HIDDEN' : 'PAGE_VISIBLE')
+    const onOffline = () => emitTimeEvent('NETWORK_OFFLINE')
+    const onOnline = () => emitTimeEvent('NETWORK_ONLINE')
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('offline', onOffline)
+    window.addEventListener('online', onOnline)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('offline', onOffline)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [emitTimeEvent])
+
+  // Shift boundaries are derived on the server; the panel only reports the flip so
+  // the ledger gets a clean SHIFT_START/SHIFT_END rather than inferring it from a
+  // heartbeat. The first value seen is the baseline, never an event.
+  const prevInShiftRef = useRef(null)
+  useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return
+    if (prevInShiftRef.current === null || prevInShiftRef.current === inShift) {
+      prevInShiftRef.current = inShift
+      return
+    }
+    prevInShiftRef.current = inShift
+    emitTimeEvent(inShift ? 'SHIFT_START' : 'SHIFT_END')
+  }, [inShift, emitTimeEvent])
 
   // Stats are server-authoritative: the client keeps today's counters in memory
   // only (never localStorage) and pushes them on every change. statsOverride lets
@@ -352,6 +394,9 @@ export function CallProvider({ children, userId, operatorId }) {
   useEffect(() => {
     if (meetingActive) {
       meetingStartRef.current = Date.now()
+      // An approved meeting is a held state: it pauses the disposition clock and
+      // overrides any HIDDEN/SLEEP state on the server.
+      emitTimeEvent('MEETING_START')
       syncAllStats()
     } else {
       // Meeting over — accrue the paused window once, then resume normally.
@@ -359,10 +404,11 @@ export function CallProvider({ children, userId, operatorId }) {
         const paused = Date.now() - meetingStartRef.current
         callPausedMsRef.current += paused
         meetingStartRef.current = null
+        emitTimeEvent('MEETING_END')
       }
       syncAllStats()
     }
-  }, [meetingActive, syncAllStats])
+  }, [meetingActive, syncAllStats, emitTimeEvent])
 
   // ---------- Countdown ----------
   // Counts the server's "seconds left" down locally. The only thing read from
@@ -443,25 +489,6 @@ export function CallProvider({ children, userId, operatorId }) {
           syncAllStats()
         }
       }
-      // While idle, keep the on-screen idle counter counting up between beats.
-      if (isIdleRef.current) {
-        const live = idleSeedRef.current.seconds + (performance.now() - idleSeedRef.current.at) / 1000
-        setIdleLiveSeconds(live)
-        // Mirror it as it runs so a reload resumes the same figure instead of
-        // restarting the count. Throttled — this is a small JSON write and there
-        // is no need to do it 60 times a minute.
-        const nowMs = performance.now()
-        if (nowMs - idlePersistAtRef.current >= 5000) {
-          idlePersistAtRef.current = nowMs
-          persistTimer({
-            dispositionDueAt: dispositionDueRef.current,
-            secondsLeft: serverSecondsRef.current?.seconds ?? null,
-            isIdle: true,
-            idleTotal: idleSeedRef.current.seconds,
-            idleLive: live,
-          })
-        }
-      }
     }
     tick()
     const iv = setInterval(tick, 1000)
@@ -471,7 +498,7 @@ export function CallProvider({ children, userId, operatorId }) {
   // There is no resumeIdle. Idle is cleared only by recording a disposition,
   // which is the one action that produces something real; the endpoint that used
   // to hand back a free 4-minute window was removed rather than left callable.
-  // See IdleGate in FROPanel.jsx for why that matters.
+  // The server owns the idle transition, so there is no client escape hatch.
 
   // ---------- Stats sync & status transitions ----------
   useEffect(() => {
@@ -494,16 +521,9 @@ export function CallProvider({ children, userId, operatorId }) {
         setDispositionDueAt(saved.disposition_due_at)
         dispositionDueRef.current = saved.disposition_due_at
       }
-      if (typeof saved.idle_total === 'number') {
-        setIdleSecondsToday(saved.idle_total)
-        idleSeedRef.current = { seconds: saved.idle_total, at: performance.now() }
-      }
       if (saved.is_idle) {
         setIsIdle(true)
         isIdleRef.current = true
-        if (typeof saved.idle_live === 'number') {
-          setIdleLiveSeconds(saved.idle_live + gap)
-        }
       }
       if (restored !== null) {
         serverSecondsRef.current = { seconds: restored, at: performance.now() }
@@ -564,8 +584,9 @@ export function CallProvider({ children, userId, operatorId }) {
     setPaused(true)
     setPausedBy(by || null)
     if (pauseStartRef.current == null) pauseStartRef.current = Date.now()
+    emitTimeEvent('PAUSE_START')
     syncAllStats()
-  }, [syncAllStats])
+  }, [syncAllStats, emitTimeEvent])
 
   const clearPause = useCallback(() => {
     if (!pausedRef.current) return
@@ -579,8 +600,9 @@ export function CallProvider({ children, userId, operatorId }) {
       callPausedMsRef.current += pausedMs
       pauseStartRef.current = null
     }
+    emitTimeEvent('PAUSE_END')
     syncAllStats()
-  }, [syncAllStats])
+  }, [syncAllStats, emitTimeEvent])
 
   // FRO self-resume: the Play button in the blocking pause popup. Server
   // clears the flag (converging socket event follows); lift locally at once.
@@ -676,7 +698,6 @@ export function CallProvider({ children, userId, operatorId }) {
       const next = { calls: 0, totalSeconds: 0 }
       todayStatsRef.current = next
       setTodayStats(next)
-      setIdleSecondsToday(0)
       setIsIdle(false)
       isIdleRef.current = false
       idleNotifiedRef.current = false
@@ -767,8 +788,8 @@ export function CallProvider({ children, userId, operatorId }) {
       startDonorView, endDonorView, syncAllStats, fmt,
       status: liveStatus,
       paused, pausedBy, resumeSelf,
-      // Disposition timer / idle
-      dispositionDueAt, secondsLeft, isIdle, idleSecondsToday, idleLiveSeconds, inShift,
+      // Disposition timer / idle state (is_idle is the server's answer)
+      dispositionDueAt, secondsLeft, isIdle, inShift,
       // Settle-in grace. Non-null only while the 3 minutes is running (or has just
       // run out on the beat before the window arms); the panel prefers the
       // disposition countdown whenever one exists.

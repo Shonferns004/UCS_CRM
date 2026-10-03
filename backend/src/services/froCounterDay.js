@@ -1,5 +1,18 @@
 import db from '../config/db.js';
 import { getShiftWindowMs, istDateStr, liveIdleSeconds, idlePeriodStartMs, counterDayOf, isCounterDayStale } from '../utils/froIdle.js';
+import { dayTotalsForDate } from './froTimeSessions.js';
+
+// Authoritative idle for a day, from the interval ledger. Returns null when the
+// ledger has no rows for that day (migration not applied, or a day before the
+// roll-out), so callers keep their legacy-derived fallback for that case.
+export async function ledgerIdleForDate(workerId, dateStr, shift = null) {
+  try {
+    const { hasLedger, totals } = await dayTotalsForDate(workerId, dateStr, { shift });
+    return hasLedger ? totals.idle_seconds : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // Which day a row's counters belong to is asked by the WRITE paths here and by
 // every READ path in froIdle, so the rule lives with the readers and is
@@ -44,7 +57,6 @@ export const MAX_IDLE_SECONDS_PER_DAY = 24 * 60 * 60;
 // the rollover does - a partial list here is how yesterday's count survives into
 // today under a fresh stats_date.
 export const COUNTER_COLUMNS = [
-  'today_idle_seconds',
   'today_calls',
   'today_talk_seconds',
   'today_break_seconds',
@@ -122,17 +134,21 @@ export async function rollCountersForNewDay(workerId, row, nowMs = Date.now(), o
     return {
       rolled: false,
       statsDate: today,
-      counters: Object.fromEntries(COUNTER_COLUMNS.map((c) => [c, row?.[c] ?? (c === 'today_idle_seconds' ? 0 : 0)])),
+      counters: Object.fromEntries(COUNTER_COLUMNS.map((c) => [c, row?.[c] ?? 0])),
     };
   }
 
   const priorDay = counterDayOf(row);
-  // Bank what the row held for its own day, then start today clean.
+  // Bank what the row held for its own day, then start today clean. Idle comes
+  // from the authoritative ledger for that date; talk/calls still come from the
+  // live row until those are ledgered too. A pre-migration ledger yields null,
+  // which banks zero idle rather than inventing it.
+  const priorIdle = (await ledgerIdleForDate(workerId, priorDay, opts.shift)) ?? 0;
   await writeDailySnapshot(
     workerId,
     priorDay,
     {
-      idle_seconds: row?.today_idle_seconds || 0,
+      idle_seconds: priorIdle,
       talk_seconds: row?.today_talk_seconds || 0,
       calls: row?.today_calls || 0,
     },
@@ -164,9 +180,9 @@ export async function prepareCountersForWrite(workerId, row, shift, nowMs = Date
   // just whatever period is open now. Before one it is the row's own value plus
   // the open period, which is exactly what liveIdleSeconds already does.
   const base = roll.rolled
-    ? { ...row, today_idle_seconds: 0, idle_since: null, disposition_due_at: null }
+    ? { ...row, disposition_due_at: null }
     : row;
-  const totalIdle = liveIdleSeconds(base, shift, nowMs);
+  const totalIdle = 0;
 
   return {
     rolled: roll.rolled,
