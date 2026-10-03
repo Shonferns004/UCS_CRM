@@ -589,6 +589,12 @@ function DayPlanModal({ date, observances, scope, context, onClose, onUseSuggest
 export default function MonthlyPlanner() {
   const [searchParams] = useSearchParams()
   const calRef = useRef(null)
+  /* @fullcalendar/react's ref is the React wrapper, not the calendar: gotoDate and
+     the rest of CalendarApi live one level down behind getApi(). Calling
+     calRef.current.gotoDate() directly is a TypeError, so every jump goes through
+     here - and through the optional call, because the ref is still null on the
+     first render and null again after unmount. */
+  const calendarApi = () => calRef.current?.getApi?.() || null
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadKey, setLoadKey] = useState(0)
@@ -624,13 +630,28 @@ export default function MonthlyPlanner() {
   const gotoMonth = (y, m) => {
     const safeY = Number(y); const safeM = Number(m)
     if (!Number.isFinite(safeY) || !Number.isFinite(safeM)) return
-    if (calRef.current) calRef.current.gotoDate(new Date(safeY, safeM, 1))
+    calendarApi()?.gotoDate(new Date(safeY, safeM, 1))
   }
   const navMonth = (delta) => {
     const d = new Date(cursor.y, cursor.m + delta, 1)
     gotoMonth(d.getFullYear(), d.getMonth())
   }
   const goToday = () => { const n = new Date(); gotoMonth(n.getFullYear(), n.getMonth()) }
+
+  /* React Router reuses this component when only the query string changes, so the
+     date read on first mount goes stale. Without this, "View in Calendar" after
+     planning a programme leaves the calendar on the month it was already showing
+     and never refetches, so the programme the user just created looks missing.
+     Both the view and the fetch are corrected here. */
+  useEffect(() => {
+    const d = searchParams.get('date') || (searchParams.get('month') ? `${searchParams.get('month')}-01` : '')
+    if (!d) return
+    const target = new Date(`${d}T00:00:00`)
+    if (Number.isNaN(target.getTime())) return
+    calendarApi()?.gotoDate(target)
+    setCursor({ y: target.getFullYear(), m: target.getMonth() })
+    setLoadKey((k) => k + 1)
+  }, [searchParams])
 
   // Year options: whatever the reference calendar covers, widened around the
   // year currently in view so it never drifts out of date.
@@ -782,7 +803,7 @@ export default function MonthlyPlanner() {
   useEffect(() => {
     if (didJumpRef.current) return
     didJumpRef.current = true
-    if (!calRef.current || initialDate) return
+    if (!calendarApi() || initialDate) return
     const yNow = new Date().getFullYear()
     fetchCalendarEvents({
       start: `${yNow - 1}-01-01`, end: `${yNow + 1}-01-01`,
@@ -798,7 +819,7 @@ export default function MonthlyPlanner() {
         const dated = list.filter(e => (e.extendedProps?.date || '').slice(0, 10) >= new Date().toISOString().slice(0, 10))
           .sort((a, b) => String(a.extendedProps?.date || '').localeCompare(String(b.extendedProps?.date || '')))
         const target = dated[0] || list[0]
-        if (target && calRef.current) calRef.current.gotoDate(String(target.extendedProps?.date || target.startStr || '').slice(0, 10))
+        calendarApi()?.gotoDate(String(target.extendedProps?.date || target.startStr || '').slice(0, 10))
       })
       .catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
