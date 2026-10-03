@@ -249,6 +249,10 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   // the rest of its NGO, and every read (table, filter, search, AI prompt) then
   // follows this value instead of the NGO's.
   const [beneficiaryGroup, setBeneficiaryGroup] = useState('')
+  // The group box itself is hidden until this is ticked, so an activity that
+  // serves nobody in particular shows no beneficiary at all.
+  const [showGroupPicker, setShowGroupPicker] = useState(false)
+  const chosenGroup = canonicalBeneficiary(beneficiaryGroup)
   // Whether this activity belongs in the monthly download. On by default here
   // because someone adding an activity has already decided it matters; the tick on
   // the activity row is where it gets changed. It is still a real choice, so it is
@@ -266,11 +270,19 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
 
   const ngoDefault = NGO_BENEFICIARY[ngoCodeKey(ngo)] || ''
 
-  /* Keep the default in step with the NGO chosen above, without wiping a choice
-     the user has already made for this activity. */
+  /* No pre-selection, on purpose. An empty box is the honest state: the form does
+     not claim the activity serves anybody until it is told, and the prompt takes
+     the same view — no group chosen means no beneficiary line at all. Changing NGO
+     only has to drop a choice that is no longer available, never invent one. */
   useEffect(() => {
-    setBeneficiaryGroup((prev) => (canonicalBeneficiary(prev) || ngoDefault))
+    setBeneficiaryGroup((prev) => (canonicalBeneficiary(prev) ? prev : ''))
   }, [ngoDefault])
+
+  /* Clearing the group hides its own box, so "no beneficiary" and "a beneficiary
+     is being chosen" can never both be on screen. */
+  useEffect(() => {
+    if (!chosenGroup) setShowGroupPicker(false)
+  }, [chosenGroup])
 
   const submit = async () => {
     if (!ngo) return setError('Choose an NGO first.')
@@ -290,7 +302,7 @@ const payload = {
         description: desc,
         // The group this activity serves. The backend drops the field when
         // migration 168 has not been applied, so this can never block the save.
-        beneficiary_group: beneficiaryGroup || null,
+        beneficiary_group: chosenGroup || null,
         // Same guard for migration 169: an unapplied migration drops the field
         // rather than failing the save, and the tick on the row shows the truth.
         in_report: inReport,
@@ -373,24 +385,37 @@ const payload = {
           />
         </Field>
 
-        <Field
-          label="Beneficiary group (optional)"
-          hint={ngoDefault
-            ? `Left as “Not specified”, this activity reads as ${ngoDefault}. Pick another group when this activity serves a different one.`
-            : 'Choose an NGO above — each NGO works for one of the three groups.'}
-        >
-          <Select
-            value={canonicalBeneficiary(beneficiaryGroup) || ngoDefault}
-            onChange={(e) => setBeneficiaryGroup(e.target.value)}
+        {/* Shown only once a group is chosen, or the form would be making a claim the
+            user never made. Nothing is written until then, and the AI is given no
+            beneficiary to aim at. */}
+        {chosenGroup && (
+          <Field
+            label="Beneficiary group"
+            hint={`AI programme suggestions will be aimed at ${chosenGroup}.`}
           >
-            {/* Optional: the empty value is a real choice, and it resolves back to
-                the NGO's group on every read, so nothing is ever left blank. */}
-            <option value="">
-              {ngoDefault ? `Not specified (${ngoDefault})` : 'Not specified'}
-            </option>
-            {BENEFICIARY_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
-          </Select>
-        </Field>
+            <Select
+              value={chosenGroup}
+              onChange={(e) => setBeneficiaryGroup(e.target.value)}
+            >
+              {BENEFICIARY_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+            </Select>
+          </Field>
+        )}
+
+        <label
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5,
+            color: 'var(--eh-ink-soft)', cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showGroupPicker}
+            onChange={(e) => { setShowGroupPicker(e.target.checked); if (!e.target.checked) setBeneficiaryGroup('') }}
+            style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--eh-primary)' }}
+          />
+          This activity serves a specific beneficiary group
+        </label>
 
         <Field
           label="First programme date (optional)"
