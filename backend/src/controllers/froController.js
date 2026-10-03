@@ -71,9 +71,9 @@ import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PER
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
-import { transition as transitionTimeState, applyEvent as applyTimeEvent } from '../services/froTimeSessions.js';
+import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession } from '../services/froTimeSessions.js';
 import { reconcileDispositionIdle } from '../services/froTimeReconcile.js';
-import { TIME_STATES, TIME_EVENTS } from '../utils/froTimeState.js';
+import { TIME_STATES, TIME_EVENTS, isHeldState } from '../utils/froTimeState.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -5329,6 +5329,23 @@ export const applyFroTimeEvent = async (req, res) => {
     }
 
     const shift = await getShiftWindowMs(humanCtx.id, nowMs);
+    // Leaving a held state (internet recovered, meeting/pause ended) hands back a
+    // fresh 4-minute window: the clock was paused for the duration of the hold, so
+    // the old deadline must not be left lapsed and then reconciled straight to
+    // IDLE on this very event. Only fires when the handler actually transitioned
+    // to WORKING, so a spurious/repeat end event is a no-op.
+    if (result?.changed && result.state === TIME_STATES.WORKING
+      && (event === TIME_EVENTS.NETWORK_ONLINE || event === TIME_EVENTS.CONNECTIVITY_RECOVERED
+        || event === TIME_EVENTS.MEETING_END || event === TIME_EVENTS.PAUSE_END)) {
+      try {
+        const deadline = nextDeadline(shift, nowMs);
+        if (deadline) {
+          await db.from('fro_live_status')
+            .update({ disposition_due_at: deadline, updated_at: new Date(nowMs).toISOString() })
+            .eq('worker_id', humanCtx.id);
+        }
+      } catch (_) { /* non-fatal: the heartbeat's own freeze-lift still re-arms */ }
+    }
     let row = null;
     try {
       const { data } = await db.from('fro_live_status').select('*').eq('worker_id', humanCtx.id).maybeSingle();
@@ -5401,7 +5418,16 @@ export const getMyLiveStatus = async (req, res) => {
     // total still disagrees with the stretch being derived from the deadline.
     // Settle it now so this panel and every stored-column reader agree. Guarded
     // locally first so the common cases cost no extra query.
-    if (!row?.idle_since && !row?.is_paused && row?.status !== 'meeting') {
+    // The ledger is the authority on held states. A lapsed deadline while the
+    // worker is in an approved hold (MEETING / PAUSED / INTERNET_PROBLEM) must not
+    // be stamped as idle — the hold paused the clock. The live row cannot express
+    // INTERNET_PROBLEM, so consult the open interval.
+    let ledgerState = null;
+    try {
+      const open = await getOpenSession(humanCtx.id);
+      ledgerState = open?.state || null;
+    } catch (_) { /* non-fatal: no ledger → legacy behaviour */ }
+    if (!row?.idle_since && !row?.is_paused && row?.status !== 'meeting' && !isHeldState(ledgerState)) {
       const dueNow = dispositionDueMs(row);
       if (Number.isFinite(dueNow) && nowMs >= dueNow
         && istDateStr(new Date(dueNow)) === istDateStr(new Date(nowMs))

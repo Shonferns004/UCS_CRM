@@ -5,6 +5,8 @@ import {
 } from '../utils/froIdle.js';
 import { isCoveredAway } from './froCoverFreeze.js';
 import { rollCountersForNewDay, writeDailySnapshot, isCounterDayStale, ledgerIdleForDate } from './froCounterDay.js';
+import { closeOpenSession, getOpenSession } from './froTimeSessions.js';
+import { isHeldState } from '../utils/froTimeState.js';
 
 // Committing idle when an FRO session ENDS (manual sign-out or the shift-end
 // auto-logout sweep).
@@ -71,6 +73,15 @@ export async function stampLapsedIdle(workerId, nowMs = Date.now()) {
   if (row.idle_since) return false;
   // Admin-held rows are not the FRO sitting idle.
   if (row.is_paused || row.status === 'meeting') return false;
+
+  // Held states freeze the disposition clock. A lapsed deadline that falls inside
+  // an approved MEETING / PAUSE / INTERNET_PROBLEM must not be stamped as idle —
+  // the ledger owns the authoritative held state. Absent a ledger, fall through to
+  // the legacy behaviour so a pre-migration panel is unaffected.
+  try {
+    const open = await getOpenSession(id);
+    if (open && isHeldState(open.state)) return false;
+  } catch (_) { /* no ledger → legacy behaviour */ }
 
   const due = dispositionDueMs(row);
   if (!Number.isFinite(due) || nowMs < due) return false;
@@ -157,6 +168,17 @@ export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = nul
     } catch (_) {
       // Attendance unreadable — fall back to "up to now".
     }
+  }
+
+  // Finalize the authoritative interval ledger too. The open WORKING/IDLE
+  // interval must not stay open after the worker has left, or it leaks across
+  // midnight and inflates worked/idle on every later day. Clamped to the same
+  // endMs as the live-row total, so post-shift minutes are never billed. Never
+  // deletes: historical rows keep their duration.
+  try {
+    await closeOpenSession(id, { atMs: endMs, reason: 'exit' });
+  } catch (e) {
+    console.warn('[froIdleCommit] ledger close on exit failed:', e?.message || String(e));
   }
 
   // startMs -Infinity keeps the clamp off the shift START, so a period that began

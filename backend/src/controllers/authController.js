@@ -10,6 +10,7 @@ import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models
 import { releaseOperatorSessions, getActiveSessionsForTarget, clearOperatorCoverLabels, claimStations } from '../models/workAsSessionModel.js';
 import { resolveOperatorIdentity } from '../utils/workAs.js';
 import { commitIdleOnExit } from '../services/froIdleCommit.js';
+import { closeOpenSession } from '../services/froTimeSessions.js';
 
 dotenv.config();
 
@@ -844,6 +845,10 @@ async function parkIdleForCoverStart(operatorId) {
         updated_at: new Date().toISOString(),
       })
       .eq('worker_id', id);
+    // Close the authoritative interval at the moment the cover begins so the
+    // operator's own ledger row is not billed while they work someone else's
+    // queue. The next heartbeat after release re-opens it. Non-fatal.
+    await closeOpenSession(id, { atMs: Date.now(), reason: 'cover_start' });
   } catch (e) {
     // Non-fatal: the freeze in froCoverFreeze still prevents billing a
     // covered-away FRO, and withoutStaleIdle() clears a same-day lapse on
