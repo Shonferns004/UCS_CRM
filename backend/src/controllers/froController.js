@@ -61,15 +61,19 @@ import {
 } from '../models/froDonorLogModel.js';
 import { buildFroLeaderboard } from '../services/froRankService.js';
 import { commitIdleOnExit, stampLapsedIdle } from '../services/froIdleCommit.js';
-import { rollCountersForNewDay, writeDailySnapshot } from '../services/froCounterDay.js';
+import { rollCountersForNewDay, writeDailySnapshot, ledgerIdleForDate } from '../services/froCounterDay.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
-import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
+import { istDayBounds, istDateString, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
 import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PERIOD_LABELS } from '../services/teamCollectionService.js';
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
+import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
+import { transition as transitionTimeState, applyEvent as applyTimeEvent } from '../services/froTimeSessions.js';
+import { reconcileDispositionIdle } from '../services/froTimeReconcile.js';
+import { TIME_STATES, TIME_EVENTS } from '../utils/froTimeState.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // 1) Worker already owns an active assignment for this donor (and ngo).
@@ -1994,7 +1998,6 @@ export const claimSuspenseReceipt = async (req, res) => {
         await db.from('fro_assignments').update({
           status: 'donation_collected',
           last_contacted_at: new Date().toISOString(),
-          hidden_until: firstOfNextMonthIST(),
         }).eq('id', assignmentId);
       } catch (e) { console.error('Failed to close promise assignment on claim:', e.message); }
     }
@@ -2147,7 +2150,7 @@ export const getMyDonors = async (req, res) => {
     // only unclaimed, available rows surface in the queue.
     // Narrow columns (not SELECT *): this pulls the FRO's whole station
     // scope (often thousands of rows) over mobile data on every list load.
-    const ASSIGNMENT_COLS = 'id, donor_id, ngo_id, station, status, batch_type, is_new, notes, last_contacted_at, next_follow_up, hidden_until, assigned_at, rollover_from_status, rollover_at, ngos(name)';
+    const ASSIGNMENT_COLS = 'id, donor_id, ngo_id, station, status, batch_type, is_new, notes, last_contacted_at, next_follow_up, assigned_at, rollover_from_status, rollover_at, ngos(name)';
     if (effectiveStations.length > 0) {
       let query = db
         .from('fro_assignments')
@@ -2324,14 +2327,13 @@ export const getMyDonors = async (req, res) => {
     // "most terminal" row comes first and wins the keep-first dedup below. A
     // pending twin must never shadow a disposed/worked row, otherwise a lead
     // that was legally disposed (e.g. 'others') resurfaces with stale
-    // 'pending' status. Rank: hidden_until > terminal disposition > money done
+    // 'pending' status. Rank: terminal disposition > money done
     // > not-connected terminal > everything else.
     const dedupRank = (x) => {
-      if (x.hidden_until) return 0;
-      if (TERMINAL_DISPOSITIONS.has(x.status)) return 1;
-      if (MONEY_DONE_STATUSES.has(x.status)) return 2;
-      if (NOT_CONNECTED_DISPOSITION_DETAILS.has(x.status)) return 3;
-      return 4;
+      if (TERMINAL_DISPOSITIONS.has(x.status)) return 0;
+      if (MONEY_DONE_STATUSES.has(x.status)) return 1;
+      if (NOT_CONNECTED_DISPOSITION_DETAILS.has(x.status)) return 2;
+      return 3;
     };
     assignments.sort((x, y) => {
       const r = dedupRank(x) - dedupRank(y);
@@ -2392,7 +2394,6 @@ export const getMyDonors = async (req, res) => {
         notes: a.notes || null,
         last_contacted_at: a.last_contacted_at || null,
         next_follow_up: a.next_follow_up || null,
-        hidden_until: a.hidden_until || null,
         assigned_at: a.assigned_at || null,
         rollover_from_status: a.rollover_from_status || null,
         rollover_at: a.rollover_at || null,
@@ -2568,7 +2569,6 @@ export const getMyDonors = async (req, res) => {
     const SUPPRESS_REASONS = {
       DND: 'dnd',
       DONATED_THIS_MONTH: 'donated_this_month',
-      HIDDEN_UNTIL: 'hidden_until',
       DISPOSED_TODAY: 'disposed_today',
       HARD_TERMINAL: 'hard_terminal',
       MONEY_DONE: 'money_done',
@@ -2579,13 +2579,13 @@ export const getMyDonors = async (req, res) => {
 
     // The ONLY reasons that hide a lead by default. A donor who refused, was
     // unreachable or was already worked stays VISIBLE in My Leads — that is the
-    // whole point of the "show me all my data" rule. These three are the
-    // automatic holds: an explicit DND, a completed donation this month, and a
-    // lead parked until a later date.
+    // whole point of the "show me all my data" rule. These two are the
+    // automatic holds: an explicit DND and a completed donation this month.
+    // (The former third hold, a hidden_until park date, was removed in migration
+    // 168; parking is no longer a thing.)
     const AUTO_HIDE_REASONS = new Set([
       SUPPRESS_REASONS.DND,
       SUPPRESS_REASONS.DONATED_THIS_MONTH,
-      SUPPRESS_REASONS.HIDDEN_UNTIL,
     ]);
 
     let baseFiltered;
@@ -2600,7 +2600,6 @@ export const getMyDonors = async (req, res) => {
         // filters instead of being dropped.
         if (activeDndIds.has(dndKey(r))) return false;
         if (monthDonatedSet.has(r.assignment_id)) return false;
-        if (r.hidden_until && new Date(r.hidden_until) > now) return false;
         return true;
       });
     }
@@ -2611,10 +2610,9 @@ export const getMyDonors = async (req, res) => {
     const suppressedReasonFor = (r) => {
       if (activeDndIds.has(dndKey(r))) return SUPPRESS_REASONS.DND;
       if (monthDonatedSet.has(r.assignment_id)) return SUPPRESS_REASONS.DONATED_THIS_MONTH;
-      if (r.hidden_until && new Date(r.hidden_until) > now) return SUPPRESS_REASONS.HIDDEN_UNTIL;
       if (disposedTodayIds.has(r.donor_id)) return SUPPRESS_REASONS.DISPOSED_TODAY;
       if (HARD_TERMINAL_STATUSES.has(r.status)) return SUPPRESS_REASONS.HARD_TERMINAL;
-      if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return SUPPRESS_REASONS.MONEY_DONE;
+      if (MONEY_DONE_STATUSES.has(r.status)) return SUPPRESS_REASONS.MONEY_DONE;
       if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return SUPPRESS_REASONS.SCHEDULED;
       if (terminalForeverIds.has(r.donor_id) && !isRolloverReopenedRefusal(r)) return SUPPRESS_REASONS.TERMINAL_FOREVER;
       if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) {
@@ -2645,8 +2643,7 @@ export const getMyDonors = async (req, res) => {
     const workableFiltered = result.filter(r => {
       if (disposedTodayIds.has(r.donor_id)) return false;
       if (HARD_TERMINAL_STATUSES.has(r.status)) return false;
-      if (r.hidden_until && new Date(r.hidden_until) > now) return false;
-      if (MONEY_DONE_STATUSES.has(r.status) && !r.hidden_until) return false;
+      if (MONEY_DONE_STATUSES.has(r.status)) return false;
       if (SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status)) return false;
       if (terminalForeverIds.has(r.donor_id) && !isRolloverReopenedRefusal(r)) return false;
       if (notConnectedForeverIds.has(r.donor_id) && !MONEY_DONE_STATUSES.has(r.status)) return false;
@@ -2927,7 +2924,6 @@ export const updateDonorStatus = async (req, res) => {
     // the audit trail survives a mistake.
     const resolvedNgo = ngo_id || assignment.ngo_id;
     if (status === 'dnd') {
-      updates.hidden_until = firstOfNextMonthIST();
       await recordDndMark({
         donorId: assignment.donor_id ?? donorId,
         ngoId: resolvedNgo,
@@ -3249,7 +3245,6 @@ export const createDonorLogHandler = async (req, res) => {
         await updateAssignmentStatus(assignment.id, {
           status: 'donation_collected',
           last_contacted_at: now,
-          hidden_until: firstOfNextMonthIST(),
         });
       } else if (action === 'disposition' && disposition_detail) {
         await completeAllScheduledByAssignment(assignment.id);
@@ -3271,7 +3266,6 @@ export const createDonorLogHandler = async (req, res) => {
           statusUpdates.next_follow_up = outcome.replace('next_date:', '').trim();
         }
 
-        statusUpdates.hidden_until = computeHiddenUntil(disposition_detail, scheduled_at);
         await updateAssignmentStatus(assignment.id, statusUpdates);
       } else if (action === 'call' || action === 'visit') {
         await updateAssignmentStatus(assignment.id, {
@@ -3304,10 +3298,10 @@ export const createDonorLogHandler = async (req, res) => {
       // missing" reports).
       //
       // The assignment row is now KEPT so the decision stays visible and
-      // reversible: status='dnd' plus a hidden_until park it out of the working
-      // stack, donor_dnd suppresses it globally within this (donor, ngo) scope,
-      // and the FRO can still see it under "Show suppressed". Removing it from
-      // the controlled queue (removeFromQueue) is kept so a DND'd donor can
+      // reversible: status='dnd' plus the donor_dnd registry mark, which
+      // suppresses the lead globally within this (donor, ngo) scope, and the FRO
+      // can still see it under "Show suppressed". Removing it from the
+      // controlled queue (removeFromQueue) is kept so a DND'd donor can
       // never be handed out again by the auto-advance cursor.
       if (action === 'disposition' && disposition_detail === 'dnd') {
         try {
@@ -3352,13 +3346,13 @@ export const createDonorLogHandler = async (req, res) => {
       return log;
     });
 
-    // ── The 4-minute window: re-armed by every recorded activity ──
-    // The clock no longer starts at login; the FIRST saved action of the day
-    // opens the window and every subsequent saved action (donation, call, visit,
-    // message, follow_up, note, disposition) buys a fresh 4 minutes and clears
-    // any open idle period, folding the elapsed seconds into the day first.
-    // Runs after the transaction commits so a failed save can never hand out
-    // free time.
+    // ── The 4-minute disposition window ────────────────────────────────
+    // Server-authoritative rule: the window is reset ONLY by a successful,
+    // backend-confirmed disposition. Mouse/keyboard/click/scroll/tab activity and
+    // non-disposition logs (call, visit, message, follow_up, note, donation) do
+    // NOT reset it — they are recorded work, but they do not discharge the
+    // disposition the worker still owes. Runs after the transaction commits so a
+    // failed save can never hand out free time.
     //
     // The row is keyed on the HUMAN at the keyboard (splitWorkerContext) — the
     // same identity the heartbeat and every status read use. Under work-as the
@@ -3367,14 +3361,25 @@ export const createDonorLogHandler = async (req, res) => {
     // for work they were demonstrably doing. The lead / assignment / credit
     // side above still uses the painted workerId unchanged.
     let timer = null;
-    try {
-      const nowMs = Date.now();
-      const { human: humanCtx } = splitWorkerContext(req.user);
-      timer = await resetLiveWindow(humanCtx.id, { nowMs });
-    } catch (timerErr) {
-      // Non-fatal: the action is already saved; the timer just keeps its
-      // previous deadline and the FRO may go idle a little early.
-      console.warn('live window reset skipped:', timerErr.message);
+    if (action === 'disposition') {
+      try {
+        const nowMs = Date.now();
+        const { human: humanCtx } = splitWorkerContext(req.user);
+        timer = await resetLiveWindow(humanCtx.id, { nowMs, dbg: 'disposition' });
+        // Record the state-machine transition through the event resolver, not a
+        // raw set. DISPOSITION_SUCCESS closes an IDLE (or WORKING) interval and
+        // opens a fresh WORKING one, but is a no-op while MEETING / PAUSED /
+        // INTERNET_PROBLEM is the open state — a raw transition to WORKING would
+        // silently end a hold an admin set. The fresh 240s deadline is written by
+        // resetLiveWindow above; this only moves the ledger in step with it.
+        try {
+          await applyTimeEvent(humanCtx.id, TIME_EVENTS.DISPOSITION_SUCCESS, { atMs: nowMs, reason: 'disposition' });
+        } catch (_) { /* ledger absent — non-fatal */ }
+      } catch (timerErr) {
+        // Non-fatal: the action is already saved; the timer just keeps its
+        // previous deadline and the FRO may go idle a little early.
+        console.warn('live window reset skipped:', timerErr.message);
+      }
     }
 
     return res.json({ message: 'Log entry created', data: result, timer });
@@ -3502,29 +3507,6 @@ function dispositionDetailToStatus(detail) {
     others: 'others',
   };
   return map[detail] || 'contacted';
-}
-
-const SCHEDULE_DISPOSITIONS = new Set([
-  'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
-]);
-
-function firstOfNextMonthIST() {
-  return firstOfNextMonthIstUtc();
-}
-
-function computeHiddenUntil(dispositionDetail, scheduledAt) {
-  if (SCHEDULE_DISPOSITIONS.has(dispositionDetail) && scheduledAt) {
-    return new Date(scheduledAt);
-  }
-  // Only unanswered calls are automatically retryable, from the next IST day.
-  const RETRYABLE_NEXT_DAY = new Set([
-    'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage',
-    'unreachable', 'voicemail', 'busy_call_waiting', 'ooc_unreachable_network', 'ringing_voicemail',
-  ]);
-  if (RETRYABLE_NEXT_DAY.has(dispositionDetail)) {
-    return startOfNextIstDayUtc();
-  }
-  return firstOfNextMonthIST();
 }
 
 export const scheduleContact = async (req, res) => {
@@ -4928,9 +4910,7 @@ export const updateLiveStatus = async (req, res) => {
       // as idle. Skipped when the FRO is still carrying an idle period from
       // before the freeze: they stay idle (Resume re-arms), so a window here
       // would only paint the forbidden "idle + 4:00" state.
-      if (!Number.isFinite(idlePeriodStartMs(row, nowMs))) {
-        payload.disposition_due_at = nextDeadline(shift, nowMs);
-      }
+      payload.disposition_due_at = nextDeadline(shift, nowMs);
     }
 
     // Settle-in grace, then the window arms on its own.
@@ -5014,10 +4994,14 @@ export const updateLiveStatus = async (req, res) => {
     // that nothing else kept in step with.
     try {
       const istDay = istDateStr(new Date(nowMs));
+      // Idle is authoritative from the interval ledger. `derivedIdle` is only the
+      // legacy fallback for a worker whose day predates the ledger roll-out, so a
+      // pre-migration panel still reports the total it always did.
+      const ledgerIdle = await ledgerIdleForDate(workerId, istDay, shift);
       const daily = {
         talk_seconds: today_talk_seconds,
         calls: today_calls,
-        idle_seconds: derivedIdle,
+        idle_seconds: ledgerIdle != null ? ledgerIdle : derivedIdle,
       };
       if (Object.values(daily).some(v => v !== undefined)) {
         await writeDailySnapshot(workerId, istDay, daily, {
@@ -5056,6 +5040,28 @@ export const updateLiveStatus = async (req, res) => {
       fresh = data || null;
     } catch (_) { /* non-fatal: the client falls back to its local mirror */ }
 
+    // Record the heartbeat's implied state in the authoritative interval ledger.
+    // This is idempotent: a beat that reports the already-open state writes
+    // nothing. Non-fatal while the ledger migration is rolling out.
+    const beatState = fresh?.is_paused ? TIME_STATES.PAUSED
+      : fresh?.status === 'meeting' ? TIME_STATES.MEETING
+        : !withinShift(shift, Date.now()) ? TIME_STATES.OFF_SHIFT
+          : isIdleNow(fresh, shift, Date.now()) ? TIME_STATES.IDLE
+            : TIME_STATES.WORKING;
+    try {
+      await transitionTimeState(workerId, beatState, { atMs: Date.now(), reason: 'heartbeat' });
+    } catch (ledgerErr) {
+      // Not fatal to the heartbeat, but a failure here means the authoritative
+      // ledger is not being fed. Surface it instead of swallowing it: an empty
+      // fro_time_sessions should read as "broken write", not "no activity".
+      console.warn('[fro-time] heartbeat ledger write skipped:', ledgerErr.message);
+    }
+
+    let timeStatus = null;
+    try {
+      timeStatus = await computeTimeStatus({ workerId, liveRow: fresh, shift, nowMs: Date.now() });
+    } catch (_) { /* non-fatal */ }
+
     return res.json({
       message: 'Status updated',
       status: fresh?.status ?? status ?? null,
@@ -5068,11 +5074,11 @@ export const updateLiveStatus = async (req, res) => {
       // a second time mid-session.
       settle_until: fresh?.settle_until ?? null,
       settle_seconds_left: settleSecondsLeft(fresh || {}, Date.now()),
-      // Derived from the row, not from the status column. A client pushing
-      // 'online' while its own deadline has lapsed must still read back as idle,
-      // and outside the shift nothing reads idle at all.
-      is_idle: isIdleNow(fresh, shift, Date.now()),
-      today_idle_seconds: liveIdleSeconds(fresh || {}, shift, Date.now()),
+      ...(timeStatus ? toStatusPayload(timeStatus) : {
+        // Fallback if the ledger compute failed for any reason.
+        is_idle: isIdleNow(fresh, shift, Date.now()),
+        today_idle_seconds: liveIdleSeconds(fresh || {}, shift, Date.now()),
+      }),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -5231,64 +5237,7 @@ export const logoutAllFros = async (req, res) => {
 // off-shift leaves a lapsed deadline waiting for their next login, which is the
 // "signed in and instantly idle" bug this whole change set was fixing.
 export const resetAllFroIdle = async (req, res) => {
-  try {
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-
-    const { data: rows, error: readErr } = await db
-      .from('fro_live_status')
-      .select('*')
-      .not('worker_id', 'is', null)
-      .in('status', ['online', 'on_call', 'idle']);
-    if (readErr) throw readErr;
-
-    const cleared = [];
-    for (const row of rows || []) {
-      // Paused/meeting FROs are the admin's, not idle timers' — never touch them.
-      if (row.is_paused || row.status === 'meeting') continue;
-      const shift = await getShiftWindowMs(row.worker_id, nowMs);
-      if (!withinShift(shift, nowMs)) continue;
-      // Nothing open means nothing to clear. idlePeriodStartMs (not a bare
-      // idle_since check) because a lapsed deadline counts as an open period even
-      // with no stamp — that is the powered-off-monitor case, and it is exactly
-      // the state that must not be left accruing.
-      if (!Number.isFinite(idlePeriodStartMs(row, nowMs))) continue;
-
-      const due = nextDeadline(shift, nowMs);
-      const { error } = await db
-        .from('fro_live_status')
-        .update({
-          idle_since: null,
-          disposition_due_at: due,
-          status: row.status === 'idle' ? 'online' : row.status,
-          updated_at: nowIso,
-        })
-        .eq('worker_id', row.worker_id);
-      if (error) throw error;
-      cleared.push(row.worker_id);
-    }
-
-    // No bespoke socket event: every fro_live_status write already goes out as
-    // db:change, which is what the super-admin board listens to (the same path
-    // pause/resume use), so other open dashboards refresh on their own. FRO
-    // panels are deliberately not signalled — fro:resume is wired to the admin
-    // pause overlay and an idle clear must never lift a pause. The FROs
-    // themselves converge on their own next heartbeat, which sees a null
-    // idle_since and a live deadline and stops idling them.
-
-    return res.json({
-      message: cleared.length > 0
-        ? `Cleared idle for ${cleared.length} FRO(s)`
-        : 'No FRO had idle time running',
-      cleared: cleared.length,
-      workerIds: cleared,
-      // Committed idle is left intact, so say so rather than let the admin think
-      // today's numbers went to zero.
-      preserved_committed_idle: true,
-    });
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
+  return res.status(410).json({ message: 'Idle time functionality has been removed' });
 };
 
 // FRO self-resume: a paused worker taps Play in the blocking pause popup.
@@ -5350,6 +5299,63 @@ export const resumeOwnPause = async (req, res) => {
   }
 };
 
+// ─── Authoritative time-state events ─────────────────────────────
+//
+// The single event ingress for the server-authoritative time machine. The client
+// reports discrete, meaningful events (page hidden, meeting start, pause, network
+// lost, …) and the server decides the resulting interval in the ledger. Nothing
+// here trusts a client clock or a client-computed duration: only the event name
+// matters, and the server stamps the time.
+//
+// Held states (MEETING / PAUSED / INTERNET_PROBLEM) win over HIDDEN/SLEEPING, and
+// OFF_SHIFT is derived from the shift window rather than reported by the client.
+export const applyFroTimeEvent = async (req, res) => {
+  try {
+    const { human: humanCtx } = splitWorkerContext(req.user);
+    const event = String(req.body?.event || '');
+    const allowed = Object.values(TIME_EVENTS);
+    if (!allowed.includes(event)) {
+      return res.status(400).json({ message: `Invalid event. Expected one of: ${allowed.join(', ')}` });
+    }
+    const nowMs = Date.now();
+    let result;
+    try {
+      result = await applyTimeEvent(humanCtx.id, event, { atMs: nowMs, reason: event });
+    } catch (ledgerErr) {
+      // The ledger table may not be migrated yet. Fail loud so an operator sees
+      // it, but do not silently drop the event onto the legacy columns either.
+      console.warn('time event ledger write skipped:', ledgerErr.message);
+      return res.status(503).json({ message: 'Time ledger unavailable' });
+    }
+
+    const shift = await getShiftWindowMs(humanCtx.id, nowMs);
+    let row = null;
+    try {
+      const { data } = await db.from('fro_live_status').select('*').eq('worker_id', humanCtx.id).maybeSingle();
+      row = data || null;
+    } catch (_) { /* non-fatal */ }
+    // A time event is a meaningful interaction too: reconcile a lapsed deadline
+    // before reporting, so a PAGE_VISIBLE that arrives after the window expired
+    // cannot resurrect WORKING — only a successful disposition may clear IDLE.
+    try {
+      await reconcileDispositionIdle({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+    } catch (_) { /* non-fatal */ }
+    let timeStatus = null;
+    try {
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+    } catch (_) { /* non-fatal */ }
+
+    return res.json({
+      message: 'Time event applied',
+      event,
+      changed: !!result?.changed,
+      ...(timeStatus ? toStatusPayload(timeStatus) : {}),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // FRO's own live status row — used to restore today's counters in memory on panel
 // load (the client no longer mirrors these into localStorage).
 //
@@ -5372,7 +5378,7 @@ export const getMyLiveStatus = async (req, res) => {
       .select('*')
       .eq('worker_id', humanCtx.id)
       .maybeSingle();
-    const row = data || null;
+    let row = data || null;
     if (!row) return res.json(null);
     // Rehydrate the panel with the authoritative timer: the deadline, the
     // seconds left on it, and idle time including the period still running.
@@ -5383,6 +5389,14 @@ export const getMyLiveStatus = async (req, res) => {
     // or an expired deadline would flash the Resume overlay on every login.
     // Read the row as if that heartbeat had already cleaned it.
     row = withoutStaleIdle(row, shift, nowMs);
+    // Lazily reconcile the authoritative ledger: if the disposition deadline has
+    // passed and the open interval is still WORKING, this read is the "meaningful
+    // interaction" that moves the worker to IDLE — retrospectively from the
+    // deadline, so no client heartbeat is required. Idempotent, and non-fatal
+    // while the ledger migration rolls out.
+    try {
+      await reconcileDispositionIdle({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+    } catch (_) { /* non-fatal: the legacy settle below still owns idle */ }
     // The window lapsed but nothing ever pushed the stamp, so the row's stored
     // total still disagrees with the stretch being derived from the deadline.
     // Settle it now so this panel and every stored-column reader agree. Guarded
@@ -5403,17 +5417,23 @@ export const getMyLiveStatus = async (req, res) => {
     // billing state. All this needs to do is report the grace truthfully so the
     // countdown is correct the instant the panel paints.
     const due = row.disposition_due_at || null;
-    const totalIdle = liveIdleSeconds(row, shift, nowMs);
+    // The authoritative time state + day totals come from the interval ledger.
+    // The legacy idle fields below are DERIVED from the same result (Q2), so
+    // there is exactly one idle calculation in the system.
+    let timeStatus;
+    try {
+      timeStatus = await computeTimeStatus({ workerId: humanCtx.id, liveRow: row, shift, nowMs });
+    } catch (timeErr) {
+      console.warn('time-status compute skipped:', timeErr.message);
+      timeStatus = null;
+    }
     return res.json({
       ...row,
       disposition_due_at: due,
       seconds_left: secondsLeft({ disposition_due_at: due }, nowMs),
       settle_seconds_left: settleSecondsLeft(row, nowMs),
       in_shift: withinShift(shift, nowMs),
-      today_idle_seconds: totalIdle,
-      idle_seconds_total: totalIdle,
-      idle_minutes: Math.floor(totalIdle / 60),
-      is_idle: isIdleNow(row, shift, nowMs),
+      ...(timeStatus ? toStatusPayload(timeStatus) : {}),
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -6038,22 +6058,38 @@ export const getMyDisposedLeads = async (req, res) => {
 
     const latestDispMap = {};
     for (const dl of disposedLogs || []) {
-      if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
+if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
         latestDispMap[dl.donor_id] = dl;
       }
+    }
+
+    // A donor can hold a BOD-1/MOD-3 assignment *and* a BOD-4 one, so scoping by
+    // "does this donor have an in-scope assignment" is not enough - it surfaces the
+    // donor's out-of-scope calls too. Every log carries assignment_id, so anchor on
+    // the assignment the call was actually logged against.
+    const inScopeAssignIds = new Set(scopedAssignments.map(a => a.id));
+    const scopedDispMap = {};
+    for (const [donorId, dl] of Object.entries(latestDispMap)) {
+      if (inScopeAssignIds.has(dl.assignment_id)) scopedDispMap[donorId] = dl;
     }
 
     const result = [];
     const seen = new Set();
     for (const d of donors) {
       const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
-      // If no scoped assignment found, still show entry using log-derived info
-      const assignmentsToUse = matchingAssignments.length > 0 ? matchingAssignments : [{ id: latestDispMap[d.id]?.assignment_id, donor_id: d.id, ngo_id: null, station: '', ngos: { name: 'Unknown' }, batch_type: '' }];
-      for (const a of assignmentsToUse) {
+      // History is scoped to the FRO's allotted (station, ngo) pairs, same as
+      // My Leads. Skip donors with no in-scope assignment, and donors whose call was
+      // logged against an out-of-scope assignment, instead of inventing a blank
+      // "Unknown" row for them: that fallback is what let 336 leads from stations
+      // this FRO does not hold appear in a book that only contains BOD-1/MOD-3.
+      // The search path above already behaves this way.
+      if (matchingAssignments.length === 0) continue;
+      if (!scopedDispMap[d.id]) continue;
+      for (const a of matchingAssignments) {
         const key = `${d.id}-${a.ngo_id || 'na'}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const disp = latestDispMap[d.id];
+        const disp = scopedDispMap[d.id];
         result.push({
           donor_id: d.id,
           ngo_id: a.ngo_id,

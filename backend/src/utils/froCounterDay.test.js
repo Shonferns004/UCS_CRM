@@ -119,7 +119,9 @@ test('a non-finite caller cap is ignored rather than poisoning the result', () =
 const banked = [];
 const dbModule = await import('../config/db.js');
 dbModule.default._pool.query = async (sql, params) => {
-  banked.push({ sql, params });
+  // Only the daily-snapshot writes are of interest; the ledger read that now
+  // feeds idle must not be mistaken for one of them.
+  if (String(sql).trim().toUpperCase().startsWith('INSERT')) banked.push({ sql, params });
   return { rows: [] };
 };
 
@@ -130,7 +132,9 @@ test('a stale row rolls: counters go to zero and stats_date moves to today', asy
   assert.equal(res.rolled, true);
   assert.equal(res.priorDay, yesterday);
   assert.equal(res.statsDate, today);
-  assert.equal(res.counters.today_idle_seconds, 0);
+  // today_idle_seconds is no longer a live-row counter: the authoritative idle
+  // total comes from fro_time_sessions and is derived on read.
+  assert.equal('today_idle_seconds' in res.counters, false);
   assert.equal(res.counters.today_calls, 0);
 });
 
@@ -148,15 +152,19 @@ test('the previous day is banked against the PREVIOUS date, not today', async ()
   assert.notEqual(banked[0].params[1], today);
   assert.equal(banked[0].params[2], 3600, 'talk books to the old day too');
   assert.equal(banked[0].params[3], 12, 'calls book to the old day too');
-  assert.equal(banked[0].params[4], 6 * 3600);
+  // The live row no longer carries idle counters; fro_time_sessions is the
+  // authoritative idle source, so nothing is banked from the stale column here.
+  assert.equal(banked[0].params[4], 0);
 });
 
-test("the previous day's banked idle is itself capped", async () => {
-  // Banking the inflated legacy value must not write 52h into yesterday's row.
+test("a stale live row's inflated idle is not banked at all, so the cap is never reached", async () => {
+  // The live row used to hold an ever-rising idle accumulator. It no longer
+  // does: idle is summed from fro_time_sessions (already day-bounded), so the
+  // rollover books zero for the column regardless of what the legacy cell says.
   banked.length = 0;
   const row = { stats_date: yesterday, idle_since: null, today_idle_seconds: 52 * 3600 + 20 * 60 };
   await rollCountersForNewDay('w1', row, NOW);
-  assert.equal(banked[0].params[4], MAX_IDLE_SECONDS_PER_DAY);
+  assert.equal(banked[0].params[4], 0);
 });
 
 test('a current row does not roll and keeps its counters', async () => {
@@ -164,7 +172,7 @@ test('a current row does not roll and keeps its counters', async () => {
   const row = { stats_date: today, idle_since: null, today_idle_seconds: 1800, today_calls: 4 };
   const res = await rollCountersForNewDay('w1', row, NOW);
   assert.equal(res.rolled, false);
-  assert.equal(res.counters.today_idle_seconds, 1800, 'a same-day total survives the rollover untouched');
+  assert.equal('today_idle_seconds' in res.counters, false, 'idle is not a live-row counter any more');
   assert.equal(res.counters.today_calls, 4);
   assert.equal(banked.length, 0, 'nothing is re-banked for the current day');
 });

@@ -1,12 +1,10 @@
-// Re-arm rule for the FRO's 4-minute live window.
+// The re-arm rule for the FRO's 4-minute disposition window, under the
+// server-authoritative time machine.
 //
-// The window used to be reset only by a disposition, keyed on the painted FRO
-// id, and gated behind "unarmed and nothing recorded today". That is the source
-// of the reported false-idle: a donation/call/note reset the client's clock but
-// never the server deadline, and under work-as the disposition wrote the covered
-// FRO's row while every status read used the operator's. buildLiveWindow() is
-// the single pure rule — any saved activity buys a fresh window, on whatever
-// worker id the caller resolves to the human at the keyboard — and
+// A successful, backend-confirmed disposition re-arms the deadline and clears
+// idle_since. It does NOT accumulate idle: the authoritative idle total is the
+// sum of the intervals in fro_time_sessions, and the legacy today_idle_seconds
+// column is derived from that ledger on read. buildLiveWindow() is the pure rule;
 // resetLiveWindow() is the thin write path around it.
 
 import { test } from 'node:test';
@@ -20,11 +18,11 @@ const SHIFT = { startMs: NOW - 8 * 3600 * 1000, endMs: NOW + 4 * 3600 * 1000 };
 const ago = (ms) => new Date(NOW - ms).toISOString();
 const DUE = new Date(NOW + 240 * 1000).toISOString();
 
-test('any activity re-arms an idle row to now + 4 minutes and clears idle_since', () => {
+test('a disposition re-arms the window, clears idle_since, and punches an idle row online', () => {
   const liveRow = {
     worker_id: 'f1',
     status: 'idle',
-    today_idle_seconds: 0,
+    today_idle_seconds: 120, // stale legacy column — must not be written or carried
     idle_since: ago(5 * 60 * 1000),
     disposition_due_at: null,
   };
@@ -35,43 +33,11 @@ test('any activity re-arms an idle row to now + 4 minutes and clears idle_since'
   assert.equal(patch.status, 'online');
   assert.equal(patch.current_donor_id, null);
   assert.equal(patch.call_started_at, null);
-  // The 5 minutes already open were folded into the day before clearing.
-  assert.equal(patch.today_idle_seconds, 5 * 60);
+  // The ledger owns today_idle_seconds; this path never writes it.
+  assert.equal('today_idle_seconds' in patch, false);
   assert.equal(timer.seconds_left, 240);
   assert.equal(timer.is_idle, false);
-  assert.equal(timer.today_idle_seconds, 5 * 60);
-});
-
-test('an overdue save still banks the minutes between deadline and now', () => {
-  const liveRow = {
-    worker_id: 'f1',
-    status: 'idle',
-    today_idle_seconds: 600,          // 10 min already committed today
-    idle_since: null,
-    disposition_due_at: ago(60 * 1000), // lapsed 60s ago
-  };
-  const { patch, timer } = buildLiveWindow({ workerId: 'f1', liveRow, shift: SHIFT, nowMs: NOW });
-
-  // 10 committed + the 60s of open period before the save landed.
-  assert.equal(patch.today_idle_seconds, 600 + 60);
-  assert.equal(patch.idle_since, null);
-  assert.equal(patch.status, 'online');
-  assert.equal(timer.today_idle_seconds, 660);
-});
-
-test('with a future deadline, only the idle_since period is folded', () => {
-  const liveRow = {
-    worker_id: 'f1',
-    status: 'online',
-    today_idle_seconds: 120,          // 2 min committed
-    idle_since: ago(3 * 60 * 1000),   // 3 min open, not yet overdue
-    disposition_due_at: new Date(NOW + 600 * 1000).toISOString(),
-  };
-  const { patch } = buildLiveWindow({ workerId: 'f1', liveRow, shift: SHIFT, nowMs: NOW });
-
-  assert.equal(patch.today_idle_seconds, 120 + 3 * 60);
-  assert.equal(patch.idle_since, null);
-  assert.equal('status' in patch, false); // was already online
+  assert.equal('today_idle_seconds' in timer, false);
 });
 
 test('a frozen row re-arms but never punches back to online', () => {
@@ -103,7 +69,6 @@ test('a missing live row still builds the patch and timer without a status flip'
   assert.equal('today_idle_seconds' in patch, false);
   assert.equal(timer.seconds_left, 240);
   assert.equal(timer.is_idle, false);
-  assert.equal(timer.today_idle_seconds, 0);
 });
 
 test('outside the shift the window is not re-armed', () => {
@@ -147,6 +112,7 @@ test('resetLiveWindow reads and upserts the given worker row and returns the tim
   assert.equal(seen.upserts[0].opts.onConflict, 'worker_id');
   assert.equal(seen.upserts[0].patch.worker_id, 'f1');
   assert.equal(seen.upserts[0].patch.status, 'online');
+  assert.equal('today_idle_seconds' in seen.upserts[0].patch, false);
   assert.equal(timer.seconds_left, 240);
   assert.equal(timer.is_idle, false);
 });
@@ -200,14 +166,15 @@ test('a stale row is rolled to zero before stats_date is restamped as today', as
   const { patch } = fakeDb.seen.upserts[0];
 
   assert.equal(patch.stats_date, '2026-09-29', 'restamped to today');
-  // Every counter named explicitly. The upsert is partial, so a column left out
-  // keeps its stored value - which is how yesterday's total used to survive under
-  // a fresh date.
-  assert.equal(patch.today_idle_seconds, 0);
+  // Every retained counter named explicitly. The upsert is partial, so a column
+  // left out keeps its stored value - which is how yesterday's total used to
+  // survive under a fresh date.
   assert.equal(patch.today_talk_seconds, 0);
   assert.equal(patch.today_calls, 0);
   assert.equal(patch.today_break_seconds, 0);
   assert.equal(patch.today_skipped, 0);
+  // today_idle_seconds is no longer a live counter; the ledger owns idle now.
+  assert.equal('today_idle_seconds' in patch, false);
   assert.equal(patch.idle_since, null);
   assert.equal(patch.status, 'online', 'still punched back online by the window');
 });
@@ -221,18 +188,17 @@ test('a row already dated today is not rolled', async () => {
   assert.equal(patch.stats_date, '2026-09-29');
   // No counter is named at all. The row's committed total already belongs to
   // today, so there is nothing to zero - and zeroing it would wipe a real day's
-  // work. This is the whole difference from the stale case above, where the
-  // stored value belongs to yesterday and must be replaced.
+  // work.
   assert.equal('today_idle_seconds' in patch, false);
   assert.equal('today_talk_seconds' in patch, false);
   assert.equal('today_calls' in patch, false);
 });
 
-test('a stale row reports 0 idle to the client, not yesterday\'s running total', async () => {
+test('a stale row reports a fresh 4-minute timer and no idle counter', async () => {
   const fakeDb = capturingDb(staleRow('2026-09-28'));
 
   const timer = await resetLiveWindow('f1', { nowMs: NOW, dbClient: fakeDb, getShift: async () => SHIFT });
 
-  assert.equal(timer.today_idle_seconds, 0);
+  assert.equal('today_idle_seconds' in timer, false);
   assert.equal(timer.seconds_left, 240);
 });

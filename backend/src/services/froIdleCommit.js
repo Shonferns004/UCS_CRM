@@ -4,7 +4,7 @@ import {
   withinShift, dispositionDueMs,
 } from '../utils/froIdle.js';
 import { isCoveredAway } from './froCoverFreeze.js';
-import { rollCountersForNewDay, writeDailySnapshot, isCounterDayStale } from './froCounterDay.js';
+import { rollCountersForNewDay, writeDailySnapshot, isCounterDayStale, ledgerIdleForDate } from './froCounterDay.js';
 
 // Committing idle when an FRO session ENDS (manual sign-out or the shift-end
 // auto-logout sweep).
@@ -190,8 +190,11 @@ export async function commitIdleOnExit(workerId, nowMs = Date.now(), capMs = nul
   // Daily snapshot so the monthly salary total includes the tail, and so the
   // previous day keeps the total it actually earned rather than having it
   // overwritten by today's. Routed through the shared writer for the 24h cap.
+  // Idle is authoritative from the ledger (the open interval is already clipped
+  // at now by sumIntervalsByState); `total` is the pre-migration fallback.
+  const ledgerIdle = await ledgerIdleForDate(id, roll.statsDate);
   await writeDailySnapshot(id, roll.statsDate, {
-    idle_seconds: total,
+    idle_seconds: ledgerIdle != null ? ledgerIdle : total,
     talk_seconds: talk,
     calls,
   }, { dbg: 'exit' });

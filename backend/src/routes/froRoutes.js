@@ -47,9 +47,9 @@ import {
   searchSuspenseDonors,
   getMyLiveStatus,
   resumeOwnPause,
+  applyFroTimeEvent,
   // resumeOwnIdle removed: see the note at the end of the /status routes.
   logoutAllFros,
-  resetAllFroIdle,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -60,12 +60,13 @@ router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses)
 // Attendance-punched roster for today. Registered next to /status; the path is
 // two segments so it cannot be shadowed by any single-segment /:id route.
 router.get('/status/present', authenticateRole('super_admin', 'admin'), getPresentToday);
-// Super-admin only (not plain admin): ends the still-running idle period for
-// every FRO on shift and re-arms a full disposition window. Committed idle is
-// preserved — see resetAllFroIdle for why.
-router.put('/status/reset-idle', authenticateRole('super_admin'), resetAllFroIdle);
+// idle reset route removed as part of idle time removal
 router.post('/status/logout-all', authenticateRole('admin', 'super_admin'), logoutAllFros);
 router.get('/status/me', getMyLiveStatus);
+// The single event ingress for the server-authoritative time machine. Discrete
+// client events (page hidden/visible, meeting start/end, pause, network lost,
+// sleep) map to state transitions in the open interval ledger.
+router.post('/status/time-event', applyFroTimeEvent);
 
 const requireFro = (req, res, next) => {
   if (req.user.role === 'fro') return next();
