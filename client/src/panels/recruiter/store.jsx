@@ -2,10 +2,13 @@ import { createContext, useContext, useCallback, useState, useMemo, useEffect, u
 import { useUcs } from '../../store'
 import { api } from '../../api/auth'
 import { useRealtime } from '../../hooks/useRealtime'
-import { API_BASE as apiBase } from '../../lib/apiBase'
 
 const RecContext = createContext(null)
 export const useRec = () => useContext(RecContext)
+
+// Mirrors CAN_SCOPE_ALL in backend/src/controllers/leadController.js: the roles
+// the API will accept ?scope=all from.
+export const CAN_VIEW_ALL_LEADS = ['super_admin', 'admin', 'hr', 'master']
 
 const PALETTE = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D']
 export const avatarColor = (name) => { let h=0; for(const c of name) h=c.charCodeAt(0)+((h<<5)-h); return PALETTE[Math.abs(h)%PALETTE.length] }
@@ -193,6 +196,11 @@ export function RecProvider({ children }) {
   const [leads, setLeads] = useState([])
   const [leadsLoading, setLeadsLoading] = useState(true)
   const [leadFilters, setLeadFilters] = useState({ search: '', status: '', source: '' })
+  // A recruiter's panel is their own pipeline. The whole-company view is only
+  // offered to roles the server also lets opt out with ?scope=all, so the toggle
+  // can never widen access the API would refuse anyway.
+  const [leadScope, setLeadScope] = useState('mine')
+  const canViewAllLeads = CAN_VIEW_ALL_LEADS.includes(user?.role)
   const createdLeadsRef = useRef({})
 
   const candidates = useMemo(() => leads.map(l => {
@@ -244,13 +252,16 @@ export function RecProvider({ children }) {
       if (leadFilters.search) params.set('search', leadFilters.search)
       if (leadFilters.status) params.set('status', leadFilters.status)
       if (leadFilters.source) params.set('source', leadFilters.source)
+      // The server already narrows a recruiter to their own leads, so 'mine'
+      // needs no parameter; only the privileged escape hatch asks for the rest.
+      if (leadScope === 'all' && CAN_VIEW_ALL_LEADS.includes(user?.role)) params.set('scope', 'all')
       const qs = params.toString()
       const data = await api('/leads' + (qs ? '?' + qs : ''), { _prefix: 'ucs' })
       const ids = new Set((data || []).map(d => d.id))
       const extras = Object.values(createdLeadsRef.current).filter(l => !ids.has(l.id))
       setLeads([...extras, ...data])
     } catch (e) { console.error('Error:', e.message); } finally { setLeadsLoading(false) }
-  }, [token, leadFilters])
+  }, [token, leadFilters, leadScope, user?.role])
 
   const refreshLeads = useCallback(() => fetchLeads(false), [fetchLeads])
 
@@ -295,18 +306,13 @@ export function RecProvider({ children }) {
   }, [fetchLeads, log])
 
   const deleteLead = useCallback(async (id) => {
-    try {
-      const res = await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs', raw: true })
-      if (!res.ok) throw new Error('Failed to delete lead')
-    } catch (e) {
-      const leadId = String(id).trim()
-      if (!leadId) throw e
-      const res = await fetch(`${apiBase}/db/rows/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: 'leads', rows: [{ id: leadId }] }),
-      })
-      if (!res.ok) throw new Error('Failed to delete lead')
+    // No unauthenticated fallback here. The old version retried through
+    // POST /api/db/rows/delete with a bare fetch, which would have deleted the
+    // row even after the server correctly refused it as someone else's lead.
+    const res = await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs', raw: true })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.message || 'Failed to delete lead')
     }
     delete createdLeadsRef.current[id]
     setLeads(p => p.filter(l => l.id !== id))
@@ -354,10 +360,11 @@ export function RecProvider({ children }) {
     candidates, interviews, jobs, feed, log,
     addJob,
     leads, leadsLoading, leadFilters, setLeadFilters, leadStats,
+    leadScope, setLeadScope, canViewAllLeads,
     fetchLeads, refreshLeads, addLead, updateLead, deleteLead, fetchLeadStats, updateLeadFilters,
     saveInterview, updateCandidateStatus,
     currentUser: user, user, STAGES,
-  }), [candidates, interviews, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, user, STAGES])
+  }), [candidates, interviews, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, leadScope, canViewAllLeads, user, STAGES])
 
   return <RecContext.Provider value={value}>{children}</RecContext.Provider>
 }

@@ -44,6 +44,11 @@ function isSafeKey(key) {
   return key.split('/').every((seg) => seg.length > 0 && seg !== '.' && seg !== '..');
 }
 
+// Exported so services that sign an object from a database column rather than
+// from a token can apply the same guard. S3 resolves `..` inside a key, so a
+// value that merely *starts* with an allowed prefix is not necessarily inside it.
+export { isSafeKey };
+
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 function secretBytes() {
@@ -117,20 +122,16 @@ export function verifyReceiptFile(token) {
 }
 
 /**
- * Maps a stored S3 object URL back to the configured account that owns it, and
- * returns the object key.
- *
- * Needed for receipts uploaded before this service existed, where only the full
- * bucket URL was persisted and the storage account was never recorded. Deriving
- * the bucket from the hostname and matching it against configuration is exact:
- * a URL from a bucket this deployment does not manage yields null rather than a
- * guess.
+ * Works out which configured account owns a stored S3 object URL, and why not
+ * when no account does. Split out of describeStoredObjectUrl so the caller can be
+ * told the reason; that function's contract (null on failure) is preserved for
+ * everything that only needs to know whether the URL is usable.
  */
-export function describeStoredObjectUrl(url) {
+function classifyStoredObjectUrl(url) {
   let parsed;
-  try { parsed = new URL(String(url)); } catch { return null; }
+  try { parsed = new URL(String(url)); } catch { return { account: null, key: null, reason: 'unparseable' }; }
   const bucket = parsed.host.split('.')[0];
-  if (!bucket) return null;
+  if (!bucket) return { account: null, key: null, reason: 'unparseable' };
 
   const configured = [
     ['head', process.env.HEAD_S3_BUCKET],
@@ -138,14 +139,85 @@ export function describeStoredObjectUrl(url) {
     ['legacy', process.env.S3_BUCKET],
   ];
   const account = configured.find(([, name]) => name && String(name) === bucket)?.[0];
-  if (!account) return null;
+  if (!account) return { account: null, key: null, reason: 'unknown-bucket', bucket };
 
   // The S3 key is the whole path: s3Key() prefixes the bucket name, so
   // `receipts/receipts/83574.pdf` in a URL is the complete key, not a relative
   // one. Handing back only the tail would silently read the wrong object.
   const key = parsed.pathname.replace(/^\/+/, '');
-  if (!isSafeKey(key)) return null;
-  return { account, key };
+  if (!isSafeKey(key)) return { account, key: null, reason: 'unsafe-key', bucket };
+  return { account, key, reason: null };
+}
+
+/**
+ * Maps a stored S3 object URL back to the configured account that owns it, and
+ * returns the object key, or null when that cannot be done.
+ *
+ * Needed for receipts uploaded before this service existed, where only the full
+ * bucket URL was persisted and the storage account was never recorded. Deriving
+ * the bucket from the hostname and matching it against configuration is exact:
+ * a URL from a bucket this deployment does not manage yields null rather than a
+ * guess. Use explainStoredObjectUrl when the caller has to report the reason.
+ */
+export function describeStoredObjectUrl(url) {
+  const { account, key, reason } = classifyStoredObjectUrl(url);
+  return reason ? null : { account, key };
+}
+
+/**
+ * Why a stored URL cannot be turned into a link, as one sentence an operator can
+ * act on.
+ *
+ * This exists because the caller used to be left with nothing: `null` was
+ * indistinguishable between "bucket this deployment has never heard of" and "key
+ * the signer refuses", and the send fell through to handing Meta the raw bucket
+ * URL. That 403s on any private bucket, which reads exactly like "the bucket is
+ * not public" -- so the reported cause was wrong in the case most worth
+ * reporting correctly.
+ *
+ * Returns null when the URL is fine, so callers can use it as the test.
+ */
+export function explainStoredObjectUrl(url) {
+  const { reason, bucket } = classifyStoredObjectUrl(url);
+  if (!reason) return null;
+
+  const doNotMakePublic =
+    `Do not grant public read on the bucket to fix this: doing so would expose ` +
+    `every donor PAN, address and amount already stored in it.`;
+
+  if (reason === 'unparseable') {
+    return (
+      `The receipt PDF's stored URL is not a usable object URL, so no download ` +
+      `link can be issued for it. This is a stored-URL problem, not a donor, ` +
+      `template or WhatsApp problem. Re-upload the receipt PDF so a usable URL is ` +
+      `written. ${doNotMakePublic}`
+    );
+  }
+  if (reason === 'unknown-bucket') {
+    const configured = [
+      ['HEAD_S3_BUCKET', process.env.HEAD_S3_BUCKET],
+      ['UPSTREAM_S3_BUCKET', process.env.UPSTREAM_S3_BUCKET],
+      ['S3_BUCKET', process.env.S3_BUCKET],
+    ].filter(([, name]) => name).map(([key, name]) => `${key}=${name}`);
+
+    return (
+      `The receipt PDF is stored in bucket "${bucket}", which this deployment has ` +
+      `no credentials for, so no download link can be issued for it. Configured ` +
+      `buckets: ${configured.length ? configured.join(', ') : 'none'}. Either point ` +
+      `the matching *_S3_BUCKET variable at "${bucket}" with keys that can read it, ` +
+      `or move these receipts into a configured bucket. ${doNotMakePublic}`
+    );
+  }
+  return (
+    `The receipt PDF's stored URL has an object key this service refuses to sign ` +
+    `("${url}"). Receipt keys must start with a letter or digit and contain only ` +
+    `letters, digits, dot, underscore, slash and hyphen, because that same check ` +
+    `is what stops the unauthenticated receipt-file endpoint being pointed outside ` +
+    `the receipts prefix. This receipt was most likely uploaded under an older ` +
+    `filename built from the donor's name, which can contain spaces, commas or ` +
+    `non-ASCII characters. Re-upload the PDF to give it a compliant key. ` +
+    `${doNotMakePublic}`
+  );
 }
 
 /**

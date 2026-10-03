@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 process.env.RECEIPT_LINK_SECRET = process.env.RECEIPT_LINK_SECRET || 'test-secret-not-for-production';
 
 const {
-  signReceiptFile, verifyReceiptFile, buildReceiptFileUrl, describeStoredObjectUrl,
+  signReceiptFile, verifyReceiptFile, buildReceiptFileUrl, describeStoredObjectUrl, explainStoredObjectUrl,
   ttlMs, DEFAULT_TTL_MS, MAX_TTL_MS,
 } = await import('./receiptFileLink.js');
 
@@ -104,6 +104,67 @@ test('a bucket this deployment does not manage resolves to null, never a guess',
   assert.equal(describeStoredObjectUrl('https://someone-elses-bucket.s3.amazonaws.com/receipts/1.pdf'), null);
   assert.equal(describeStoredObjectUrl('not-a-url'), null);
   assert.equal(describeStoredObjectUrl(''), null);
+});
+
+test('explainStoredObjectUrl returns null for a URL that can be signed', () => {
+  process.env.S3_BUCKET = 'ucs-crm-uploads-mumbai';
+  process.env.HEAD_S3_BUCKET = 'ucs-crm-head-uploads';
+
+  const ok = 'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/receipts/receipts/83574.pdf';
+  assert.equal(explainStoredObjectUrl(ok), null);
+});
+
+// describeStoredObjectUrl returning null used to be indistinguishable between
+// these two cases, and the caller then handed Meta the bare bucket URL. The 403
+// that came back read exactly like "the bucket is not public", so the reported
+// cause was wrong in the one case that most needed reporting correctly.
+
+test('an unconfigured bucket is named, with the buckets that are configured', () => {
+  process.env.S3_BUCKET = 'ucs-crm-uploads-mumbai';
+  process.env.HEAD_S3_BUCKET = 'ucs-crm-head-uploads';
+  process.env.UPSTREAM_S3_BUCKET = 'ucs-crm-uploads-mumbai';
+
+  const message = explainStoredObjectUrl('https://someone-elses-bucket.s3.amazonaws.com/receipts/1.pdf');
+
+  assert.match(message, /someone-elses-bucket/, 'the bucket that could not be located must be named');
+  assert.match(message, /S3_BUCKET=ucs-crm-uploads-mumbai/);
+  assert.match(message, /HEAD_S3_BUCKET=ucs-crm-head-uploads/);
+  assert.doesNotMatch(message, /s3:GetObject to Principal/i);
+});
+
+test('a key the signer refuses is explained as a filename problem, not a bucket one', () => {
+  process.env.S3_BUCKET = 'ucs-crm-uploads-mumbai';
+  process.env.HEAD_S3_BUCKET = 'ucs-crm-head-uploads';
+
+  // A donor name with a space, a comma or non-ASCII characters: legal in S3, and
+  // refused by the same check that stops the unauthenticated receipt-file
+  // endpoint being aimed outside the receipts prefix.
+  const message = explainStoredObjectUrl(
+    'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/receipts/Ashray_Shah,%20Priyank_BOD-14.pdf'
+  );
+
+  assert.match(message, /object key this service refuses to sign/i);
+  assert.match(message, /donor/i);
+  assert.match(message, /Re-upload/i, 'the operator needs a way forward, not just a diagnosis');
+  assert.doesNotMatch(message, /s3:GetObject to Principal/i);
+});
+
+test('no explanation ever tells the operator to open the bucket up', () => {
+  process.env.S3_BUCKET = 'ucs-crm-uploads-mumbai';
+  process.env.HEAD_S3_BUCKET = 'ucs-crm-head-uploads';
+
+  const cases = [
+    'https://someone-elses-bucket.s3.amazonaws.com/receipts/1.pdf',
+    'https://ucs-crm-uploads-mumbai.s3.ap-south-1.amazonaws.com/receipts/a b.pdf',
+    'not-a-url',
+    '',
+  ];
+  for (const url of cases) {
+    const message = explainStoredObjectUrl(url);
+    assert.ok(message, `expected an explanation for ${JSON.stringify(url)}`);
+    assert.doesNotMatch(message, /Principal "\*"/, `would leak dangerous advice for ${url}`);
+    assert.match(message, /Do not grant public read/i, `must actively push back for ${url}`);
+  }
 });
 
 test('the URL Meta fetches points at this API, not at the bucket', () => {

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
+import { mediaKind, resolveSrc, openExternally, forgetCache } from '../lib/media.js';
+import { setAdminKey } from '../lib/api.js';
 
 function EmptyState({ text }) {
   return (
@@ -114,6 +116,150 @@ function CellEditor({ name, row, saving, onCancel, onSave }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Image / file cells.
+//
+// A photo column holds a URL, and that URL is either publicly readable or in a
+// private bucket that needs the admin key. Either way the picture belongs in the
+// cell itself — that is the whole point of a data browser — so it renders as a
+// thumbnail with no click required. Clicking only enlarges it.
+// ---------------------------------------------------------------------------
+function usePreviewSrc(value, enabled, token) {
+  const [state, setState] = useState({ status: 'idle' });
+
+  useEffect(() => {
+    let live = true;
+    if (!enabled) { setState({ status: 'idle' }); return () => { live = false; }; }
+
+    const r = resolveSrc(value);
+    if (r && r.src) { setState({ status: 'ready', src: r.src }); return () => { live = false; }; }
+    if (!r) { setState({ status: 'idle' }); return () => { live = false; }; }
+
+    setState({ status: 'loading' });
+    Promise.resolve(r).then((out) => {
+      if (!live) return;
+      if (out && out.src) setState({ status: 'ready', src: out.src });
+      else setState({ status: 'error', error: (out && out.error) || 'missing' });
+    });
+    return () => { live = false; };
+  }, [value, enabled, token]);
+
+  return [state];
+}
+
+// Asks for ENV_ADMIN_KEY the same way the S3 panel does, then retries the
+// preview instead of leaving the cell stuck on "key required".
+function useKeyPrompt(refreshKey) {
+  return () => {
+    const key = window.prompt('This file is in a private S3 bucket.\nPaste the admin key (ENV_ADMIN_KEY) to preview it:');
+    if (!key || !key.trim()) return;
+    setAdminKey(key.trim());
+    forgetCache();
+    refreshKey();
+  };
+}
+
+function MediaCell({ value, kind, onPreview }) {
+  const isImage = kind === 'image';
+  const [tick, setTick] = useState(0);
+  const [state] = usePreviewSrc(value, isImage, tick);
+  const retry = useKeyPrompt(() => setTick((t) => t + 1));
+  const pendingClick = useRef(null);
+
+  useEffect(() => () => { if (pendingClick.current) clearTimeout(pendingClick.current); }, []);
+
+  if (!isImage) {
+    return (
+      <span className="media-file">
+        <Icon name="database" size={14} className="opacity-50" />
+        <a href={value} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()}>
+          {fileName(value)}
+        </a>
+      </span>
+    );
+  }
+
+  // A single click enlarges; the second click of a double-click arrives inside
+  // this window and means "edit this cell" instead.
+  const click = (e) => {
+    e.stopPropagation();
+    if (pendingClick.current) clearTimeout(pendingClick.current);
+    if (state.status === 'error') { retry(); return; }
+    pendingClick.current = setTimeout(() => {
+      pendingClick.current = null;
+      if (state.src) onPreview({ src: state.src, url: value });
+      else openExternally(value);
+    }, 200);
+  };
+  const dblClick = () => {
+    if (pendingClick.current) { clearTimeout(pendingClick.current); pendingClick.current = null; }
+  };
+
+  let thumb;
+  if (state.status === 'ready') {
+    thumb = <img className="media-thumb" src={state.src} alt="" loading="lazy" />;
+  } else if (state.status === 'error') {
+    thumb = (
+      <span
+        className="media-thumb media-thumb-empty media-thumb-key"
+        title={state.error === 'key'
+          ? 'Private bucket — click to enter the admin key'
+          : 'Could not load this file — click to retry'}
+      >
+        <Icon name="key" size={14} />
+      </span>
+    );
+  } else if (state.status === 'loading') {
+    thumb = <span className="media-thumb media-thumb-empty"><Icon name="loader" size={14} className="animate-spin" /></span>;
+  } else {
+    thumb = <span className="media-thumb media-thumb-empty" />;
+  }
+
+  return (
+    <span className="media-cell" onClick={click} onDoubleClick={dblClick}>
+      {thumb}
+      <span className="media-label">{fileName(value)}</span>
+    </span>
+  );
+}
+
+function fileName(url) {
+  const clean = String(url).split(/[?#]/)[0];
+  const parts = clean.split('/');
+  return decodeURIComponent(parts[parts.length - 1] || clean) || clean;
+}
+
+function Lightbox({ preview, onClose }) {
+  useEffect(() => {
+    if (!preview) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [preview, onClose]);
+
+  if (!preview) return null;
+  return (
+    <div className="media-lightbox" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="media-lightbox-bar" onClick={(e) => e.stopPropagation()}>
+        <span className="truncate font-body-sm text-body-sm text-on-surface-variant" title={preview.url}>{fileName(preview.url)}</span>
+        <span className="flex-1" />
+        <a
+          className="media-lightbox-btn"
+          href={preview.src}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Open
+        </a>
+        <button className="media-lightbox-btn" onClick={onClose} aria-label="Close preview">
+          <Icon name="close" size={16} />
+        </button>
+      </div>
+      <img className="media-lightbox-img" src={preview.src} alt="" onClick={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
 export default function DataGrid({
   current, order, desc, onSort, selected, onToggleRow, onToggleAll,
   onUpdateCell, emptyText, hintText, resetKey,
@@ -121,11 +267,12 @@ export default function DataGrid({
   const [edit, setEdit] = useState(null);
   const [saving, setSaving] = useState(false);
   const [cellError, setCellError] = useState(null);
+  const [preview, setPreview] = useState(null);
 
   // Loading a different page/table invalidates an in-flight edit. Keyed on the
   // table + offset rather than the rows object so an optimistic cell write does
   // not slam the editor shut mid-request.
-  useEffect(() => { setEdit(null); setSaving(false); setCellError(null); }, [resetKey]);
+  useEffect(() => { setEdit(null); setSaving(false); setCellError(null); setPreview(null); }, [resetKey]);
 
   if (!current) return <EmptyState text={emptyText || 'Select a table on the left'} />;
   const { columns, rows, pk } = current;
@@ -225,9 +372,13 @@ export default function DataGrid({
                   const v = row[name];
                   const cls = cellClass(v);
                   const long = isLong(v);
+                  const media = mediaKind(v, name, row);
                   let extra = 'whitespace-nowrap overflow-hidden text-ellipsis max-w-[420px]';
                   if (cls === 'json' || long) extra = 'whitespace-pre-wrap break-words font-code-snippet text-primary';
                   else if (cls === 'null') extra = 'text-on-surface-variant italic';
+                  // A preview has its own layout, so the text truncation rules
+                  // above do not apply to it.
+                  if (media) extra = 'max-w-[420px]';
                   const isEditing = edit && edit.k === k && edit.name === name;
                   const canEditCell = canEdit && editableCol(c, pkCols);
                   return (
@@ -245,6 +396,8 @@ export default function DataGrid({
                           onCancel={() => { setEdit(null); setCellError(null); }}
                           onSave={commit}
                         />
+                      ) : media ? (
+                        <MediaCell value={v} kind={media} onPreview={setPreview} />
                       ) : (
                         display(v)
                       )}
@@ -256,6 +409,7 @@ export default function DataGrid({
           })}
         </tbody>
       </table>
+      <Lightbox preview={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }
