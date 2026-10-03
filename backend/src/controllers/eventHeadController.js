@@ -10,7 +10,6 @@ import {
 import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
 import {
   ACTIVITY_SUGGESTION_LIMIT,
-  beneficiaryGroupForNgo,
   buildActivityProgramPrompt,
   isMonthYmd,
   monthEndExclusive,
@@ -2641,12 +2640,12 @@ export const suggestActivityPrograms = async (req, res) => {
       }
     }
 
-// Who this activity serves: the group picked when it was created, and otherwise
-    // the group fixed for its NGO. The activity's own choice has to win, or an
-    // activity that serves a different group would get ideas aimed at the NGO's
-    // default group.
-const savedGroup = canonicalActivityBeneficiary(activity.beneficiary_group);
-    const beneficiaryGroup = savedGroup || beneficiaryGroupForNgo(ngoRow?.code) || null;
+// Who this activity serves: only the group that was actually chosen when the
+// activity was created. There is deliberately no fallback to the NGO's fixed
+// group here - a beneficiary that was never specified must not be invented for
+// the model, or the ideas come back aimed at a group nobody picked. No group
+// simply means the prompt carries no beneficiary line at all.
+const beneficiaryGroup = canonicalActivityBeneficiary(activity.beneficiary_group) || null;
 
     const payload = {
       month,
