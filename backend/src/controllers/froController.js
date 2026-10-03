@@ -67,6 +67,7 @@ import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../uti
 import { istDayBounds, istDateString, firstOfNextMonthIstUtc, startOfNextIstDayUtc, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
+import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PERIOD_LABELS } from '../services/teamCollectionService.js';
 import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 
@@ -1102,6 +1103,42 @@ export const getMyPerformance = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+// Team-wise collection board for the FRO's Collection Race popup - the SAME board
+// the NGO-admin dashboard header shows, lanes and all (UFS1..UFS5), so an FRO can
+// see which team is ahead and how their own team is doing.
+//
+// Built by services/teamCollectionService.js, which the admin endpoint calls too.
+// That shared service is the point: one query behind two screens, so the popup and
+// the admin card can never quote different totals for the same day.
+//
+// Scope is org-wide rather than the caller's NGO list. An FRO has no NGO access
+// list to narrow by (getMyStationScope is station-scoped, not NGO-granted), and the
+// existing org-wide FRO leaderboards - the lead-incentive one and this panel's own
+// My-Leads rank strip - set that precedent. If per-team figures ever need to be
+// NGO-restricted, that is a change in one place: pass ngoIds here.
+//
+// No per-FRO and per-NGO filter is accepted: the popup shows the board as it stands,
+// not a filtered slice of it. `period` selects the window (today / this week / month
+// to date) and is resolved server-side so the IST day boundaries cannot be shifted by
+// a client in another timezone.
+export const getMyTeamsCollection = async (req, res) => {
+  try {
+    const rawPeriod = String(req.query.period || '').trim().toLowerCase();
+    const period = PERIODS.includes(rawPeriod) ? rawPeriod : 'today';
+
+    // Work-as: the highlight is the team of the HUMAN at the keyboard, the same
+    // choice getDashboard makes - an operator driving someone else's account must be
+    // shown where THEY stand, not where the impersonated owner stands.
+    const { human } = splitWorkerContext(req.user);
+    const youTeam = await getWorkerTeamKey(human?.id);
+    const board = await buildTeamCollection({ ...resolvePeriodRange(period), youTeam });
+
+    return res.json({ period, period_label: PERIOD_LABELS[period], ...board });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
   }
 };
 

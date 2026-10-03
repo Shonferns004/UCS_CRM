@@ -24,14 +24,19 @@ export const createLead = async (data) => {
 // nothing. Keep this clause in step with leadBelongsTo() in
 // backend/src/utils/leads.js and belongsToLead() in client/src/utils/leads.js.
 //
-// Ids are compared numerically: JWT ids arrive as numbers while PostgREST hands
-// back numbers too, but a caller-supplied id may be a string.
+// Ids are compared as strings, because that is what they are: leads.recruiter_id,
+// leads.created_by and workers.id are all uuid. This used to be Number() on the
+// theory that JWT and PostgREST disagreed on type, but recruiters authenticate as
+// workers (see authController.js) so the JWT carries a uuid. Number('09a202b7-…')
+// is NaN, the id was dropped, normalizeOwnerIds returned [] and getAllLeads took
+// its "owner asked for nothing, so show nothing" early return -- every recruiter
+// saw an empty panel regardless of what the table held. Ids are normalised to
+// trimmed strings, which matches UUIDs, integers and their string forms alike.
 const normalizeOwnerIds = (ownerIds) => {
   if (!ownerIds) return null;
   const ids = ownerIds
-    .filter((id) => id !== null && id !== undefined && id !== '')
-    .map(Number)
-    .filter((id) => Number.isFinite(id));
+    .map((id) => (id === null || id === undefined ? '' : String(id).trim()))
+    .filter((id) => id !== '');
   return [...new Set(ids)];
 };
 
@@ -74,11 +79,11 @@ const matchesSearch = (rows, term) => {
 export const ownsLead = (lead, ownerIds, ownerName) => {
   const ids = normalizeOwnerIds(Array.isArray(ownerIds) ? ownerIds : [ownerIds]);
   if (!lead) return false;
-  // An unset column must not be coerced to 0, or a NULL recruiter_id would look
-  // like a match for whoever happens to be recruiter 0.
+  // An unset column must not be coerced to '' and then match an owner whose id is
+  // the empty string, so a NULL recruiter_id can never look like a match.
   const matches = (value) => {
     if (value === null || value === undefined || value === '') return false;
-    return ids ? ids.includes(Number(value)) : false;
+    return ids ? ids.includes(String(value).trim()) : false;
   };
   if (ids && ids.length > 0 && (matches(lead.recruiter_id) || matches(lead.created_by))) {
     return true;
@@ -90,16 +95,27 @@ export const ownsLead = (lead, ownerIds, ownerName) => {
   );
 };
 
+// Whether a caller-supplied owner scope can identify anybody at all. An owner
+// scope with no usable id AND no name cannot be expressed as a filter that would
+// only return that person's rows, so it has to be refused rather than widened --
+// but it must only be refused on those grounds, not because an id failed to
+// parse, which is the failure that emptied the recruiter panel.
+const hasUsableOwnerScope = (ownerIds, ownerName) =>
+  (ownerIds && ownerIds.length > 0) || Boolean(sanitizeOrValue(ownerName));
+
 export const getAllLeads = async (filters = {}) => {
   const ownerIds = normalizeOwnerIds(filters.ownerIds);
-  if (ownerIds && ownerIds.length === 0) return [];
+  // Fail closed: a scope that names nobody must not fall through to "no filter",
+  // which would hand one caller the whole table. Refused only when there is
+  // genuinely nothing to filter by -- see hasUsableOwnerScope.
+  if (ownerIds && !hasUsableOwnerScope(ownerIds, filters.ownerName)) return [];
 
   let query = db
     .from('leads')
-    .select('*, users!leads_recruiter_id_fkey(name, email)')
+    .select('*, workers!leads_recruiter_id_fkey(name, email)')
     .order('created_at', { ascending: false });
 
-if (ownerIds) query = query.or(ownerOrFilter(ownerIds, filters.ownerName));
+  if (ownerIds) query = query.or(ownerOrFilter(ownerIds, filters.ownerName));
   if (filters.recruiter_id) query = query.eq('recruiter_id', filters.recruiter_id);
   if (filters.status) query = query.eq('status', filters.status);
   if (filters.source) query = query.eq('source', filters.source);
@@ -119,7 +135,7 @@ if (ownerIds) query = query.or(ownerOrFilter(ownerIds, filters.ownerName));
 export const getLeadById = async (id) => {
   const { data, error } = await db
     .from('leads')
-    .select('*, users!leads_recruiter_id_fkey(name, email)')
+    .select('*, workers!leads_recruiter_id_fkey(name, email)')
     .eq('id', id)
     .single();
   if (error) throw error;
@@ -131,7 +147,7 @@ export const updateLead = async (id, updates) => {
     .from('leads')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
-    .select('*, users!leads_recruiter_id_fkey(name, email)')
+    .select('*, workers!leads_recruiter_id_fkey(name, email)')
     .single();
   if (error) throw error;
   return data;
@@ -151,7 +167,7 @@ export const transferLead = async (id, newCreatedBy, newCreatedByName) => {
     .from('leads')
     .update({ created_by: newCreatedBy, created_by_name: newCreatedByName, updated_at: new Date().toISOString() })
     .eq('id', id)
-    .select('*, users!leads_recruiter_id_fkey(name, email)')
+    .select('*, workers!leads_recruiter_id_fkey(name, email)')
     .single();
   if (error) throw error;
   return data;
@@ -160,8 +176,11 @@ export const transferLead = async (id, newCreatedBy, newCreatedByName) => {
 export const getLeadsDashboard = async (filters = {}) => {
   const ownerIds = normalizeOwnerIds(filters.ownerIds);
 
+  // Same fail-closed rule as getAllLeads, and the aggregates are computed from
+  // exactly these rows, so a recruiter's totals can never include a colleague's
+  // leads.
   let data = [];
-  if (!ownerIds || ownerIds.length > 0) {
+  if (!ownerIds || hasUsableOwnerScope(ownerIds, filters.ownerName)) {
     let query = db
       .from('leads')
       .select('*')

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy, Medal } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -30,6 +30,7 @@ import SpecialIncentive, { SidebarIncentive, useSpecialIncentive } from '../../c
 import RangeRulePopup from '../../components/RangeRulePopup'
 import LeadChampionCelebration from '../../components/LeadChampionCelebration'
 import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
+import FroTeamRacePopup from './components/FroTeamRacePopup'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
@@ -793,6 +794,7 @@ export default function FROPanel() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
   const [showAki, setShowAki] = useState(false);
+  const [raceOpen, setRaceOpen] = useState(false);
   const [akiSlabs, setAkiSlabs] = useState(null);
   const [akiLoading, setAkiLoading] = useState(false);
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]'); } catch { /* corrupted */ }
@@ -1103,6 +1105,14 @@ useEffect(() => onFroAction((action) => {
             <div onClick={openAki} title="Aaj Ka Incentive (AKI)" style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s' }}>
               <Coins size={20} strokeWidth={2} color="var(--ink-soft)" style={{ color: '#B45309' }} />
             </div>
+            {/* Collection Race. Sits immediately after the AKI coin so the two
+                "what am I earning / where do I stand" icons read as one cluster,
+                and opens the same racing board the NGO-admin header shows rather
+                than navigating away from whatever the FRO was doing. */}
+            <div onClick={() => setRaceOpen(true)} title="Collection Race" aria-label="Collection Race"
+              style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', display: 'flex' }}>
+              <Medal size={20} strokeWidth={2} style={{ color: '#b45309' }} />
+            </div>
             <div style={{ position:'relative' }}>
               <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch((err) => { console.error('Error:', err.message); }), getMyTarget().catch((err) => { console.error('Error:', err.message); })]);             setStatsData({ dash: d, target: t }); } catch (e) { console.error('Error:', e.message); } finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -1389,6 +1399,7 @@ useEffect(() => onFroAction((action) => {
             </div>
           </div>
         )}
+        <FroTeamRacePopup open={raceOpen} onClose={() => setRaceOpen(false)} />
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
