@@ -104,7 +104,6 @@ export default function LiveFroStatus() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [resetting, setResetting] = useState(false)
   const [pausingId, setPausingId] = useState(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -211,35 +210,12 @@ export default function LiveFroStatus() {
 
   const refresh = () => { loadStatuses(true); loadPresent() }
 
-  // Super-admin escape hatch for a bad disposition day (timer misfired, or the
-  // office dropped long enough that every panel stopped beating). Stops idle
-  // that is still COUNTING for every FRO on shift and re-arms their 4-minute
-  // window. Idle already banked today stays banked — that is the salary record,
-  // and the server keeps the daily high-water mark anyway, so zeroing the number
-  // here would only make this page disagree with the monthly report.
-  const clearIdleTime = async () => {
-    if (resetting) return
-    if (!window.confirm('Clear idle time for all FROs on shift?\n\nThis stops idle that is currently counting and gives everyone a fresh 4-minute disposition window. Idle already recorded today is kept, since it feeds their salary.')) return
-    setResetting(true)
-    try {
-      const r = await api('/fro/status/reset-idle', { method: 'PUT', body: JSON.stringify({}), _prefix: 'ucs' })
-      await loadStatuses(false)
-      // Reported every time, including the no-op case: when nothing was accruing
-      // the table looks identical afterwards, and the admin needs to know the
-      // button actually ran rather than silently doing nothing.
-      const n = r?.cleared
-      window.alert(typeof n === 'number'
-        ? (n > 0
-          ? `Cleared idle for ${n} FRO${n === 1 ? '' : 's'}. Everyone on shift has a fresh 4-minute window.`
-          : 'No FRO had idle time running.')
-        : (r?.message || 'Idle time cleared.'))
-    } catch (e) {
-      console.error('Error:', e.message)
-      window.alert(`Could not clear idle time: ${e.message || 'request failed'}`)
-    } finally {
-      if (aliveRef.current) setResetting(false)
-    }
-  }
+  // The old "Clear Idle Time" escape hatch is gone. It called
+  // PUT /fro/status/reset-idle, which handed every FRO a fresh 4-minute window
+  // for free — the exact loophole this rebuild removes. The endpoint now returns
+  // 410 Gone. Idle is exited only by recording a disposition (or the shift
+  // ending), and the server back-dates the charge to the window's expiry, so no
+  // admin action can make idling cheaper.
 
   // Per-FRO admin pause ("play/pause"): freezes all their timers and shows a
   // blocking popup on their panel until resumed here.
@@ -325,17 +301,6 @@ export default function LiveFroStatus() {
           <button type="button" className="lfs-btn" onClick={refresh} disabled={refreshing} aria-label="Refresh FRO status">
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
             {refreshing ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button
-            type="button"
-            className="lfs-btn lfs-btn-danger"
-            onClick={clearIdleTime}
-            disabled={resetting}
-            aria-label="Clear idle time for all FROs"
-            title="Stop idle that is currently counting for every FRO on shift and re-arm a fresh 4-minute window. Idle already recorded today is kept."
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>timer_off</span>
-            {resetting ? 'Clearing…' : 'Clear Idle Time'}
           </button>
         </div>
       </div>

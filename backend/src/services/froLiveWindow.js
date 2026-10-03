@@ -1,41 +1,35 @@
-// The single re-arm point for the FRO's 4-minute live window.
+// The single re-arm point for the FRO's 4-minute disposition window.
 //
-// The window logic used to live inside createDonorLogHandler only, keyed on the
-// painted worker id and gated to dispositions. That produced three sibling bugs:
+// Under the server-authoritative time machine the window is reset ONLY by a
+// successful, backend-confirmed disposition. Every other save (donation, call,
+// visit, message, follow_up, note) is recorded work but does not discharge the
+// disposition the worker still owes, so those callers do NOT invoke this — the
+// gate lives at the call site in createDonorLogHandler. Mouse/keyboard/click/
+// scroll/tab activity is never an input at all.
 //
-//   - Any recorded action other than a disposition (donation, call, visit,
-//     message, follow_up, note) reset the client's clock but not the server's
-//     deadline, so a FRO who worked through the day without a disposition was
-//     stamped idle ~4 minutes after their first action regardless of effort.
-//   - Under work-as the disposition save wrote the COVERED FRO's row while
-//     every heartbeat/status read used the operator's row, so the operator's own
-//     row kept a lapsed deadline and accrued idle for work they were demonstrably
-//     doing.
-//   - Claiming a suspense receipt and re-saving a duplicate (unique-violation
-//     "success") never touched the window at all.
+// Callers must pass the HUMAN worker id (the person at the keyboard) — the same
+// identity the heartbeat, /status/me, and every board read uses, so a work-as
+// disposition cannot leave the operator's own row stale. buildLiveWindow() is
+// the pure arithmetic so the rule is unit-testable without a database.
 //
-// Everything that needs a fresh window goes through resetLiveWindow() with the
-// HUMAN worker id (the person at the keyboard) — the same identity the
-// heartbeat, /status/me, and every board read already uses. buildLiveWindow()
-// is the pure arithmetic so the rule is unit-testable without a database.
+// Idle seconds are NOT accumulated here. The authoritative idle total is the
+// sum of the open/closed intervals in fro_time_sessions; the legacy
+// today_idle_seconds column is derived from that ledger on read (see
+// froTimeStatus.js) and is never written by this module.
 import db from '../config/db.js';
 import {
   DISPOSITION_WINDOW_SECONDS,
-  dispositionDueMs,
   getShiftWindowMs,
   istDateStr,
-  liveIdleSeconds,
   nextDeadline,
 } from '../utils/froIdle.js';
-import { writeDailySnapshot, rollCountersForNewDay, COUNTER_COLUMNS } from './froCounterDay.js';
+import { rollCountersForNewDay, COUNTER_COLUMNS } from './froCounterDay.js';
 
 // Pure: derive the upsert patch and the client-facing timer from a row + shift.
 //
-// A successful save always re-arms: idle now means "no recorded activity for 4
-// minutes", so any action buys a fresh window. Elapsed idle is folded into
-// today_idle_seconds BEFORE idle_since is cleared (an overdue save still pays
-// for the minutes between the deadline and now), and a paused/meeting row keeps
-// its status instead of being punched back to 'online' through the freeze.
+// Re-arms the deadline, clears idle_since, and punches an idle row back online
+// unless the admin has frozen it (pause/meeting). It never folds elapsed time
+// into today_idle_seconds — the ledger owns that number.
 export function buildLiveWindow({ workerId, liveRow, shift, nowMs = Date.now() }) {
   const due = nextDeadline(shift, nowMs);
   const frozen = !!(liveRow?.is_paused) || liveRow?.status === 'meeting';
@@ -46,19 +40,6 @@ export function buildLiveWindow({ workerId, liveRow, shift, nowMs = Date.now() }
     updated_at: new Date(nowMs).toISOString(),
     stats_date: istDateStr(new Date(nowMs)),
   };
-
-  const dueMs = dispositionDueMs(liveRow);
-  const overdue = !frozen && Number.isFinite(dueMs) && nowMs > dueMs;
-  if (overdue) {
-    const startMs = Number.isFinite(shift?.startMs) ? Math.max(dueMs, shift.startMs) : dueMs;
-    patch.today_idle_seconds = liveIdleSeconds(
-      { ...liveRow, idle_since: new Date(startMs).toISOString() },
-      shift,
-      nowMs,
-    );
-  } else if (liveRow?.idle_since) {
-    patch.today_idle_seconds = liveIdleSeconds(liveRow, shift, nowMs);
-  }
 
   // Punch an idle row back online, but never through a freeze the admin set.
   if (liveRow?.status === 'idle' && !frozen) {
@@ -71,7 +52,6 @@ export function buildLiveWindow({ workerId, liveRow, shift, nowMs = Date.now() }
     disposition_due_at: due,
     seconds_left: due ? DISPOSITION_WINDOW_SECONDS : null,
     is_idle: false,
-    today_idle_seconds: patch.today_idle_seconds ?? liveRow?.today_idle_seconds ?? 0,
   };
 
   return { patch, timer };
@@ -109,7 +89,7 @@ export async function resetLiveWindow(workerId, {
   const roll = await rollCountersForNewDay(workerId, liveRow, nowMs, { dbg: 'live-window-roll' });
 
   const baseRow = roll.rolled
-    ? { ...liveRow, ...roll.counters, idle_since: null, disposition_due_at: null, stats_date: roll.statsDate }
+    ? { ...liveRow, ...roll.counters, disposition_due_at: null, stats_date: roll.statsDate }
     : liveRow;
 
   const { patch, timer } = buildLiveWindow({ workerId, liveRow: baseRow, shift, nowMs });
@@ -122,16 +102,6 @@ export async function resetLiveWindow(workerId, {
   }
 
   await dbClient.from('fro_live_status').upsert(patch, { onConflict: 'worker_id' });
-  if (patch.today_idle_seconds !== undefined) {
-    await writeDailySnapshot(workerId, istDateStr(new Date(nowMs)), {
-      idle_seconds: patch.today_idle_seconds,
-    }, {
-      extraCapMs: Number.isFinite(shift?.startMs) && Number.isFinite(shift?.endMs)
-        ? Math.max(0, shift.endMs - shift.startMs)
-        : NaN,
-      dbg,
-    });
-  }
 
   return timer;
 }
