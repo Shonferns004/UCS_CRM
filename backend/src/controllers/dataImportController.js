@@ -9,6 +9,8 @@ import {
   normalizeDate,
 } from '../services/fileParser.js';
 import { autoAssignDonorsToStations, roundRobinAssignToStations } from '../services/assignmentHelpers.js';
+// CJS cache wrapper; imported (not require()'d) because this module is ESM.
+import redis from '../config/redis.cjs';
 
 const yieldNow = () => new Promise((r) => setImmediate(r));
 const CHUNK = 500;
@@ -160,7 +162,6 @@ export const uploadImport = async (req, res) => {
         totalImported += inserted;
 
         try {
-          let redis=null;
           const ngoh = redis.hashKey([ngoName]);
           await redis.del(`v1:newdata:distinct_count:${ngoh}`);
         } catch (e) {
