@@ -118,16 +118,18 @@ const formatDT = (ts) => {
   return d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 };
 
-const getLeadDate = (l) => {
-  if (!l) return '';
-  let parsed = [];
-  try { parsed = JSON.parse(l.notes || '[]'); } catch (e) {}
-  const meta = (parsed.find(n => n && n.__meta && n.type === 'option_dates') || {}).value || {};
-  const st = cleanField(l.status);
-  const key = { followed_up:'follow_up', call_back:'call_back', scheduled:'schedule', not_interested:'not_interested', re_scheduled:'re_scheduled' }[st] || st;
-  const dedicated = { followed_up:l.follow_up_date, call_back:l.call_back_time, scheduled:l.scheduled_date, re_scheduled:l.re_scheduled_date }[st];
-  return meta[key] || dedicated || '';
-};
+  const getLeadDate = (l) => {
+    if (!l) return '';
+    let parsed = [];
+    try { parsed = JSON.parse(l.notes || '[]'); } catch (e) {}
+    const meta = (parsed.find(n => n && n.__meta && n.type === 'option_dates') || {}).value || {};
+    const st = cleanField(l.status);
+    const key = { followed_up:'follow_up', call_back:'call_back', scheduled:'schedule', 
+not_interested:'not_interested', re_scheduled:'re_scheduled' }[st] || st;
+    const dedicated = { followed_up:l.follow_up_date, call_back:l.call_back_time, scheduled:l.scheduled_date, 
+re_scheduled:l.re_scheduled_date }[st];
+    return meta[key] || dedicated || l.created_at || l.createdAt || l.updated_at || l.updatedAt || '';
+  };
 
 const SkeletonRow = ({ cols }) => (
   <tr>
