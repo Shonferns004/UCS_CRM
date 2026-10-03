@@ -828,6 +828,19 @@ export const listVolunteerPeople = async (req, res) => {
   }
 };
 
+// Today's attendance for the Voluntary section. Read-only and deliberately
+// non-fatal: a failure here must not take the Create New Event form down, so the
+// picker renders exactly as it did before, just without status badges.
+export const listVolunteerAttendance = async (req, res) => {
+  try {
+    const attendance = await EventHead.getVolunteerAttendanceToday();
+    return res.json(attendance);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const editVolunteer = async (req, res) => {
   try {
     const volunteer = await EventHead.updateVolunteer(req.params.id, sanitize(req.body));
