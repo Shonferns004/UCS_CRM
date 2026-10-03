@@ -159,6 +159,14 @@ export const uploadImport = async (req, res) => {
         }
         totalImported += inserted;
 
+        try {
+          let redis=null;
+          const ngoh = redis.hashKey([ngoName]);
+          await redis.del(`v1:newdata:distinct_count:${ngoh}`);
+        } catch (e) {
+          // ignore
+        }
+
         // Create donor_profiles for this NGO's fresh rows
         const profiles = allowed.map(row => ({
           mobile_number: row.mobile_number,
