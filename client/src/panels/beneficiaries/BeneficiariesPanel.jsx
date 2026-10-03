@@ -4,9 +4,6 @@ import Overview from './pages/Overview'
 import AllBeneficiaries from './pages/AllBeneficiaries'
 import ImportMembers from './pages/ImportMembers'
 import BeneficiaryProfile from './pages/BeneficiaryProfile'
-import Programs from './pages/Programs'
-import ProgramForm from './pages/ProgramForm'
-import ProgramDetail from './pages/ProgramDetail'
 import Events from './pages/Events'
 
 export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
@@ -17,9 +14,6 @@ export default function BeneficiariesPanel({ base = '/beneficiaries' }) {
           <Route index element={<Overview />} />
           <Route path="all" element={<AllBeneficiaries />} />
           <Route path="import" element={<ImportMembers />} />
-          <Route path="programs" element={<Programs />} />
-          <Route path="programs/new" element={<ProgramForm />} />
-          <Route path="programs/:id" element={<ProgramDetail />} />
           <Route path="events" element={<Events />} />
           <Route path=":id" element={<BeneficiaryProfile />} />
           <Route path="*" element={<Navigate to={base} replace />} />
