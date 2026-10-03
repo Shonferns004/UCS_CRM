@@ -51,6 +51,12 @@ import {
   // resumeOwnIdle removed: see the note at the end of the /status routes.
   logoutAllFros,
 } from '../controllers/froController.js';
+import {
+  getMyIdleReport,
+  getMyIdleSessions,
+  getIdleReport,
+  getIdleSessions,
+} from '../controllers/froReportController.js';
 
 const router = Router();
 
@@ -67,6 +73,14 @@ router.get('/status/me', getMyLiveStatus);
 // client events (page hidden/visible, meeting start/end, pause, network lost,
 // sleep) map to state transitions in the open interval ledger.
 router.post('/status/time-event', applyFroTimeEvent);
+
+// Historical idle reporting. Self routes (no role guard) resolve the caller's own
+// worker id; the admin routes below them are role-guarded and NGO-scoped in the
+// controller. All figures come from fro_time_sessions via froTimeReport.
+router.get('/reports/idle/me', getMyIdleReport);
+router.get('/reports/idle/me/sessions', getMyIdleSessions);
+router.get('/reports/idle', authenticateRole('super_admin', 'admin'), getIdleReport);
+router.get('/reports/idle/sessions', authenticateRole('super_admin', 'admin'), getIdleSessions);
 
 const requireFro = (req, res, next) => {
   if (req.user.role === 'fro') return next();

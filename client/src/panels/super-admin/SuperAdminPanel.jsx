@@ -28,6 +28,7 @@ import IncentivesPage from './pages/IncentivesPage'
 import Notices from './pages/Notices'
 import LatePolicy from './pages/LatePolicy'
 import LiveFroStatus from './pages/LiveFroStatus'
+import FroIdleReport from './pages/FroIdleReport'
 import { Radio, Clipboard, CurrencyCircleDollar, CalendarBlank, BuildingOffice, MagnifyingGlass, Trophy, Megaphone, Clock, Drop } from '@phosphor-icons/react'
 import AdminAttendance from './pages/AdminAttendance'
 import MetropadPage from '../accounts/metropad/MetropadPage'
@@ -51,6 +52,7 @@ const NAV = [
   { id: 'recruiter', path: '/sa/recruiter', label: 'Recruiter', eyebrow: 'Recruitment', icon: MagnifyingGlass },
   { id: 'fro', path: '/sa/fro', label: 'FRO', eyebrow: 'Operations', icon: Radio },
   { id: 'live-fro', path: '/sa/live-fro', label: 'Live FRO Status', eyebrow: 'Operations', icon: Radio },
+  { id: 'fro-idle', path: '/sa/fro-idle', label: 'FRO Idle Report', eyebrow: 'Operations', icon: Clock },
   { id: 'assets', path: '/sa/assets', label: 'Assets Overview', eyebrow: 'Inventory', icon: Clipboard },
   { id: 'incentives', path: '/sa/incentives', label: 'Incentives', eyebrow: 'Finance', icon: Trophy },
   { id: 'notices', path: '/sa/notices', label: 'Notices', eyebrow: 'Broadcast', icon: Megaphone },
@@ -65,7 +67,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'metropad', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'assets', 'incentives', 'notices', 'late-policy', 'chat']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'ngo-admin', 'accounts', 'metropad', 'event-head', 'hr', 'admin-attendance', 'recruiter', 'fro', 'live-fro', 'fro-idle', 'assets', 'incentives', 'notices', 'late-policy', 'chat']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
@@ -358,6 +360,7 @@ export default function SuperAdminPanel() {
         <Route path="metropad" element={<MetropadPage />} />
         <Route path="fro" element={<PanelFrame src="/fro" />} />
         <Route path="live-fro" element={<LiveFroStatus />} />
+        <Route path="fro-idle" element={<FroIdleReport />} />
         <Route path="ngo-admin" element={<PanelFrame src="/ngo-admin" />} />
         <Route path="hr" element={<PanelFrame src="/hr" />} />
         <Route path="admin-attendance" element={<AdminAttendance />} />

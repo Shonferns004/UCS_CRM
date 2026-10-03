@@ -163,6 +163,19 @@ export async function getOpenSession(workerId, { pool = db._pool } = {}) {
 export async function getSessionsForDate(workerId, dateStr, { pool = db._pool } = {}) {
   const startMs = new Date(`${dateStr}T00:00:00.000+05:30`).getTime();
   const endMs = startMs + 24 * 60 * 60 * 1000;
+  return getSessionsInRange(workerId, startMs, endMs, { pool });
+}
+
+/**
+ * All intervals that overlap the half-open window [fromMs, toMs), oldest first.
+ *
+ * An interval is included when it starts before the window ends and ends after
+ * the window begins, so an interval that straddles `fromMs` — or is still open —
+ * is returned and must be clipped by the caller (sumIntervalsByState, or the
+ * per-IST-day splitter in froTimeReport). This is the read the historical idle
+ * reports are built on.
+ */
+export async function getSessionsInRange(workerId, fromMs, toMs, { pool = db._pool } = {}) {
   const { rows } = await pool.query(
     `SELECT id, session_id, state, started_at, ended_at, duration_seconds, reason
        FROM fro_time_sessions
@@ -170,7 +183,7 @@ export async function getSessionsForDate(workerId, dateStr, { pool = db._pool } 
         AND started_at < $3
         AND COALESCE(ended_at, 'infinity'::timestamptz) > $2
       ORDER BY started_at ASC`,
-    [workerId, toIso(startMs), toIso(endMs)]
+    [workerId, toIso(fromMs), toIso(toMs)]
   );
   return rows;
 }

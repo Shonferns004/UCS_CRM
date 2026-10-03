@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy, Medal } from 'lucide-react'
+import { LayoutDashboard, Users, Gift, Ticket, MessageCircle, MessagesSquare, Coins, Trophy, Medal, Clock } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -33,6 +33,7 @@ import LeadIncentiveLeaderboard from '../../components/LeadIncentiveLeaderboard'
 import FroTeamRacePopup from './components/FroTeamRacePopup'
 import NoticePopup from '../../components/NoticePopup'
 import History from './pages/History'
+import MyIdle from './pages/MyIdle'
 import FroTickets from './pages/Tickets'
 import FroSuspense from './pages/Suspense'
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -132,6 +133,7 @@ const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
+  { id: 'my-idle', path: '/fro/my-idle', label: 'My Idle', Icon: Clock },
   { id: 'lead-incentive', path: '/fro/lead-incentive', label: 'Lead Incentive', Icon: Trophy },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
   { id: 'chat', path: '/fro/chat', label: 'Community', Icon: MessagesSquare },
@@ -1343,6 +1345,7 @@ useEffect(() => onFroAction((action) => {
             <Route path="my-leads" element={<MyLeadsSuspense />} />
             <Route path="suspense" element={<FroSuspense />} />
             <Route path="donors" element={<Donors />} />
+          <Route path="my-idle" element={<MyIdle />} />
             <Route path="history" element={<History />} />
             <Route path="incentive-info" element={<IncentiveInfo />} />
             <Route path="lead-incentive" element={<LeadIncentive />} />
