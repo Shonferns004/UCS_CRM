@@ -9,6 +9,7 @@ import {
   fetchCalendarEvents,
   createActivity,
   createEvent,
+  deleteActivity,
   suggestActivityPrograms,
   fetchPlannerSuggestions,
   setPlannerSuggestionSelected,
@@ -58,6 +59,28 @@ const shortDate = (ymd) => {
    the long registered names wherever a short label is needed. */
 const ngoShortLabel = (n) =>
   String(n?.code || '').trim() || String(n?.name || '').trim() || 'NGO'
+
+/* Who each NGO serves. These three NGOs work for one distinct group each, so
+   the group is a property of the NGO rather than something every activity has
+   to be tagged with individually — which is what left the Beneficiary filter
+   empty and untaggable. Keyed by the code the team already uses. */
+const NGO_BENEFICIARY = {
+  bsct: 'Visually Impaired',
+  aflf: 'Underprivileged Families',
+  mann: 'Women',
+}
+
+/* The NGO an activity belongs to, resolved even when the page is on "All NGOs"
+   and the row itself carries no NGO. */
+const activityNgo = (a, ngos, ngo) => {
+  if (ngo) return ngo
+  return ngos.find((x) => String(x.id) === String(a.ngo_id)) || null
+}
+
+/* The group an activity serves: the one fixed for its NGO. Every read goes
+   through this, so the table, the filter and the search all agree. */
+const activityBeneficiary = (a, ngos, ngo) =>
+  NGO_BENEFICIARY[String(activityNgo(a, ngos, ngo)?.code || '').trim().toLowerCase()] || ''
 
 /* ── Report helpers (date-wise monthly planner download) ─────────────────── */
 
@@ -147,13 +170,23 @@ function Field({ label, hint, children }) {
   )
 }
 
+/* The beneficiary an activity serves, shown on its row.
+
+   Read-only and derived from the NGO: each of these three NGOs works for one
+   group, so the group follows the NGO rather than being typed per activity.
+   That is what makes the Beneficiary filter usable — it always has one option
+   per NGO, with nothing to tag and nothing to leave blank. */
+function BeneficiaryCell({ group }) {
+  if (!group) return <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>—</span>
+  return <Badge tone="secondary">{group}</Badge>
+}
+
 /* ── Step 3 · Add Activity (NGO-wise) ────────────────────────────────────── */
 
-function AddActivityModal({ ngo, sectors, month, beneficiaryOptions = [], onClose, onSaved }) {
+function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   const [name, setName] = useState('')
   const [sectorId, setSectorId] = useState('')
   const [description, setDescription] = useState('')
-  const [beneficiaryGroup, setBeneficiaryGroup] = useState('')
   // Optional. Empty means "just register the activity"; a day means "and run its
   // first programme on that date".
   const [date, setDate] = useState('')
@@ -163,6 +196,8 @@ function AddActivityModal({ ngo, sectors, month, beneficiaryOptions = [], onClos
   // Only days of the month on screen, so the programme it creates always lands
   // in this month's counts and download rather than somewhere invisible.
   const days = useMemo(() => daysInMonth(month), [month])
+
+  const ngoDefault = NGO_BENEFICIARY[String(ngo?.code || '').trim().toLowerCase()] || ''
 
   const submit = async () => {
     if (!ngo) return setError('Choose an NGO first.')
@@ -181,14 +216,9 @@ function AddActivityModal({ ngo, sectors, month, beneficiaryOptions = [], onClos
         ngo_id: ngo.id,
         description: desc,
       }
-      /* Free text per activity: what the NGOs call their own groups. It drives
-         the Beneficiary filter and the AI prompt.
-         Sent only when typed. The column is added by migration 168, and an insert
-         naming a column the database does not have yet fails as a whole — so an
-         untagged activity must omit the key, not send it as NULL. */
-      const group = beneficiaryGroup.trim()
-      if (group) payload.beneficiary_group = group
-
+      /* Nothing beneficiary-wise is sent: the group is fixed per NGO and derived
+         on read (see NGO_BENEFICIARY), so an activity cannot store a group that
+         disagrees with its NGO, and the insert does not depend on migration 168. */
       created = await createActivity(payload)
     } catch (e) {
       setBusy(false)
@@ -214,7 +244,7 @@ function AddActivityModal({ ngo, sectors, month, beneficiaryOptions = [], onClos
         description: desc,
       })
       setBusy(false)
-      onSaved({ activity: created, programme })
+      onSaved({ activity: created, programme, date })
     } catch (e) {
       // Never imply the whole thing failed: the activity is already saved.
       setBusy(false)
@@ -268,21 +298,20 @@ function AddActivityModal({ ngo, sectors, month, beneficiaryOptions = [], onClos
         </Field>
 
         <Field
-          label="Beneficiary group (optional)"
-          hint="Who this activity serves. Used to filter the month and to aim the AI suggestions at this group."
+          label="Beneficiary group"
+          hint={ngoDefault
+            ? `Fixed for ${ngo?.name}: every activity of this NGO serves this group.`
+            : 'Choose an NGO above — each NGO serves one fixed group.'}
         >
           <input
             className="eh-select"
-            list="ap-beneficiary-options"
-            value={beneficiaryGroup}
-            onChange={(e) => setBeneficiaryGroup(e.target.value)}
-            placeholder="E.g. Visually Impaired, Women, Persons with Disabilities"
+            value={ngoDefault}
+            onChange={() => {}}
+            disabled
+            placeholder={ngoDefault ? '' : 'Fixed per NGO'}
+            readOnly
           />
         </Field>
-        {/* Suggests the groups already in use, while still allowing a new one. */}
-        <datalist id="ap-beneficiary-options">
-          {beneficiaryOptions.map((g) => <option key={g} value={g} />)}
-        </datalist>
 
         <Field
           label="First programme date (optional)"
@@ -674,6 +703,17 @@ export default function ActivityPlanner() {
   const [toast, setToast] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [suggestFor, setSuggestFor] = useState(null)
+  // The activity just added from this page. Rows are grouped by sector and
+  // sorted by name, so without this a new activity lands wherever the alphabet
+  // puts it and the user cannot see what they just created.
+  const [justAddedId, setJustAddedId] = useState(null)
+  // Day of the programme just scheduled, so the calendar link can open on it.
+  const [lastScheduled, setLastScheduled] = useState('')
+  // { activity, planned } — the row whose Delete was clicked. `planned` is the
+  // month's events on that activity, so the confirmation can name what goes.
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   // Bumped after a suggestion is converted into a programme, so the open panel
   // re-reads its ticks from the server instead of showing a stale box.
   const [suggestRev, setSuggestRev] = useState(0)
@@ -773,27 +813,28 @@ export default function ActivityPlanner() {
   const rows = useMemo(() => {
     let list = activities
     if (sectorFilter) list = list.filter((a) => String(a.sector_id) === String(sectorFilter))
-    // Free-text groups, so match the same way the search box does — trimmed and
-    // case-insensitively, or the filter would drop rows on a stray double space.
     if (beneficiaryFilter) {
       const want = beneficiaryFilter.trim().toLowerCase()
-      list = list.filter((a) => String(a.beneficiary_group || '').trim().toLowerCase() === want)
+      list = list.filter((a) => activityBeneficiary(a, ngos, ngo).toLowerCase() === want)
     }
     const q = search.trim().toLowerCase()
-    if (q) list = list.filter((a) => [a.name, a.sector_name, a.beneficiary_group, a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
+    if (q) {
+      list = list.filter((a) => [a.name, a.sector_name, activityBeneficiary(a, ngos, ngo), a.description].filter(Boolean).join(' ').toLowerCase().includes(q))
+    }
     return list
-  }, [activities, sectorFilter, beneficiaryFilter, search])
+  }, [activities, ngos, ngo, sectorFilter, beneficiaryFilter, search])
 
-  /* The Beneficiary filter lists the groups actually in use for the loaded
-     activities, so there is no taxonomy to keep in step with the NGOs. */
+  /* The fixed groups for the NGOs in scope: the one selected, or all three on
+     "All NGOs". Not derived from the activities, so it is never empty. */
   const beneficiaryOptions = useMemo(() => {
+    const scope = ngo ? [ngo] : ngos
     const set = new Set()
-    for (const a of activities) {
-      const g = String(a.beneficiary_group || '').trim()
-      if (g) set.add(g)
+    for (const n of scope) {
+      const def = NGO_BENEFICIARY[String(n?.code || '').trim().toLowerCase()]
+      if (def) set.add(def)
     }
     return [...set].sort((a, b) => a.localeCompare(b))
-  }, [activities])
+  }, [ngos, ngo])
 
   /* A filter still pointing at a group the current NGO does not use would show an
      empty list with no way back, because that option no longer exists. */
@@ -812,13 +853,24 @@ export default function ActivityPlanner() {
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(a)
     }
+    // Sector, then name — but the activity just added leads its own sector, and
+    // that sector leads the list, so a new row is the first thing on screen.
     return [...map.entries()]
-      .sort((x, y) => x[0].localeCompare(y[0]))
+      .sort((x, y) => {
+        const xNew = x[1].some((a) => String(a.id) === String(justAddedId)) ? 0 : 1
+        const yNew = y[1].some((a) => String(a.id) === String(justAddedId)) ? 0 : 1
+        if (xNew !== yNew) return xNew - yNew
+        return x[0].localeCompare(y[0])
+      })
       .map(([key, list]) => ({
         key,
-        rows: [...list].sort((x, y) => String(x.name || '').localeCompare(String(y.name || ''))),
+        rows: [...list].sort((x, y) => {
+          if (String(x.id) === String(justAddedId)) return -1
+          if (String(y.id) === String(justAddedId)) return 1
+          return String(x.name || '').localeCompare(String(y.name || ''))
+        }),
       }))
-  }, [rows])
+  }, [rows, justAddedId])
 
   /* One chip per NGO carrying that NGO's event count for the chosen month. */
   const ngoOverview = useMemo(() => {
@@ -875,19 +927,35 @@ export default function ActivityPlanner() {
 
   useEffect(() => { loadSelectedSuggestions() }, [loadSelectedSuggestions])
 
+  /* The ticked ideas that belong to the beneficiary in the filter.
+     "All beneficiaries" is the unfiltered list, so the report still covers every
+     decision the user has made. Picking a group narrows both the day rows and
+     the "to be scheduled" list to that group, so the filter and the AI column
+     can never describe different sets. */
+  const scopedSuggestions = useMemo(() => {
+    if (!beneficiaryFilter) return selectedSuggestions
+    const want = beneficiaryFilter.trim().toLowerCase()
+    const byId = new Map(activities.map((a) => [String(a.id), a]))
+    return selectedSuggestions.filter((s) => {
+      const a = byId.get(String(s?.activity_id))
+      if (!a) return false
+      return activityBeneficiary(a, ngos, ngo).toLowerCase() === want
+    })
+  }, [selectedSuggestions, activities, ngos, ngo, beneficiaryFilter])
+
   /* Selected ideas indexed by the activity they were suggested for. The join key
      is the event's extendedProps.activities[].id — the same ids the calendar
      writes — rather than the name, which the NGOs spell inconsistently. */
   const suggestionsByActivity = useMemo(() => {
     const map = new Map()
-    for (const s of selectedSuggestions) {
+    for (const s of scopedSuggestions) {
       const id = Number(s?.activity_id)
       if (!Number.isFinite(id) || id <= 0) continue
       if (!map.has(id)) map.set(id, [])
       map.get(id).push(s)
     }
     return map
-  }, [selectedSuggestions])
+  }, [scopedSuggestions])
 
   /* One row per calendar day. Events already planned that day fill the row;
      days with nothing stay blank so the sheet reads like a calendar month. */
@@ -938,10 +1006,10 @@ export default function ActivityPlanner() {
       }
     }
     const nameById = new Map(activities.map((a) => [Number(a.id), a.name]))
-    return selectedSuggestions
+    return scopedSuggestions
       .filter((s) => !linkedIds.has(Number(s?.activity_id)))
       .map((s) => ({ ...s, activityName: nameById.get(Number(s?.activity_id)) || null }))
-  }, [monthEvents, selectedSuggestions, activities])
+  }, [monthEvents, scopedSuggestions, activities])
 
   const reportMeta = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1074,26 +1142,45 @@ export default function ActivityPlanner() {
 
   /* The modal reports what it managed to save: an activity on its own, an
      activity plus its first programme, or an activity whose programme failed. */
-  const onActivityAdded = ({ activity, programme, programmeError } = {}) => {
+  const onActivityAdded = ({ activity, programme, programmeError, date } = {}) => {
     setAddOpen(false)
     loadActivities()
     if (programme) {
       // A new event changes this month's counts and the report, so reload both.
       loadMonthEvents()
       loadNgoStats()
-      showToast(`Activity “${activity?.name}” added and its programme scheduled.`)
-      return
+      showToast(`Activity “${activity?.name}” added and its programme scheduled on ${shortDate(date)} — it is on the calendar for ${monthLabel(month)}.`)
+    } else {
+      showToast(programmeError
+        ? `Activity “${activity?.name}” ${programmeError}`
+        : `Activity “${activity?.name}” added.`)
     }
-    showToast(programmeError
-      ? `Activity “${activity?.name}” ${programmeError}`
-      : `Activity “${activity?.name}” added.`)
-    // Straight into suggestions, which is the point of adding one from here.
+    /* Straight into suggestions, which is the point of adding one from here —
+       whether or not a first programme date was given. Opening the panel used to
+       be skipped whenever a date was picked, so the most complete path through
+       the form was the one that ended with no suggestions. */
+    /* Remember the day the new programme landed on, so "View in Calendar" can
+       jump straight to it instead of opening on whatever month it feels like.
+       Taken from the form's own date rather than the response, which need not
+       carry it, and dropped unless it belongs to the month on screen: the link
+       always pairs one month with one date, and a date from another month would
+       silently override the month. */
+    const landed = String(date || programme?.date || '').slice(0, 10)
+    setLastScheduled(landed.startsWith(`${month}-`) ? landed : '')
     if (ngo && activity?.id) {
+      setJustAddedId(activity.id)
       setSuggestFor({
         ...activity,
-        sector_name: sectors.find((s) => String(s.id) === String(activity.sector_id))?.name || null,
+        // The panel reads the activity row, and sector_name is only attached by
+        // the activities feed — the create response does not carry it.
+        sector_name: activity.sector_name
+          || sectors.find((s) => String(s.id) === String(activity.sector_id))?.name
+          || null,
       })
     }
+    /* The row leads the list only while it is the new one. A later reload (a
+       sector change, a search) drops it back into alphabetical order. */
+    if (activity?.id) setTimeout(() => setJustAddedId((cur) => (String(cur) === String(activity.id) ? null : cur)), 12000)
   }
 
   /* `suggestion` is set when the programme came from an AI idea rather than from
@@ -1117,6 +1204,32 @@ export default function ActivityPlanner() {
   }
 
   const monthName = monthLabel(month).split(' ')[0]
+
+  /* Deletes the activity and reloads everything its absence changes: the
+     activity list, this month's events (they lose the link), the counts and the
+     ticked suggestions. `planned` is only what is on screen for this month —
+     the server may unlink events in other months too, which is why the
+     confirmation says "programmes" and not "programmes this month". */
+  const confirmDelete = async () => {
+    if (!deleteTarget?.activity?.id) return
+    setDeleteBusy(true); setDeleteError('')
+    const name = deleteTarget.activity.name
+    try {
+      await deleteActivity(deleteTarget.activity.id)
+      setDeleteTarget(null)
+      if (String(suggestFor?.id) === String(deleteTarget.activity.id)) setSuggestFor(null)
+      setJustAddedId((cur) => (String(cur) === String(deleteTarget.activity.id) ? null : cur))
+      loadActivities()
+      loadMonthEvents()
+      loadNgoStats()
+      loadSelectedSuggestions()
+      showToast(`Activity “${name}” deleted.`)
+    } catch (e) {
+      setDeleteError(e?.message || 'Could not delete the activity.')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1170,16 +1283,22 @@ export default function ActivityPlanner() {
 
           <Field label="Beneficiary">
             <Select value={beneficiaryFilter} onChange={setBeneficiaryFilter} style={{ minWidth: 190 }}>
-              {/* An empty dropdown with no explanation reads as a broken filter.
-                  Say what is actually true: nothing in scope is tagged yet. */}
-              <option value="">{beneficiaryOptions.length ? 'All beneficiaries' : 'No beneficiary groups yet'}</option>
+              {/* One option per beneficiary group in scope, so this is never empty. */}
+              <option value="">All beneficiaries</option>
               {beneficiaryOptions.map((g) => <option key={g} value={g}>{g}</option>)}
             </Select>
           </Field>
 
           <SearchInput value={search} onChange={setSearch} placeholder="Search activities…" style={{ flex: '1 1 180px', minWidth: 160 }} />
 
-          <button className="eh-btn" onClick={() => navigate('/event-head/monthly-planner')} title="Open the Calendar view">
+          {/* Carries the month across, so the calendar opens on the month being planned
+              here instead of jumping to one that has events. After scheduling a
+              programme it opens on that exact day. */}
+          <button
+            className="eh-btn"
+            onClick={() => navigate(`/event-head/monthly-planner?month=${month}${lastScheduled ? `&date=${lastScheduled}` : ''}`)}
+            title={`Open the Calendar view on ${monthLabel(month)}`}
+          >
             View in Calendar
           </button>
         </div>
@@ -1196,7 +1315,7 @@ export default function ActivityPlanner() {
           style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}
         >
           <span style={{ fontSize: 11, color: 'var(--eh-ink-faint)' }}>
-            {reportMeta.ngoName} · {monthLabel(month)} · {selectedSuggestions.length} suggestion{selectedSuggestions.length === 1 ? '' : 's'} selected
+            {reportMeta.ngoName} · {monthLabel(month)} · {beneficiaryFilter ? `${beneficiaryFilter} · ` : ''}{scopedSuggestions.length} suggestion{scopedSuggestions.length === 1 ? '' : 's'} selected
           </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
@@ -1322,13 +1441,14 @@ export default function ActivityPlanner() {
                             <td>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                                 <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--eh-ink)' }}>{a.name}</span>
-                                {/* Who this activity serves, on the row itself — that is
-                                    the "which programme does what for whom" answer. */}
-                                {a.beneficiary_group && (
+                                {String(a.id) === String(justAddedId) && (
                                   <span>
-                                    <Badge tone="secondary">{String(a.beneficiary_group).trim()}</Badge>
+                                    <Badge tone="primary">Just added</Badge>
                                   </span>
                                 )}
+                                {/* Who this activity serves, on the row itself — that is
+                                    the "which programme does what for whom" answer. */}
+                                <BeneficiaryCell group={activityBeneficiary(a, ngos, ngo)} />
                                 {a.description && (
                                   <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>
                                     {String(a.description).slice(0, 90)}{String(a.description).length > 90 ? '…' : ''}
@@ -1368,6 +1488,14 @@ export default function ActivityPlanner() {
                                   onClick={() => setPlanEntry({ activity: a, suggestion: null })}
                                 >
                                   Add programme
+                                </button>
+                                <button
+                                  className="eh-btn eh-btn-sm"
+                                  style={{ color: 'var(--eh-danger)', borderColor: 'var(--eh-danger)' }}
+                                  title={`Delete ${a.name}`}
+                                  onClick={() => setDeleteTarget({ activity: a, planned })}
+                                >
+                                  Delete
                                 </button>
                               </div>
                             </td>
@@ -1476,7 +1604,6 @@ export default function ActivityPlanner() {
           ngo={ngo}
           sectors={sectors}
           month={month}
-          beneficiaryOptions={beneficiaryOptions}
           onClose={() => setAddOpen(false)}
           onSaved={onActivityAdded}
         />
@@ -1490,6 +1617,44 @@ export default function ActivityPlanner() {
           onClose={() => setPlanEntry(null)}
           onSaved={afterPlanned}
         />
+      )}
+
+      {deleteTarget && (
+        <ModalShell
+          title="Delete activity"
+          subtitle={deleteTarget.activity.name}
+          width={520}
+          onClose={() => { if (!deleteBusy) { setDeleteTarget(null); setDeleteError('') } }}
+          footer={
+            <>
+              <button className="eh-btn" onClick={() => { setDeleteTarget(null); setDeleteError('') }} disabled={deleteBusy}>Cancel</button>
+              <button
+                className="eh-btn eh-btn-primary"
+                style={{ background: 'var(--eh-danger)', borderColor: 'var(--eh-danger)' }}
+                onClick={confirmDelete}
+                disabled={deleteBusy}
+              >
+                {deleteBusy ? 'Deleting…' : 'Confirm Delete'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: 'var(--eh-ink)' }}>
+            <p style={{ margin: 0 }}>
+              This permanently deletes <b>{deleteTarget.activity.name}</b>. This cannot be undone.
+            </p>
+            {/* Say what goes with it, so the count is a decision and not a surprise. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span>
+                <b>{(deleteTarget.planned || []).length}</b> programme{(deleteTarget.planned || []).length === 1 ? '' : 's'} planned in {monthLabel(month)} will stay on the calendar, but will no longer be linked to this activity.
+              </span>
+              <span>The activity’s AI suggestions will be deleted with it.</span>
+            </div>
+            {deleteError && (
+              <div style={{ padding: '10px 13px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)' }}>{deleteError}</div>
+            )}
+          </div>
+        </ModalShell>
       )}
     </div>
   )

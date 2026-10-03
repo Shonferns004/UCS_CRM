@@ -138,6 +138,7 @@ router.post('/activities/import', eh, upload.single('file'), ctrl.importActiviti
 router.get('/activities/export', eh, ctrl.exportActivities);
 router.get('/activities/:id', eh, ctrl.getActivity);
 router.put('/activities/:id', eh, ctrl.updateActivity);
+router.delete('/activities/:id', eh, ctrl.deleteActivity);
 router.put('/activities/:id/status', eh, ctrl.setActivityStatus);
 
 export default router;
