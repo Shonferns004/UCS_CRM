@@ -23,6 +23,7 @@ import {
   parseDocumentsValue,
   serializeDocuments,
 } from '../utils/documentsValue.js';
+import { istDateString } from '../utils/ist.js';
 
 const generateLoginId = async (name) => {
   const parts = name.trim().split(/\s+/);
@@ -535,7 +536,8 @@ export const getBirthdays = async (req, res) => {
   try {
     const workers = await getAllWorkers(null);
     const today = new Date();
-    const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const todayIst = istDateString(today);
+    const todayMD = todayIst.slice(5);
     const upcoming = workers
       .filter((w) => w.dob)
       .filter((w) => !(w.is_active === false || ['terminated', 'absconded'].includes(String(w.employment_status || '').toLowerCase().trim())))
