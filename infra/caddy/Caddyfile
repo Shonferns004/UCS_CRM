@@ -1,12 +1,39 @@
+# Common security headers
+(common_security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=(), payment=()"
+		-Server
+	}
+}
+
 api.beingsevak.org, 13-207-47-116.sslip.io {
-    reverse_proxy 127.0.0.1:5000
+	import common_security_headers
+	request_body {
+		max_size 12MB
+	}
+	reverse_proxy 127.0.0.1:5000 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
 }
 
 crm.beingsevak.org, crm.13-207-47-116.sslip.io {
-    root * /var/www/crm
-    encode gzip
-    try_files {path} /index.html
-    file_server
+	import common_security_headers
+	root * /var/www/crm
+	encode gzip
+	try_files {path} /index.html
+	file_server
+
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	@entry path /index.html
+	header @entry Cache-Control "no-store, must-revalidate"
 }
 
 aflf.ngo, www.aflf.ngo {
