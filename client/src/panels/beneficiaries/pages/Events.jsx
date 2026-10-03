@@ -37,12 +37,9 @@ export default function Events() {
   const [form, setForm] = useState({ title: '', event_date: '', start_time: '', end_time: '', location: '', state: '', description: '' })
   const [saving, setSaving] = useState(false)
 
-// Per-event detail: programs + marked beneficiaries
+  // Per-event detail: marked beneficiaries
   const [openId, setOpenId] = useState(null)
   const [detail, setDetail] = useState({})
-  const [allPrograms, setAllPrograms] = useState([])
-  const [attachId, setAttachId] = useState('')
-  const [busy, setBusy] = useState('')
 
   // ── API users / catalogs ─────────────────────────────────────────────
   const [showOps, setShowOps] = useState(false)
@@ -54,33 +51,6 @@ export default function Events() {
   const [newOp, setNewOp] = useState(null)
   const [showKits, setShowKits] = useState(false)
   const [showOrganizers, setShowOrganizers] = useState(false)
-
-  // New program modal
-  const [showProgForm, setShowProgForm] = useState(false)
-  const [progForm, setProgForm] = useState({ title: '', program_date: '', start_time: '', end_time: '', location_name: '', status: 'DRAFT', description: '' })
-  const [progSaving, setProgSaving] = useState(false)
-  const [progErr, setProgErr] = useState('')
-
-  const openNewProgram = () => {
-    setProgForm({ title: '', program_date: '', start_time: '', end_time: '', location_name: '', status: 'DRAFT', description: '' })
-    setProgErr('')
-    setShowProgForm(true)
-  }
-
-  const saveProgram = async () => {
-    if (!progForm.title.trim()) { setProgErr('Title is required'); return }
-    setProgSaving(true)
-    setProgErr('')
-    try {
-      await apiPost('/programs', progForm)
-      setShowProgForm(false)
-      await loadPrograms()
-    } catch (e) {
-      setProgErr(e.message || 'Failed to create program')
-    } finally {
-      setProgSaving(false)
-    }
-  }
 
   const loadOperators = useCallback(async () => {
     setOpsLoading(true)
@@ -154,24 +124,12 @@ export default function Events() {
 
   useEffect(() => { load() }, [load])
 
-  const loadPrograms = useCallback(async () => {
-    try {
-      const res = await apiGet('/programs?page=1&pageSize=1000')
-      setAllPrograms(res?.data || [])
-    } catch { setAllPrograms([]) }
-  }, [])
-
-  useEffect(() => { loadPrograms() }, [loadPrograms])
-
   const loadDetail = async (id) => {
     setOpenId(id === openId ? null : id)
     if (id === openId) return
     try {
-      const [programs, beneficiaries] = await Promise.all([
-        apiGet(`/operator/events/${id}/programs`),
-        apiGet(`/operator/events/${id}/beneficiaries`),
-      ])
-      setDetail((prev) => ({ ...prev, [id]: { programs: Array.isArray(programs) ? programs : [], beneficiaries: Array.isArray(beneficiaries) ? beneficiaries : [] } }))
+      const beneficiaries = await apiGet(`/operator/events/${id}/beneficiaries`)
+      setDetail((prev) => ({ ...prev, [id]: { beneficiaries: Array.isArray(beneficiaries) ? beneficiaries : [] } }))
     } catch (e) {
       setErr(e.message || 'Failed to load event details')
     }
@@ -200,7 +158,7 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
   }
 
   const remove = async (id) => {
-    if (!confirm('Delete this event (and its program links)?')) return
+    if (!confirm('Delete this event?')) return
     try {
       await apiDelete(`/operator/events/${id}`)
       setDetail((prev) => { const n = { ...prev }; delete n[id]; return n })
@@ -211,54 +169,16 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
     }
   }
 
-  const attachProgram = async (evId) => {
-    if (!attachId) return
-    setBusy(`attach-${evId}`)
-    setErr('')
-    try {
-      const res = await apiPost(`/operator/events/${evId}/programs`, { program_ids: [Number(attachId)] })
-      setDetail((prev) => ({ ...prev, [evId]: { ...prev[evId], programs: res?.programs || prev[evId]?.programs || [] } }))
-      setAttachId('')
-    } catch (e) {
-      setErr(e.message || 'Failed to attach program')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const detachProgram = async (evId, programId) => {
-    setBusy(`detach-${evId}-${programId}`)
-    setErr('')
-    try {
-      await apiDelete(`/operator/events/${evId}/programs/${programId}`)
-      const programs = await apiGet(`/operator/events/${evId}/programs`)
-      setDetail((prev) => ({ ...prev, [evId]: { ...prev[evId], programs: Array.isArray(programs) ? programs : [] } }))
-    } catch (e) {
-      setErr(e.message || 'Failed to remove program')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const attachedIds = (id) => new Set(((detail[id]?.programs) || []).map((p) => p.id))
-  const availablePrograms = (id) => {
-    const used = attachedIds(id)
-    return allPrograms.filter((p) => !used.has(p.id))
-  }
-
   return (
     <div>
       <div style={styles.header}>
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Events</h2>
           <div style={{ fontSize: '12px', color: 'var(--ink-soft)', marginTop: '2px' }}>
-            Events the app operators pick every day. Programs attached to an event appear under it; beneficiaries marked (kit given) roll up under the event too.
+            Events the app operators pick every day. Beneficiaries marked (kit given) roll up under the event.
           </div>
         </div>
 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button onClick={openNewProgram} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
-            + New Program
-          </button>
           <button onClick={() => setShowKits(true)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
             Kits
           </button>
@@ -322,58 +242,6 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
         </div>
       )}
 
-      {showProgForm && (
-        <div style={styles.overlay} onClick={() => setShowProgForm(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--ink)', margin: 0, marginBottom: '16px' }}>New Program</h3>
-            <div style={{ fontSize: '12px', color: 'var(--ink-soft)', marginBottom: '12px' }}>
-              Create a program, then expand a daily event below to attach it.
-            </div>
-            {progErr && (
-              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: '#fee2e2', color: '#991b1b', fontSize: '13px', marginBottom: '12px' }}>{progErr}</div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
-                <label style={styles.label}>Title *</label>
-                <input style={{ ...styles.input, width: '100%' }} value={progForm.title} onChange={(e) => setProgForm({ ...progForm, title: e.target.value })} />
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Date</label>
-                <input type="date" style={{ ...styles.input, width: '100%' }} value={progForm.program_date} onChange={(e) => setProgForm({ ...progForm, program_date: e.target.value })} />
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Status</label>
-                <select style={{ ...styles.input, width: '100%' }} value={progForm.status} onChange={(e) => setProgForm({ ...progForm, status: e.target.value })}>
-                  {['DRAFT', 'PLANNED', 'APPROVED', 'ONGOING', 'COMPLETED', 'CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Start time</label>
-                <input type="time" style={{ ...styles.input, width: '100%' }} value={progForm.start_time} onChange={(e) => setProgForm({ ...progForm, start_time: e.target.value })} />
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>End time</label>
-                <input type="time" style={{ ...styles.input, width: '100%' }} value={progForm.end_time} onChange={(e) => setProgForm({ ...progForm, end_time: e.target.value })} />
-              </div>
-              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
-                <label style={styles.label}>Location</label>
-                <input style={{ ...styles.input, width: '100%' }} value={progForm.location_name} onChange={(e) => setProgForm({ ...progForm, location_name: e.target.value })} />
-              </div>
-              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
-                <label style={styles.label}>Description</label>
-                <textarea rows={2} style={{ ...styles.input, width: '100%', fontFamily: 'inherit' }} value={progForm.description} onChange={(e) => setProgForm({ ...progForm, description: e.target.value })} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setShowProgForm(false)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Cancel</button>
-              <button onClick={saveProgram} disabled={progSaving || !progForm.title.trim()} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff', opacity: progSaving || !progForm.title.trim() ? 0.6 : 1 }}>
-                {progSaving ? 'Saving...' : 'Create Program'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div style={styles.card}>
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--ink-soft)' }}>Loading...</div>
@@ -387,7 +255,6 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
                 <th style={styles.th}>Date</th>
                 <th style={styles.th}>Time</th>
                 <th style={styles.th}>Location</th>
-                <th style={styles.th}>Attached</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
@@ -402,7 +269,6 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
                       <td style={styles.td}>{fmtDate(ev.event_date)}</td>
                       <td style={styles.td}>{fmtTime(ev.start_time)} – {fmtTime(ev.end_time)}</td>
                       <td style={styles.td} className="sa-muted">{ev.location || ev.state || '—'}</td>
-                      <td style={styles.td}>{d ? (d.programs?.length || 0) : '—'}</td>
                       <td style={styles.td}>
                         <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); openEdit(ev) }}>Edit</button>
                         <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); remove(ev.id) }} style={{ marginLeft: 4 }}>Del</button>
@@ -410,59 +276,27 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
                     </tr>
                     {open && (
                       <tr>
-                        <td colSpan={6} style={{ ...styles.td, background: 'var(--bg)', padding: '18px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            {/* Programs */}
-                            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', padding: '12px' }}>
-                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ink)', marginBottom: '8px' }}>Programs under this event</div>
-                              {(d?.programs || []).length === 0 ? (
-                                <div style={{ fontSize: '12px', color: 'var(--ink-soft)', marginBottom: '8px' }}>No programs attached yet.</div>
-                              ) : (
-                                <table style={{ ...styles.table, marginBottom: '8px' }}>
-                                  <tbody>
-                                    {(d?.programs || []).map((p) => (
-                                      <tr key={p.id}>
-                                        <td style={{ ...styles.td, borderBottom: '1px solid var(--line)' }}>{p.title}</td>
-                                        <td style={{ ...styles.td, borderBottom: '1px solid var(--line)' }}>{p.program_date || '—'}</td>
-                                        <td style={{ ...styles.td, borderBottom: '1px solid var(--line)', textAlign: 'right' }}>
-                                          <button disabled={busy === `detach-${ev.id}-${p.id}`} onClick={() => detachProgram(ev.id, p.id)} style={{ ...styles.btn, background: 'var(--bg)', color: '#991b1b', opacity: busy === `detach-${ev.id}-${p.id}` ? 0.5 : 1 }}>Remove</button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              )}
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <select value={attachId} onChange={(e) => setAttachId(e.target.value)} style={{ ...styles.input, flex: 1 }}>
-                                  <option value="">Attach a program…</option>
-                                  {availablePrograms(ev.id).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                                  {availablePrograms(ev.id).length === 0 && <option disabled>No more programs to attach</option>}
-                                </select>
-                                <button disabled={!attachId || busy === `attach-${ev.id}`} onClick={() => attachProgram(ev.id)} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff', opacity: !attachId || busy === `attach-${ev.id}` ? 0.5 : 1 }}>Attach</button>
-                              </div>
+                        <td colSpan={5} style={{ ...styles.td, background: 'var(--bg)', padding: '18px' }}>
+                          {/* Marked beneficiaries */}
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', padding: '12px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ink)', marginBottom: '8px' }}>
+                              Beneficiaries marked (kit given) here · {(d?.beneficiaries || []).length}
                             </div>
-
-                            {/* Marked beneficiaries */}
-                            <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', padding: '12px' }}>
-                              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--ink)', marginBottom: '8px' }}>
-                                Beneficiaries marked (kit given) here · {(d?.beneficiaries || []).length}
-                              </div>
-                              {(d?.beneficiaries || []).length === 0 ? (
-                                <div style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>None yet. When the operator marks a bonus beneficiary at this event, it shows up here.</div>
-                              ) : (
-                                <table style={styles.table}>
-                                  <tbody>
-                                    {(d?.beneficiaries || []).map((b) => (
-                                      <tr key={b.audit_id}>
-                                        <td style={{ ...styles.td, borderBottom: '1px solid var(--line)' }}>{b.full_name}</td>
-                                        <td style={{ ...styles.td, borderBottom: '1px solid var(--line)', width: '30%' }}>{b.beneficiary_code}</td>
-                                        <td style={{ ...styles.td, borderBottom: '1px solid var(--line)', width: '30%' }}>{fmtDateTime(b.performed_at)}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              )}
-                            </div>
+                            {(d?.beneficiaries || []).length === 0 ? (
+                              <div style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>None yet. When the operator marks a bonus beneficiary at this event, it shows up here.</div>
+                            ) : (
+                              <table style={styles.table}>
+                                <tbody>
+                                  {(d?.beneficiaries || []).map((b) => (
+                                    <tr key={b.audit_id}>
+                                      <td style={{ ...styles.td, borderBottom: '1px solid var(--line)' }}>{b.full_name}</td>
+                                      <td style={{ ...styles.td, borderBottom: '1px solid var(--line)', width: '30%' }}>{b.beneficiary_code}</td>
+                                      <td style={{ ...styles.td, borderBottom: '1px solid var(--line)', width: '30%' }}>{fmtDateTime(b.performed_at)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
                           </div>
                         </td>
                       </tr>
