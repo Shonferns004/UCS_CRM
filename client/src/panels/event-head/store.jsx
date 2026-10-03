@@ -643,6 +643,7 @@ export const fetchActivities = (params = {}) => {
 export const fetchActivityById = (id) => apiGet('/event-head/activities/' + id)
 export const createActivity = (data) => apiPost('/event-head/activities', data)
 export const updateActivity = (id, data) => apiPut('/event-head/activities/' + id, data)
+export const deleteActivity = (id) => apiDelete('/event-head/activities/' + id)
 export const setActivityStatus = (id, status) => apiPut('/event-head/activities/' + id + '/status', { status })
 export const suggestSectorActivities = (sector_name, opts = {}) =>
   apiPost('/event-head/activities/suggest', { sector_name, ...opts })

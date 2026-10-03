@@ -22,6 +22,25 @@
 /** Six fits the shared ~950-token budget far better than the day flow's ten. */
 export const ACTIVITY_SUGGESTION_LIMIT = 6;
 
+/**
+ * The one beneficiary group each NGO serves, by its short code.
+ *
+ * This is the single source of truth for the planner's beneficiary group: the
+ * prompt, the monthly filter and the table column all read it rather than a
+ * per-activity free-text tag, so an activity cannot claim a group its NGO does
+ * not serve. Kept here, next to the prompt, so aiming the AI at the group and
+ * filtering by it cannot drift apart.
+ */
+export const NGO_BENEFICIARY_GROUP = {
+  bsct: 'Visually Impaired',
+  aflf: 'Underprivileged Families',
+  mann: 'Women',
+};
+
+/** '' for an unknown or missing code — the prompt then simply drops the line. */
+export const beneficiaryGroupForNgo = (code) =>
+  NGO_BENEFICIARY_GROUP[String(code || '').trim().toLowerCase()] || '';
+
 /** Same closed vocabulary the day flow uses, so both features stay consistent. */
 export const ACTIVITY_PROGRAM_FORMATS = [
   'Health Camp',
