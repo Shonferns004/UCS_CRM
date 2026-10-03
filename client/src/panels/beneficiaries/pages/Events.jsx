@@ -55,6 +55,33 @@ export default function Events() {
   const [showKits, setShowKits] = useState(false)
   const [showOrganizers, setShowOrganizers] = useState(false)
 
+  // New program modal
+  const [showProgForm, setShowProgForm] = useState(false)
+  const [progForm, setProgForm] = useState({ title: '', program_date: '', start_time: '', end_time: '', location_name: '', status: 'DRAFT', description: '' })
+  const [progSaving, setProgSaving] = useState(false)
+  const [progErr, setProgErr] = useState('')
+
+  const openNewProgram = () => {
+    setProgForm({ title: '', program_date: '', start_time: '', end_time: '', location_name: '', status: 'DRAFT', description: '' })
+    setProgErr('')
+    setShowProgForm(true)
+  }
+
+  const saveProgram = async () => {
+    if (!progForm.title.trim()) { setProgErr('Title is required'); return }
+    setProgSaving(true)
+    setProgErr('')
+    try {
+      await apiPost('/programs', progForm)
+      setShowProgForm(false)
+      await loadPrograms()
+    } catch (e) {
+      setProgErr(e.message || 'Failed to create program')
+    } finally {
+      setProgSaving(false)
+    }
+  }
+
   const loadOperators = useCallback(async () => {
     setOpsLoading(true)
     setOpsError('')
@@ -229,6 +256,9 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
           </div>
         </div>
 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button onClick={openNewProgram} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
+            + New Program
+          </button>
           <button onClick={() => setShowKits(true)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>
             Kits
           </button>
@@ -286,6 +316,58 @@ if (edit) await apiPut(`/operator/events/${edit.id}`, form)
               <button onClick={() => setShowForm(false)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Cancel</button>
               <button onClick={save} disabled={saving || !form.title || !form.event_date} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff', opacity: saving || !form.title || !form.event_date ? 0.6 : 1 }}>
                 {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProgForm && (
+        <div style={styles.overlay} onClick={() => setShowProgForm(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--ink)', margin: 0, marginBottom: '16px' }}>New Program</h3>
+            <div style={{ fontSize: '12px', color: 'var(--ink-soft)', marginBottom: '12px' }}>
+              Create a program, then expand a daily event below to attach it.
+            </div>
+            {progErr && (
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: '#fee2e2', color: '#991b1b', fontSize: '13px', marginBottom: '12px' }}>{progErr}</div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
+                <label style={styles.label}>Title *</label>
+                <input style={{ ...styles.input, width: '100%' }} value={progForm.title} onChange={(e) => setProgForm({ ...progForm, title: e.target.value })} />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Date</label>
+                <input type="date" style={{ ...styles.input, width: '100%' }} value={progForm.program_date} onChange={(e) => setProgForm({ ...progForm, program_date: e.target.value })} />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Status</label>
+                <select style={{ ...styles.input, width: '100%' }} value={progForm.status} onChange={(e) => setProgForm({ ...progForm, status: e.target.value })}>
+                  {['DRAFT', 'PLANNED', 'APPROVED', 'ONGOING', 'COMPLETED', 'CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Start time</label>
+                <input type="time" style={{ ...styles.input, width: '100%' }} value={progForm.start_time} onChange={(e) => setProgForm({ ...progForm, start_time: e.target.value })} />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>End time</label>
+                <input type="time" style={{ ...styles.input, width: '100%' }} value={progForm.end_time} onChange={(e) => setProgForm({ ...progForm, end_time: e.target.value })} />
+              </div>
+              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
+                <label style={styles.label}>Location</label>
+                <input style={{ ...styles.input, width: '100%' }} value={progForm.location_name} onChange={(e) => setProgForm({ ...progForm, location_name: e.target.value })} />
+              </div>
+              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
+                <label style={styles.label}>Description</label>
+                <textarea rows={2} style={{ ...styles.input, width: '100%', fontFamily: 'inherit' }} value={progForm.description} onChange={(e) => setProgForm({ ...progForm, description: e.target.value })} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowProgForm(false)} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Cancel</button>
+              <button onClick={saveProgram} disabled={progSaving || !progForm.title.trim()} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff', opacity: progSaving || !progForm.title.trim() ? 0.6 : 1 }}>
+                {progSaving ? 'Saving...' : 'Create Program'}
               </button>
             </div>
           </div>
