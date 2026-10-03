@@ -10,14 +10,7 @@ import {
 } from '../services/fileParser.js';
 import { autoAssignDonorsToStations, roundRobinAssignToStations } from '../services/assignmentHelpers.js';
 // CJS cache wrapper; imported (not require()'d) because this module is ESM.
-const redis = await (async () => {
-  try {
-    const mod = await import('../config/redis.cjs');
-    return mod.default || mod;
-  } catch (e) {
-    return null;
-  }
-})();
+import redis from '../config/redis.cjs';
 
 const yieldNow = () => new Promise((r) => setImmediate(r));
 const CHUNK = 500;
