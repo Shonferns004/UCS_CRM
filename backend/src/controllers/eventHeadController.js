@@ -10,6 +10,7 @@ import {
 import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
 import {
   ACTIVITY_SUGGESTION_LIMIT,
+  beneficiaryGroupForNgo,
   buildActivityProgramPrompt,
   isMonthYmd,
   monthEndExclusive,
@@ -1943,6 +1944,24 @@ export const updateActivity = async (req, res) => {
   }
 };
 
+export const deleteActivity = async (req, res) => {
+  try {
+    const existing = await EventHead.getActivityById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Activity not found' });
+    // Events stay; they just lose this activity. Reported back so the UI can say
+    // so before deleting, rather than after.
+    const eventsCount = await EventHead.countActivityEvents(req.params.id);
+    await EventHead.deleteActivity(req.params.id);
+    return res.json({ message: 'Activity deleted', events_affected: eventsCount });
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    // The existence check above can lose a race with another delete, so a
+    // missing row here is still a 404 and not a server fault.
+    if (error.message === 'Activity not found') return res.status(404).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const setActivityStatus = async (req, res) => {
   try {
     const { status } = sanitize(req.body);
@@ -2614,11 +2633,16 @@ export const suggestActivityPrograms = async (req, res) => {
       }
     }
 
+    // Who this activity serves is fixed by its NGO, not stored per activity:
+    // the old `beneficiary_group` column is only a fallback for an NGO that has
+    // no code here yet.
+    const beneficiaryGroup = beneficiaryGroupForNgo(ngoRow?.code) || activity.beneficiary_group || null;
+
     const payload = {
       month,
       ngo_id: ngoId,
       ngo_name: ngoRow?.name || null,
-      activity: { id: activity.id, name: activity.name, sector_id: activity.sector_id, sector_name: sectorName, beneficiary_group: activity.beneficiary_group || null },
+      activity: { id: activity.id, name: activity.name, sector_id: activity.sector_id, sector_name: sectorName, beneficiary_group: beneficiaryGroup },
       observances: (observances || []).map((o) => ({ date: o.date, name: o.name, scope: o.scope, kind: o.kind })),
       suggestions: [],
     };
@@ -2633,12 +2657,12 @@ export const suggestActivityPrograms = async (req, res) => {
     const prompt = buildActivityProgramPrompt({
       activityName: activity.name,
       ngoName: ngoRow?.name,
-      // The short code plus who the activity serves, so the ideas are aimed at
-      // this NGO's beneficiary group instead of coming back generic. Both are
-      // optional: an NGO with no code, or an activity created before migration
-      // 168, simply drops the line.
+      // The short code plus the group the NGO serves, so the ideas are aimed at
+      // this beneficiary group instead of coming back generic. Both are
+      // optional: an NGO with no code, and therefore no known group, simply
+      // drops the line.
       ngoCode: ngoRow?.code,
-      beneficiaryGroup: activity.beneficiary_group,
+      beneficiaryGroup,
       sectorName,
       monthYmd: month,
       observances: payload.observances,

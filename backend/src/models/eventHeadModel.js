@@ -705,6 +705,53 @@ export const updateActivity = async (id, updates) => {
   return data;
 };
 
+/* How many events reference this activity, so the UI can say what a delete
+   takes with it. Counts the join table (migration 092) and the legacy
+   `activity_id` column, because an event created before the join table exists
+   only has the column. */
+export const countActivityEvents = async (id) => {
+  const n = Number(id);
+  const ids = await getEventIdsForActivity(n);
+  return ids.length;
+};
+
+/* Events that would keep working but lose this activity's name: linked through
+   the legacy `activity_id` column, which the join table does not own. Their
+   column is cleared rather than left dangling, because a row pointing at a
+   deleted activity renders as a nameless programme in the calendar.
+   Run only after the join rows are gone, so nothing is still linked through
+   both and silently dropped from the calendar. */
+const unlinkLegacyEvents = async (id) => {
+  const { error } = await db
+    .from('event_head_events')
+    .update({ activity_id: null })
+    .eq('activity_id', Number(id));
+  if (error) throw error;
+};
+
+/* Deletes the activity and everything keyed to it. Programmes are deliberately
+   kept: the calendar must not lose a scheduled event because the activity it
+   was named after is gone, so the links are cleared instead. Each step checks
+   its error and stops on failure — a half-finished delete that left the activity
+   in place with its suggestions removed would quietly lose the user's work. */
+export const deleteActivity = async (id) => {
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) throw new Error('Activity not found');
+  // Suggestions first: they are keyed by activity_id and would otherwise be
+  // orphaned rows that nothing can ever resolve a name for.
+  const sug = await db.from('event_head_planner_suggestions').delete().eq('activity_id', n);
+  if (sug.error) throw sug.error;
+  if (await joinTableExists()) {
+    const join = await db.from('event_head_event_activities').delete().eq('activity_id', n);
+    if (join.error) throw join.error;
+  }
+  await unlinkLegacyEvents(n);
+  const { data, error } = await db.from('event_head_activities').delete().eq('id', n).select('id');
+  if (error) throw error;
+  if (!Array.isArray(data) || !data.length) throw new Error('Activity not found');
+  return { message: 'Activity deleted' };
+};
+
 export const getActivityEventCounts = async () => {
   const { data, error } = await db.from('event_head_events').select('id, activity_id');
   if (error) throw error;
