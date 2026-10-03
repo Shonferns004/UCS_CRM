@@ -27,6 +27,19 @@ export const getProgramBeneficiaries = async (programId) => {
   return data || [];
 };
 
+// Every program this beneficiary has been assigned to, newest first, with the
+// program's display fields embedded. Used by the beneficiary profile's
+// Programs tab so it does not have to page through programs separately.
+export const getBeneficiaryPrograms = async (beneficiaryId) => {
+  const { data, error } = await db
+    .from('program_beneficiaries')
+    .select('*, bnf_programs(id, program_code, title, program_date, location_name, status)')
+    .eq('beneficiary_id', beneficiaryId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
 export const checkInBeneficiary = async (programId, beneficiaryId, checkedInBy) => {
   const { data, error } = await db
     .from('program_beneficiaries')

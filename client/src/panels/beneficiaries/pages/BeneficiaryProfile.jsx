@@ -79,7 +79,12 @@ export default function BeneficiaryProfile() {
   const [familyRows, setFamilyRows] = useState([])
   const [removedFamily, setRemovedFamily] = useState([])
   const [ngoOptions, setNgoOptions] = useState([])
-
+  const [kitMarking, setKitMarking] = useState(false)
+  const [kitError, setKitError] = useState(null)
+  const [kitConfirm, setKitConfirm] = useState(false)
+  const [auditLogs, setAuditLogs] = useState(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState(null)
   const loadBeneficiary = useCallback(async () => {
     try {
       const result = await apiGet(`/beneficiaries/${id}`)
@@ -92,6 +97,20 @@ export default function BeneficiaryProfile() {
   }, [id])
 
   useEffect(() => { loadBeneficiary() }, [loadBeneficiary])
+
+  // Audit trail is only fetched when the Activity tab is opened, so a profile
+  // view that never leaves Overview costs nothing extra.
+  useEffect(() => {
+    if (tab !== 'Activity') return undefined
+    let active = true
+    setAuditLoading(true)
+    setAuditError(null)
+    apiGet(`/beneficiaries/${id}/audit`)
+      .then((logs) => { if (active) setAuditLogs(Array.isArray(logs) ? logs : []) })
+      .catch((e) => { if (active) setAuditError(e.message || 'Could not load activity') })
+      .finally(() => { if (active) setAuditLoading(false) })
+    return () => { active = false }
+  }, [tab, id])
 
   // The assigned NGO is edited as a dropdown, so the NGO master list is
   // fetched the first time the form is opened. "Needed Type" is free text
@@ -193,6 +212,27 @@ export default function BeneficiaryProfile() {
       setSaveError(e.message || 'Could not save changes')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Marks the event kit as handed over. The server refuses a second handout
+  // within 3 calendar months unless `override` is explicit (mirrors the
+  // operator app's "kit already given on X" confirmation). A refused first
+  // attempt flips the button into an "Give Anyway" confirm instead of an error.
+  const markKitGiven = async (override = false) => {
+    if (kitMarking) return
+    setKitMarking(true)
+    setKitError(null)
+    try {
+      await apiPost(`/beneficiaries/${id}/kit-given`, override ? { override: true } : {})
+      setKitConfirm(false)
+      await loadBeneficiary()
+    } catch (e) {
+      const msg = e?.message || 'Failed to mark kit as given'
+      if (!override && /already given/i.test(msg)) setKitConfirm(true)
+      else setKitError(msg)
+    } finally {
+      setKitMarking(false)
     }
   }
 
@@ -299,6 +339,7 @@ export default function BeneficiaryProfile() {
               data.fingerprint_status === 'REGISTERED' ? '#dcfce7' : '#fef3c7',
               data.fingerprint_status === 'REGISTERED' ? '#166534' : '#92400e'
             )}>{data.fingerprint_status}</span></Field>
+            <Field label="Kit Status">{data.kit_given ? `Given${data.kit_given_at ? ' on ' + new Date(data.kit_given_at).toLocaleDateString('en-IN') + (data.kit_given_by ? ' by ' + data.kit_given_by : '') : ''}` : 'Not Given'}</Field>
             <Field label="Categories">{data.categories?.map((c) => c.name).join(', ') || 'None'}</Field>
             <Field label="Created By">{data.created_by}</Field>
           </div>
@@ -544,7 +585,26 @@ export default function BeneficiaryProfile() {
           </div>
         )
       case 'Programs':
-        return <div><p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>Program history will appear here</p></div>
+        if (!data.programs || data.programs.length === 0) return <div><p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>Not enrolled in any events yet</p></div>
+        return (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead><tr><th style={styles.th}>Event</th><th style={styles.th}>Date</th><th style={styles.th}>Location</th><th style={styles.th}>Attendance</th><th style={styles.th}>Service</th><th style={styles.th}>Eligibility</th></tr></thead>
+              <tbody>
+                {data.programs.map((p) => (
+                  <tr key={p.id}>
+                    <td style={styles.td}>{p.bnf_programs?.title || p.bnf_programs?.program_code || '-'}</td>
+                    <td style={styles.td}>{p.bnf_programs?.program_date || '-'}</td>
+                    <td style={styles.td}>{p.bnf_programs?.location_name || '-'}</td>
+                    <td style={styles.td}>{p.attendance_status || '-'}</td>
+                    <td style={styles.td}>{p.service_status || '-'}</td>
+                    <td style={styles.td}>{p.eligibility_status || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       case 'Benefits':
         return (
           <div>
@@ -573,7 +633,35 @@ export default function BeneficiaryProfile() {
           </div>
         )
       case 'Activity':
-        return <div><p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>Audit trail will appear here</p></div>
+        if (auditLoading) return <div style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>Loading activity...</div>
+        if (auditError) return <div style={{ color: '#b91c1c', fontSize: '13px' }}>{auditError}</div>
+        if (!auditLogs || auditLogs.length === 0) return <div><p style={{ color: 'var(--ink-soft)', fontSize: '13px' }}>No activity recorded yet</p></div>
+        return (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead><tr><th style={styles.th}>When</th><th style={styles.th}>Action</th><th style={styles.th}>By</th><th style={styles.th}>Details</th></tr></thead>
+              <tbody>
+                {auditLogs.map((log) => {
+                  let details = ''
+                  if (log.details) {
+                    try {
+                      const parsed = typeof log.details === 'string' ? JSON.parse(log.details) : log.details
+                      details = Array.isArray(parsed?.fields) ? parsed.fields.join(', ') : (typeof parsed === 'object' ? Object.keys(parsed).join(', ') : String(parsed))
+                    } catch { details = String(log.details) }
+                  }
+                  return (
+                    <tr key={log.id}>
+                      <td style={styles.td}>{log.performed_at ? new Date(log.performed_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</td>
+                      <td style={styles.td}>{String(log.action || '').replace(/_/g, ' ')}</td>
+                      <td style={styles.td}>{log.performed_by || '-'}</td>
+                      <td style={{ ...styles.td, color: 'var(--ink-soft)' }}>{details || '-'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       default:
         return null
     }
@@ -590,7 +678,16 @@ export default function BeneficiaryProfile() {
             <span style={{ marginLeft: '8px' }}><span style={styles.pill(bg, fg)}>{data.status}</span></span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {!editing && !kitConfirm && (
+            <button
+              onClick={() => markKitGiven(false)}
+              disabled={kitMarking}
+              style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+            >
+              {kitMarking ? 'Marking...' : data.kit_given ? 'Give Kit Again' : 'Mark Kit Given'}
+            </button>
+          )}
           {editing ? (
             <>
               <button onClick={cancelEdit} disabled={saving} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Cancel</button>
@@ -599,11 +696,25 @@ export default function BeneficiaryProfile() {
               </button>
             </>
           ) : (
-            <button onClick={startEdit} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>Edit</button>
+            !kitConfirm && <button onClick={startEdit} style={{ ...styles.btn, background: 'var(--sage)', color: '#fff' }}>Edit</button>
           )}
         </div>
       </div>
 
+      {kitConfirm && (
+        <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 13, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span>This member already received a kit within the last 3 months. Give the kit again anyway?</span>
+          <button onClick={() => markKitGiven(true)} disabled={kitMarking} style={{ ...styles.btn, background: '#b45309', color: '#fff' }}>
+            {kitMarking ? 'Saving...' : 'Give Anyway'}
+          </button>
+          <button onClick={() => setKitConfirm(false)} disabled={kitMarking} style={{ ...styles.btn, background: 'var(--bg)', color: 'var(--ink)' }}>Cancel</button>
+        </div>
+      )}
+      {kitError && (
+        <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13, marginBottom: '12px' }}>
+          {kitError}
+        </div>
+      )}
       {saveError && (
         <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13, marginBottom: '12px' }}>
           {saveError}
