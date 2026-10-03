@@ -16,6 +16,7 @@ import {
   monthEndExclusive,
   monthFirstDay,
   parseActivityProgramSuggestions,
+  canonicalActivityBeneficiary,
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
 
@@ -1935,6 +1936,13 @@ export const updateActivity = async (req, res) => {
     const updates = { ...body };
     if (updates.name !== undefined) updates.name = String(updates.name || '').trim();
     if (updates.name !== undefined && !updates.name) return res.status(400).json({ message: 'Activity name cannot be empty' });
+    // "Include in my download" is the user's decision about what the monthly file
+    // contains, so losing it silently would be worse than refusing: the tick would
+    // look saved and the download would quietly keep ignoring it.
+    if (Object.prototype.hasOwnProperty.call(updates, 'in_report')
+      && !(await EventHead.activityColumnExists('in_report'))) {
+      return res.status(400).json({ message: 'This server cannot store the download selection yet. Apply migration 169_event_head_activity_in_report.sql, then tick the activity again.' });
+    }
     const activity = await EventHead.updateActivity(req.params.id, updates);
     return res.json(activity);
   } catch (error) {
@@ -2633,10 +2641,12 @@ export const suggestActivityPrograms = async (req, res) => {
       }
     }
 
-    // Who this activity serves is fixed by its NGO, not stored per activity:
-    // the old `beneficiary_group` column is only a fallback for an NGO that has
-    // no code here yet.
-    const beneficiaryGroup = beneficiaryGroupForNgo(ngoRow?.code) || activity.beneficiary_group || null;
+// Who this activity serves: the group picked when it was created, and otherwise
+    // the group fixed for its NGO. The activity's own choice has to win, or an
+    // activity that serves a different group would get ideas aimed at the NGO's
+    // default group.
+const savedGroup = canonicalActivityBeneficiary(activity.beneficiary_group);
+    const beneficiaryGroup = savedGroup || beneficiaryGroupForNgo(ngoRow?.code) || null;
 
     const payload = {
       month,
@@ -2729,6 +2739,7 @@ export const suggestActivityPrograms = async (req, res) => {
           rationale: r.rationale,
           materials: Array.isArray(r.materials) ? r.materials : [],
           is_selected: Boolean(r.is_selected),
+          suggested_event_id: r.suggested_event_id ?? null,
           activity_id: r.activity_id,
           batch_no: r.batch_no,
         }))
@@ -2783,7 +2794,9 @@ export const setPlannerSuggestionSelected = async (req, res) => {
       return res.status(400).json({ message: 'id is required' });
     }
     const is_selected = Boolean(req.body?.is_selected);
-    const row = await EventHead.setPlannerSuggestionSelected(id, is_selected);
+    // Optional link to the programme this idea became. Written with the tick so
+    // the monthly report can attribute the idea to that one programme.
+    const row = await EventHead.setPlannerSuggestionSelected(id, is_selected, req.body?.suggested_event_id);
     return res.json({ suggestion: row });
   } catch (error) {
     console.error('setPlannerSuggestionSelected error:', error.message || error);

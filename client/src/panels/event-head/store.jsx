@@ -497,8 +497,13 @@ export const fetchPlannerSuggestions = async (params = {}) => {
   return Array.isArray(res) ? res : (res?.suggestions || [])
 }
 
-export const setPlannerSuggestionSelected = async (id, is_selected = true) => {
-  const res = await apiPut('/event-head/planner/suggestions/' + id + '/select', { is_selected })
+/* `suggested_event_id` records which programme the idea became, in the same call
+   as the tick, so the monthly report can print the idea against that one
+   programme instead of every programme sharing the activity. */
+export const setPlannerSuggestionSelected = async (id, is_selected = true, suggested_event_id = null) => {
+  const body = { is_selected }
+  if (suggested_event_id != null) body.suggested_event_id = Number(suggested_event_id) || null
+  const res = await apiPut('/event-head/planner/suggestions/' + id + '/select', body)
   return res?.suggestion || null
 }
 

@@ -41,6 +41,24 @@ export const NGO_BENEFICIARY_GROUP = {
 export const beneficiaryGroupForNgo = (code) =>
   NGO_BENEFICIARY_GROUP[String(code || '').trim().toLowerCase()] || '';
 
+/**
+ * The closed vocabulary of groups, in a stable order.
+ *
+ * An activity stores the group it serves, so this is what an activity's own
+ * value is matched against: trimmed and case-insensitive, and '' for anything
+ * outside the three. A value outside the vocabulary must not reach the prompt —
+ * it would aim the AI at a group nothing else in the system knows about, and it
+ * could not be filtered on later.
+ */
+export const ACTIVITY_BENEFICIARY_GROUPS = Object.values(NGO_BENEFICIARY_GROUP);
+
+/** The saved spelling of a group, or '' when it is not one of the three. */
+export const canonicalActivityBeneficiary = (value) => {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (!v) return '';
+  return ACTIVITY_BENEFICIARY_GROUPS.find((g) => g.toLowerCase() === v) || '';
+};
+
 /** Same closed vocabulary the day flow uses, so both features stay consistent. */
 export const ACTIVITY_PROGRAM_FORMATS = [
   'Health Camp',
