@@ -1,4 +1,5 @@
 import db, { getTableColumns } from '../config/db.js';
+import { istDateString } from '../utils/ist.js';
 
 // ─── EVENTS ───
 export const createEventHeadEvent = async (data) => {
@@ -362,6 +363,46 @@ export const getVolunteerPeople = async () => {
     });
 };
 
+// Today's HR attendance, keyed for the Voluntary section's per-person status.
+//
+// WHY A SEPARATE READ. The HR attendance endpoints are gated to
+// super_admin/admin/hr/accounts, so the `event_head` role cannot read them, and
+// the Create New Event form needs today's status to flag absent volunteers.
+// getVolunteerPeople() stays attendance-free on purpose: it is shared with the
+// volunteer management screen, and attendance has no business in that contract.
+//
+// WHY ONLY MARKED ROWS COME BACK. `attendance` stores no 'absent' rows — a missing
+// punch IS the absence (see hrDailyReportController and the dashboard's Daily
+// Check-ins), so the rows returned here are only present/late/half-day/leave.
+// Turning that into an "absent" verdict needs the roster, which is why the caller
+// joins this against getVolunteerPeople() by worker id and treats a person with
+// no row here as absent.
+//
+// `attendance.date` is a real DATE column already holding an IST calendar day
+// (db sessions are pinned to Asia/Kolkata), so it compares to a plain
+// 'YYYY-MM-DD' string with no timezone conversion.
+export const getVolunteerAttendanceToday = async () => {
+  const date = istDateString();
+  const { data, error } = await db
+    .from('attendance')
+    .select('worker_id, status, late_minutes, punch_in_time')
+    .eq('date', date);
+  if (error) throw error;
+  const byWorker = {};
+  for (const row of data || []) {
+    // One row per worker per date (the writes upsert), but a legacy duplicate
+    // must not let a later row blank out the status we report.
+    const key = String(row.worker_id);
+    if (byWorker[key]) continue;
+    byWorker[key] = {
+      status: row.status || null,
+      late_minutes: Number(row.late_minutes) || 0,
+      punch_in_time: row.punch_in_time || null,
+    };
+  }
+  return { date, byWorker };
+};
+
 // Workers who are no longer active (absconded, offboarded, resigned, terminated
 // or de-activated in the HR panel). Used to drop them from the Voluntary list of
 // events they were already assigned to, so HR stays the single source of truth.
@@ -610,8 +651,67 @@ export const getSectorEventCounts = async (ngoId) => {
 };
 
 // ─── ACTIVITIES (NGO → Sector → Activity) ───
+
+/* Whether a column on event_head_activities exists yet.
+
+   Migration 168 adds beneficiary_group and 169 adds in_report, but the writes
+   below are a plain spread of the request body, so a client that sends either
+   field against a database where the migration has not been applied gets a hard
+   "column not found" and the whole save fails. Rather than make a feature depend
+   on a migration being applied, each column is probed once and the field is
+   dropped when it is absent - the activity still saves, and the caller is told
+   which field was lost. Cached per column because it cannot change while the
+   process runs. */
+const columnProbeCache = new Map();
+export const activityColumnExists = async (column) => {
+  if (!columnProbeCache.has(column)) {
+    columnProbeCache.set(column, (async () => {
+      try {
+        const { error } = await db.from('event_head_activities').select(column).limit(1);
+        return !error;
+      } catch {
+        return false;
+      }
+    })());
+  }
+  return columnProbeCache.get(column);
+};
+
+/* Exported so the suggestion endpoint can use the same answer when it writes the
+   AI prompt's beneficiary line. */
+export const activityBeneficiaryColumnExists = () => activityColumnExists('beneficiary_group');
+
+/* Columns a client may set that are not part of the table's original shape, with
+   what each one does with an empty value. Anything not listed here is never probed
+   and never stripped. */
+const OPTIONAL_ACTIVITY_COLUMNS = {
+  beneficiary_group: { empty: null },
+  in_report: { boolean: true },
+};
+
+/* Normalises the optional fields the database can actually store, and removes the
+   ones it cannot. Returns which columns were unavailable so a caller that cares -
+   the controller, so a tick can report "your selection was not saved" instead of
+   appearing to succeed - can say so. */
+const prepareActivityRow = async (row) => {
+  const unavailable = [];
+  for (const [column, rule] of Object.entries(OPTIONAL_ACTIVITY_COLUMNS)) {
+    if (!Object.prototype.hasOwnProperty.call(row, column)) continue;
+    if (!(await activityColumnExists(column))) {
+      delete row[column];
+      unavailable.push(column);
+      continue;
+    }
+    if (rule.boolean) row[column] = Boolean(row[column]);
+    else if (!row[column]) row[column] = rule.empty;
+  }
+  return unavailable;
+};
+
 export const createActivity = async (data) => {
-  const { data: result, error } = await db.from('event_head_activities').insert([{ ...data, updated_at: new Date() }]).select().single();
+  const row = { ...data };
+  await prepareActivityRow(row);
+  const { data: result, error } = await db.from('event_head_activities').insert([{ ...row, updated_at: new Date() }]).select().single();
   if (error) throw error;
   return result;
 };
@@ -676,9 +776,17 @@ export const getPlannerSuggestions = async ({ ngo_id, activity_id, month, year, 
   return data || [];
 };
 
-export const setPlannerSuggestionSelected = async (id, is_selected) => {
+export const setPlannerSuggestionSelected = async (id, is_selected, suggested_event_id) => {
+  const patch = { is_selected: Boolean(is_selected) };
+  // Which programme this idea became. Written together with the tick so the
+  // report can print the idea against the exact programme the user chose it for,
+  // instead of against every programme that shares the activity.
+  if (suggested_event_id != null && suggested_event_id !== '') {
+    const evId = Number(suggested_event_id);
+    if (Number.isInteger(evId) && evId > 0) patch.suggested_event_id = evId;
+  }
   const { data, error } = await db.from('event_head_planner_suggestions')
-    .update({ is_selected: Boolean(is_selected) })
+    .update(patch)
     .eq('id', id).select().single();
   if (error) throw error;
   return data;
@@ -700,7 +808,9 @@ export const getActivityById = async (id) => {
 };
 
 export const updateActivity = async (id, updates) => {
-  const { data, error } = await db.from('event_head_activities').update({ ...updates, updated_at: new Date() }).eq('id', id).select().single();
+  const row = { ...updates };
+  await prepareActivityRow(row);
+  const { data, error } = await db.from('event_head_activities').update({ ...row, updated_at: new Date() }).eq('id', id).select().single();
   if (error) throw error;
   return data;
 };

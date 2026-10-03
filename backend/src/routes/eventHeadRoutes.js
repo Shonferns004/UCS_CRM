@@ -83,6 +83,10 @@ router.post('/beneficiaries', eh, ctrl.createBeneficiary);
 router.post('/volunteers', eh, ctrl.createVolunteer);
 router.get('/volunteers', eh, ctrl.listVolunteers);
 router.get('/volunteers/people', eh, ctrl.listVolunteerPeople);
+// Today's attendance for the Voluntary section. Kept under `eh` (which includes
+// event_head) because the HR attendance routes are gated to
+// super_admin/admin/hr/accounts, so Event Head cannot read those.
+router.get('/volunteers/attendance', eh, ctrl.listVolunteerAttendance);
 router.put('/volunteers/:id', eh, ctrl.editVolunteer);
 
 // Expenses (scoped under event)

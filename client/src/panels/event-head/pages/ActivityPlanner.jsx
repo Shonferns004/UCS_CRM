@@ -10,6 +10,7 @@ import {
   createActivity,
   createEvent,
   deleteActivity,
+  updateActivity,
   suggestActivityPrograms,
   fetchPlannerSuggestions,
   setPlannerSuggestionSelected,
@@ -61,13 +62,29 @@ const ngoShortLabel = (n) =>
   String(n?.code || '').trim() || String(n?.name || '').trim() || 'NGO'
 
 /* Who each NGO serves. These three NGOs work for one distinct group each, so
-   the group is a property of the NGO rather than something every activity has
-   to be tagged with individually — which is what left the Beneficiary filter
-   empty and untaggable. Keyed by the code the team already uses. */
+   the group defaults to a property of the NGO rather than something every
+   activity has to be tagged with individually — which is what left the
+   Beneficiary filter empty and untaggable. Keyed by the code the team already
+   uses. */
 const NGO_BENEFICIARY = {
   bsct: 'Visually Impaired',
   aflf: 'Underprivileged Families',
   mann: 'Women',
+}
+
+/* The closed vocabulary, in a stable order for the Add Activity dropdown. Kept
+   as a list rather than read off the object above so the three NGOs always show
+   the same three groups in the same order. */
+const BENEFICIARY_GROUPS = Object.values(NGO_BENEFICIARY)
+
+/* The saved spelling of a group, or '' when the value is not one of the three.
+   Trimmed and case-insensitive so " women " and "Women" are the same group, and
+   strict about membership so a stray value typed before this feature existed
+   cannot put a fourth, unknown group into the table and the filter. */
+const canonicalBeneficiary = (value) => {
+  const v = String(value ?? '').trim().toLowerCase()
+  if (!v) return ''
+  return BENEFICIARY_GROUPS.find((g) => g.toLowerCase() === v) || ''
 }
 
 /* The NGO an activity belongs to, resolved even when the page is on "All NGOs"
@@ -77,32 +94,72 @@ const activityNgo = (a, ngos, ngo) => {
   return ngos.find((x) => String(x.id) === String(a.ngo_id)) || null
 }
 
-/* The group an activity serves: the one fixed for its NGO. Every read goes
-   through this, so the table, the filter and the search all agree. */
+/* The group an activity serves. The group's own choice first, then the NGO's
+   fixed group — which is what every activity created before the dropdown existed
+   falls back to, so old rows stay correct and never drop out of the filter.
+   Every read goes through this, so the table, the filter, the search and the
+   suggestion scoping can never disagree. */
 const activityBeneficiary = (a, ngos, ngo) =>
-  NGO_BENEFICIARY[String(activityNgo(a, ngos, ngo)?.code || '').trim().toLowerCase()] || ''
+  canonicalBeneficiary(a?.beneficiary_group)
+  || NGO_BENEFICIARY[ngoCodeKey(activityNgo(a, ngos, ngo))] || ''
+
+/* How many programmes each NGO is expected to run in a month. This is the one
+   place the quota lives: change a number here and every card, the header total
+   and the remaining count follow. Keyed by the same short code as the
+   beneficiary map above, because that is how the team identifies an NGO.
+   An NGO with no entry falls back to the smallest common quota rather than
+   showing a target of 0, which would read as "already complete". */
+const NGO_MONTHLY_TARGET = { bsct: 25, mann: 15, aflf: 15 }
+const DEFAULT_MONTHLY_TARGET = 15
+
+const ngoCodeKey = (n) => String(n?.code || '').trim().toLowerCase()
+
+const monthlyTargetFor = (n) => NGO_MONTHLY_TARGET[ngoCodeKey(n)] ?? DEFAULT_MONTHLY_TARGET
+
+/* Card order follows the target table, so BSCT's bigger quota is read first and
+   the cards do not reshuffle between NGOs or months. Anything not in the table
+   (a new NGO, or one with no code) goes last, by name. */
+const targetOrderFor = (n) => {
+  const i = Object.keys(NGO_MONTHLY_TARGET).indexOf(ngoCodeKey(n))
+  return i === -1 ? Number.MAX_SAFE_INTEGER : i
+}
 
 /* ── Report helpers (date-wise monthly planner download) ─────────────────── */
 
-// The report is date-wise, so it must NOT go through toISOString(): in IST,
-// midnight of the 1st is the previous evening in UTC and every date would slip
-// back a day.
-const reportDate = (d) => `${pad2(d.getDate())}-${MONTHS[d.getMonth()].slice(0, 3)}-${String(d.getFullYear()).slice(2)}`
+/* The report is date-wise, so it must NOT go through toISOString(): in IST,
+   midnight of the 1st is the previous evening in UTC and every date would slip
+   back a day. Takes the 'YYYY-MM-DD' string the API returns, so no Date object
+   is built from it at all. */
+const reportDate = (ymd) => {
+  const [y, m, d] = String(ymd).split('-').map(Number)
+  if (!y || !m || !d) return String(ymd || '')
+  return `${pad2(d)}-${MONTHS[m - 1].slice(0, 3)}-${y}`
+}
 
 /* ── Report layout ─────────────────────────────────────────────────────────
-   The header block above the table is the client's: Monthly Planner Report, NGO,
-   Month and Generated. Those lines stay exactly as they are. What changed is the
-   table — it is one row per event with only the AI programme that belongs to
-   that event, because the social-post columns were always empty and the Event
-   Done column repeated what the calendar already shows. */
-const REPORT_HEADERS = ['Date', 'Event', 'AI Suggested Programme']
+   The file answers one question: "what did I decide for this month?". So it is
+   built from the user's selections, not from the calendar:
+     · one row per programme they planned, with the AI suggestion they chose for
+       that programme;
+     · a quota line per NGO (target / done / remaining);
+     · a closing block for selections they have not scheduled yet.
+   The on-screen preview, the Excel sheet and the PDF are all rendered from the
+   single buildMonthlyReport() result below, so the three can never disagree. */
+const REPORT_HEADERS = ['Date', 'Day', 'Activity', 'Programme', 'Status', 'AI Suggested Programme']
 
-/* Joined as \n so Excel shows each programme on its own line and no programme
-   title gets clipped; PDF gets \n converted to <br> for the same reason. */
-const reportSuggestionCell = (suggestions) => {
-  const list = (suggestions || []).filter(Boolean)
-  if (!list.length) return '—'
-  return list.map((s) => (s.programme_name ? `${s.suggested_title} — ${s.programme_name}` : s.suggested_title)).join('\n')
+/* Marks an activity the user ticked for this download. A tick rather than a word
+   so the eye can find the chosen ones down a column, and it survives being copied
+   into a spreadsheet cell. */
+const REPORT_TICK = '✓'
+
+/* Joined as \n so Excel and the PDF each show one programme per line instead of
+   clipping the longest title. */
+const reportSuggestionCell = (s) => {
+  if (!s) return '—'
+  const extra = [s.priority ? `Priority: ${s.priority}` : '', s.objective ? `Objective: ${s.objective}` : '']
+    .filter(Boolean)
+    .join('\n')
+  return extra ? `${s.title}\n${extra}` : s.title
 }
 
 /* ── Shared pieces ──────────────────────────────────────────────────────── */
@@ -172,10 +229,10 @@ function Field({ label, hint, children }) {
 
 /* The beneficiary an activity serves, shown on its row.
 
-   Read-only and derived from the NGO: each of these three NGOs works for one
-   group, so the group follows the NGO rather than being typed per activity.
-   That is what makes the Beneficiary filter usable — it always has one option
-   per NGO, with nothing to tag and nothing to leave blank. */
+   The group's own choice when it has one, otherwise the group fixed for its NGO
+   (see activityBeneficiary). That is what makes the Beneficiary filter usable —
+   every activity resolves to exactly one of the three groups, so the filter
+   always has real options and nothing is ever left blank. */
 function BeneficiaryCell({ group }) {
   if (!group) return <span style={{ fontSize: 11.5, color: 'var(--eh-ink-faint)' }}>—</span>
   return <Badge tone="secondary">{group}</Badge>
@@ -187,6 +244,20 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   const [name, setName] = useState('')
   const [sectorId, setSectorId] = useState('')
   const [description, setDescription] = useState('')
+  // Which of the three groups this activity serves. Defaults to the one the NGO
+  // works for, but is a real choice: an activity can serve a different group from
+  // the rest of its NGO, and every read (table, filter, search, AI prompt) then
+  // follows this value instead of the NGO's.
+  const [beneficiaryGroup, setBeneficiaryGroup] = useState('')
+  // The group box itself is hidden until this is ticked, so an activity that
+  // serves nobody in particular shows no beneficiary at all.
+  const [showGroupPicker, setShowGroupPicker] = useState(false)
+  const chosenGroup = canonicalBeneficiary(beneficiaryGroup)
+  // Whether this activity belongs in the monthly download. On by default here
+  // because someone adding an activity has already decided it matters; the tick on
+  // the activity row is where it gets changed. It is still a real choice, so it is
+  // shown rather than assumed.
+  const [inReport, setInReport] = useState(true)
   // Optional. Empty means "just register the activity"; a day means "and run its
   // first programme on that date".
   const [date, setDate] = useState('')
@@ -197,7 +268,21 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
   // in this month's counts and download rather than somewhere invisible.
   const days = useMemo(() => daysInMonth(month), [month])
 
-  const ngoDefault = NGO_BENEFICIARY[String(ngo?.code || '').trim().toLowerCase()] || ''
+  const ngoDefault = NGO_BENEFICIARY[ngoCodeKey(ngo)] || ''
+
+  /* No pre-selection, on purpose. An empty box is the honest state: the form does
+     not claim the activity serves anybody until it is told, and the prompt takes
+     the same view — no group chosen means no beneficiary line at all. Changing NGO
+     only has to drop a choice that is no longer available, never invent one. */
+  useEffect(() => {
+    setBeneficiaryGroup((prev) => (canonicalBeneficiary(prev) ? prev : ''))
+  }, [ngoDefault])
+
+  /* Clearing the group hides its own box, so "no beneficiary" and "a beneficiary
+     is being chosen" can never both be on screen. */
+  useEffect(() => {
+    if (!chosenGroup) setShowGroupPicker(false)
+  }, [chosenGroup])
 
   const submit = async () => {
     if (!ngo) return setError('Choose an NGO first.')
@@ -210,15 +295,18 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
 
     let created
     try {
-      const payload = {
+const payload = {
         name: activityName,
         sector_id: Number(sectorId),
         ngo_id: ngo.id,
         description: desc,
+        // The group this activity serves. The backend drops the field when
+        // migration 168 has not been applied, so this can never block the save.
+        beneficiary_group: chosenGroup || null,
+        // Same guard for migration 169: an unapplied migration drops the field
+        // rather than failing the save, and the tick on the row shows the truth.
+        in_report: inReport,
       }
-      /* Nothing beneficiary-wise is sent: the group is fixed per NGO and derived
-         on read (see NGO_BENEFICIARY), so an activity cannot store a group that
-         disagrees with its NGO, and the insert does not depend on migration 168. */
       created = await createActivity(payload)
     } catch (e) {
       setBusy(false)
@@ -297,21 +385,37 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
           />
         </Field>
 
-        <Field
-          label="Beneficiary group"
-          hint={ngoDefault
-            ? `Fixed for ${ngo?.name}: every activity of this NGO serves this group.`
-            : 'Choose an NGO above — each NGO serves one fixed group.'}
+        {/* Shown only once a group is chosen, or the form would be making a claim the
+            user never made. Nothing is written until then, and the AI is given no
+            beneficiary to aim at. */}
+        {chosenGroup && (
+          <Field
+            label="Beneficiary group"
+            hint={`AI programme suggestions will be aimed at ${chosenGroup}.`}
+          >
+            <Select
+              value={chosenGroup}
+              onChange={(e) => setBeneficiaryGroup(e.target.value)}
+            >
+              {BENEFICIARY_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+            </Select>
+          </Field>
+        )}
+
+        <label
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5,
+            color: 'var(--eh-ink-soft)', cursor: 'pointer',
+          }}
         >
           <input
-            className="eh-select"
-            value={ngoDefault}
-            onChange={() => {}}
-            disabled
-            placeholder={ngoDefault ? '' : 'Fixed per NGO'}
-            readOnly
+            type="checkbox"
+            checked={showGroupPicker}
+            onChange={(e) => { setShowGroupPicker(e.target.checked); if (!e.target.checked) setBeneficiaryGroup('') }}
+            style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--eh-primary)' }}
           />
-        </Field>
+          This activity serves a specific beneficiary group
+        </label>
 
         <Field
           label="First programme date (optional)"
@@ -333,6 +437,33 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
           />
         </Field>
 
+        {/* The same tick the activity row carries, asked at the moment the decision
+            is easiest. */}
+        <label
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: 9, padding: '11px 13px',
+            border: `1px solid ${inReport ? 'var(--eh-primary)' : 'var(--eh-line)'}`,
+            borderRadius: 12, background: inReport ? 'var(--eh-primary-soft)' : 'transparent',
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={inReport}
+            onChange={(e) => setInReport(e.target.checked)}
+            style={{ width: 16, height: 16, marginTop: 1, cursor: 'pointer', accentColor: 'var(--eh-primary)' }}
+          />
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--eh-ink)' }}>
+              Include in the monthly download
+            </span>
+            <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>
+              Only ticked activities are listed in the downloaded file. Leave this on if this is part of
+              what {ngo?.name || 'the NGO'} reports every month.
+            </span>
+          </span>
+        </label>
+
         {error && (
           <div style={{ padding: '10px 13px', borderRadius: 12, background: 'var(--eh-danger-soft)', color: 'var(--eh-danger)', fontSize: 13 }}>{error}</div>
         )}
@@ -345,7 +476,7 @@ function AddActivityModal({ ngo, sectors, month, onClose, onSaved }) {
 
 /* Renders inline under the activity row that asked for it — no modal, so the
    activity list stays visible while ideas are read, ticked or discarded. */
-function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0 }) {
+function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0, onSelectionChange }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [dismissed, setDismissed] = useState(() => new Set())
@@ -382,6 +513,10 @@ function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0
     })
     try {
       await setPlannerSuggestionSelected(id, next)
+      /* Tell the page. The report's AI column reads the page's own selected
+         list, not this panel's mirror, so without this a tick made here is
+         invisible to the download until the month or NGO changes. */
+      onSelectionChange?.()
     } catch (e) {
       // Roll back so the tick never lies about what the server has stored.
       setSelected((prev) => {
@@ -401,6 +536,9 @@ function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0
       // Newly returned rows carry their own is_selected, so ticks that were
       // already saved survive regenerating the batch.
       setSelected(new Set((res?.suggestions || []).filter((s) => s?.is_selected).map((s) => Number(s.id))))
+      // The batch may have changed which ideas exist, so the page re-reads its
+      // own selected list rather than reporting a stale one.
+      onSelectionChange?.()
     } catch (e) {
       setData({ suggestions: [], observances: [], ai: { available: false, reason: e?.message || 'Could not reach the server.' } })
     } finally {
@@ -557,6 +695,7 @@ function SuggestionPanel({ activity, ngo, month, onClose, onPlan, refreshRev = 0
 
 /* ── Turn a suggestion (or a blank slate) into a real programme ──────────── */
 
+/* One programme on one date. */
 function PlanModal({ entry, ngo, month, onClose, onSaved }) {
   const { activity, suggestion } = entry
   const days = useMemo(() => daysInMonth(month), [month])
@@ -588,7 +727,7 @@ function PlanModal({ entry, ngo, month, onClose, onSaved }) {
     if (startTime && endTime && endTime < startTime) return setError('End time must be after start time.')
     setBusy(true); setError('')
     try {
-      await createEvent({
+      const event = await createEvent({
         name: name.trim(),
         ngo_id: ngo?.id ?? activity?.ngo_id ?? null,
         sector_id: activity?.sector_id ?? null,
@@ -602,7 +741,18 @@ function PlanModal({ entry, ngo, month, onClose, onSaved }) {
         priority,
         category: suggestion?.format || null,
       })
-      onSaved({ suggestion })
+      /* Record which programme this idea became, in the same write as the tick.
+         Without the link the report can only guess from the shared activity and
+         prints the idea against the wrong programme. */
+      if (suggestion?.id && event?.id) {
+        try {
+          await setPlannerSuggestionSelected(Number(suggestion.id), true, Number(event.id))
+        } catch {
+          // The programme is saved either way; only the report's AI column is
+          // less precise, which must not fail the save.
+        }
+      }
+      onSaved({ suggestion, programmes: [event], lastDate: date })
     } catch (e) {
       setError(e?.message || 'Could not create the programme.')
     } finally {
@@ -714,6 +864,9 @@ export default function ActivityPlanner() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+// True while a tick is being written, so the boxes cannot be double-toggled into
+// two contradictory saves.
+  const [tickBusy, setTickBusy] = useState(false)
   // Bumped after a suggestion is converted into a programme, so the open panel
   // re-reads its ticks from the server instead of showing a stale box.
   const [suggestRev, setSuggestRev] = useState(0)
@@ -824,17 +977,24 @@ export default function ActivityPlanner() {
     return list
   }, [activities, ngos, ngo, sectorFilter, beneficiaryFilter, search])
 
-  /* The fixed groups for the NGOs in scope: the one selected, or all three on
-     "All NGOs". Not derived from the activities, so it is never empty. */
+  /* The groups the activities in scope actually serve, plus the group fixed for
+     each NGO in scope so a group is always offered before anything carries it.
+     Derived from the rows rather than only from the NGOs, because an activity
+     can now be tagged with a group other than its NGO's. */
   const beneficiaryOptions = useMemo(() => {
-    const scope = ngo ? [ngo] : ngos
     const set = new Set()
-    for (const n of scope) {
-      const def = NGO_BENEFICIARY[String(n?.code || '').trim().toLowerCase()]
+    for (const n of (ngo ? [ngo] : ngos)) {
+      const def = NGO_BENEFICIARY[ngoCodeKey(n)]
       if (def) set.add(def)
     }
-    return [...set].sort((a, b) => a.localeCompare(b))
-  }, [ngos, ngo])
+    for (const a of activities) {
+      const g = activityBeneficiary(a, ngos, ngo)
+      if (g) set.add(g)
+    }
+    // Kept in the fixed vocabulary's order rather than alphabetically, so the
+    // list does not reshuffle as activities are added.
+    return BENEFICIARY_GROUPS.filter((g) => set.has(g))
+  }, [ngos, ngo, activities])
 
   /* A filter still pointing at a group the current NGO does not use would show an
      empty list with no way back, because that option no longer exists. */
@@ -886,6 +1046,51 @@ export default function ActivityPlanner() {
     return list.sort((a, b) => a.label.localeCompare(b.label))
   }, [ngos, ngoStats])
 
+/* Progress against each NGO's monthly quota.
+     Deliberately separate from ngoOverview above: there "done" means an event
+     whose status is Completed, which is what the report header prints. Here
+     "done" means a programme has been planned, which is what fills the quota —
+     two different numbers, so they are not allowed to share a field.
+
+     Built from the workspace NGO list, not from the monthly report's rows: that
+     endpoint only returns an NGO that already has an event in the month, so an
+     NGO with nothing planned yet would have no card at all instead of a
+     readable 0 of 15.
+
+     The cards follow the NGO dropdown rather than always listing everybody:
+     picking BSCT shows BSCT's quota alone, "All NGOs" shows all three. The
+     ngos table also holds rows that are not one of the three planning NGOs
+     (a placeholder with no code), and on "All NGOs" those are dropped — a
+     "0 of 15" card for a row that is not really an NGO is noise. Picked
+     explicitly it still gets a card, because then it is the user's choice and
+     an empty panel would be worse. */
+  const ngoTargets = useMemo(() => ngos
+    .filter((n) => ngo ? String(n.id) === String(ngo.id) : !!NGO_MONTHLY_TARGET[ngoCodeKey(n)])
+    .map((n) => {
+      const planned = Number(ngoStats[String(n.id)]?.events_count) || 0
+      const target = monthlyTargetFor(n)
+      return {
+        ngo: n,
+        label: ngoShortLabel(n),
+        target,
+        planned,
+        remaining: Math.max(0, target - planned),
+        over: Math.max(0, planned - target),
+        pct: target > 0 ? Math.min(100, Math.round((planned / target) * 100)) : 0,
+      }
+    })
+    .sort((a, b) => targetOrderFor(a.ngo) - targetOrderFor(b.ngo)
+      || a.label.localeCompare(b.label)), [ngos, ngoStats, ngo])
+
+  /* The header line: the quotas in view added up, next to what has been
+     planned. Summed from ngoTargets so the headline can never drift from the
+     cards below it, and named after the scope so it reads the same way as the
+     cards do. */
+  const targetTotals = useMemo(() => ngoTargets.reduce(
+    (t, r) => ({ target: t.target + r.target, planned: t.planned + r.planned }),
+    { target: 0, planned: 0 },
+  ), [ngoTargets])
+
   /* Counts for whatever is in scope: the selected NGO, or every NGO on
      "All NGOs". Activities come from the activity feed, events from the
      report feed — the two answer different questions, so both are shown. */
@@ -899,9 +1104,10 @@ export default function ActivityPlanner() {
   }, [ngo, ngoOverview])
 
   /* What the report's header states about the month. Taken from the same place
-     as the cards, so the file and the screen can never disagree. Deliberately
-     not counted from reportRows: that is one row per *day*, with several events
-     sharing a day, so the totals are not recoverable from it. */
+     as the cards, so the file and the screen can never disagree. These are the
+     status-based counts (how many are Completed) and stay separate from the
+     quota figures in the cards and the report header, where "Done" means
+     programmes added. */
   const reportCounts = useMemo(() => ({
     events: scopeStats.events,
     completed: scopeStats.done,
@@ -912,6 +1118,8 @@ export default function ActivityPlanner() {
         only, so the download reflects every tick the user made across all
         activities, not just the ones on screen. */
   const [selectedSuggestions, setSelectedSuggestions] = useState([])
+  // The off-screen node the PDF export captures. Kept in the normal flow (not
+  // display:none) because html2canvas renders nothing for hidden nodes.
   const reportRef = useRef(null)
   const [downloading, setDownloading] = useState('')
 
@@ -943,73 +1151,222 @@ export default function ActivityPlanner() {
     })
   }, [selectedSuggestions, activities, ngos, ngo, beneficiaryFilter])
 
-  /* Selected ideas indexed by the activity they were suggested for. The join key
-     is the event's extendedProps.activities[].id — the same ids the calendar
-     writes — rather than the name, which the NGOs spell inconsistently. */
-  const suggestionsByActivity = useMemo(() => {
-    const map = new Map()
+  /* Suggestions indexed three ways, because a programme is linked to an idea in
+     three different ways depending on how it was made:
+       byEvent  — the idea recorded which programme it became (suggested_event_id)
+       byTitle  — the programme was named after the idea, which is what happens to
+                  the extra dates when one idea is planned on several days
+       byActivity— neither of the above, so the idea belongs to that activity's
+                  programmes but cannot be pinned to one of them
+     The first two are exact; only the third is a guess, and it is the last
+     resort. Guessing by activity alone is what made one idea appear on every
+     programme of the activity. */
+  /* Whether every activity on screen is already ticked. Drives the one bulk button
+     in the section header, and is computed from the visible rows rather than from
+     the NGO-wide total, so an active filter cannot make the button describe the
+     wrong action. */
+  const allShownTicked = rows.length > 0 && rows.every((a) => a.in_report === true)
+
+  /* The activities the user has ticked for the download. This is the only rule
+     that decides what the file contains - screen filters (sector, search,
+     beneficiary) are for finding rows, not for editing the file. */
+  const tickedActivityIds = useMemo(
+    () => new Set(activities.filter((a) => a.in_report).map((a) => Number(a.id))),
+    [activities]
+  )
+
+  const suggestionIndex = useMemo(() => {
+    const byEvent = new Map()
+    const byTitle = new Map()
+    const byActivity = new Map()
+    const norm = (v) => String(v ?? '').trim().toLowerCase()
     for (const s of scopedSuggestions) {
-      const id = Number(s?.activity_id)
-      if (!Number.isFinite(id) || id <= 0) continue
-      if (!map.has(id)) map.set(id, [])
-      map.get(id).push(s)
+      const evId = Number(s?.suggested_event_id)
+      if (Number.isFinite(evId) && evId > 0) {
+        if (!byEvent.has(evId)) byEvent.set(evId, s)
+      }
+      const title = norm(s?.title)
+      if (title) {
+        const key = `${Number(s?.activity_id) || 0}::${title}`
+        if (!byTitle.has(key)) byTitle.set(key, s)
+      }
+      const actId = Number(s?.activity_id)
+      if (Number.isFinite(actId) && actId > 0) {
+        if (!byActivity.has(actId)) byActivity.set(actId, [])
+        byActivity.get(actId).push(s)
+      }
     }
-    return map
+    return { byEvent, byTitle, byActivity, norm }
   }, [scopedSuggestions])
 
-  /* One row per calendar day. Events already planned that day fill the row;
-     days with nothing stay blank so the sheet reads like a calendar month. */
-  const reportRows = useMemo(() => {
-    const days = daysInMonth(month)
-    const byDay = new Map(days.map((d) => [d, []]))
+  /* One entry per programme the user planned, grouped by NGO. This is the single
+     source the preview, the Excel sheet and the PDF all render. */
+  const report = useMemo(() => {
+    const nameByActivity = new Map(activities.map((a) => [Number(a.id), a]))
+    const ngoById = new Map(ngos.map((n) => [String(n.id), n]))
+    const { byEvent, byTitle, byActivity, norm } = suggestionIndex
+
+    const rows = []
     for (const ev of monthEvents) {
       const p = ev.extendedProps || {}
-      const d = String(p.date || '').slice(0, 10)
-      if (!byDay.has(d)) continue
-      const ids = (Array.isArray(p.activities) ? p.activities : [])
-        .map((a) => Number(a?.id))
-        .filter((n) => Number.isFinite(n) && n > 0)
-      // One suggestion belongs to one activity, so a suggestion on an activity
-      // that three events share shows under all three. Deduplicated per event so
-      // an activity listed twice on the same event cannot repeat a line.
-      const linked = []
-      for (const id of new Set(ids)) {
-        for (const s of suggestionsByActivity.get(id) || []) {
-          if (!linked.includes(s)) linked.push(s)
+      const date = String(p.date || '').slice(0, 10)
+      if (!date) continue
+      const acts = (Array.isArray(p.activities) ? p.activities : []).filter((a) => a?.name)
+      const evId = Number(ev?.id)
+      const title = String(ev?.title || '').split(' · ')[0].trim()
+
+      let suggestion = Number.isFinite(evId) ? byEvent.get(evId) : null
+      // No recorded link: an idea planned on several dates shares its name with
+      // every one of them, so the name identifies it exactly.
+      if (!suggestion) {
+        for (const a of acts) {
+          const hit = byTitle.get(`${Number(a.id) || 0}::${norm(title)}`)
+          if (hit) { suggestion = hit; break }
         }
       }
-      byDay.get(d).push({ title: String(ev.title || '').split(' � ')[0], suggestions: linked })
+      rows.push({
+        eventId: evId,
+        date,
+        dateLabel: reportDate(date),
+        weekday: new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }),
+        ngoId: p.ngoId ?? p.ngo_id ?? ev?.ngo_id ?? null,
+        ngoLabel: ngoShortLabel(ngoById.get(String(p.ngoId ?? p.ngo_id ?? ev?.ngo_id ?? '')) || null),
+        activityIds: acts.map((a) => Number(a.id)).filter((n) => Number.isFinite(n)),
+        // A programme can belong to several activities, and flattening them into
+        // one string is what made the file unreadable. Each is marked instead:
+        // ticked ones are what the user chose, the rest are named so nothing
+        // disappears silently.
+        activity: acts.length
+          ? acts.map((a) => (tickedActivityIds.has(Number(a.id))
+            ? `${REPORT_TICK} ${a.name}`
+            : `${a.name} (not selected)`)).join('\n')
+          : '—',
+        // Only a programme with at least one ticked activity is in the download.
+        included: acts.some((a) => tickedActivityIds.has(Number(a.id))),
+        programme: title || '—',
+        status: String(ev?.status || p.status || '—'),
+        suggestion: suggestion
+          ? {
+              id: suggestion.id,
+              title: suggestion.title,
+              priority: suggestion.priority || '',
+              objective: suggestion.objective || '',
+              materials: suggestion.materials || [],
+            }
+          : null,
+      })
     }
-    return days.map((d) => {
-      const hit = byDay.get(d) || []
-      const [y, m, dd] = d.split('-').map(Number)
+    rows.sort((a, b) => (a.date === b.date ? a.programme.localeCompare(b.programme) : a.date.localeCompare(b.date)))
+
+/* An idea with no programme of its own is still a decision the user made, so
+    it is listed rather than dropped — but only when it genuinely has no
+    programme. Anything sitting on a row above is already accounted for.
+
+    An idea belonging to an unticked activity is not in the download: the file
+    answers "the activities I chose", and an idea for an activity that was not
+    chosen is not part of it. They are counted, so the omission is visible. */
+const placedSuggestionIds = new Set(rows.map((r) => Number(r.suggestion?.id)).filter(Boolean))
+const pendingAll = scopedSuggestions
+      .filter((s) => !placedSuggestionIds.has(Number(s?.id)))
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        priority: s.priority || '',
+        objective: s.objective || '',
+        materials: s.materials || [],
+        activity: nameByActivity.get(Number(s?.activity_id))?.name || '—',
+        activityId: Number(s?.activity_id),
+        ngoLabel: ngoShortLabel(nameByActivity.get(Number(s?.activity_id))
+          ? ngoById.get(String(nameByActivity.get(Number(s?.activity_id)).ngo_id))
+          : null),
+      }))
+    const pending = pendingAll.filter((s) => tickedActivityIds.has(s.activityId))
+    const suggestionsLeftOut = pendingAll.length - pending.length
+
+    /* One block per NGO, taken from the NGOs actually in scope rather than from the
+       quota cards. The cards deliberately hide NGOs with no quota entry, but a
+       hidden card must not remove that NGO's programmes from the file — and
+       reading the cards' own shape (which nests the NGO under `ngo`) is what
+       previously matched every block against `undefined` and produced a report
+       with no rows and no dates at all. */
+    const scopeNgos = ngo ? [ngo] : ngos
+    const inScope = (a) => !ngo || String(a?.ngo_id ?? '') === String(ngo.id)
+
+    /* The named list the file leads with: which activities were ticked, and how
+       much each one contributed this month. Without this the reader has to infer
+       the selection from the rows, which is the guesswork being removed. */
+    const selectedActivities = activities
+      .filter((a) => a.in_report && inScope(a))
+      .map((a) => ({
+        id: Number(a.id),
+        name: a.name,
+        ngoLabel: ngoShortLabel(ngoById.get(String(a.ngo_id)) || null),
+        programmes: rows.filter((r) => r.included && r.activityIds.includes(Number(a.id))).length,
+      }))
+      .sort((x, y) => (x.ngoLabel === y.ngoLabel ? x.name.localeCompare(y.name) : x.ngoLabel.localeCompare(y.ngoLabel)))
+
+    const blocks = scopeNgos.map((n) => {
+      const allRows = rows.filter((r) => String(r.ngoId) === String(n.id))
+      const target = monthlyTargetFor(n)
+      const done = allRows.length
       return {
-        date: `${pad2(dd)}-${MONTHS[m - 1].slice(0, 3)}-${String(y).slice(2)}`,
-        weekday: new Date(y, m - 1, dd).toLocaleDateString('en-US', { weekday: 'long' }),
-        event: hit.map((h) => h.title).join('\n'),
-        suggestions: hit.flatMap((h) => h.suggestions),
+        key: String(n.id),
+        label: ngoShortLabel(n),
+        name: n.name,
+        target,
+        // Quota counts programmes added, which is the rule it has always been, so
+        // it must not move because a tick changed. What the file lists is counted
+        // separately, or the two numbers look like they contradict each other.
+        done,
+        inReport: allRows.filter((r) => r.included).length,
+        remaining: Math.max(0, target - done),
+        over: Math.max(0, done - target),
+        rows: allRows.filter((r) => r.included),
       }
     })
-  }, [month, monthEvents, suggestionsByActivity])
 
-  /* Ticked ideas whose activity has no event this month. They are real decisions
-     the user made, so dropping them would lose work — they go below the table
-     rather than into a day they have not been scheduled for yet. The activity
-     name is resolved from the loaded activities: the saved suggestion row keeps
-     only activity_id. */
-  const unlinkedSuggestions = useMemo(() => {
-    const linkedIds = new Set()
-    for (const ev of monthEvents) {
-      for (const a of (ev.extendedProps?.activities || [])) {
-        const id = Number(a?.id)
-        if (Number.isFinite(id) && id > 0) linkedIds.add(id)
-      }
+    /* Anything whose NGO is not in the loaded list (deleted NGO, or a row the
+       workspace query did not return) still belongs in the file, collected into
+       one trailing block instead of silently vanishing. */
+    const claimed = new Set(blocks.map((b) => b.key))
+    const orphans = rows.filter((r) => !claimed.has(String(r.ngoId)))
+    if (orphans.length) {
+      blocks.push({
+        key: 'other',
+        label: 'Other',
+        name: 'Programmes whose NGO is not in the list',
+        target: orphans.length,
+        done: orphans.length,
+        inReport: orphans.filter((r) => r.included).length,
+        remaining: 0,
+        over: 0,
+        rows: orphans.filter((r) => r.included),
+      })
     }
-    const nameById = new Map(activities.map((a) => [Number(a.id), a.name]))
-    return scopedSuggestions
-      .filter((s) => !linkedIds.has(Number(s?.activity_id)))
-      .map((s) => ({ ...s, activityName: nameById.get(Number(s?.activity_id)) || null }))
-  }, [monthEvents, scopedSuggestions, activities])
+
+    const activitiesInScope = activities.filter(inScope)
+
+    return {
+      blocks,
+      pending,
+      selectedActivities,
+      suggestionsLeftOut,
+      /* Stated up front so the file can open by saying what it is, rather than the
+         reader having to work it out from an empty table. */
+      nothingSelected: selectedActivities.length === 0,
+      activitiesInScope: activitiesInScope.length,
+      totals: {
+        target: blocks.reduce((s, b) => s + b.target, 0),
+        done: blocks.reduce((s, b) => s + b.done, 0),
+        remaining: blocks.reduce((s, b) => s + b.remaining, 0),
+        over: blocks.reduce((s, b) => s + b.over, 0),
+        inReport: blocks.reduce((s, b) => s + b.inReport, 0),
+      },
+    }
+  }, [monthEvents, activities, ngos, ngo, suggestionIndex, scopedSuggestions, tickedActivityIds])
+
+  const reportRows = report.blocks.flatMap((b) => b.rows)
+  const unlinkedSuggestions = report.pending
 
   const reportMeta = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
@@ -1028,72 +1385,153 @@ export default function ActivityPlanner() {
     setDownloading('excel')
     try {
       const XLSX = await import('xlsx-js-style')
-      // Shared with the PDF node so the two downloads can never drift apart.
       const headers = REPORT_HEADERS
+      const thin = { style: 'thin', color: { rgb: 'D5D9E4' } }
+      const headerStyle = {
+        font: { bold: true, sz: 11, color: { rgb: '1F2430' } },
+        fill: { fgColor: { rgb: 'E8ECF6' } },
+        border: { top: thin, bottom: thin, left: thin, right: thin },
+        alignment: { vertical: 'center', wrapText: true },
+      }
+      const blockStyle = {
+        font: { bold: true, sz: 11, color: { rgb: '1F2430' } },
+        fill: { fgColor: { rgb: 'F2F4FB' } },
+        alignment: { vertical: 'center' },
+      }
 
-      const head = [
+      /* The same rows, blocks and pending list the on-screen preview renders, in the
+         same order, so the file cannot say something the screen did not. */
+      const aoa = [
         ['Monthly Planner Report'],
         ['NGO', reportMeta.ngoName],
         ['Month', reportMeta.label],
         ['Generated', new Date().toLocaleString('en-IN')],
-        ['Events', reportCounts.events, 'Completed', reportCounts.completed, 'Remaining', reportCounts.remaining],
         [],
-        headers,
       ]
-      const body = reportRows.map((r) => [r.date, r.event, reportSuggestionCell(r.suggestions)])
 
-      /* Only the ideas with no event this month. Ones already placed are in the
-         AI column of their own row, and repeating them here would double-count. */
-      const footer = []
+      /* Opens by naming what was chosen. A file that only listed rows left the
+         reader to work out the selection from them, which is the whole problem
+         this tick exists to solve. */
+      aoa.push([`ACTIVITIES SELECTED FOR THIS DOWNLOAD — ${report.selectedActivities.length} of ${report.activitiesInScope}`])
+      const selectedHeadingRow = aoa.length - 1
+      if (report.selectedActivities.length) {
+        aoa.push(['Activity', 'NGO', 'Programmes in this download'])
+        for (const a of report.selectedActivities) {
+          aoa.push([`${REPORT_TICK} ${a.name}`, a.ngoLabel, a.programmes])
+        }
+      } else {
+        aoa.push([`No activities ticked for this download. Tick an activity's "In download" box on the Monthly Planner, then download again — only ticked activities are listed.`])
+      }
+      aoa.push([])
+
+      aoa.push(['MONTH AT A GLANCE'])
+      aoa.push(['NGO', 'Target', 'Programmes Done', 'In this report', 'Remaining', 'Status'])
+      for (const b of report.blocks) {
+        aoa.push([
+          b.label,
+          b.target,
+          b.done,
+          b.inReport,
+          b.remaining,
+          b.over ? `Over target by ${b.over}` : b.remaining ? `${b.remaining} still to plan` : 'Target met',
+        ])
+      }
+      aoa.push([
+        'ALL NGOs',
+        report.totals.target,
+        report.totals.done,
+        report.totals.inReport,
+        report.totals.remaining,
+        report.totals.over ? `Over target by ${report.totals.over}` : '',
+      ])
+      aoa.push([])
+      aoa.push(['PROGRAMMES BY NGO'])
+      aoa.push([])
+
+      const styledRanges = []
+      for (const block of report.blocks) {
+        aoa.push([`${block.label} — Target ${block.target} · Done ${block.done} · Remaining ${block.remaining}${block.over ? ` · Over by ${block.over}` : ''} · In this report: ${block.inReport}`])
+        styledRanges.push({ row: aoa.length - 1, style: blockStyle, cols: headers.length })
+        if (block.rows.length) {
+          aoa.push(headers)
+          styledRanges.push({ row: aoa.length - 1, style: headerStyle, cols: headers.length })
+          for (const r of block.rows) {
+            aoa.push([r.dateLabel, r.weekday, r.activity, r.programme, r.status, reportSuggestionCell(r.suggestion)])
+          }
+        } else {
+          aoa.push([`No programmes in this download for ${block.label}.`, '', '', '', '', ''])
+        }
+        aoa.push([])
+      }
+
+      /* Selections with no programme yet. Listed, never dropped. */
+      aoa.push(['SELECTED AI SUGGESTIONS — NOT SCHEDULED YET'])
+      styledRanges.push({ row: aoa.length - 1, style: blockStyle, cols: headers.length })
       if (unlinkedSuggestions.length) {
-        footer.push([])
-        footer.push(['AI Suggestions — To Be Scheduled'])
-        footer.push(['AI Suggested Programme', 'Activity', 'Objective / Materials'])
+        aoa.push(['AI Suggested Programme', 'Activity', 'Priority', 'Objective / Materials'])
+        styledRanges.push({ row: aoa.length - 1, style: headerStyle, cols: 4 })
         for (const s of unlinkedSuggestions) {
-          footer.push([
+          aoa.push([
             s.title,
-            s.activityName || '—',
+            s.activity,
+            s.priority || '—',
             [s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n'),
           ])
         }
+        if (report.suggestionsLeftOut) {
+          aoa.push([`${report.suggestionsLeftOut} further selected suggestion${report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.`])
+        }
       } else {
-        footer.push([])
-        footer.push(['No AI suggestions were selected for this month.'])
+        aoa.push([report.suggestionsLeftOut
+          ? `No unscheduled suggestions for the ticked activities. ${report.suggestionsLeftOut} suggestion${report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.`
+          : 'Every AI suggestion selected this month has been scheduled as a programme.'])
       }
 
-      const aoa = [...head, ...body, ...footer]
       const ws = XLSX.utils.aoa_to_sheet(aoa)
-
-      // Located by content, never by a fixed index: the counts row above the table
-      // means the header is no longer at a known row number.
-      const tableHeaderIdx = aoa.findIndex((r) => r && r[0] === 'Date' && r[1] === 'Event')
-      const headerRows = tableHeaderIdx >= 0 ? [tableHeaderIdx] : []
-      const sugHeaderIdx = aoa.findIndex((r) => r && r[0] === 'AI Suggestions — To Be Scheduled')
-      if (sugHeaderIdx >= 0) headerRows.push(sugHeaderIdx + 1)
-      const thin = { style: 'thin', color: { rgb: 'D5D9E4' } }
-      for (const r of headerRows) {
-        for (let c = 0; c < headers.length; c++) {
-          const addr = XLSX.utils.encode_cell({ r, c })
+      for (const { row, style, cols } of styledRanges) {
+        for (let c = 0; c < cols; c++) {
+          const addr = XLSX.utils.encode_cell({ r: row, c })
           if (!ws[addr]) continue
-          ws[addr].s = {
-            font: { bold: true, sz: 11, color: { rgb: '1F2430' } },
-            fill: { fgColor: { rgb: 'E8ECF6' } },
-            border: { top: thin, bottom: thin, left: thin, right: thin },
-            alignment: { vertical: 'center', wrapText: true },
-          };
+          ws[addr].s = style
         }
       }
-      // Title row.
-      const t = ws['A1']
-      if (t) t.s = { font: { bold: true, sz: 14, color: { rgb: '1F2430' } } }
+      const titleCell = ws['A1']
+      if (titleCell) titleCell.s = { font: { bold: true, sz: 14, color: { rgb: '1F2430' } } }
 
-      // Date, Event, AI Suggested Programme. The AI column carries the most text, so
-      // it takes the width the five empty social columns used to share.
-      ws['!cols'] = [{ wch: 14 }, { wch: 38 }, { wch: 62 }]
+      // Section headings and the at-a-glance header are bold on the tint, so the
+      // sheet can be skimmed without reading a single row. Located by their own
+      // text, because the row numbers move as the selected-activity list grows.
+      const headingStyle = { font: { bold: true, sz: 11, color: { rgb: '1F2430' } }, fill: { fgColor: { rgb: 'F2F4FB' } } }
+      const paintRow = (r, style, cols) => {
+        if (r < 0) return
+        for (let c = 0; c < cols; c++) {
+          const addr = XLSX.utils.encode_cell({ r, c })
+          if (!ws[addr]) continue
+          ws[addr].s = style
+        }
+      }
+      paintRow(selectedHeadingRow, headingStyle, headers.length)
+      paintRow(aoa.findIndex((x) => x && x[0] === 'MONTH AT A GLANCE'), headingStyle, headers.length)
+      paintRow(aoa.findIndex((x) => x && x[0] === 'PROGRAMMES BY NGO'), headingStyle, headers.length)
+      paintRow(aoa.findIndex((r) => r && r[0] === 'NGO' && r[1] === 'Target'), headerStyle, 6)
+      paintRow(aoa.findIndex((r) => r && r[0] === 'Activity' && r[1] === 'NGO'), headerStyle, 3)
+
+      // A ticked activity is the reader's own decision, so it is tinted rather
+      // than left to be read out one cell at a time.
+      const tickStyle = {
+        font: { bold: true, sz: 11, color: { rgb: '14532D' } },
+        fill: { fgColor: { rgb: 'E9F7EF' } },
+        alignment: { vertical: 'center' },
+      }
+      for (const [i, r] of aoa.entries()) {
+        if (!r || typeof r[0] !== 'string' || !r[0].startsWith(REPORT_TICK)) continue
+        paintRow(i, tickStyle, Math.max(1, r.length))
+      }
+
+      ws['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 22 }, { wch: 32 }, { wch: 12 }, { wch: 58 }]
       ws['!rows'] = []
       ws['!rows'][0] = { hpt: 22 }
-      for (const r of headerRows) ws['!rows'][r] = { hpt: 20 }
-      for (let r = tableHeaderIdx + 1; r < aoa.length; r++) if (!ws['!rows'][r]) ws['!rows'][r] = {};
+      for (const { row } of styledRanges) ws['!rows'][row] = { hpt: 20 }
 
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Monthly Planner')
@@ -1106,6 +1544,8 @@ export default function ActivityPlanner() {
     }
   }
 
+  /* The PDF is a capture of the off-screen preview above, so the file and the
+     screen are the same document by construction. */
   const downloadPdf = async () => {
     const el = reportRef.current
     if (!el) return
@@ -1183,24 +1623,69 @@ export default function ActivityPlanner() {
     if (activity?.id) setTimeout(() => setJustAddedId((cur) => (String(cur) === String(activity.id) ? null : cur)), 12000)
   }
 
+  /* The tick that decides what the download contains. Applied to the page first so
+   the report and the preview move with the click, then saved; if the save fails
+   the row goes back to what the server actually holds, because a tick that looks
+   done but was not stored is worse than no tick. */
+  const setActivityInReport = async (list, next) => {
+    const targets = Array.isArray(list) ? list : [list]
+    const ids = new Set(targets.map((a) => String(a?.id)).filter(Boolean))
+    if (!ids.size) return
+    const before = activities.filter((a) => ids.has(String(a.id)))
+    setActivities((cur) => cur.map((a) => (ids.has(String(a.id)) ? { ...a, in_report: next } : a)))
+    setTickBusy(true)
+    try {
+      const results = await Promise.allSettled(
+        targets.map((a) => updateActivity(a.id, { in_report: next }))
+      )
+      const failed = results.filter((r) => r.status === 'rejected')
+      // The server's own answer wins for every row that came back, so a row the
+      // database refused cannot drift from what the next reload will show.
+      const saved = results.filter((r) => r.status === 'fulfilled' && r.value).map((r) => r.value)
+      if (saved.length) {
+        const byId = new Map(saved.map((a) => [String(a.id), a]))
+        setActivities((cur) => cur.map((a) => (byId.has(String(a.id)) ? { ...a, ...byId.get(String(a.id)) } : a)))
+      }
+      if (failed.length) {
+        setActivities((cur) => cur.map((a) => (ids.has(String(a.id))
+          ? { ...a, in_report: before.find((b) => String(b.id) === String(a.id))?.in_report === true }
+          : a)))
+        showToast(failed[0].reason?.message || 'Could not save the download selection.')
+      } else {
+        const what = next ? 'Included in the download' : 'Removed from the download'
+        showToast(targets.length === 1 ? `${before[0]?.name || 'Activity'}: ${what.toLowerCase()}.` : `${targets.length} activities: ${what.toLowerCase()}.`)
+      }
+    } catch (e) {
+      setActivities((cur) => cur.map((a) => (ids.has(String(a.id))
+        ? { ...a, in_report: before.find((b) => String(b.id) === String(a.id))?.in_report === true }
+        : a)))
+      showToast(e?.message || 'Could not save the download selection.')
+    } finally {
+      setTickBusy(false)
+    }
+  }
+
   /* `suggestion` is set when the programme came from an AI idea rather than from
      the row's own "Add programme" button. */
-  const afterPlanned = ({ suggestion } = {}) => {
+  const afterPlanned = ({ suggestion, programmes = [], failed = [], lastDate } = {}) => {
     setPlanEntry(null)
     loadMonthEvents()
     loadNgoStats()
-    if (suggestion?.id) {
-      // Converting an idea into a programme keeps it ticked, so the report lists
-      // it as that event's AI suggestion instead of quietly dropping it.
-      setPlannerSuggestionSelected(suggestion.id, true)
-        .then(loadSelectedSuggestions)
-        // The programme is already saved; a failed tick must not say otherwise.
-        .catch(() => showToast('Programme added, but it could not be marked for the report.'))
-        .finally(() => setSuggestRev((v) => v + 1))
-      showToast('Programme added and kept in the report.')
-    } else {
-      showToast('Programme added to this month.')
-    }
+    setSuggestRev((v) => v + 1)
+    // The report reads the page's own selected list, so it has to be re-read
+    // after any change to what is ticked or linked.
+    loadSelectedSuggestions()
+    // Remember where the new programmes landed, so "View in Calendar" opens on
+    // that day instead of wherever the calendar was left.
+    const landed = String(lastDate || '').slice(0, 10)
+    if (landed.startsWith(`${month}-`)) setLastScheduled(landed)
+
+    const n = programmes.length
+    const parts = []
+    if (n > 0) parts.push(n === 1 ? '1 programme added' : `${n} programmes added`)
+    if (suggestion) parts.push('kept in the report')
+    if (failed.length) parts.push(`${failed.length} could not be saved`)
+    if (parts.length) showToast(`${parts.join(' · ')}.`)
   }
 
   const monthName = monthLabel(month).split(' ')[0]
@@ -1342,51 +1827,133 @@ export default function ActivityPlanner() {
         <div style={{ padding: '11px 16px', borderRadius: 12, background: 'var(--eh-success-soft)', color: 'var(--eh-success)', fontSize: 13, fontWeight: 600 }}>{toast}</div>
       )}
 
-      {/* Activities and events answer different questions, so both are kept:
-          activities are what can be planned, events are what this NGO already
-          has in the month. Counts ignore the search/sector boxes on purpose and
-          always describe the NGO in scope, so each card names that NGO — a bare
-          "25" next to a chip for some other NGO is not readable. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-        {[
-          { label: 'Activities', value: activities.length, color: 'var(--eh-ink)', title: 'activities that can be planned this month' },
-          { label: `Events in ${monthName}`, value: scopeStats.events, color: 'var(--eh-primary)', title: 'events already saved for this month', countsLoad: true },
-          /* Zero is left out rather than shown as "Done 0": nothing completed is
-             a normal state, not a fault. loadingCounts keeps the card from
-             blinking out and back on every NGO/month change before the numbers
-             arrive, which would make the strip jump around. */
-          { label: 'Completed', value: scopeStats.done, color: 'var(--eh-success)', title: 'events marked Completed', countsLoad: true, hideWhenZero: true },
-          { label: 'Remaining', value: scopeStats.remaining, color: scopeStats.remaining ? '#9a8200' : 'var(--eh-ink-faint)', title: 'events still to be completed', countsLoad: true },
-        ]
-          .filter((c) => !c.hideWhenZero || loadingCounts || c.value > 0)
-          .map((c) => (
-            <div
-              key={c.label}
-              className="card"
-              style={{ marginBottom: 0, flex: '1 1 150px' }}
-              title={ngo ? `${ngo.name} — ${c.title}` : c.title}
-            >
-              <div className="card-pad" style={{ padding: '13px 15px' }}>
-                {/* Which NGO these numbers belong to: BSCT when BSCT is picked,
-                    MANN when MANN is. Muted so the count stays the loudest
-                    thing on the card, and absent on "All NGOs" where there is no
-                    single NGO to name. */}
-                {ngo && (
-                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', color: 'var(--eh-primary)', marginBottom: 1 }}>
-                    {ngoShortLabel(ngo)}
-                  </div>
-                )}
-                <div style={LABEL}>{c.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: c.color }}>{c.countsLoad && loadingCounts ? '…' : c.value}</div>
-              </div>
+      {/* How each NGO is tracking against its monthly quota. One card per NGO,
+          always all of them: an NGO with nothing planned this month must still
+          show a readable "0 of 15" instead of disappearing, because "no card"
+          reads as "nothing to do" rather than "not started".
+          The Activities card stays beside it — activities are what can be
+          planned, the quota is what has been planned, and the two answer
+          different questions. */}
+      <div className="card" style={{ marginBottom: 0 }}>
+        <div
+          className="card-pad"
+          style={{ padding: '13px 15px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span style={LABEL}>Monthly target</span>
+            <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{monthLabel(month)}</span>
+          </div>
+          {/* Totals summed from the cards below, so the headline can never
+              disagree with the rows it summarises. Names the same scope the
+              cards are showing: the picked NGO, or all three. */}
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
+            {loadingCounts
+              ? 'Loading counts…'
+              : `${ngo ? ngoShortLabel(ngo) : 'All NGOs'} — ${targetTotals.planned} of ${targetTotals.target} done · ${Math.max(0, targetTotals.target - targetTotals.planned)} remaining`}
+          </span>
+        </div>
+
+        <div className="card-pad" style={{ paddingTop: 0, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          {/* Activities are what can be planned; the quota cards below are what
+              has been planned. No NGO label here: the quota card beside it and
+              the Activities section header already name the NGO in scope, and
+              repeating it three times on one screen is what made this hard to
+              read. */}
+          <div
+            className="card"
+            style={{ marginBottom: 0, flex: '1 1 150px', minWidth: 150 }}
+            title="activities that can be planned this month"
+          >
+            <div className="card-pad" style={{ padding: '13px 15px' }}>
+              <div style={LABEL}>Activities</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--eh-ink)' }}>{activities.length}</div>
             </div>
-          ))}
+          </div>
+
+          {ngoTargets.map((r) => {
+            const over = r.over > 0
+            const met = !over && r.remaining === 0
+            // Green once the quota is met, amber while still short, amber-strong
+            // when the month has overshot it.
+            const bar = over ? '#b45309' : met ? 'var(--eh-success)' : 'var(--eh-primary)'
+            return (
+              <div
+                key={String(r.ngo.id)}
+                className="card"
+                style={{ marginBottom: 0, flex: '1 1 220px', minWidth: 200 }}
+                title={`${r.ngo.name} — ${r.planned} of ${r.target} programmes planned for ${monthLabel(month)}`}
+              >
+                <div className="card-pad" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em', color: 'var(--eh-primary)' }}>
+                    {r.label}
+                  </div>
+
+                  {/* The headline: how many of the quota are planned. */}
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--eh-ink)', lineHeight: 1.1 }}>
+                    {loadingCounts ? '…' : r.planned}
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--eh-ink-faint)' }}> of {r.target}</span>
+                  </div>
+
+                  {/* Bar plus its own caption, so the fill is never read on its
+                      own. Hidden while loading rather than drawn empty, which
+                      would look like a real 0 before the counts arrive. */}
+                  {!loadingCounts && (
+                    <>
+                      <div style={{ height: 8, borderRadius: 999, background: 'var(--eh-surface-2, #eef0f7)', overflow: 'hidden' }}>
+                        <div style={{ width: `${r.pct}%`, height: '100%', borderRadius: 999, background: bar, transition: 'width .25s' }} />
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: over ? '#9a8200' : 'var(--eh-ink-faint)' }}>
+                        {over ? `over target by ${r.over}` : met ? 'target met' : `${r.pct}% of target planned`}
+                      </div>
+                    </>
+                  )}
+
+                  {/* The three numbers spelled out, in the words the plan uses. */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+                    {[
+                      { label: 'Target', value: r.target, color: 'var(--eh-ink-soft)' },
+                      { label: 'Done', value: r.planned, color: 'var(--eh-success)' },
+                      { label: 'Remaining', value: r.remaining, color: r.remaining ? '#9a8200' : 'var(--eh-success)' },
+                    ].map((s) => (
+                      <div key={s.label} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                        <span style={{ fontSize: 11.5, color: 'var(--eh-ink-soft)' }}>{s.label}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 800, color: s.color }}>
+                          {loadingCounts ? '…' : s.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-pad" style={{ padding: '13px 15px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <span style={LABEL}>Activities</span>
           <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>{reportMeta.ngoName} · {monthLabel(month)}</span>
+          {/* The tick decides what the download contains, so the count is stated
+              here rather than left to be discovered in the file. */}
+          {rows.length > 0 && (
+            <span style={{ fontSize: 12, color: 'var(--eh-ink-soft)', fontWeight: 600 }}>
+              {report.selectedActivities.length} of {report.activitiesInScope} activit{report.activitiesInScope === 1 ? 'y' : 'ies'} selected for download
+            </span>
+          )}
+          {rows.length > 0 && (
+            <button
+              className="eh-btn eh-btn-sm"
+              style={{ marginLeft: 'auto' }}
+              disabled={tickBusy}
+              /* Decided from the rows actually on screen, so a filter that hides
+                 ticked activities cannot make the button describe the wrong action. */
+              title={allShownTicked ? 'Clear the tick on every activity shown' : 'Tick every activity shown for the download'}
+              onClick={() => setActivityInReport(rows, !allShownTicked)}
+            >
+              {allShownTicked ? 'Untick all shown' : 'Tick all shown'}
+            </button>
+          )}
           {loadingActs && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Loading activities…</span>}
           {loadingEvents && <span style={{ fontSize: 12, color: 'var(--eh-ink-faint)' }}>Loading month…</span>}
         </div>
@@ -1408,6 +1975,8 @@ export default function ActivityPlanner() {
             <table>
               <thead>
                 <tr>
+                  {/* First, because it is the column the download is built from. */}
+                  <th style={{ width: 92 }}>In download</th>
                   {/* On "All NGOs" the rows span NGOs, so the list has to say
                       which one each activity belongs to. */}
                   {!ngo && <th style={{ width: 100 }}>NGO</th>}
@@ -1420,7 +1989,7 @@ export default function ActivityPlanner() {
                 {bySector.map((g) => (
                   <Fragment key={g.key}>
                     <tr>
-                      <td colSpan={ngo ? 3 : 4} style={{ padding: '9px 14px', background: 'var(--eh-tint-1)', borderBottom: '1px solid var(--eh-line)', fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
+                      <td colSpan={ngo ? 4 : 5} style={{ padding: '9px 14px', background: 'var(--eh-tint-1)', borderBottom: '1px solid var(--eh-line)', fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>
                         {g.key} · {g.rows.length}
                       </td>
                     </tr>
@@ -1433,6 +2002,25 @@ export default function ActivityPlanner() {
                       return (
                         <Fragment key={a.id}>
                           <tr>
+                            <td>
+                              <label
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: tickBusy ? 'wait' : 'pointer' }}
+                                title={a.in_report
+                                  ? `${a.name} is in the download. Untick to leave it out.`
+                                  : `${a.name} is not in the download. Tick to include its programmes.`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={a.in_report === true}
+                                  disabled={tickBusy}
+                                  onChange={(e) => setActivityInReport(a, e.target.checked)}
+                                  style={{ width: 16, height: 16, cursor: tickBusy ? 'wait' : 'pointer', accentColor: 'var(--eh-primary)' }}
+                                />
+                                <span style={{ fontSize: 11, fontWeight: 700, color: a.in_report === true ? 'var(--eh-success)' : 'var(--eh-ink-faint)' }}>
+                                  {a.in_report === true ? 'Yes' : 'No'}
+                                </span>
+                              </label>
+                            </td>
                             {!ngo && (
                               <td>
                                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--eh-ink-soft)' }}>{ngoShortLabel(rowNgo)}</span>
@@ -1510,6 +2098,7 @@ export default function ActivityPlanner() {
                                   ngo={rowNgo}
                                   month={month}
                                   refreshRev={suggestRev}
+                                  onSelectionChange={loadSelectedSuggestions}
                                   onClose={() => { setSuggestFor(null); loadSelectedSuggestions() }}
                                   onPlan={(s) => { setSuggestFor(null); setPlanEntry({ activity: a, suggestion: s }) }}
                                 />
@@ -1527,59 +2116,141 @@ export default function ActivityPlanner() {
         )}
       </div>
 
-      {/* Off-screen node the PDF export captures. Kept in the normal flow (not
-          display:none) because html2canvas renders nothing for hidden nodes. */}
+      {/* Off-screen preview. The Excel sheet and this node are rendered from the same
+        `report` object, so the screen can never promise something the file does
+        not deliver — and the PDF is captured from here. */}
       <div
         ref={reportRef}
         aria-hidden="true"
-        style={{ position: 'absolute', left: '-10000px', top: 0, width: 900, background: '#fff', padding: 24, fontFamily: 'inherit' }}
+        style={{ position: 'absolute', left: '-10000px', top: 0, width: 1100, background: '#fff', padding: 24, fontFamily: 'inherit' }}
       >
         <div style={{ fontSize: 17, fontWeight: 800, color: '#1F2430' }}>Monthly Planner Report</div>
         <div style={{ fontSize: 12, color: '#4A5061', marginTop: 4 }}>NGO: {reportMeta.ngoName}</div>
         <div style={{ fontSize: 12, color: '#4A5061' }}>Month: {reportMeta.label}</div>
         <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Generated: {new Date().toLocaleString('en-IN')}</div>
-        {/* Same counts as the cards and the Excel header, in one line. */}
-        <div style={{ fontSize: 11, color: '#1F2430', marginTop: 6 }}>
-          Events: {reportCounts.events} · Completed: {reportCounts.completed} · Remaining: {reportCounts.remaining}
-        </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12, fontSize: 11 }}>
+        {/* Names the selection before any row is shown, so the reader can tell
+            what the file is from without inferring it. */}
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 14 }}>
+          ACTIVITIES SELECTED FOR THIS DOWNLOAD — {report.selectedActivities.length} of {report.activitiesInScope}
+        </div>
+        {report.selectedActivities.length ? (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6, fontSize: 11 }}>
+            <thead>
+              <tr>
+                {['Activity', 'NGO', 'Programmes in this download'].map((h) => (
+                  <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {report.selectedActivities.map((a) => (
+                <tr key={`sel-${a.id}`} style={{ background: '#E9F7EF' }}>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', fontWeight: 700, color: '#14532D' }}>{REPORT_TICK} {a.name}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{a.ngoLabel}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{a.programmes}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ fontSize: 11, color: '#8A5A00', background: '#FFF7E6', border: '1px solid #F0D9A8', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
+            No activities ticked for this download. Tick an activity’s “In download” box on the Monthly
+            Planner, then download again — only ticked activities are listed.
+          </div>
+        )}
+
+        {/* Quota totals, straight from the same blocks the tables below use. */}
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>MONTH AT A GLANCE</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6, fontSize: 11 }}>
           <thead>
             <tr>
-              {REPORT_HEADERS.map((h) => (
+              {['NGO', 'Target', 'Programmes Done', 'In this report', 'Remaining', 'Status'].map((h) => (
                 <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {reportRows.map((r, i) => (
-              <tr key={r.date} style={{ background: i % 2 ? '#F7F8FC' : '#fff' }}>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.date}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.event}</td>
-                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>
-                  {/* \n is a line break in Excel; html2canvas needs <br> for the
-                      same visual break in the captured image. */}
-                  {reportSuggestionCell(r.suggestions).split('\n').map((line, k) => (
-                    <span key={k}>{k > 0 && <br />}{line}</span>
-                  ))}
+            {report.blocks.map((b) => (
+              <tr key={`glance-${b.key}`}>
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', fontWeight: 600 }}>{b.label}</td>
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.target}</td>
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.done}</td>
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.inReport}</td>
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{b.remaining}</td>
+                <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>
+                  {b.over ? `Over target by ${b.over}` : b.remaining ? `${b.remaining} still to plan` : 'Target met'}
                 </td>
               </tr>
             ))}
+            <tr style={{ background: '#F2F4FB', fontWeight: 700 }}>
+              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>ALL NGOs</td>
+              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.target}</td>
+              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.done}</td>
+              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.inReport}</td>
+              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.remaining}</td>
+              <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{report.totals.over ? `Over target by ${report.totals.over}` : ''}</td>
+            </tr>
           </tbody>
         </table>
 
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>PROGRAMMES BY NGO</div>
+
+        {report.blocks.map((block) => (
+          <div key={block.key} style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#1F2430' }}>
+              {block.label} — Target {block.target} · Done {block.done} · Remaining {block.remaining}
+              {block.over ? ` · Over by ${block.over}` : ''} · In this report: {block.inReport}
+            </div>
+
+            {block.rows.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
+                No programmes in this download for {block.label}.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    {REPORT_HEADERS.map((h) => (
+                      <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((r, i) => (
+                    <tr key={`${block.key}-${r.eventId}-${r.dateLabel}`} style={{ background: i % 2 ? '#F7F8FC' : '#fff' }}>
+                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.dateLabel}</td>
+                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.weekday}</td>
+                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.activity}</td>
+                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{r.programme}</td>
+                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{r.status}</td>
+                      <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap', fontWeight: 600 }}>
+                        {reportSuggestionCell(r.suggestion).split('\n').map((line, k) => (
+                          <span key={k}>{k > 0 && <br />}{line}</span>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+
         <div style={{ fontSize: 13, fontWeight: 800, color: '#1F2430', marginTop: 16 }}>
-          AI Suggestions — To Be Scheduled
+          Selected AI Suggestions — Not Scheduled Yet
         </div>
         {unlinkedSuggestions.length === 0 ? (
           <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
-            No AI suggestions were selected for this month.
+            {report.suggestionsLeftOut
+              ? `No unscheduled suggestions for the ticked activities. ${report.suggestionsLeftOut} suggestion${report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.`
+              : 'Every AI suggestion selected this month has been scheduled as a programme.'}
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 11 }}>
             <thead>
               <tr>
-                {['AI Suggested Programme', 'Activity', 'Objective / Materials'].map((h) => (
+                {['AI Suggested Programme', 'Activity', 'Priority', 'Objective / Materials'].map((h) => (
                   <th key={h} style={{ border: '1px solid #D5D9E4', background: '#E8ECF6', padding: '5px 6px', textAlign: 'left', fontWeight: 700, color: '#1F2430' }}>{h}</th>
                 ))}
               </tr>
@@ -1588,7 +2259,8 @@ export default function ActivityPlanner() {
               {unlinkedSuggestions.map((s) => (
                 <tr key={s.id}>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{s.title}</td>
-                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{s.activityName || '—'}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>{s.activity || '—'}</td>
+                  <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px' }}>{s.priority || '—'}</td>
                   <td style={{ border: '1px solid #D5D9E4', padding: '5px 6px', whiteSpace: 'pre-wrap' }}>
                     {[s.objective ? `Objective: ${s.objective}` : '', s.materials?.length ? `Materials: ${s.materials.join(', ')}` : ''].filter(Boolean).join('\n')}
                   </td>
@@ -1596,6 +2268,11 @@ export default function ActivityPlanner() {
               ))}
             </tbody>
           </table>
+        )}
+        {unlinkedSuggestions.length > 0 && report.suggestionsLeftOut > 0 && (
+          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 6 }}>
+            {report.suggestionsLeftOut} further selected suggestion{report.suggestionsLeftOut === 1 ? '' : 's'} left out because the activity was not ticked.
+          </div>
         )}
       </div>
 
