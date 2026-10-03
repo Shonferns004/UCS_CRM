@@ -572,8 +572,10 @@ export const fetchVolunteers = () => apiGet('/event-head/volunteers')
 export const createVolunteer = (data) => apiPost('/event-head/volunteers', data)
 export const updateVolunteer = (id, data) => apiPut('/event-head/volunteers/' + id, data)
 export const fetchVolunteerPeople = () => apiGet('/event-head/volunteers/people')
-export const fetchVolunteerAttendance = (eventId) => apiGet('/event-head/events/' + eventId + '/volunteer-attendance')
-export const markVolunteerAttendance = (eventId, data) => apiPost('/event-head/events/' + eventId + '/volunteer-attendance', data)
+// Today's HR attendance for the Voluntary section, keyed by worker id. Replaces
+// two helpers that pointed at '/event-head/events/:id/volunteer-attendance',
+// which the server never had (the real route is '/events/:eventId/attendance').
+export const fetchVolunteerAttendanceToday = () => apiGet('/event-head/volunteers/attendance')
 
 /* ── Expenses ── */
 export const fetchExpenses = (eventId) => apiGet('/event-head/events/' + eventId + '/expenses')

@@ -1,4 +1,5 @@
 import db, { getTableColumns } from '../config/db.js';
+import { istDateString } from '../utils/ist.js';
 
 // ─── EVENTS ───
 export const createEventHeadEvent = async (data) => {
@@ -360,6 +361,46 @@ export const getVolunteerPeople = async () => {
       const nb = b.ngo_name || 'Other';
       return na.localeCompare(nb) || (a.name || '').localeCompare(b.name || '');
     });
+};
+
+// Today's HR attendance, keyed for the Voluntary section's per-person status.
+//
+// WHY A SEPARATE READ. The HR attendance endpoints are gated to
+// super_admin/admin/hr/accounts, so the `event_head` role cannot read them, and
+// the Create New Event form needs today's status to flag absent volunteers.
+// getVolunteerPeople() stays attendance-free on purpose: it is shared with the
+// volunteer management screen, and attendance has no business in that contract.
+//
+// WHY ONLY MARKED ROWS COME BACK. `attendance` stores no 'absent' rows — a missing
+// punch IS the absence (see hrDailyReportController and the dashboard's Daily
+// Check-ins), so the rows returned here are only present/late/half-day/leave.
+// Turning that into an "absent" verdict needs the roster, which is why the caller
+// joins this against getVolunteerPeople() by worker id and treats a person with
+// no row here as absent.
+//
+// `attendance.date` is a real DATE column already holding an IST calendar day
+// (db sessions are pinned to Asia/Kolkata), so it compares to a plain
+// 'YYYY-MM-DD' string with no timezone conversion.
+export const getVolunteerAttendanceToday = async () => {
+  const date = istDateString();
+  const { data, error } = await db
+    .from('attendance')
+    .select('worker_id, status, late_minutes, punch_in_time')
+    .eq('date', date);
+  if (error) throw error;
+  const byWorker = {};
+  for (const row of data || []) {
+    // One row per worker per date (the writes upsert), but a legacy duplicate
+    // must not let a later row blank out the status we report.
+    const key = String(row.worker_id);
+    if (byWorker[key]) continue;
+    byWorker[key] = {
+      status: row.status || null,
+      late_minutes: Number(row.late_minutes) || 0,
+      punch_in_time: row.punch_in_time || null,
+    };
+  }
+  return { date, byWorker };
 };
 
 // Workers who are no longer active (absconded, offboarded, resigned, terminated
