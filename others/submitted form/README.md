@@ -30,6 +30,27 @@ npm test                 # document parser, design layer, and form flows
 `.env` is git-ignored. There is deliberately **no** `VITE_API_BASE` — an earlier
 `src/config.js` used that name, was never imported, and silently did nothing.
 
+### Building is a different environment from developing
+
+Vite inlines `import.meta.env` at **build** time, so the value of
+`VITE_API_URL` while `vite build` runs is frozen into `dist/` permanently. A
+machine that keeps the local `.env` (`http://localhost:5000/api`) for
+`npm run dev` will otherwise ship that address to every volunteer, and the
+whole app fails silently — login, Documents Needed, signature upload and
+signature commit are all `fetch` calls to `localhost`, so nothing reaches the
+database and HR's ODAR letter keeps printing a blank Volunteer Signature line.
+
+`prebuild` runs `scripts/check-api-url.mjs`, which refuses to build when the
+resolved URL is a loopback host. Build with the local override commented out:
+
+```bash
+# .env commented out, or VITE_API_URL=https://api.beingsevak.org/api
+npm run build
+```
+
+Vite also content-hashes the bundle, so deploying `dist/` means replacing the
+whole directory — the entry filename changes on every build.
+
 ## The signing flow
 
 Signing is two-phase, and the phase is stored server-side as
@@ -94,3 +115,8 @@ module-eval time, so a static import silently breaks controlled inputs.
   script range, add the file and a matching `@font-face`.
 - **Deploying.** This is a single-route SPA. The host must rewrite unknown paths
   to `index.html`; the service worker expects a `navigateFallback` of `/index.html`.
+- **A blank ODAR signature means a wrong-host build, not a missing feature.** The
+  signing flow and the letter both read the same `workers.signature_url`. If a
+  volunteer says they signed and HR sees a blank line, check
+  `scripts/check-api-url.mjs` against the deployed bundle before looking
+  anywhere else: `grep -o 'https\?://[^"]*api' dist/assets/*.js`.
