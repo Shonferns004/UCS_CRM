@@ -45,7 +45,7 @@ const Icon = ({ children, color }) => (
 
 const pad2 = n => String(n).padStart(2, '0')
 
-const todayYM = () => istMonthKey()
+const todayYM = () => `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}`
 
 const monthLabelOf = (ym) => {
   // ym: 'YYYY-MM' → 'August 2026'
