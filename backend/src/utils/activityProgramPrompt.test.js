@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ACTIVITY_BENEFICIARY_GROUPS,
   ACTIVITY_SUGGESTION_LIMIT,
   buildActivityProgramPrompt,
+  canonicalActivityBeneficiary,
   isMonthYmd,
   matchEnum,
   monthEndExclusive,
@@ -260,4 +262,24 @@ test('unusable model output degrades to empty instead of throwing', () => {
   assert.deepEqual(parseActivityProgramSuggestions('nope'), []);
   assert.deepEqual(parseActivityProgramSuggestions({ suggestions: 'not an array' }), []);
   assert.deepEqual(parseActivityProgramSuggestions({ suggestions: [null, 5, 'x'] }), []);
+});
+test('a saved beneficiary group is accepted whatever its spacing or casing', () => {
+  for (const g of ACTIVITY_BENEFICIARY_GROUPS) {
+    assert.equal(canonicalActivityBeneficiary(g), g);
+    assert.equal(canonicalActivityBeneficiary(`  ${g.toLowerCase()}  `), g);
+    assert.equal(canonicalActivityBeneficiary(g.toUpperCase()), g);
+  }
+});
+
+test('a value outside the three groups is refused, so it cannot reach the prompt', () => {
+  assert.equal(canonicalActivityBeneficiary('Everyone'), '');
+  assert.equal(canonicalActivityBeneficiary('Visually Impaired, Women'), '');
+  assert.equal(canonicalActivityBeneficiary('Visually Impairedx'), '');
+});
+
+test('an absent group is empty, which is what makes the NGO default apply', () => {
+  assert.equal(canonicalActivityBeneficiary(''), '');
+  assert.equal(canonicalActivityBeneficiary(null), '');
+  assert.equal(canonicalActivityBeneficiary(undefined), '');
+  assert.equal(canonicalActivityBeneficiary('   '), '');
 });

@@ -10,12 +10,12 @@ import {
 import { generateSuggestionJson, aiSuggestionsConfigured } from '../utils/aiSuggestions.js';
 import {
   ACTIVITY_SUGGESTION_LIMIT,
-  beneficiaryGroupForNgo,
   buildActivityProgramPrompt,
   isMonthYmd,
   monthEndExclusive,
   monthFirstDay,
   parseActivityProgramSuggestions,
+  canonicalActivityBeneficiary,
 } from '../utils/activityProgramPrompt.js';
 import { getAllHolidays } from '../models/holidayModel.js';
 
@@ -822,6 +822,19 @@ export const listVolunteerPeople = async (req, res) => {
   try {
     const people = await EventHead.getVolunteerPeople();
     return res.json(people);
+  } catch (error) {
+    console.error('eventHeadController error:', error.message || error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Today's attendance for the Voluntary section. Read-only and deliberately
+// non-fatal: a failure here must not take the Create New Event form down, so the
+// picker renders exactly as it did before, just without status badges.
+export const listVolunteerAttendance = async (req, res) => {
+  try {
+    const attendance = await EventHead.getVolunteerAttendanceToday();
+    return res.json(attendance);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
     return res.status(500).json({ message: error.message });
@@ -1935,6 +1948,13 @@ export const updateActivity = async (req, res) => {
     const updates = { ...body };
     if (updates.name !== undefined) updates.name = String(updates.name || '').trim();
     if (updates.name !== undefined && !updates.name) return res.status(400).json({ message: 'Activity name cannot be empty' });
+    // "Include in my download" is the user's decision about what the monthly file
+    // contains, so losing it silently would be worse than refusing: the tick would
+    // look saved and the download would quietly keep ignoring it.
+    if (Object.prototype.hasOwnProperty.call(updates, 'in_report')
+      && !(await EventHead.activityColumnExists('in_report'))) {
+      return res.status(400).json({ message: 'This server cannot store the download selection yet. Apply migration 169_event_head_activity_in_report.sql, then tick the activity again.' });
+    }
     const activity = await EventHead.updateActivity(req.params.id, updates);
     return res.json(activity);
   } catch (error) {
@@ -2633,10 +2653,12 @@ export const suggestActivityPrograms = async (req, res) => {
       }
     }
 
-    // Who this activity serves is fixed by its NGO, not stored per activity:
-    // the old `beneficiary_group` column is only a fallback for an NGO that has
-    // no code here yet.
-    const beneficiaryGroup = beneficiaryGroupForNgo(ngoRow?.code) || activity.beneficiary_group || null;
+// Who this activity serves: only the group that was actually chosen when the
+// activity was created. There is deliberately no fallback to the NGO's fixed
+// group here - a beneficiary that was never specified must not be invented for
+// the model, or the ideas come back aimed at a group nobody picked. No group
+// simply means the prompt carries no beneficiary line at all.
+const beneficiaryGroup = canonicalActivityBeneficiary(activity.beneficiary_group) || null;
 
     const payload = {
       month,
@@ -2729,6 +2751,7 @@ export const suggestActivityPrograms = async (req, res) => {
           rationale: r.rationale,
           materials: Array.isArray(r.materials) ? r.materials : [],
           is_selected: Boolean(r.is_selected),
+          suggested_event_id: r.suggested_event_id ?? null,
           activity_id: r.activity_id,
           batch_no: r.batch_no,
         }))
@@ -2783,7 +2806,9 @@ export const setPlannerSuggestionSelected = async (req, res) => {
       return res.status(400).json({ message: 'id is required' });
     }
     const is_selected = Boolean(req.body?.is_selected);
-    const row = await EventHead.setPlannerSuggestionSelected(id, is_selected);
+    // Optional link to the programme this idea became. Written with the tick so
+    // the monthly report can attribute the idea to that one programme.
+    const row = await EventHead.setPlannerSuggestionSelected(id, is_selected, req.body?.suggested_event_id);
     return res.json({ suggestion: row });
   } catch (error) {
     console.error('setPlannerSuggestionSelected error:', error.message || error);
