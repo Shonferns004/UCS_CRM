@@ -37,7 +37,14 @@ import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/
 // `require` does not exist in this ESM module. Calling require() at request
 // time was throwing "require is not defined" and taking the whole dashboard
 // down; a static import is hoisted and safe.
-import redis from '../config/redis.cjs';
+const redis = await (async () => {
+  try {
+    const mod = await import('../config/redis.cjs');
+    return mod.default || mod;
+  } catch (e) {
+    return null;
+  }
+})();
 
 // Is this live row current — written recently, or held open by a live panel
 // socket? The same "fresh" test the boards use, as a module-level function so
