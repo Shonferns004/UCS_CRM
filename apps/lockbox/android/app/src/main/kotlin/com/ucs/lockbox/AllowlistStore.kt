@@ -23,12 +23,18 @@ object AllowlistStore {
     private const val KEY_PROTECTION_ON = "protection_enabled"
     private const val KEY_SECRET_CODE = "secret_code"
     private const val KEY_PIN_HASH = "pin_hash"
+    private const val KEY_PIN_LENGTH = "pin_length"
     private const val KEY_RECOVERY = "recovery_notification"
     private const val KEY_BLOCK_LOG = "block_log"
 
     private const val DEFAULT_SECRET = "5284" // LOCK on a phone keypad
     private const val LOG_CAP = 200
     private const val SALT = "lockbox.v1"
+
+    /** PIN length bounds, mirrored by the `^\d{4,6}$` check in MainActivity. */
+    const val PIN_MIN = 4
+    const val PIN_MAX = 6
+    private const val PIN_FALLBACK_LENGTH = 4
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -83,7 +89,10 @@ object AllowlistStore {
         prefs(context).getString(KEY_PIN_HASH, null)
 
     fun setPin(context: Context, pin: String) {
-        prefs(context).edit().putString(KEY_PIN_HASH, hash(pin)).apply()
+        prefs(context).edit()
+            .putString(KEY_PIN_HASH, hash(pin))
+            .putInt(KEY_PIN_LENGTH, pin.length)
+            .apply()
     }
 
     fun verifyPin(context: Context, pin: String): Boolean {
@@ -92,6 +101,20 @@ object AllowlistStore {
     }
 
     fun hasPin(context: Context): Boolean = pinHash(context) != null
+
+    /**
+     * How many digits the stored PIN has, so the unlock screen can render the
+     * right number of dots and know when the entry is complete. A salted hash
+     * cannot answer this on its own, so the length is recorded alongside it.
+     *
+     * Installs that predate this key have no recorded length; 4 is returned
+     * because that is what the unlock screen assumed before, so their existing
+     * PIN keeps working.
+     */
+    fun pinLength(context: Context): Int {
+        val stored = prefs(context).getInt(KEY_PIN_LENGTH, 0)
+        return if (stored in PIN_MIN..PIN_MAX) stored else PIN_FALLBACK_LENGTH
+    }
 
     private fun hash(pin: String): String {
         val digest = MessageDigest.getInstance("SHA-256")

@@ -71,9 +71,37 @@ class ProtectionStatus {
   bool get paused => setupComplete && protectionEnabled && !accessibilityEnabled;
 }
 
+/// Device-owner / uninstall-protection state.
+///
+/// [uninstallBlocked] is the only flag the system actually enforces, and it can
+/// only ever be true when [isDeviceOwner] is also true. The rest is advisory:
+/// it tells the UI whether to offer enrolment and why it is unavailable.
+class DeviceOwnerStatus {
+  final bool isDeviceOwner;
+  final bool isAdminActive;
+  final bool uninstallBlocked;
+  final bool canBeProvisioned;
+  final String adbCommand;
+
+  const DeviceOwnerStatus({
+    required this.isDeviceOwner,
+    required this.isAdminActive,
+    required this.uninstallBlocked,
+    required this.canBeProvisioned,
+    required this.adbCommand,
+  });
+
+  factory DeviceOwnerStatus.fromMap(Map<Object?, Object?> json) => DeviceOwnerStatus(
+        isDeviceOwner: json['isDeviceOwner'] as bool? ?? false,
+        isAdminActive: json['isAdminActive'] as bool? ?? false,
+        uninstallBlocked: json['uninstallBlocked'] as bool? ?? false,
+        canBeProvisioned: json['canBeProvisioned'] as bool? ?? false,
+        adbCommand: json['adbCommand'] as String? ?? '',
+      );
+}
+
 /// One blocked-attempt log entry.
-class BlockLogEntry {
-  final String package;
+class BlockLogEntry {  final String package;
   final String label;
   final int ts;
 
@@ -184,6 +212,12 @@ class LockBoxChannel {
   static Future<bool> hasPin() async =>
       await channel.invokeMethod('hasPin') as bool? ?? false;
 
+  /// Digits in the stored PIN, so the unlock screen knows how many to render
+  /// and when the entry is complete. Falls back to 4, which is what the
+  /// unlock screen assumed before this existed.
+  static Future<int> pinLength() async =>
+      await channel.invokeMethod('pinLength') as int? ?? 4;
+
   static Future<void> setProtectionEnabled(bool value) async {
     await channel.invokeMethod('setProtectionEnabled', value);
   }
@@ -223,6 +257,44 @@ class LockBoxChannel {
 
   static Future<void> clearBlockedLog() async {
     await channel.invokeMethod('clearBlockedLog');
+  }
+
+  // ---------- device owner / uninstall protection ----------
+
+  /// True exactly once after the app was opened by dialling the secret code.
+  ///
+  /// Read during startup because the broadcast event is emitted before Dart
+  /// subscribes on a cold start, and broadcast streams drop what nobody is
+  /// listening for.
+  static Future<bool> consumeSecretCodeLaunch() async {
+    _ensureListening();
+    return await channel.invokeMethod('consumeSecretCodeLaunch') as bool? ?? false;
+  }
+
+  static Future<DeviceOwnerStatus> deviceOwnerStatus() async {
+    final res = await channel.invokeMethod<Map<Object?, Object?>>('deviceOwnerStatus');
+    return DeviceOwnerStatus.fromMap(res ?? const {});
+  }
+
+  /// Asks the system to block this package's uninstall. Silently does nothing
+  /// unless the app is device owner, so always re-read [deviceOwnerStatus]
+  /// afterwards rather than assuming it took effect.
+  static Future<bool> setUninstallBlocked(bool blocked) async =>
+      await channel.invokeMethod('setUninstallBlocked', blocked) as bool? ?? false;
+
+  /// Steps down from device owner. Needed before the package can be removed.
+  static Future<bool> releaseDeviceOwnership() async =>
+      await channel.invokeMethod('releaseDeviceOwnership') as bool? ?? false;
+
+  /// Releases device-owner status and then hands off to the system uninstall
+  /// prompt. This is the guardian's way out.
+  static Future<bool> uninstallSelf() async {
+    try {
+      await channel.invokeMethod('uninstallSelf');
+      return true;
+    } on PlatformException {
+      return false;
+    }
   }
 
   static Future<bool> resetAllData() async {

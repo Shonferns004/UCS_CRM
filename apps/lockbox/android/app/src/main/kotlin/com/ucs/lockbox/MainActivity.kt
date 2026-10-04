@@ -11,11 +11,27 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
+    /**
+     * Set when the activity was started by the dialer secret code. The intent
+     * can arrive before Dart has subscribed to the event channel, so the flag is
+     * held and flushed once the channel exists.
+     */
+    @Volatile
+    private var secretLaunchPending = false
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        secretLaunchPending = intent?.getBooleanExtra(SecretCodeReceiver.EXTRA_FROM_SECRET, false) == true
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ucs.lockbox/channel")
         GuardBridge.channel = channel
+        // Deliberately not flushed here: on a cold start Dart has not subscribed
+        // to the event stream yet and the broadcast would be dropped. Dart pulls
+        // the flag with `consumeSecretCodeLaunch` during bootstrap instead.
 
         channel.setMethodCallHandler { call, result ->
             try {
@@ -24,6 +40,22 @@ class MainActivity : FlutterActivity() {
                 result.error("LOCKBOX_ERROR", t.message, null)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(SecretCodeReceiver.EXTRA_FROM_SECRET, false)) {
+            secretLaunchPending = true
+            flushSecretLaunch()
+        }
+    }
+
+    private fun flushSecretLaunch() {
+        if (!secretLaunchPending) return
+        if (GuardBridge.channel == null) return
+        secretLaunchPending = false
+        GuardBridge.emit(mapOf(GuardBridge.EVENT_SECRET_CODE to true))
     }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -87,8 +119,8 @@ class MainActivity : FlutterActivity() {
 
             "setPin" -> {
                 val pin = call.arguments?.toString() ?: ""
-                if (!pin.matches(Regex("^\\d{4,6}$"))) {
-                    result.error("INVALID_PIN", "PIN must be 4–6 digits.", null)
+                if (!pin.matches(Regex("^\\d{${AllowlistStore.PIN_MIN},${AllowlistStore.PIN_MAX}}$"))) {
+                    result.error("INVALID_PIN", "PIN must be ${AllowlistStore.PIN_MIN}–${AllowlistStore.PIN_MAX} digits.", null)
                     return
                 }
                 AllowlistStore.setPin(this, pin)
@@ -101,6 +133,8 @@ class MainActivity : FlutterActivity() {
             }
 
             "hasPin" -> result.success(AllowlistStore.hasPin(this))
+
+            "pinLength" -> result.success(AllowlistStore.pinLength(this))
 
             "setProtectionEnabled" -> {
                 val value = call.arguments as? Boolean ?: true
@@ -139,6 +173,46 @@ class MainActivity : FlutterActivity() {
 
             "clearBlockedLog" -> {
                 AllowlistStore.clearBlockLog(this)
+                result.success(true)
+            }
+
+            "deviceOwnerStatus" -> result.success(deviceOwnerStatus())
+
+            // Returns true once per secret-code launch, so the UI can route to
+            // the owner page on a cold start without the event being dropped.
+            "consumeSecretCodeLaunch" -> {
+                val pending = secretLaunchPending
+                secretLaunchPending = false
+                result.success(pending)
+            }
+
+            "setUninstallBlocked" -> {
+                val blocked = call.arguments as? Boolean ?: false
+                result.success(LockBoxDeviceAdminReceiver.setUninstallBlocked(this, blocked))
+            }
+
+            "releaseDeviceOwnership" -> result.success(LockBoxDeviceAdminReceiver.releaseOwnership(this))
+
+            // Steps down from device owner first, otherwise the uninstall
+            // request below is refused by the system and the guardian is stuck.
+            "uninstallSelf" -> {
+                val released = LockBoxDeviceAdminReceiver.releaseOwnership(this)
+                if (!released) {
+                    result.error("RELEASE_FAILED", "Could not step down from device owner.", null)
+                    return
+                }
+                val intent = Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:$packageName"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { startActivity(intent) }
+                    .onFailure {
+                        // Some launchers have no delete activity; the Settings
+                        // route is the reliable fallback.
+                        startActivity(
+                            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(android.net.Uri.parse("package:$packageName"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
                 result.success(true)
             }
 
@@ -184,6 +258,14 @@ class MainActivity : FlutterActivity() {
             }.getOrNull() ?: "1.0.0")
         )
     }
+
+    private fun deviceOwnerStatus(): Map<String, Any?> = mapOf(
+        "isDeviceOwner" to LockBoxDeviceAdminReceiver.isDeviceOwner(this),
+        "isAdminActive" to LockBoxDeviceAdminReceiver.isAdminActive(this),
+        "uninstallBlocked" to LockBoxDeviceAdminReceiver.isUninstallBlocked(this),
+        "canBeProvisioned" to LockBoxDeviceAdminReceiver.canBeProvisioned(this),
+        "adbCommand" to LockBoxDeviceAdminReceiver.adbEnrolCommand(this)
+    )
 
     override fun onDestroy() {
         GuardBridge.channel = null
