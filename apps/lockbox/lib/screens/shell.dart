@@ -7,6 +7,7 @@ import '../core/widgets/app_widgets.dart';
 import '../screens/about_page.dart';
 import '../screens/change_secret_code_page.dart';
 import '../screens/manage_apps_page.dart';
+import '../screens/owner_protection_page.dart';
 import '../screens/recovery_notification_page.dart';
 
 /// App home once setup is done. Contains Status (Screen 06) and
@@ -532,6 +533,15 @@ class _SettingsViewState extends State<_SettingsView> {
             icon: _recoveryOn == true ? LucideIcons.bell : LucideIcons.bellOff,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const RecoveryNotificationPage()),
+            ),
+          ),
+          const SizedBox(height: 10),
+          ChevronTile(
+            title: 'Uninstall protection',
+            subtitle: 'Block removal of LockBox, or remove it entirely',
+            icon: LucideIcons.shieldHalf,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const OwnerProtectionPage()),
             ),
           ),
           const SizedBox(height: 20),
