@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../channel.dart';
 import '../core/theme/app_colors.dart';
@@ -21,16 +22,44 @@ class PinScreen extends StatefulWidget {
 
 class _PinScreenState extends State<PinScreen> {
   final _digits = <String>[];
+
+  /// Digits in the stored PIN. Drives both the dot count and when the entry is
+  /// considered complete — a PIN may be 4, 5 or 6 digits, so submitting at a
+  /// hardcoded 4 rejected every longer code no matter how it was typed.
+  int _pinLength = 4;
+  bool _lengthKnown = false;
+
   bool _checking = false;
   bool _error = false;
+  bool _success = false;
 
-  Future<void> _add(String d) async {
-    if (_checking || _digits.length >= 6) return;
+  @override
+  void initState() {
+    super.initState();
+    _loadLength();
+  }
+
+  Future<void> _loadLength() async {
+    int length;
+    try {
+      length = await LockBoxChannel.pinLength();
+    } catch (_) {
+      length = 4;
+    }
+    if (!mounted) return;
+    setState(() {
+      _pinLength = length.clamp(4, 6);
+      _lengthKnown = true;
+    });
+  }
+
+  void _add(String d) {
+    if (_checking || _digits.length >= _pinLength) return;
     setState(() {
       _digits.add(d);
       _error = false;
     });
-    if (_digits.length >= 4) {
+    if (_digits.length == _pinLength) {
       _try();
     }
   }
@@ -38,17 +67,28 @@ class _PinScreenState extends State<PinScreen> {
   Future<void> _try() async {
     setState(() => _checking = true);
     final pin = _digits.join();
-    final ok = await LockBoxChannel.verifyPin(pin);
+    bool ok;
+    try {
+      ok = await LockBoxChannel.verifyPin(pin);
+    } catch (_) {
+      ok = false;
+    }
     if (!mounted) return;
     if (ok) {
+      HapticFeedback.mediumImpact();
+      setState(() => _success = true);
+      // Let the success state register visually before the screen swaps out.
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      if (!mounted) return;
       widget.onUnlocked();
-    } else {
-      setState(() {
-        _digits.clear();
-        _error = true;
-        _checking = false;
-      });
+      return;
     }
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _digits.clear();
+      _error = true;
+      _checking = false;
+    });
   }
 
   void _backspace() {
@@ -66,62 +106,82 @@ class _PinScreenState extends State<PinScreen> {
       canPop: false,
       child: Scaffold(
         body: SafeArea(
-          child: Column(
-            children: [
-              const Spacer(),
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.primary, AppColors.primaryDark],
+          child: AnimatedOpacity(
+            // Fades in on first paint so the screen does not snap into place
+            // on top of the splash.
+            opacity: _lengthKnown ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            child: Column(
+              children: [
+                const Spacer(),
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.primary, AppColors.primaryDark],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  child: Icon(widget.hintIcon, color: Colors.white, size: 30),
                 ),
-                child: Icon(widget.hintIcon, color: Colors.white, size: 30),
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'Enter passcode',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: dark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+                const SizedBox(height: 22),
+                Text(
+                  'Enter passcode',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: dark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Unlock LockBox to continue',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: dark ? AppColors.darkTextSecondary : AppColors.textSecondary,
+                const SizedBox(height: 6),
+                Text(
+                  _pinLength == 4
+                      ? 'Unlock LockBox to continue'
+                      : 'Unlock LockBox to continue · $_pinLength digits',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: dark ? AppColors.darkTextSecondary : AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 34),
-              PinDots(length: _digits.length, error: _error),
-              SizedBox(
-                height: 42,
-                child: Center(
-                  child: Text(
-                    _error ? 'Incorrect passcode' : '',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.error,
+                const SizedBox(height: 34),
+                PinDots(
+                  length: _digits.length,
+                  total: _pinLength,
+                  error: _error,
+                  success: _success,
+                ),
+                SizedBox(
+                  height: 42,
+                  child: Center(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: _error
+                          ? const Text(
+                              'Incorrect passcode',
+                              key: ValueKey('err'),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.error,
+                              ),
+                            )
+                          : const SizedBox.shrink(key: ValueKey('ok')),
                     ),
                   ),
                 ),
-              ),
-              const Spacer(),
-              PinKeypad(
-                onDigit: _add,
-                onBackspace: _backspace,
-                enabled: !_checking,
-              ),
-              const SizedBox(height: 24),
-            ],
+                const Spacer(),
+                PinKeypad(
+                  onDigit: _add,
+                  onBackspace: _backspace,
+                  enabled: !_checking,
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         ),
       ),

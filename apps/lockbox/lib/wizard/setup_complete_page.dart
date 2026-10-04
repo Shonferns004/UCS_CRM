@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -21,6 +23,14 @@ class SetupCompletePage extends StatefulWidget {
 }
 
 class _SetupCompletePageState extends State<SetupCompletePage> {
+  static const _minDigits = 4;
+  static const _maxDigits = 6;
+
+  /// How long to wait after the last tap before treating the entry as finished.
+  /// Without a settle period there is no way to tell a 4-digit passcode from
+  /// the first four digits of a 6-digit one.
+  static const _settle = Duration(milliseconds: 450);
+
   final _pin = <String>[];
   final _confirm = <String>[];
   bool _firstDone = false;
@@ -28,34 +38,68 @@ class _SetupCompletePageState extends State<SetupCompletePage> {
   bool _finished = false;
   String? _error;
   String? _hideWarning;
+  Timer? _settleTimer;
 
   bool get _pinMatches => _pin.join() == _confirm.join();
-  bool get _pinValid => _pin.length >= 4 && _confirm.length >= 4 && _pinMatches;
+  bool get _pinValid =>
+      _pin.length >= _minDigits && _confirm.length == _pin.length && _pinMatches;
   bool get _step2 => _firstDone;
+
+  @override
+  void dispose() {
+    _settleTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleSettle() {
+    _settleTimer?.cancel();
+    if (_pin.length < _minDigits) return;
+    _settleTimer = Timer(_settle, () {
+      if (!mounted) return;
+      if (!_firstDone) {
+        setState(() {
+          _firstDone = true;
+          _error = null;
+        });
+      } else if (_confirm.length == _pin.length) {
+        if (_pinMatches) {
+          _submit();
+        } else {
+          setState(() => _error = 'Passcodes don\'t match');
+        }
+      }
+    });
+  }
 
   void _add(String d) {
     if (_busy) return;
     final target = _firstDone ? _confirm : _pin;
-    if (target.length >= 6) return;
+    if (target.length >= _maxDigits) return;
     setState(() {
       target.add(d);
       _error = null;
-      if (!_firstDone && target.length == 6) _firstDone = true;
-      if (_firstDone && _confirm.length >= 4 && _pin.join() != _confirm.join()) {
-        _error = 'Passcodes don\'t match';
-      }
     });
-    if (_firstDone && target.length == 6 && _pin.join() == _confirm.join()) {
-      // auto-submit when both full and matching
+    // Compare only once the confirm entry is as long as the PIN. Judging it at
+    // four digits reported a mismatch for any longer passcode mid-entry.
+    if (_firstDone && _confirm.length == _pin.length && !_pinMatches) {
+      setState(() => _error = 'Passcodes don\'t match');
+      return;
     }
+    _scheduleSettle();
   }
 
   void _backspace() {
     if (_busy) return;
+    _settleTimer?.cancel();
     setState(() {
       final target = _firstDone ? _confirm : _pin;
       if (target.isNotEmpty) target.removeLast();
-      if (_firstDone && _confirm.isEmpty) _firstDone = false;
+      if (_firstDone && _confirm.isEmpty) {
+        _firstDone = false;
+        // Leaving confirm also forgets the PIN length chosen in phase A, so
+        // backspacing to an empty confirm lands on a clean first step.
+        _pin.clear();
+      }
       _error = null;
     });
   }
@@ -154,7 +198,11 @@ class _SetupCompletePageState extends State<SetupCompletePage> {
             ),
             const SizedBox(height: 18),
             Center(
-              child: PinDots(length: _pin.length, error: _error != null),
+              child: PinDots(
+                length: _pin.length,
+                total: _maxDigits,
+                error: _error != null,
+              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
@@ -177,7 +225,13 @@ class _SetupCompletePageState extends State<SetupCompletePage> {
             ),
             const SizedBox(height: 18),
             Center(
-              child: PinDots(length: _confirm.length, error: _error != null),
+              child: PinDots(
+                length: _confirm.length,
+                // Mirrors the PIN chosen in the first step, so the confirm row
+                // is exactly as long as what has to be retyped.
+                total: _pin.isEmpty ? _minDigits : _pin.length,
+                error: _error != null,
+              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),

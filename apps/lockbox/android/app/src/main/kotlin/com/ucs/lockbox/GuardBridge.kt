@@ -19,4 +19,11 @@ object GuardBridge {
     const val EVENT_LAUNCHER = "launcherVisibilityChanged"
     const val EVENT_ALLOWLIST = "allowlistChanged"
     const val EVENT_BLOCKED = "blocked"
+
+    /**
+     * The guardian dialed the secret code. Carries no secret itself — only the
+     * system can deliver this broadcast, and MainActivity already checked the
+     * digits against the stored code before launching.
+     */
+    const val EVENT_SECRET_CODE = "secretCodeUsed"
 }
