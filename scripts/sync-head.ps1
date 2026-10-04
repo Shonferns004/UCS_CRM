@@ -4,13 +4,17 @@
 #   .\scripts\sync-head.ps1 -Backend     # sync backend only
 #   .\scripts\sync-head.ps1 -Frontend    # rebuild + sync frontend only
 #   .\scripts\sync-head.ps1 -SkipBuild   # upload existing frontend dist without rebuilding
+#   .\scripts\sync-head.ps1 -SkipInstall # sync backend without `npm install` on the host
 #
 # IMPORTANT: This pushes to HEAD only. It never touches production or git remotes.
+#
+# The backend runs under ROOT's pm2 daemon, so every pm2 call here must use `sudo pm2`.
 
 param(
     [switch]$Backend,
     [switch]$Frontend,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$SkipInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,9 +29,27 @@ function Invoke-SSH([string]$Cmd) {
     & ssh -i $Key -o StrictHostKeyChecking=no -o ConnectTimeout=30 $HeadHost $Cmd
     if ($LASTEXITCODE -ne 0) { throw "ssh command failed: $Cmd" }
 }
+function Invoke-SSHQuiet([string]$Cmd) {
+    & ssh -i $Key -o StrictHostKeyChecking=no -o ConnectTimeout=30 $HeadHost $Cmd 2>&1 | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
 function Push-File([string]$Local, [string]$Remote) {
     & scp -i $Key -o StrictHostKeyChecking=no -o ConnectTimeout=30 $Local "$HeadHost`:$Remote"
     if ($LASTEXITCODE -ne 0) { throw "scp failed: $Local -> $Remote" }
+}
+function Wait-BackendHealthy([int]$Attempts = 20, [int]$DelaySeconds = 3) {
+    for ($i = 1; $i -le $Attempts; $i++) {
+        Start-Sleep -Seconds $DelaySeconds
+        if (Invoke-SSHQuiet "curl -fsS -o /dev/null http://127.0.0.1:5000/api/health") {
+            Write-Output "backend: healthy on 127.0.0.1:5000 (after $i check(s))"
+            return $true
+        }
+        Write-Output "backend: not answering yet ($i/$Attempts)..."
+    }
+    return $false
+}
+function Get-BackendErrorLog([int]$Lines = 25) {
+    & ssh -i $Key -o StrictHostKeyChecking=no -o ConnectTimeout=30 $HeadHost "sudo tail -n $Lines /root/.pm2/logs/ucs-backend-error.log 2>/dev/null"
 }
 
 $doBackend  = (-not $Frontend) -and (-not $SkipBuild)
@@ -44,8 +66,26 @@ if ($doBackend) {
     tar -czf $tar -C $Root --exclude=node_modules --exclude=.env --exclude=.git --exclude=uploads backend 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "tar backend failed" }
     Push-File $tar "/tmp/head-backend.tar.gz"
-    Invoke-SSH "tar -xzf /tmp/head-backend.tar.gz -C /opt/ucs-crm && sudo pm2 restart ucs-backend >/dev/null 2>&1 && echo BACKEND_SYNCED"
-    Write-Output "backend: synced + pm2 restarted"
+    Invoke-SSH "tar -xzf /tmp/head-backend.tar.gz -C /opt/ucs-crm"
+    Write-Output "backend: source extracted to /opt/ucs-crm/backend"
+
+    if (-not $SkipInstall) {
+        Write-Output "backend: installing dependencies (npm install --omit=dev)..."
+        Invoke-SSH "cd /opt/ucs-crm/backend && sudo npm install --omit=dev --no-audit --no-fund 2>&1 | tail -8"
+        Write-Output "backend: dependencies installed"
+    } else {
+        Write-Output "backend: SKIPPING npm install (-SkipInstall)"
+    }
+
+    Write-Output "backend: restarting pm2 ucs-backend..."
+    Invoke-SSH "sudo pm2 restart ucs-backend 2>&1 | tail -5"
+
+    if (-not (Wait-BackendHealthy)) {
+        Write-Output "----- last 25 lines of /root/.pm2/logs/ucs-backend-error.log -----"
+        Get-BackendErrorLog | ForEach-Object { Write-Output $_ }
+        Write-Output "----------------------------------------------------------------------"
+        throw "ucs-backend did not answer on 127.0.0.1:5000 - nginx will return 502 Bad Gateway. NOT deploying silently; fix the error above and re-run."
+    }
 } else {
     Write-Output "backend: skipped"
 }
