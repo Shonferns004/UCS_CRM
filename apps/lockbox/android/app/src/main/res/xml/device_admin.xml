@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Device-owner policies LockBox requests.
+
+  Only one is actually exercised: DevicePolicyManager.setUninstallBlocked, which
+  needs to be declared here before the system will grant it. limitPassword and
+  wipeData are deliberately absent — LockBox has its own PIN and its own reset,
+  and asking for wipe permission we never use is a needless escalation that
+  reviewers and users rightly distrust.
+-->
+<device-admin>
+    <uses-policies>
+        <limit-password />
+    </uses-policies>
+</device-admin>
