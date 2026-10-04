@@ -38,13 +38,16 @@ function Push-File([string]$Local, [string]$Remote) {
     if ($LASTEXITCODE -ne 0) { throw "scp failed: $Local -> $Remote" }
 }
 function Wait-BackendHealthy([int]$Attempts = 20, [int]$DelaySeconds = 3) {
+    # Write-Host, not Write-Output: anything written to the output stream here
+    # becomes part of this function's return value, which would make the
+    # caller see a non-empty (truthy) array and silently skip the failure path.
     for ($i = 1; $i -le $Attempts; $i++) {
         Start-Sleep -Seconds $DelaySeconds
         if (Invoke-SSHQuiet "curl -fsS -o /dev/null http://127.0.0.1:5000/api/health") {
-            Write-Output "backend: healthy on 127.0.0.1:5000 (after $i check(s))"
+            Write-Host "backend: HEALTHY on 127.0.0.1:5000 (after $i check(s)) - nginx will not 502"
             return $true
         }
-        Write-Output "backend: not answering yet ($i/$Attempts)..."
+        Write-Host "backend: not answering yet ($i/$Attempts)..."
     }
     return $false
 }
@@ -58,6 +61,9 @@ if ($Backend)  { $doBackend = $true;  $doFrontend = $false; $SkipBuild = $false 
 if ($Frontend) { $doFrontend = $true; $doBackend = $false }
 
 Write-Output "=== UCS sync-head ==="
+Write-Output "target host : $HeadHost  (HEAD dev/test box only)"
+Write-Output "pm2 app     : ucs-backend under root's pm2 daemon on THAT host"
+Write-Output "note        : production is a different machine with its own pm2 daemon; the shared app name is cosmetic and cannot cross hosts"
 
 # --- BACKEND ---------------------------------------------------------------
 if ($doBackend) {
