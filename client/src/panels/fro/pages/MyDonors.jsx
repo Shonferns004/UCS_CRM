@@ -232,6 +232,19 @@ function useTomorrowStr() {
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+// How many leads the MY LEADS list renders at a time. The allotment can be
+// thousands of rows; rendering them all at once makes the list janky on low-end
+// phones and wastes paint on rows nobody scrolls to. The window grows by this
+// many each time the FRO nears the bottom.
+const LEADS_PAGE_SIZE = 10;
+
+// Client-side search memo. Mirrors the server cache so a term the FRO already
+// searched this session (a backspace, a re-typed prefix, switching back to a
+// station) renders instantly instead of re-querying. Short-lived on purpose —
+// a lead's disposition changes what a search should return.
+const SEARCH_CACHE_TTL_MS = 30 * 1000;
+const SEARCH_CACHE_MAX = 50;
+
 export default function MyDonors({ embedded = false, portalEl = null }) {
   const isMobile = useIsMobile()
   const isCompact = useIsMobile(480)
@@ -280,6 +293,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const [showAllLogs, setShowAllLogs] = useState(false);
   const [externalDonor, setExternalDonor] = useState(null);
   const backendSearchTimerRef = useRef(null);
+  const searchCacheRef = useRef(new Map());
+  const searchInflightRef = useRef(new Map());
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
   const pendingSelectRef = useRef(null);
@@ -324,6 +339,32 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // and returns (or disposes it), so the list doesn't snap back to the top.
   const listScrollRef = useRef(null);
   const savedListScrollRef = useRef(0);
+  // Incremental rendering window for the MY LEADS list. `visibleCount` is how
+  // many leads are currently rendered; the list grows by LEADS_PAGE_SIZE as the
+  // FRO scrolls toward the bottom. `hasMoreRef` mirrors "are there rows past the
+  // window" — it is assigned during render (the list items are derived below the
+  // hooks) so the scroll handler can decide whether to grow.
+  const [visibleCount, setVisibleCount] = useState(LEADS_PAGE_SIZE);
+  const hasMoreRef = useRef(false);
+
+  // Any change to what the list *should* show collapses the window back to the
+  // first page — the previous offset refers to a different ordering. Realtime
+  // reloads deliberately do NOT reset it: a new lead should not yank an FRO who
+  // has scrolled deep back to the top mid-task.
+  useEffect(() => {
+    setVisibleCount(LEADS_PAGE_SIZE);
+  }, [listView, dataTab, selectedStation, selectedNgo, searchQuery, listStatusFilter, listHideDonated, listShowSuppressed]);
+
+  // Grow the render window as the FRO reaches the bottom of the list. Reading
+  // `hasMoreRef` (rather than the item count) keeps this handler free of the
+  // render-local list derivation, and the `+ LEADS_PAGE_SIZE` bump means a single
+  // long flick can grow it several pages without one request per pixel.
+  const handleListScroll = useCallback(() => {
+    const el = listScrollRef.current;
+    if (!el || !hasMoreRef.current) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (remaining <= 320) setVisibleCount(c => c + LEADS_PAGE_SIZE);
+  }, []);
   const { isOnCall, activeCall, endCall, todayStats, startDonorView, endDonorView, adoptTimer, adoptOptimisticDisposition, noteDispositionSaved } = useCall();
 
   useEffect(() => {
@@ -926,6 +967,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       }, { timeout: SAVE_TIMEOUT_MS });
       if (saved?.timer) adoptTimer(saved.timer);
       noteDispositionSaved();
+      // A disposition changes what a search should return for that donor, and the
+      // server cache is already dropped by invalidateFroCaches() — so the browser
+      // memo has to go with it. Without this, re-searching the same term inside
+      // the 30s TTL would still show the lead the FRO just closed.
+      searchCacheRef.current.clear();
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
@@ -1247,6 +1293,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       // letting the countdown show stale seconds until the next heartbeat.
       if (saved?.timer) adoptTimer(saved.timer);
       noteDispositionSaved();
+      // A disposition changes what a search should return for that donor, and the
+      // server cache is already dropped by invalidateFroCaches() — so the browser
+      // memo has to go with it. Without this, re-searching the same term inside
+      // the 30s TTL would still show the lead the FRO just closed.
+      searchCacheRef.current.clear();
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       // Same-day suppression (backend-authoritative): a donor with ANY
@@ -1296,9 +1347,24 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       return;
     }
     const term = q.trim();
+    // Cache is keyed by the term AND the scope it was searched under: the same
+    // number means different donors at a different station, so reusing a result
+    // across stations would show leads the FRO is not viewing.
+    const scopeKey = `${selectedStation && selectedStation !== 'all' ? selectedStation : 'all'}|${selectedNgo || 'all'}`;
+    const cacheKey = `${scopeKey}::${term.toLowerCase()}`;
+    const hit = searchCacheRef.current.get(cacheKey);
+    if (hit && Date.now() - hit.at < SEARCH_CACHE_TTL_MS) {
+      setDisposedResults(hit.v);
+      return;
+    }
     backendSearchTimerRef.current = setTimeout(async () => {
+      // A request for this exact key may already be in flight (typing fast, then
+      // backspacing into a term that was just queried). Reuse it instead of
+      // issuing a duplicate.
+      const pending = searchInflightRef.current.get(cacheKey);
+      if (pending) { pending.then((v) => setDisposedResults(v)).catch(() => setDisposedResults([])); return; }
       setDisposedSearchLoading(true);
-      try {
+      const request = (async () => {
         // Search the station the FRO is currently viewing (active + already
         // dispositioned). Previously this spanned EVERY station the FRO holds,
         // so a FRO on AOD-7 was shown AOD-5 donors — the single biggest source
@@ -1307,10 +1373,23 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
           station: selectedStation && selectedStation !== 'all' ? selectedStation : undefined,
           ngoId: selectedNgo || undefined,
         });
-        setDisposedResults(results || []);
+        const value = results || [];
+        searchCacheRef.current.set(cacheKey, { v: value, at: Date.now() });
+        // Bound the map: an FRO session should not accumulate every prefix they
+        // ever typed.
+        if (searchCacheRef.current.size > SEARCH_CACHE_MAX) {
+          const oldest = searchCacheRef.current.keys().next().value;
+          searchCacheRef.current.delete(oldest);
+        }
+        return value;
+      })();
+      searchInflightRef.current.set(cacheKey, request);
+      try {
+        setDisposedResults(await request);
       } catch {
         setDisposedResults([]);
       } finally {
+        searchInflightRef.current.delete(cacheKey);
         setDisposedSearchLoading(false);
       }
     }, 300);
@@ -1473,6 +1552,11 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       disposed_at: r.disposed_at,
     })) : visible);
 
+    // Only the first `visibleCount` rows are mounted. `hasMoreRef` is read by the
+    // scroll handler above to decide whether the window can still grow.
+    const renderedItems = listItems.slice(0, visibleCount);
+    hasMoreRef.current = renderedItems.length < listItems.length;
+
     const openLead = (d) => {
       if (isHistory || isFollowUps || isOverdueTab) {
         if (listScrollRef.current) savedListScrollRef.current = listScrollRef.current.scrollTop;
@@ -1600,7 +1684,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
         )}
 
         {/* List */}
-        <div ref={listScrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
+        <div ref={listScrollRef} onScroll={handleListScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: isCompact ? '8px 8px' : '10px 12px' }}>
           {isFollowUps && !followUpsLoading && (
             <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', lineHeight: 1.5, padding: '6px 10px', marginBottom: 8, borderRadius: 8, background: 'var(--bg)', border: '1px dashed var(--line)', fontStyle: 'italic' }}>
               Fresh follow-ups you tagged. When a follow-up's given time passes, it moves to Overdue, where you'll see it until re-logged.
@@ -1672,7 +1756,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             )
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {listItems.map((d) => {
+              {renderedItems.map((d) => {
                 return (
                   <div key={`${d.id || d.donor_id}-${d.ngo_id || ''}`}
                     onClick={() => openLead(d)}
@@ -1764,6 +1848,21 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   </div>
                 );
               })}
+              {hasMoreRef.current ? (
+                // More leads are below the fold; keep a light anchor row so the
+                // scrollbar reflects the true list length and the next page loads
+                // the moment this row enters view.
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 2 }}>
+                  <div className="sk" style={{ height: 56, borderRadius: 'var(--radius-sm)' }} />
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', textAlign: 'center' }}>
+                    Scroll for more · {listItems.length - renderedItems.length} remaining
+                  </div>
+                </div>
+              ) : renderedItems.length > LEADS_PAGE_SIZE ? (
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)', textAlign: 'center', paddingTop: 4 }}>
+                  All {renderedItems.length} shown
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -1771,14 +1870,15 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
           {loading
             ? 'Loading leads…'
             : isHistory
-              ? `${listItems.length} disposed lead(s)${searchQuery.trim() ? ' found' : ''}`
+              ? `Showing ${renderedItems.length} of ${listItems.length} disposed lead(s)${searchQuery.trim() ? ' found' : ''}`
               : isOverdueTab
-                ? `${listItems.length} overdue lead(s)${searchQuery.trim() ? ' found' : ''}`
+                ? `Showing ${renderedItems.length} of ${listItems.length} overdue lead(s)${searchQuery.trim() ? ' found' : ''}`
                 : isFollowUps
-                  ? `${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
+                  ? `Showing ${renderedItems.length} of ${listItems.length} follow-up(s)${searchQuery.trim() ? ' found' : ''}`
                 : searching
-                  ? `${listItems.length} lead(s) found`
-                  : `Showing ${listItems.length} of ${total || donors.length} allotted leads`
+                  ? `Showing ${renderedItems.length} of ${listItems.length} lead(s) found`
+                  : `Showing ${renderedItems.length} of ${total || donors.length} allotted leads`
+                    + (hasMoreRef.current ? ' · scroll for more' : '')
                     + (closedCount ? ` \u00b7 ${closedCount} already worked \u2014 filter by status` : '')
                     + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
         </div>
