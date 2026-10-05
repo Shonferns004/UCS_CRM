@@ -599,6 +599,7 @@ export default function FROPanel() {
   const [waStations, setWaStations] = useState([])
   const [waStationsLoading, setWaStationsLoading] = useState(false)
   const [pickedStations, setPickedStations] = useState(() => new Set())
+  const [takeoverPrompt, setTakeoverPrompt] = useState(null)
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
@@ -674,30 +675,56 @@ export default function FROPanel() {
     }
   }
 
-  const filteredFroList = froList.filter(w => !workAsSearch || (w.name || '').toLowerCase().includes(workAsSearch.toLowerCase()))
+  // An FRO covered by an agent is listed by the agent's label, because the agent
+  // is who is actually holding that account - and an admin choosing someone to
+  // work as needs to see whose it is. `name` is left untouched server-side, so
+  // every other consumer keeps reading the real FRO name.
+  const labelOf = w => w?.display_name || w?.name || ''
 
-  const doImpersonate = async () => {
+  const filteredFroList = froList.filter(w => !workAsSearch || (labelOf(w) || '').toLowerCase().includes(workAsSearch.toLowerCase()))
+
+  const doImpersonate = async (opts = {}) => {
     if (!pendingTarget) return
     setCodeSubmitting(true)
     try {
-      const res = await impersonateFRO(pendingTarget.id, codeInput.trim(), undefined, pickedPairs())
+      const res = await impersonateFRO(pendingTarget.id, codeInput.trim(), undefined, pickedPairs(), opts.takeover ? { takeover: true } : undefined)
       startImpersonation(res.token, res.user)
       setPendingTarget(null)
       setCodeInput('')
       setCodeGenerated(false)
+      setTakeoverPrompt(null)
       window.location.reload()
     } catch (e) {
       console.error('Error:', e.message)
-      toast(e.message || 'Could not switch FRO')
-      // Someone else grabbed a station between pick and switch — back to the
-      // picker with fresh availability so they can choose free stations.
-      if (/already being worked/.test(e.message || '') && pendingTarget) {
-        setWaPhase('stations')
-        loadWorkAsStations(pendingTarget)
+      // A 409 carrying takeover_allowed means the server is refusing to steal a
+      // station without being told to. That is a decision with someone else's
+      // shift on the line, so it gets a prompt rather than a retry.
+      if (e.status === 409 && e.takeoverAllowed) {
+        setTakeoverPrompt({ worker: pendingTarget, stations: e.takeoverStations || [] })
+      } else {
+        toast(e.message || 'Could not switch FRO')
+        // Someone else grabbed a station between pick and switch — back to the
+        // picker with fresh availability so they can choose free stations.
+        if (/already being worked/.test(e.message || '') && pendingTarget) {
+          setWaPhase('stations')
+          loadWorkAsStations(pendingTarget)
+        }
       }
     } finally {
       setCodeSubmitting(false)
     }
+  }
+
+  // Explicit confirmation, and only for the roles the server allows to do it.
+  // The server re-checks the role either way; this is here so nobody is signed
+  // off their stations by a single mis-click.
+  const confirmTakeover = async () => {
+    if (!takeoverPrompt) return
+    const { worker, stations } = takeoverPrompt
+    setTakeoverPrompt(null)
+    setPendingTarget(worker)
+    await doImpersonate({ takeover: true })
+    if (stations.length === 0) toast('Took over with no station conflicts.')
   }
 
   const doExitImpersonation = async () => {
@@ -1077,7 +1104,8 @@ useEffect(() => onFroAction((action) => {
                         const isInactive = w.is_active === false || w.employment_status === 'terminated'
                         return (
                         <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
-                          <span style={{ fontWeight: 600 }}>{w.name}</span>
+                          <span style={{ fontWeight: 600 }}>{labelOf(w)}</span>
+                          {w.covered_by_agent && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#92400e', background: '#ffedd5', borderRadius: 6, padding: '1px 7px' }}>AGENT</span>}
                           {isAbsconded
                             ? <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#991b1b', background: '#fee2e2', borderRadius: 6, padding: '1px 7px' }}>ABS</span>
                             : isInactive && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.4px', color: '#b45309', background: '#fef3c7', borderRadius: 6, padding: '1px 7px' }}>INACTIVE</span>}
@@ -1134,8 +1162,14 @@ useEffect(() => onFroAction((action) => {
           <div className="modal-overlay" onClick={() => setPendingTarget(null)}>
             <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, padding: 22, borderRadius: 'var(--radius)' }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
-                Acting FRO: {pendingTarget.name}
+                Acting FRO: {labelOf(pendingTarget)}
               </div>
+              {pendingTarget.covered_by_agent && (
+                <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 11, lineHeight: 1.4 }}>
+                  ⚠ {pendingTarget.agent_label} currently covers this account. If you continue and a
+                  station is theirs, they will be signed off it.
+                </div>
+              )}
               {waPhase === 'stations' ? (
                 <>
                   {String(pendingTarget?.employment_status || '').toLowerCase().trim() === 'absconded' && (
@@ -1313,6 +1347,25 @@ useEffect(() => onFroAction((action) => {
               </div>
             </div>
           )}
+        {takeoverPrompt && (
+          <div className="modal-overlay" onClick={() => setTakeoverPrompt(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420, padding: 22, borderRadius: 'var(--radius)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>
+                Someone else is working stations for {labelOf(takeoverPrompt.worker)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 14, lineHeight: 1.5 }}>
+                {takeoverPrompt.stations?.length
+                  ? 'The following station' + (takeoverPrompt.stations.length === 1 ? '' : 's') + ' are still claimed by another operator: ' + takeoverPrompt.stations.map(s => s.station).join(', ') + '. Taking over will sign them off.'
+                  : 'Stations they were holding are now free, or another operator dropped them.'}
+                {' '}You can only do this if your role allows.
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn" onClick={() => setTakeoverPrompt(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+                <button className="btn" onClick={confirmTakeover} style={{ flex: 1, justifyContent: 'center', background: 'var(--danger, #dc2626)', color: '#fff' }}>Take over</button>
+              </div>
+            </div>
+          </div>
+        )}
         {showAki && (
           <div className="modal-overlay" onClick={() => setShowAki(false)}>
             <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, width: '92%', borderRadius: 'var(--radius)', overflow: 'hidden', padding: 0 }}>

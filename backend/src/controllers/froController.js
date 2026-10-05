@@ -67,8 +67,9 @@ import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../uti
 import { istDayBounds, istDateString, istMonthBounds, istMonthKey, istParts } from '../utils/ist.js';
 import { reconcileQueue, getNextQueueRow, markShown, markDisposed, countQueueRows, cycleKey, getActiveQueueRows, clearActiveRowsNotIn, classifyDisposition, removeFromQueue } from '../models/workQueueModel.js';
 import { splitWorkerContext } from '../utils/workAs.js';
+import { getAgentById } from '../models/crmAgentModel.js';
 import { buildTeamCollection, getWorkerTeamKey, resolvePeriodRange, PERIODS, PERIOD_LABELS } from '../services/teamCollectionService.js';
-import { getActiveCoversForTargets } from '../models/workAsSessionModel.js';
+import { getActiveCoversForTargets, refreshCoverExpiry } from '../models/workAsSessionModel.js';
 import { resetLiveWindow } from '../services/froLiveWindow.js';
 import { computeTimeStatus, toStatusPayload } from '../services/froTimeStatus.js';
 import { transition as transitionTimeState, applyEvent as applyTimeEvent, getOpenSession } from '../services/froTimeSessions.js';
@@ -4686,6 +4687,39 @@ export const updateLiveStatus = async (req, res) => {
       }
     } catch (e) {
       // auth_sessions may be absent until migration 125 — skip the guard.
+    }
+
+    // Agent sessions: keep the cover alive, and make revocation take effect here.
+    //
+    // The refresh exists because work_as_sessions expires on a fixed TTL chosen
+    // for a MANUAL switch, where nobody holds a cover for a whole shift. An agent
+    // is the FRO's hands until they log out, so a cover that lapsed at 14:00 on a
+    // 10:00 login would stop isCovered() — the absent FRO starts accruing idle for
+    // the rest of the shift — and release the station claims so somebody else can
+    // cover them. Only agent sessions refresh; manual-switch behaviour is unchanged.
+    //
+    // The two 401s are why deactivating or reassigning an agent actually takes
+    // effect. A JWT is good for 24h, so without this the agent would keep working
+    // their old FRO's data until the token expired on its own, and reassignment
+    // would silently not apply until then. Checking on every poll (the panel
+    // heartbeats continuously) turns an admin action into something enforced
+    // within seconds rather than within a day.
+    if (req.user?.agent_user_id) {
+      const agentRow = await getAgentById(req.user.agent_user_id).catch(() => null);
+      if (!agentRow || !agentRow.is_active) {
+        return res.status(401).json({ message: 'This agent login is no longer active. Please login again.' });
+      }
+      if (String(agentRow.worker_id) !== String(req.user.id)) {
+        return res.status(401).json({ message: 'Your agent assignment has changed. Please login again.' });
+      }
+      try {
+        await refreshCoverExpiry({
+          operatorUserId: req.user.agent_user_id,
+          targetWorkerId: req.user.id,
+        });
+      } catch (e) {
+        console.warn('[fro] agent cover refresh skipped:', e?.message || String(e));
+      }
     }
 
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, last_activity_at, force_counters } = req.body;

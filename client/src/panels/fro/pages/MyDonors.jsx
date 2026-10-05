@@ -72,7 +72,6 @@ const HIDDEN_STATUSES = new Set([
 const SUPPRESS_REASON_LABELS = {
   dnd: 'DND — do not contact',
   donated_this_month: 'Donated this month',
-  hidden_until: 'Parked — revisit later',
   disposed_today: 'Already dispositioned today',
   hard_terminal: 'Closed — do not rework',
   money_done: 'Donation completed',
@@ -129,7 +128,7 @@ function filterAndSortDonors(list) {
   return dedupeDonors(list).sort((a, b) => {
       const aRetry = RETRYABLE_NOT_CONNECTED.has(a.status);
       const bRetry = RETRYABLE_NOT_CONNECTED.has(b.status);
-      // Suppressed (DND / donated this month / parked) always sorts last so the
+      // Suppressed (DND / donated this month) always sorts last so the
       // workable stack stays on top even with "Show suppressed" on.
       const aHidden = a.is_suppressed ? 1 : 0;
       const bHidden = b.is_suppressed ? 1 : 0;
@@ -309,7 +308,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const [listStatusFilter, setListStatusFilter] = useState('all');
   const [listHideDonated, setListHideDonated] = useState(true);
   // Whether the MY LEADS list includes donors the backend flagged as suppressed
-  // (DND, donated this month, parked, or already worked/closed). Default OFF so
+  // (DND, donated this month, or already worked/closed). Default OFF so
   // the working stack stays clean, but every one of those donors is reachable in
   // one click and always counted — nothing is silently missing.
   const [listShowSuppressed, setListShowSuppressed] = useState(false);
@@ -1409,7 +1408,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     // deleting rows, so the FRO's allotment and their visible list always agree.
     // Only two things still narrow it by default: the status-group dropdown, and
     // the "Show suppressed" toggle.
-    // Only DND / donated-this-month / parked leads are held back by default. Leads
+    // Only DND / donated-this-month leads are held back by default. Leads
     // that were merely worked or closed stay in the list (badged, filterable).
     const suppressedCount = donors.filter(d => d.is_suppressed).length;
     const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
@@ -1551,8 +1550,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
             {listView === 'leads' && (
               <button onClick={() => setListShowSuppressed(v => !v)}
                 title={listShowSuppressed
-                  ? 'Hide leads held back (DND, donated this month, parked)'
-                  : `Show the ${suppressedCount} leads held back (DND, donated this month, parked)`}
+                  ? 'Hide leads held back (DND, donated this month)'
+                  : `Show the ${suppressedCount} leads held back (DND, donated this month)`}
                 style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listShowSuppressed ? 'var(--sage)' : 'var(--bg)', color: listShowSuppressed ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
                 {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
               </button>
@@ -1752,9 +1751,8 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                             }}>
                             {d.suppress_reason === 'dnd' ? 'DND'
                               : d.suppress_reason === 'donated_this_month' ? 'DONATED'
-                                : d.suppress_reason === 'hidden_until' ? 'PARKED'
-                                  : d.suppress_reason === 'disposed_today' ? 'DONE TODAY'
-                                    : 'CLOSED'}
+                                : d.suppress_reason === 'disposed_today' ? 'DONE TODAY'
+                                  : 'CLOSED'}
                           </span>
                         )}
                       </div>
@@ -1779,7 +1777,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                   ? `${listItems.length} lead(s) found`
                   : `Showing ${listItems.length} of ${total || donors.length} allotted leads`
                     + (closedCount ? ` \u00b7 ${closedCount} already worked \u2014 filter by status` : '')
-                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month, parked) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
+                    + (suppressedCount ? ` \u00b7 ${suppressedCount} held back (DND, donated this month) \u2014 use "Hidden: ${suppressedCount}" to view` : '')}
         </div>
       </div>
     );
