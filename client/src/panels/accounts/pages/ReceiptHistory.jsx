@@ -402,6 +402,25 @@ export default function ReceiptHistory() {
     apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {});
   }, []);
 
+  // Loaded up front so the edit modal's FRO picker is populated without a
+  // round trip on every row click.
+  useEffect(() => {
+    let cancelled = false;
+    apiGet('/accounts/receipts/fro-workers')
+      .then(data => { if (!cancelled) setFroWorkers(Array.isArray(data) ? data : []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Receipts record the FRO, never the CRM login agent working that FRO's data,
+  // so the cell is just the stored name. Kept as a helper so the table and the
+  // donor drawer read the same way.
+  const agentCell = useCallback((r) => {
+    const raw = String(r.agent_name || '').trim();
+    if (!raw) return <span style={{ color: '#d1d5db', fontSize: 11 }}>Not assigned</span>;
+    return <span>{raw}</span>;
+  }, []);
+
   const uniqueDonors = useMemo(() => {
     const seen = new Set();
     return receipts.filter(r => {
@@ -844,6 +863,7 @@ export default function ReceiptHistory() {
                 <th>Donor Name</th>
                 <th>Receipt No.</th>
                 <th>NGO</th>
+                <th>Agent</th>
                 <th>Date</th>
                 <th>Time</th>
                 <th>Amount</th>
@@ -859,6 +879,7 @@ export default function ReceiptHistory() {
                     <td><div className="sk" style={{ width: '55%', height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: '45%', height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 65, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 60, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 45, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
@@ -868,7 +889,7 @@ export default function ReceiptHistory() {
                 ))
               ) : receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                     {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
                   </td>
                 </tr>
@@ -890,6 +911,7 @@ export default function ReceiptHistory() {
                       </td>
                       <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.receipt_no || '\u2014'}</td>
                       <td style={{ fontSize: 12 }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#f3f4f6' }}>{PROJECT_LABELS[r.project_id] || r.project_id || '\u2014'}</span></td>
+                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{agentCell(r)}</td>
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateStr}</td>
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
@@ -931,6 +953,7 @@ export default function ReceiptHistory() {
               {!loading && receipts.length > 0 && (
                 <tr className="rx-total-row">
                   <td style={{ padding: '9px 12px' }}>Total</td>
+                  <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -1053,7 +1076,7 @@ export default function ReceiptHistory() {
                         <div style={{ fontSize:10, color:'#a3a3a3', marginTop:1 }}>Payer: {r.bank_payer_name}</div>
                       )}
                       <div style={{ fontSize:11, color:'#64748b', marginTop:2 }}>
-                        Agent: {r.agent_name || r.fro_donor_logs?.workers?.name || 'Not assigned'}
+                        {agentCell(r)}
                       </div>
                     </div>
                     <div className="rx-amount">{currency(r.amount)}</div>
@@ -1121,14 +1144,25 @@ export default function ReceiptHistory() {
                   <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {label}
                     {type === 'select' ? (
-                      <select
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
-                      >
-                        <option value="">Not assigned</option>
-                        {froWorkers.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
-                      </select>
+                      (() => {
+                        // A receipt can name an FRO who is no longer in the active list (deactivated, or
+                        // entered by hand). Keep the stored value selectable so the
+                        // select never renders blank on an existing receipt.
+                        const cur = editForm[key] || '';
+                        const opts = froWorkers.map(w => ({ value: w.name, label: w.name }));
+                        const known = new Set(opts.map(o => o.value));
+                        return (
+                          <select
+                            value={cur}
+                            onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                            style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                          >
+                            <option value="">Not assigned</option>
+                            {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            {cur && !known.has(cur) && <option value={cur}>{cur} (current)</option>}
+                          </select>
+                        );
+                      })()
                     ) : type === 'sources' ? (
                       <select
                         value={editForm[key] || ''}
