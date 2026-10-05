@@ -105,6 +105,7 @@ import {
   getAllNgosForTabs,
   getNonConnectedFresh,
   deleteNonConnectedFresh,
+  deleteStationDonors,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -140,6 +141,13 @@ router.post('/new-data/reset', authenticateRole('admin', 'super_admin', 'account
 // Non-connected fresh-data pull (NGO admin only)
 router.get('/non-connected-fresh', authenticateRole('admin', 'super_admin'), getNonConnectedFresh);
 router.post('/non-connected-fresh/delete', authenticateRole('admin', 'super_admin'), deleteNonConnectedFresh);
+
+// Removing a wrongly-duplicated donor from a station (NGO admin only).
+//
+// Deliberately NOT widened to 'accounts' the way the donors-by-station read above
+// (line 134) is. Accounts may look at a station's donors; clearing one is a
+// destructive action on an FRO's work list, so it stays admin/super_admin.
+router.post('/station-donors/delete', authenticateRole('admin', 'super_admin'), deleteStationDonors);
 
 // Per-day FRO stats (calls / talk / break / skips) — also used by HR for warning letters on a selected FRO
 router.get('/fro-daily-stats', authenticateRole('admin', 'super_admin', 'hr'), getFroDailyStats);
