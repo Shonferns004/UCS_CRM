@@ -109,7 +109,7 @@ export async function logout() {
   return api('/auth/logout', { method: 'POST', body: JSON.stringify({}), _prefix: 'ucs' })
 }
 
-export async function impersonateFRO(workerId, code, imposterWorkerId, stations) {
+export async function impersonateFRO(workerId, code, imposterWorkerId, stations, options = {}) {
   return api('/auth/impersonate', {
     method: 'POST',
     body: JSON.stringify({
@@ -117,6 +117,7 @@ export async function impersonateFRO(workerId, code, imposterWorkerId, stations)
       code,
       imposter_worker_id: imposterWorkerId || undefined,
       stations: Array.isArray(stations) ? stations : undefined,
+      takeover: options?.takeover === true,
     }),
     _prefix: 'ucs',
   })

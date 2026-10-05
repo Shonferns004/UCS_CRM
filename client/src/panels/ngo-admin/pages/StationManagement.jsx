@@ -1040,7 +1040,7 @@ function SourcePill({ source, monthsEmployed, sourceMonth }) {
 }
 
 // Per-row ⋮ kebab menu (absolute overlay; does not affect column widths).
-function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onTarget, onDelete }) {
+function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onDownload, onTarget, onDelete }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1070,7 +1070,7 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onTarge
             </button>
           )}
           <button onClick={run(onUpload)} style={itemStyle}>⇧ Upload old data</button>
-          <button onClick={run(onTarget)} style={itemStyle}>◎ Set/Edit target</button>
+          {onDownload && <button onClick={run(onDownload)} style={itemStyle}>⤓ Download Excel</button>}
           <div style={{ borderTop: '1px solid var(--line, #e5e7eb)', margin: '4px 0' }} />
           <button onClick={run(onDelete)} style={{ ...itemStyle, color: 'var(--danger)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Trash2 size={14} /> Delete station</span></button>
         </div>
@@ -1081,6 +1081,7 @@ function StationKebab({ activeTransfer, returningId, onReturn, onUpload, onTarge
 
 // Compact add-station modal (replaces the always-visible Add Station card).
 function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onChangeNgo, adding, onCreate, onClose }) {
+  const [tempFile, setTempFile] = useState(null);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
@@ -1102,9 +1103,16 @@ function AddStationModal({ allNgos, newStation, newStationNgo, onChangeName, onC
               ))}
             </select>
           </label>
+          <label className="field">
+            Temp upload (optional)
+            <input type="file" accept=".xlsx,.xls,.csv" onChange={e => setTempFile(e.target.files[0] || null)} />
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+              Same columns as old-data upload. Processed only for the new station you create now.
+            </span>
+          </label>
           <div className="modal-actions">
             <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={onCreate} disabled={adding || !newStation.trim()}>
+            <button className="btn btn-primary" onClick={() => onCreate(tempFile)} disabled={adding || !newStation.trim()}>
               {adding ? 'Adding...' : 'Create Station'}
             </button>
           </div>
@@ -1626,7 +1634,56 @@ export default function StationManagement() {
     return true;
   });
 
-  const handleAddStation = async () => {
+  const downloadStationExcel = async (stationName) => {
+    try {
+      const rows = await apiGet(`/ngo-admin/donors-by-station?station=${encodeURIComponent(stationName)}`);
+      const data = (Array.isArray(rows) ? rows : []).map(r => ({
+        DonorID: r.donor_id,
+        Name: r.donor_name,
+        Mobile: r.donor_mobile,
+        Mobile2: r.donor_mobile_2,
+        City: r.donor_city,
+        Category: r.data_category,
+        Amount: r.amount,
+        Fro: r.fro_name,
+        Status: r.status,
+        Station: r.station,
+        Notes: r.notes,
+        LastContacted: r.last_contacted_at,
+        NextFollowUp: r.next_follow_up,
+        AssignedAt: r.assigned_at,
+      }));
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, 'Donors');
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${stationName.replace(/[^a-z0-9_-]/gi, '_')}-donors.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+
+  const uploadStationTemp = async (stationName, file) => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api(`/ngo-admin/stations/${encodeURIComponent(stationName)}/upload-old-data`, { method: 'POST', body: fd, _prefix: 'ucs' });
+      setMsg(`Temp upload processed for ${stationName}`);
+      fetchData();
+    } catch (err) {
+      toast(`Temp upload failed: ${err.message}`, 'error');
+    }
+  };
+
+  const downloadStationCsv = () => {};
+
+  const handleAddStation = async (tempFile) => {
     if (!newStation.trim()) return;
     setAdding(true);
     try {
@@ -1634,6 +1691,9 @@ export default function StationManagement() {
         station: newStation.trim(),
         ngo_id: newStationNgo || null,
       });
+      if (tempFile) {
+        await uploadStationTemp(newStation.trim(), tempFile);
+      }
       setNewStationNgo('');
       const list = await apiGet('/ngo-admin/stations');
       if (Array.isArray(list)) {
@@ -1898,7 +1958,7 @@ export default function StationManagement() {
                     <th style={{ width: '8%' }}>NGO</th>
                     <th style={{ width: '20%' }}>FRO Worker</th>
                     <th style={{ width: '13%' }}>Donors</th>
-                    <th style={{ width: '36%' }}>Performance</th>
+
                     <th style={{ width: '10%', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
@@ -1941,7 +2001,7 @@ export default function StationManagement() {
                           />
                         </td>
                         <td>{renderDonorPills(s)}</td>
-                        <td>{renderPerformance(s)}</td>
+
                         <td className="nga-actions">
                           <div className="nga-actions-inline" style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
                             <StationKebab
@@ -1949,6 +2009,7 @@ export default function StationManagement() {
                               returningId={returningId}
                               onReturn={at ? handleReturnEarly : null}
                               onUpload={() => setUploadStation(s.station)}
+                              onDownload={() => downloadStationExcel(s.station)}
                               onTarget={() => openTarget(s)}
                               onDelete={() => handleDeleteStation(s.station)}
                             />
