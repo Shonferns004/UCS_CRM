@@ -12,6 +12,22 @@ async function getSourceBankName(sourceId) {
   return data?.name || null;
 }
 
+// Who to stamp on a receipt this operator is settling, most specific first:
+//
+//   1. An impersonating admin gets their own name, so the reconciliation view
+//      credits the human doing the work.
+//   2. Otherwise the FRO picked on the entry.
+//
+// Deliberately never the CRM login agent's label: receipts are keyed by FRO, and
+// a label here would split one FRO's collections across several report rows.
+// Returns null when there is genuinely nobody to name, which leaves agent_name
+// NULL rather than writing a placeholder like 'Unknown' that would then be
+// counted as a real collector.
+const resolveCollectorName = (req, froName) => {
+  if (req.user?.impersonation && req.user.imposter_name) return req.user.imposter_name;
+  return froName || null;
+};
+
 export const listSources = async (req, res) => {
   try {
     const sources = await BankAudit.getSources();
@@ -1196,6 +1212,24 @@ export const manualVerifyEntry = async (req, res) => {
 
       // Case 2: no receipt linked — create one from the entry's data
       const receiptNo = await BankAudit.getNextReceiptNo(proj);
+      // The entry's own FRO, else the FRO the donor actually sits with. Without
+      // this the receipt is born with a NULL agent_name and never counts towards
+      // anyone's collection -- which is how receipts end up reading "Not assigned".
+      let entryCollector = String(entry.agent_name || '').trim() || null;
+      if (!entryCollector) {
+        const donorForEntry = entry.donor_id || null;
+        if (donorForEntry) {
+          const { data: asgRows } = await db
+            .from('fro_assignments')
+            .select('workers(name)')
+            .eq('donor_id', donorForEntry)
+            .not('status', 'eq', 'reassigned')
+            .order('updated_at', { ascending: false })
+            .limit(1);
+          entryCollector = asgRows?.[0]?.workers?.name || null;
+        }
+      }
+
       const receipt = await createReceipt({
         receipt_no: receiptNo,
         project_id: proj,
@@ -1208,7 +1242,7 @@ export const manualVerifyEntry = async (req, res) => {
         bank_name: entry.bank_name || null,
         mode: entry.mode || null,
         payment_id: entry.payment_id || null,
-        agent_name: entry.agent_name || null,
+        agent_name: entryCollector,
         purpose: 'Bank Audit Entry',
         generated_by: req.user.id,
         receipt_date: entry.transaction_date || new Date().toISOString(),
@@ -1220,12 +1254,14 @@ export const manualVerifyEntry = async (req, res) => {
     }
 
     // Resolve the FRO worker (must be an FRO) — optional for receipt_sent flow.
+    // `null` when the receipt_sent flow sends none: writing the placeholder
+    // 'Unknown' would make an unassigned receipt look assigned to a person.
     const isStaticFro = fro_worker_id ? String(fro_worker_id).startsWith('static-') : false;
-    let froName = 'Unknown';
+    let froName = null;
     let workerId = fro_worker_id || null;
     if (fro_worker_id) {
       if (isStaticFro) {
-        froName = fro_worker_id === 'static-priyank-shah' ? 'Priyank Shah' : fro_worker_id === 'static-suspense' ? 'Suspense' : 'Unknown';
+        froName = fro_worker_id === 'static-priyank-shah' ? 'Priyank Shah' : fro_worker_id === 'static-suspense' ? 'Suspense' : null;
         workerId = null;
       } else {
         const { data: worker, error: wErr } = await db
@@ -1235,7 +1271,7 @@ export const manualVerifyEntry = async (req, res) => {
           .maybeSingle();
         if (wErr) throw wErr;
         if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
-        froName = worker.name || 'Unknown';
+        froName = worker.name || null;
       }
     }
     // When impersonating, stamp the operator's name as agent so the
@@ -1244,6 +1280,7 @@ export const manualVerifyEntry = async (req, res) => {
       froName = req.user.imposter_name;
       if (req.user.imposter_id) workerId = req.user.imposter_id;
     }
+    const collectorName = resolveCollectorName(req, froName);
 
     // Resolve the original owner's name for cross-FRO verify notes.
     let credit_to_fro_worker_name = null;
@@ -1459,7 +1496,7 @@ export const manualVerifyEntry = async (req, res) => {
       const entryPatch = {
         status: 'verified',
         donor_id: donorId,
-        agent_name: froName,
+        agent_name: collectorName,
         match_status: isStaticFro ? 'matched' : 'confirmed',
         match_source: 'manual',
         match_no: matchNo,
@@ -1506,7 +1543,7 @@ export const manualVerifyEntry = async (req, res) => {
             bank_name: entry.bank_name || donor.donors_bank_name || null,
             mode: entry.mode || null,
             payment_id: entry.payment_id || null,
-            agent_name: froName,
+            agent_name: collectorName,
             donor_id: donorId,
             receipt_date: entry.transaction_date || now,
             receipt_time: entry.payment_time || null,
@@ -1530,7 +1567,7 @@ export const manualVerifyEntry = async (req, res) => {
           bank_name: entry.bank_name || donor.donors_bank_name || null,
           mode: entry.mode || null,
           payment_id: entry.payment_id || null,
-          agent_name: froName,
+          agent_name: collectorName,
           purpose: 'Bank Audit Manual Verify',
           generated_by: req.user.id,
           donor_id: donorId,
