@@ -20,7 +20,7 @@ const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
 const WA_TPL = {
-  bsct: { metaTemplate: 'bsct_receipt', metaLang: 'en' },
+  bsct: { metaTemplate: 'bsct_receipt_2', metaLang: 'en' },
   mann: { metaTemplate: 'mann_receipt', metaLang: 'en' },
   aflf: { metaTemplate: 'ashray_receipt', metaLang: 'en' },
 };

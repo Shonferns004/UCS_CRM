@@ -6,7 +6,7 @@ import { verifyReceiptFile, describeStoredObjectUrl, explainStoredObjectUrl } fr
 import db from '../config/db.js';
 
 const TEMPLATE_PROJECT_MAP = {
-  bsct_receipt: 'bsct',
+  bsct_receipt_2: 'bsct',
   mann_receipt: 'mann',
   aflf_receipt: 'aflf',
   ashray_receipt: 'aflf',
@@ -433,7 +433,7 @@ export async function status(req, res) {
 }
 
 export async function sendDirect(req, res) {
-  console.log("req",req)
+  console.log("req", req)
   try {
     const {
       to,
@@ -454,14 +454,9 @@ export async function sendDirect(req, res) {
     }
 
     const phone = String(to).replace(/[^0-9]/g, '');
-
-    const tpl = templateName || 'bsct_receipt';
-
+    const tpl = templateName || 'bsct_receipt_2';
     const lang = templateLang || 'en';
-
-    const donorProject =
-      project || TEMPLATE_PROJECT_MAP[tpl] || 'bsct';
-
+    const donorProject = project || TEMPLATE_PROJECT_MAP[tpl] || 'bsct';
     const account = await resolveAccount(donorProject);
 
     if (!account) {
@@ -471,7 +466,7 @@ export async function sendDirect(req, res) {
     }
 
     const ngoMap = {
-      bsct_receipt: 'BeingSevak',
+      bsct_receipt_2: 'BeingSevak',
       mann_receipt: 'MannCare',
       aflf_receipt: 'Ashray',
       ashray_receipt: 'Ashray',
@@ -614,15 +609,17 @@ export async function sendDirect(req, res) {
     // {{1}} = donorName
     // ---------------------------------------------------------
 
-    components.push({
-      type: 'body',
-      parameters: [
-        {
-          type: 'text',
-          text: String(donorName || 'Donor'),
-        },
-      ],
-    });
+    if (tpl === 'mann_receipt') {
+      components.push({
+        type: 'body',
+        parameters: [
+          {
+            type: 'text',
+            text: String(donorName || 'Donor'),
+          },
+        ],
+      });
+    }
 
     // ---------------------------------------------------------
     // 6. META WHATSAPP API URL
