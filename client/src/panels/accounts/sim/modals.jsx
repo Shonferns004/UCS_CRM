@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { toast } from '../../../components/Toast';
-import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandSimHistory, fetchInventory, fetchReplacementsForCard } from './api';
+import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandSimHistory, fetchReplacementsForCard } from './api';
 import { Icon } from './components';
 import { useSim } from './store';
 import { AssignSimModal } from './SimInventory';
-import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS, liveDaysLeft, classifySims } from './helpers';
+import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, mobileExpiryStatus, sameMobileId, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS, liveDaysLeft, classifySims } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder, full, required }) {
   return (
@@ -312,20 +312,6 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   );
 }
 
-/* The SIM Locker list carries the per-number issue/expiry dates. It barely
-   changes while the panel is open, so it is requested once per session and
-   reused by every modal; a failed request just means the mobile-level dates
-   are shown instead. */
-let lockerCache = null;
-function loadLockerDates() {
-  if (!lockerCache) {
-    lockerCache = fetchInventory()
-      .then((rows) => (Array.isArray(rows) ? rows : []))
-      .catch(() => []);
-  }
-  return lockerCache;
-}
-
 /* One Active / Expired SIM table inside the modal. Every row shows the
    number with the date it was activated and the date it expires or ended;
    `expired` only switches the last column to "days ago" wording. */
@@ -379,7 +365,11 @@ function SimListSection({ title, icon, count, tone, rows, showNgo, expiresLabel,
 }
 
 export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
-  const [locker, setLocker] = useState([]);
+  /* The Locker list is the store's, refreshed on every open: it owns the
+     per-number dates and the "does this phone still carry a live SIM" verdict.
+     A snapshot taken before the last assignment would keep calling the old SIM
+     expired (or miss the new one entirely) until a full page reload. */
+  const { inventory, refreshInventory } = useSim();
   const [replacements, setReplacements] = useState([]);
   const [changes, setChanges] = useState([]);
   const [loadingDates, setLoadingDates] = useState(false);
@@ -392,19 +382,17 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
   useEffect(() => {
     if (!open || !cardId) return undefined;
     let alive = true;
-    setLocker([]);
     setReplacements([]);
     setChanges([]);
     setLoadingDates(true);
     const trail = (request) => request.then((r) => (Array.isArray(r) ? r : [])).catch(() => []);
     Promise.all([
-      loadLockerDates(),
+      Promise.resolve(refreshInventory()).catch(() => {}),
       trail(fetchReplacementsForCard(cardId)),
       trail(fetchSimHistory(cardId)),
     ])
-      .then(([inv, reps, hist]) => {
+      .then(([, reps, hist]) => {
         if (!alive) return;
-        setLocker(inv);
         setReplacements(reps);
         setChanges(hist);
       })
@@ -416,8 +404,14 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
 
   // The stored days_left column is a stale import snapshot, so the date wins.
   const dl = liveDaysLeft(card);
-  const status = effectiveStatus(card);
-  const groups = classifySims({ card, inventory: locker, replacements, history: changes });
+  /* "Assigned" lives in the Locker table (sim_inventory), not in this card's
+     own status word, so the drawer joins on mobile_id exactly like the All
+     SIM Cards table does - otherwise the row said "Assigned" while the drawer
+     opened from it still said "Active". */
+  const lockerItem = (inventory || []).find((it) => sameMobileId(it.mobile_id, card.mobile_id)) || null;
+  const expiryStatus = mobileExpiryStatus(card, inventory);
+  const status = lockerItem ? 'Assigned' : expiryStatus;
+  const groups = classifySims({ card, inventory, replacements, history: changes });
   const showNgo = groups.active.some((r) => r.ngo) || groups.expired.some((r) => r.ngo);
 
   const totalSpan = (() => {
@@ -467,7 +461,11 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
             </div>
           </div>
           <div className="sv-head-right">
-            <span className={`pill ${pillForStatus(status)}`}>{status}</span>
+            {/* Two facts, both live: the phone carries a Locker SIM, and whether
+                any SIM it carries is still valid. A phone whose numbers have all
+                run out reads Expired, never Active. */}
+            {lockerItem ? <span className="pill pill-assigned">Assigned</span> : null}
+            <span className={`pill ${pillForStatus(expiryStatus)}`}>{expiryStatus}</span>
             <button className="sv-x" onClick={onClose} aria-label="Close"><Icon name="close" size={18} /></button>
           </div>
         </div>
@@ -719,6 +717,7 @@ function historyRows(list) {
 export function SimHistoryModal({ card, open, onClose }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const { inventory } = useSim();
 
   useEffect(() => {
     if (open && card) {
@@ -734,6 +733,19 @@ export function SimHistoryModal({ card, open, onClose }) {
   if (!open || !card) return null;
 
   const rows = historyRows(history);
+
+  /* The summary answers "is this SIM still valid, and is it in a phone?"
+     without leaving the modal: Assigned comes from the Locker join (Android
+     phones link through their "android whatsapp N" card), the verdict from the
+     live dates - a phone whose numbers have all run out reads Expired. */
+  const lockerItem = (inventory || []).find((it) => sameMobileId(it.mobile_id, card.mobile_id)) || null;
+  const expiryStatus = mobileExpiryStatus(card, inventory);
+  const statusNode = (
+    <>
+      {lockerItem ? <span className="pill pill-assigned">Assigned</span> : null}
+      <span className={`pill ${pillForStatus(expiryStatus)}`}>{expiryStatus}</span>
+    </>
+  );
 
   return (
     <div className="modal-overlay sim-edit-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -769,10 +781,15 @@ export function SimHistoryModal({ card, open, onClose }) {
                 ['NGO', card.ngo],
                 ['Owner', card.owner],
                 ['Remark', card.signature],
+                ['Status', statusNode],
+                ['Auto Expiry Date', formatDate(card.expiry_date)],
+                ['Days Left', dayLabel(liveDaysLeft(card))],
               ].map(([k, v]) => (
                 <div className="se-sum-cell" key={k}>
                   <span className="k">{k}</span>
-                  <span className="v">{txt(v)}</span>
+                  {/* Strings go through txt() for the dash fallback; the Status
+                      cell is JSX (one or two pills) and is rendered as-is. */}
+                  <span className="v">{typeof v === 'string' || v === null || v === undefined ? txt(v) : v}</span>
                 </div>
               ))}
             </div>
