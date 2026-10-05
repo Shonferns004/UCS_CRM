@@ -115,6 +115,148 @@ export function formatDate(d) {
   return `${day} ${months[Number(m) - 1]} ${y}`;
 }
 
+/* The `days_left` column is a snapshot taken when the source sheet was
+   imported, so it is already wrong the day after expiry passes - UFRS 1 still
+   reported "8 days" long after its expiry date had gone. A real expiry date
+   therefore always wins, and the stored value is only a fallback for rows that
+   carry no date at all. Dashboard applied this rule inline; this is the shared
+   version the list, the Expiring page and the detail drawer all use. */
+export function liveDaysLeft(card) {
+  if (!card) return null;
+  if (card.expiry_date) return daysLeft(card.expiry_date);
+  return card.days_left !== undefined && card.days_left !== null ? card.days_left : null;
+}
+
+/* Slot cells keep the placeholder the source spreadsheet used for "no SIM
+   here" ('NA', 'NO SIM', ...). Those cells are not numbers and must never
+   appear as one. */
+const PLACEHOLDER_VALUES = ['', '-', '--', '.', 'NA', 'N/A', 'NOSIM', 'NO SIM', 'NO-SIM', 'NONE', 'NULL', 'NIL'];
+
+export function isPlaceholder(v) {
+  return PLACEHOLDER_VALUES.includes(String(v ?? '').trim().toUpperCase());
+}
+
+/* Every real number on a mobile, slot by slot, with the NGO name the Android
+   rows carry alongside slots 1-4. */
+export function simNumbersOf(card) {
+  const out = [];
+  if (!card) return out;
+  SIM_SLOTS.forEach((n) => {
+    const number = card[`sim_${n}`];
+    if (isPlaceholder(number)) return;
+    out.push({
+      n,
+      number: String(number).trim(),
+      ngo: String(card[`w${n}_name`] || '').trim(),
+    });
+  });
+  return out;
+}
+
+/* Splits a mobile's numbers into the two lists the detail drawer shows:
+   active numbers and expired numbers, each with its own dates.
+
+   Date source per number, best first:
+     1. the SIM Locker row (`sim_inventory`) for that exact number - the only
+        place individual numbers carry their own issue/expiry dates;
+     2. the mobile's own issue/expiry dates, which is what the schema stores
+        per number by default.
+   Numbers that left the mobile are recovered from two audit trails so past
+   SIMs never disappear: the replacement log (`old_sim` + replacement date)
+   and the card's edit history (`changed_cols.sim_N.old` + when it changed).
+   Their dates come from their own locker row when that row has an expiry
+   that has already passed, otherwise from the day the number left the slot.
+
+   Returns { active, expired, filled } - both lists sorted by slot, expired
+   newest first, ready to render. */
+export function classifySims({ card, inventory = [], replacements = [], history = [] } = {}) {
+  const lockerByNumber = new Map();
+  for (const row of inventory) {
+    const key = String(row?.sim_number || '').trim().toLowerCase();
+    if (key && !lockerByNumber.has(key)) lockerByNumber.set(key, row);
+  }
+
+  const active = [];
+  const expired = [];
+  const current = new Set();
+
+  for (const s of simNumbersOf(card)) {
+    current.add(s.number.toLowerCase());
+    const inv = lockerByNumber.get(s.number.toLowerCase()) || null;
+    const activatedOn = inv?.issue_date || inv?.assignment_date || card?.issue_date || null;
+    const expiresOn = inv?.expiry_date || card?.expiry_date || null;
+    const dl = expiresOn ? daysLeft(expiresOn) : null;
+    const row = {
+      key: `cur-${s.n}-${s.number}`,
+      slot: s.n,
+      number: s.number,
+      ngo: s.ngo,
+      activatedOn,
+      expiresOn,
+      daysLeft: dl,
+      note: null,
+    };
+    if (dl !== null && dl < 0) expired.push(row);
+    else active.push(row);
+  }
+
+  const mobileId = String(card?.mobile_id || '').trim().toLowerCase();
+  const seen = new Set(current);
+
+  // One number that has left this mobile. `leftOn` is the day it went away;
+  // a locker expiry that has already passed outranks it because that is the
+  // date the SIM itself stopped being valid.
+  const pastRow = (rawNumber, leftOn, note) => {
+    const number = String(rawNumber ?? '').trim();
+    const key = number.toLowerCase();
+    if (!number || isPlaceholder(number) || key === mobileId || seen.has(key)) return null;
+    seen.add(key);
+    const inv = lockerByNumber.get(key) || null;
+    const invExpiry = inv?.expiry_date || null;
+    const invDays = invExpiry ? daysLeft(invExpiry) : null;
+    const expiresOn = invDays !== null && invDays < 0 ? invExpiry : (leftOn || invExpiry || null);
+    return {
+      key: `${note.toLowerCase()}-${key}`,
+      slot: null,
+      number,
+      ngo: '',
+      activatedOn: inv?.issue_date || inv?.assignment_date || null,
+      expiresOn,
+      daysLeft: expiresOn ? daysLeft(expiresOn) : null,
+      note,
+    };
+  };
+
+  // Replacement log first: it carries the richer record (new SIM, reason).
+  for (const rep of replacements) {
+    const row = pastRow(rep?.old_sim, rep?.replacement_date || null, 'Replaced');
+    if (row) expired.push(row);
+  }
+
+  // Then the edit trail: every past value of a sim_N slot, newest row first.
+  for (const r of history) {
+    const cols = r && typeof r.changed_cols === 'object' && r.changed_cols ? r.changed_cols : null;
+    if (!cols) continue;
+    const leftOn = r.changed_at ? String(r.changed_at).slice(0, 10) : null;
+    for (const [slotKey, change] of Object.entries(cols)) {
+      if (!/^sim_\d+$/.test(slotKey)) continue;
+      const oldV = change && typeof change === 'object' ? change.old : change;
+      const row = pastRow(oldV, leftOn, 'Changed');
+      if (row) expired.push(row);
+    }
+  }
+
+  active.sort((a, b) => a.slot - b.slot);
+  expired.sort((a, b) => {
+    if (a.slot !== b.slot && a.slot !== null && b.slot !== null) return a.slot - b.slot;
+    if (a.slot === null && b.slot !== null) return 1;
+    if (a.slot !== null && b.slot === null) return -1;
+    return String(b.expiresOn || '').localeCompare(String(a.expiresOn || ''));
+  });
+
+  return { active, expired, filled: active.length + expired.length };
+}
+
 export const EXPORT_COLUMNS = [
   'Mobile ID No.',
   'Device & Model Name',
