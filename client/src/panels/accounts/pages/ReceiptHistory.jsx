@@ -32,7 +32,7 @@ function getWaSettings(project) {
   } catch { return d; }
 }
 
-const EXCEL_HEADER = ["Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Agent Name","MOP","Received Bank","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
+const EXCEL_HEADER = ["Transaction Date", "Caller Name", "Receipt Name", "Mobile no.", "Mobil No. 2 / Tel ", "Address-1 ", "Address-2 ", "Pan. No. ", "Mail Id ", "Agent Name", "MOP", "Received Bank", "Payment ID No. ", "Amt", "Receipt No.", "Receipt Date ", "Time", "Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -92,7 +92,7 @@ export function prepareImportRows(rows) {
       const value = aliases.map(alias => fields[alias]).find(value => value !== undefined && value !== null && String(value).trim() !== '');
       result[field] = field === 'receipt_date' ? formatImportDate(value)
         : field === 'receipt_time' ? formatImportTime(value)
-        : cleanNA(value);
+          : cleanNA(value);
     }
     return result;
   }).filter(row => row.receipt_no || row.donor_name || row.amount);
@@ -247,7 +247,7 @@ export default function ReceiptHistory() {
       let failedFileUrl = null;
 
       for (let i = 0; i < chunks.length; i++) {
-        setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
+        setUploadStatus(`Importing ${Math.min((i + 1) * CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
         const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i], ngo_id: ngoIdForImport }, 300000);
         totalImported += res.imported || 0;
         totalMatched += res.matchedDonors || 0;
@@ -399,7 +399,7 @@ export default function ReceiptHistory() {
   }, [load]);
 
   useEffect(() => {
-    apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {});
+    apiGet('/accounts/ngos').then(setNgoOptions).catch(() => { });
   }, []);
 
   // Loaded up front so the edit modal's FRO picker is populated without a
@@ -483,6 +483,7 @@ export default function ReceiptHistory() {
         pdfBase64 = pdf.output('datauristring').split(',')[1];
       }
       const waTpl = getWaSettings(preview.receipt.project_id);
+
       await apiPost('/whatsapp/send-direct', {
         to: formatted,
         receiptId: preview.receipt.id,
@@ -494,6 +495,7 @@ export default function ReceiptHistory() {
         templateLang: waTpl.metaLang,
         project: preview.receipt.project_id,
       });
+      console.log("data")
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch (e) { console.error('Error:', e.message); }
       setWaResult({ success: true, message: 'Accepted by WhatsApp. Delivery status appears in the list within a minute.' });
     } catch (err) {
@@ -612,7 +614,7 @@ export default function ReceiptHistory() {
   const fetchAllFiltered = async () => {
     const all = [];
     let page = 1;
-    for (;;) {
+    for (; ;) {
       const p = buildFilterParams({ page: String(page), limit: '100' });
       const res = await apiGet(`/accounts/receipts?${p.toString()}`);
       const data = res?.data || [];
@@ -725,7 +727,7 @@ export default function ReceiptHistory() {
     if (!historyForDownload || historyForDownload.length === 0) return;
     let cancelled = false;
     (async () => {
-      const ngoFolder = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' };
+      const ngoFolder = { bsct: 'BeingSevak', mann: 'MannCare', aflf: 'Ashray' };
       const zip = new JSZip();
       const total = historyForDownload.length;
       setDlWindow(0);
@@ -764,7 +766,7 @@ export default function ReceiptHistory() {
       if (!cancelled) {
         setDlWindow(0);
         const content = await zip.generateAsync({ type: 'blob' });
-        saveAs(content, `Receipts_${new Date().toISOString().slice(0,10)}.zip`);
+        saveAs(content, `Receipts_${new Date().toISOString().slice(0, 10)}.zip`);
         alert(`Downloaded ${total} receipts`);
       }
       setHistoryForDownload(null);
@@ -800,8 +802,8 @@ export default function ReceiptHistory() {
             </button>
           </div>
         </div>
-        <div className="rx-tabs" style={{ paddingLeft:16, paddingRight:16, borderBottom:'none', gap:0 }}>
-          {[{ k:'suspense', l:'Suspense', c:'#dc2626' }, { k:'pg', l:'PG', c:'#2563eb' }, { k:'library', l:'Library', c:'#0f766e' }].map(tab => {
+        <div className="rx-tabs" style={{ paddingLeft: 16, paddingRight: 16, borderBottom: 'none', gap: 0 }}>
+          {[{ k: 'suspense', l: 'Suspense', c: '#dc2626' }, { k: 'pg', l: 'PG', c: '#2563eb' }, { k: 'library', l: 'Library', c: '#0f766e' }].map(tab => {
             const active = tab.k === 'suspense' ? suspenseMode : tab.k === 'pg' ? pgMode : libraryMode;
             return (
               <button key={tab.k} className="rx-tab" onClick={() => {
@@ -809,7 +811,7 @@ export default function ReceiptHistory() {
                 else if (tab.k === 'pg') { const next = !pgMode; if (next) { setSuspenseMode(false); setLibraryMode(false); } setPgMode(next); setPage(1); }
                 else { const next = !libraryMode; if (next) { setSuspenseMode(false); setPgMode(false); } setLibraryMode(next); setPage(1); }
               }}
-                style={{ background: active ? tab.c : 'var(--bg)', color: active ? '#fff' : 'var(--ink-soft)', fontWeight:600, borderRadius:7, padding:'5px 10px', border:'none', fontSize:12 }}>
+                style={{ background: active ? tab.c : 'var(--bg)', color: active ? '#fff' : 'var(--ink-soft)', fontWeight: 600, borderRadius: 7, padding: '5px 10px', border: 'none', fontSize: 12 }}>
                 {tab.l}
               </button>
             )
@@ -837,10 +839,10 @@ export default function ReceiptHistory() {
           </div>
           <div className="rx-fselect">
             <span className="rx-fkey">Amount</span>
-            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" min="0" placeholder="Min" value={minAmount} onChange={e => setMinAmount(e.target.value)} style={{ width:70 }} />
-              <span style={{ color:'var(--ink-soft)' }}>&ndash;</span>
-              <input type="number" min="0" placeholder="Max" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} style={{ width:70 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="number" min="0" placeholder="Min" value={minAmount} onChange={e => setMinAmount(e.target.value)} style={{ width: 70 }} />
+              <span style={{ color: 'var(--ink-soft)' }}>&ndash;</span>
+              <input type="number" min="0" placeholder="Max" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} style={{ width: 70 }} />
             </div>
           </div>
           <div className="rx-fselect rx-filter-grow">
@@ -856,7 +858,7 @@ export default function ReceiptHistory() {
             <X size={14} />
           </button>
         </div>
-        <div className="rx-table-wrap" style={{ margin:0, borderLeft:'none', borderRight:'none', borderBottom:'none', borderRadius:0 }}>
+        <div className="rx-table-wrap" style={{ margin: 0, borderLeft: 'none', borderRight: 'none', borderBottom: 'none', borderRadius: 0 }}>
           <table className="rx-table">
             <thead>
               <tr>
@@ -939,7 +941,7 @@ export default function ReceiptHistory() {
                             onMouseOut={e => e.currentTarget.style.background = 'none'}
                           >
                             {deletingId === r.id ? (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" /></circle></svg>
                             ) : (
                               <Trash2 size={14} strokeWidth={2} />
                             )}
@@ -972,7 +974,7 @@ export default function ReceiptHistory() {
         {!loading && totalPages > 1 && (
           <div className="rx-foot">
             <span className="rx-pageinfo">Page {page} of {totalPages} ({total} receipts)</span>
-            <div style={{ display:'flex', gap:4 }}>
+            <div style={{ display: 'flex', gap: 4 }}>
               <button className="btn btn-sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>&larr; Prev</button>
               <button className="btn btn-sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next &rarr;</button>
             </div>
@@ -984,7 +986,7 @@ export default function ReceiptHistory() {
         const ngo = r.project_id || 'bsct';
         const Comp = TEMPLATES[getTemplateId(ngo)];
         const idx = dlWindow + i;
-        return <div key={idx} data-dl-history data-dl-idx={idx} style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
+        return <div key={idx} data-dl-history data-dl-idx={idx} style={{ position: 'fixed', left: '-9999px', top: 0, width: '1000px', opacity: 0, pointerEvents: 'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
       })}
 
       {preview && createPortal(
@@ -1002,30 +1004,30 @@ export default function ReceiptHistory() {
                 <button onClick={handleGoBack} disabled={goBackLoading} title="Return to Bank Audit"
                   style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {goBackLoading ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" /></circle></svg>
                   ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 14 4 9 9 4" /><path d="M20 20v-7a4 4 0 0 0-4-4H4" /></svg>
                   )}
                 </button>
                 <button onClick={handleDownload} disabled={downloading} title="Download PDF"
                   style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {downloading ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" /></circle></svg>
                   ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                   )}
                 </button>
                 <button onClick={handleWhatsApp} disabled={waLoading} title="Send via WhatsApp"
                   style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {waLoading ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" /></circle></svg>
                   ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19.077 4.928C17.191 3.041 14.683 2 12.006 2 6.798 2 2.548 6.193 2.54 11.4c-.003 2.06.537 4.074 1.563 5.86L2.99 21.273 7.97 19.36a9.426 9.426 0 0 0 4.024.96h.004c5.2 0 9.46-4.192 9.468-9.4a9.37 9.37 0 0 0-2.389-5.993ZM17.38 14.48c-.29 1.063-1.66 1.946-2.736 2.06-.569.06-1.282.107-2.084-.228-1.213-.508-2.695-1.837-4.07-3.307-1.26-1.346-2.05-2.5-2.324-3.388-.258-.84.082-1.955.44-2.465.469-.667.985-.672 1.33-.672.152 0 .294.007.418.013.354.017.53.036.767.6.14.333.477 1.164.52 1.248.066.13.11.282.033.456-.077.174-.116.282-.232.447-.116.165-.174.276-.348.445-.116.116-.237.242-.102.476.135.233.602.994 1.292 1.607.888.79 1.636 1.036 1.87 1.152.233.116.37.097.506-.058.136-.155.586-.682.742-.916.156-.233.312-.194.527-.116.215.077 1.362.672 1.596.794.234.122.39.182.448.283.058.101.058.587-.137 1.153-.195.566-1.076 1.085-1.076 1.085Z"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19.077 4.928C17.191 3.041 14.683 2 12.006 2 6.798 2 2.548 6.193 2.54 11.4c-.003 2.06.537 4.074 1.563 5.86L2.99 21.273 7.97 19.36a9.426 9.426 0 0 0 4.024.96h.004c5.2 0 9.46-4.192 9.468-9.4a9.37 9.37 0 0 0-2.389-5.993ZM17.38 14.48c-.29 1.063-1.66 1.946-2.736 2.06-.569.06-1.282.107-2.084-.228-1.213-.508-2.695-1.837-4.07-3.307-1.26-1.346-2.05-2.5-2.324-3.388-.258-.84.082-1.955.44-2.465.469-.667.985-.672 1.33-.672.152 0 .294.007.418.013.354.017.53.036.767.6.14.333.477 1.164.52 1.248.066.13.11.282.033.456-.077.174-.116.282-.232.447-.116.165-.174.276-.348.445-.116.116-.237.242-.102.476.135.233.602.994 1.292 1.607.888.79 1.636 1.036 1.87 1.152.233.116.37.097.506-.058.136-.155.586-.682.742-.916.156-.233.312-.194.527-.116.215.077 1.362.672 1.596.794.234.122.39.182.448.283.058.101.058.587-.137 1.153-.195.566-1.076 1.085-1.076 1.085Z" /></svg>
                   )}
                 </button>
                 <button onClick={closePreview} title="Close"
                   style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               </div>
             </div>
@@ -1045,11 +1047,11 @@ export default function ReceiptHistory() {
 
       {donorDetail && (
         <>
-          <div className="rx-drawer-mask" style={{ zIndex:3100 }} onClick={() => setDonorDetail(null)} />
-          <div className="rx-drawer" style={{ zIndex:3101 }}>
+          <div className="rx-drawer-mask" style={{ zIndex: 3100 }} onClick={() => setDonorDetail(null)} />
+          <div className="rx-drawer" style={{ zIndex: 3101 }}>
             <div className="rx-drawer-head">
-              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                <div style={{ width:40, height:40, borderRadius:'50%', background:'var(--sage)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:15, fontWeight:700, flexShrink:0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
                   {(donorDetail.name || '?')[0].toUpperCase()}
                 </div>
                 <div>
@@ -1057,37 +1059,37 @@ export default function ReceiptHistory() {
                   <div className="rx-drawer-sub">{donorDetail.mobile || ''} &middot; <strong>{donorDetail.receipts.length}</strong> receipt{donorDetail.receipts.length !== 1 ? 's' : ''}</div>
                 </div>
               </div>
-              <button className="rx-iconbtn" onClick={() => setDonorDetail(null)}><X size={16}/></button>
+              <button className="rx-iconbtn" onClick={() => setDonorDetail(null)}><X size={16} /></button>
             </div>
-            <div className="rx-drawer-body" style={{ padding:0 }}>
+            <div className="rx-drawer-body" style={{ padding: 0 }}>
               <div className="rx-drawer-list">
                 {donorDetail.receipts.map((r, i) => (
                   <div key={r.id} className="rx-drawer-list-item" onClick={() => { setSavedDetail(donorDetail); setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }}>
-                    <div style={{ width:6, height:6, borderRadius:'50%', background:'var(--line)', flexShrink:0 }} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <span className="rx-mono" style={{ fontSize:12, fontWeight:600, color:'var(--ink)' }}>{r.receipt_no}</span>
-                        <span style={{ fontSize:11, color:'var(--ink-soft)' }}>{r.receipt_date ? formatReceiptDate(r.receipt_date) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--line)', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="rx-mono" style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{r.receipt_no}</span>
+                        <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.receipt_date ? formatReceiptDate(r.receipt_date) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
                       </div>
-                      <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:1 }}>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>
                         {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
                       </div>
                       {r.bank_payer_name && (
-                        <div style={{ fontSize:10, color:'#a3a3a3', marginTop:1 }}>Payer: {r.bank_payer_name}</div>
+                        <div style={{ fontSize: 10, color: '#a3a3a3', marginTop: 1 }}>Payer: {r.bank_payer_name}</div>
                       )}
-                      <div style={{ fontSize:11, color:'#64748b', marginTop:2 }}>
+<div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                         {agentCell(r)}
                       </div>
                     </div>
                     <div className="rx-amount">{currency(r.amount)}</div>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" style={{ flexShrink:0, opacity:.5 }}><polyline points="9 18 15 12 9 6"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" style={{ flexShrink: 0, opacity: .5 }}><polyline points="9 18 15 12 9 6" /></svg>
                   </div>
                 ))}
               </div>
             </div>
             <div className="rx-drawer-foot">
-              <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Total receipts</span>
-              <span className="rx-amount" style={{ fontSize:15 }}>{currency(donorDetail.receipts.reduce((s, r) => s + Number(r.amount || 0), 0))} <span style={{ fontSize:11, fontWeight:400, color:'var(--ink-soft)' }}>({donorDetail.receipts.length})</span></span>
+              <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Total receipts</span>
+              <span className="rx-amount" style={{ fontSize: 15 }}>{currency(donorDetail.receipts.reduce((s, r) => s + Number(r.amount || 0), 0))} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}>({donorDetail.receipts.length})</span></span>
             </div>
           </div>
         </>
@@ -1101,7 +1103,7 @@ export default function ReceiptHistory() {
               <h3>Edit Receipt — {editingReceipt.receipt_no}</h3>
               <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
                 style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
