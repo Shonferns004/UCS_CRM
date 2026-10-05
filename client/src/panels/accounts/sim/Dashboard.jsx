@@ -4,7 +4,7 @@ import { useSim } from './store';
 import { Icon } from './components';
 import { toast } from '../../../components/Toast';
 import { fetchReplacements } from './api';
-import { effectiveStatus, daysLeft, dayClass, formatDate, pillForStatus } from './helpers';
+import { mobileExpiryStatus, daysLeft, dayClass, formatDate, pillForStatus } from './helpers';
 
 const UFS_NGOS = ['BSCT', 'MANN', 'AFLF'];
 function normUfs(v) { return String(v || '').trim().toUpperCase(); }
@@ -243,7 +243,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
   const data = useMemo(() => {
     const enriched = cards
       .filter((c) => !(c.mobile_id || '').toLowerCase().startsWith('android whatsapp'))
-      .map((c) => ({ ...c, _status: effectiveStatus(c), days_left: c.expiry_date ? daysLeft(c.expiry_date) : c.days_left }));
+      .map((c) => ({ ...c, _status: mobileExpiryStatus(c, inventory), days_left: c.expiry_date ? daysLeft(c.expiry_date) : c.days_left }));
     const total = enriched.reduce((sum, c) => sum + countSims(c), 0);
     const active = enriched.filter((c) => c._status === 'Active').reduce((sum, c) => sum + countSims(c), 0) + enriched.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
     const expiring = enriched.filter((c) => c._status === 'Expiring Soon').reduce((sum, c) => sum + countSims(c), 0);
@@ -266,7 +266,7 @@ export default function Dashboard({ onAdd, onView, onEdit, onReplace }) {
       .slice(0, 8);
 
     return { enriched, total, noSim, active, expiring, expired, replaced, inactive, buckets, urgent };
-  }, [cards]);
+  }, [cards, inventory]);
 
   const inv = useMemo(() => {
     const available = inventory.filter((i) => i.status === 'Available').length;

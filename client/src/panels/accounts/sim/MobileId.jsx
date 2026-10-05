@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { effectiveStatus, dayClass, dayLabel, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, SIM_SLOTS, daysLeft, liveDaysLeft } from './helpers';
+import { mobileExpiryStatus, dayClass, dayLabel, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, SIM_SLOTS, daysLeft, liveDaysLeft } from './helpers';
 import { addSimCard, updateSimCard, deleteSimCard } from './api';
 import { toast } from '../../../components/Toast';
 import { ConfirmDialog } from './ImportModal';
@@ -174,7 +174,7 @@ function MobileIdModal({ open, row, onClose, onSaved }) {
 function MobileIdViewModal({ row, onClose }) {
   if (!row) return null;
   const dl = daysFor(row);
-  const status = effectiveStatus(row);
+  const status = row._status || mobileExpiryStatus(row);
   const Item = ({ k, v }) => (
     <div className="detail-item">
       <div className="k">{k}</div>
@@ -212,7 +212,7 @@ function MobileIdViewModal({ row, onClose }) {
 }
 
 export default function MobileId() {
-  const { cards, refresh } = useSim();
+  const { cards, refresh, inventory } = useSim();
   const [search, setSearch] = useState('');
   const [team, setTeam] = useState('All');
   const [simStatus, setSimStatus] = useState('All');
@@ -224,7 +224,7 @@ export default function MobileId() {
   const [modalOpen, setModalOpen] = useState(false);
   const [viewRow, setViewRow] = useState(null);
 
-  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: effectiveStatus(c) })), [cards]);
+  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: mobileExpiryStatus(c, inventory) })), [cards, inventory]);
 
   const total = enriched.length;
   const assigned = enriched.filter((c) => c.device_model).length;
@@ -310,7 +310,7 @@ export default function MobileId() {
           {teams.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <select className="sim-select" value={simStatus} onChange={(e) => { setSimStatus(e.target.value); setPage(1); }}>
-          {['All', ...SIM_STATUSES].map((s) => <option key={s}>{s}</option>)}
+          {['All', ...SIM_STATUSES, 'No Sim'].map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className="sim-select" value={device} onChange={(e) => { setDevice(e.target.value); setPage(1); }}>
           <option value="All">All Devices</option>

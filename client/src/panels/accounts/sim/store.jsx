@@ -69,15 +69,23 @@ export function SimProvider({ children }) {
     }
   };
 
+  /* The locker endpoints also write/clear the number on the mobile's
+     sim_cards row, so both lists have to be reloaded together - refreshing
+     only the inventory would leave the new number invisible in All SIM Cards
+     until a full page reload. */
+  const refreshBoth = async () => {
+    await Promise.all([refreshInventory(), refresh()]);
+  };
+
   const assignInventoryItem = async (id, data) => {
     const res = await apiAssignInventoryItem(id, data);
-    await refreshInventory();
+    await refreshBoth();
     return res;
   };
 
   const updateInventoryStatus = async (id, status) => {
     const res = await apiUpdateInventoryStatus(id, status);
-    await refreshInventory();
+    await refreshBoth();
     return res;
   };
 
@@ -110,12 +118,12 @@ export function SimProvider({ children }) {
     } catch {
       // A newer backend already cleared these on the status call; nothing to do.
     }
-    await refreshInventory();
+    await refreshBoth();
   };
 
   const deleteInventoryItem = async (id) => {
     const res = await apiDeleteInventoryItem(id);
-    await refreshInventory();
+    await refreshBoth();
     return res;
   };
 
