@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { effectiveStatus, dayClass, dayLabel, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, SIM_SLOTS, daysLeft } from './helpers';
+import { effectiveStatus, dayClass, dayLabel, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, SIM_SLOTS, daysLeft, liveDaysLeft } from './helpers';
 import { addSimCard, updateSimCard, deleteSimCard } from './api';
 import { toast } from '../../../components/Toast';
 import { ConfirmDialog } from './ImportModal';
@@ -15,8 +15,8 @@ function simSlots(c) {
 }
 
 function daysFor(c) {
-  if (c.days_left !== undefined && c.days_left !== null) return c.days_left;
-  return daysLeft(c.expiry_date);
+  // Prefer the expiry date: the stored days_left value is an import snapshot.
+  return liveDaysLeft(c);
 }
 
 function MobileIdModal({ open, row, onClose, onSaved }) {
