@@ -1299,11 +1299,14 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     backendSearchTimerRef.current = setTimeout(async () => {
       setDisposedSearchLoading(true);
       try {
-        // Search the FRO's whole station scope (active + already dispositioned)
-        // — NOT just disposed leads. The backend's default search mode (no
-        // disposed flag) searches every donor assigned to the worker's
-        // stations, so an active/new lead like the one on screen matches too.
-        const results = await searchDonorsByMobile(term);
+        // Search the station the FRO is currently viewing (active + already
+        // dispositioned). Previously this spanned EVERY station the FRO holds,
+        // so a FRO on AOD-7 was shown AOD-5 donors — the single biggest source
+        // of "this donor is on the wrong station" reports.
+        const results = await searchDonorsByMobile(term, {
+          station: selectedStation && selectedStation !== 'all' ? selectedStation : undefined,
+          ngoId: selectedNgo || undefined,
+        });
         setDisposedResults(results || []);
       } catch {
         setDisposedResults([]);
