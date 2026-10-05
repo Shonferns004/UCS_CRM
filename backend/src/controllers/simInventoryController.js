@@ -6,6 +6,7 @@ import {
   deleteInventoryItem,
   bulkInsertInventoryItems,
 } from '../models/simInventoryModel.js';
+import { getAllSimCards, updateSimCard, createSimCardHistory } from '../models/simCardModel.js';
 
 export const INVENTORY_STATUSES = ['Available', 'Assigned', 'Expired', 'Lost', 'Damaged', 'Inactive'];
 
@@ -109,6 +110,160 @@ function finalStatus(item, derived) {
   return derived.derived_status === 'Expired' ? 'Expired' : 'Available';
 }
 
+/* ── Locker → All SIM Cards sync ─────────────────────────────────────────────
+ *
+ * The Locker (sim_inventory) and the "All SIM Cards" table (sim_cards) are two
+ * different tables: assigning a SIM used to write only sim_inventory, so the
+ * number never showed up on the mobile's row in SIM Management → All SIM
+ * Cards. These helpers keep them in step:
+ *
+ *   assign  → the locker's SIM number is written into the first free sim_N
+ *             slot of the mobile's sim_cards row (sim_1..sim_20),
+ *   release → that number is cleared from every sim_cards row,
+ *   edit/delete → same rules follow the changed mobile_id / sim_number.
+ *
+ * Every slot write goes through writeCardPatch() so it also lands in
+ * sim_card_history, exactly like a manual edit of the same slot. A history or
+ * sync failure never fails the Locker operation itself - it surfaces as a
+ * warning message instead. */
+const MAX_SIM_SLOTS = 20;
+/* Empty slot markers used by imports and manual entry: they mean "nothing
+   here", so a locker SIM may take the slot. Compared case-insensitively. */
+const EMPTY_SLOT_VALUES = new Set(['', '-', 'na', 'n/a', 'no sim', 'none']);
+
+const slotKey = (n) => `sim_${n}`;
+const slotText = (v) => (v === null || v === undefined ? '' : String(v).trim());
+const slotIsEmpty = (v) => EMPTY_SLOT_VALUES.has(slotText(v).toLowerCase());
+const sameNumber = (a, b) => {
+  const x = slotText(a).toLowerCase();
+  return x !== '' && x === slotText(b).toLowerCase();
+};
+
+function freeSlotOf(card) {
+  for (let n = 1; n <= MAX_SIM_SLOTS; n++) if (slotIsEmpty(card[slotKey(n)])) return n;
+  return null;
+}
+
+function slotsHolding(card, simNumber) {
+  const held = [];
+  for (let n = 1; n <= MAX_SIM_SLOTS; n++) if (sameNumber(card[slotKey(n)], simNumber)) held.push(n);
+  return held;
+}
+
+/* Which sim_cards row belongs to a mobile_id. Android phones show the numbers
+   merged from their "android whatsapp N" card (see the enriched merge in
+   Inventory.jsx) - that card is where the numbers are read from, so it is the
+   one that must receive a newly assigned SIM, and the phone's own row is only
+   the fallback when there is no WhatsApp twin. */
+function findCardByMobile(cards, mobileId) {
+  const mid = slotText(mobileId).toLowerCase();
+  if (!mid) return null;
+  const m = mid.match(/^android\s+(\d+)$/);
+  if (m) {
+    const wa = cards.find((c) => slotText(c.mobile_id).toLowerCase() === `android whatsapp ${m[1]}`);
+    if (wa) return wa;
+  }
+  return cards.find((c) => slotText(c.mobile_id).toLowerCase() === mid) || null;
+}
+
+async function writeCardPatch(card, patch, changedBy) {
+  const changedCols = {};
+  Object.entries(patch).forEach(([k, v]) => {
+    const prev = card[k] ?? null;
+    const next = v ?? null;
+    if (String(prev) !== String(next)) changedCols[k] = { old: prev, new: next };
+  });
+  if (!Object.keys(changedCols).length) return card;
+  const updated = await updateSimCard(card.id, patch);
+  try {
+    await createSimCardHistory({
+      sim_card_id: card.id,
+      changed_by: changedBy,
+      changed_cols: changedCols,
+      before_data: card,
+      after_data: { ...card, ...patch },
+    });
+  } catch {
+    /* history is an audit trail, never a blocker */
+  }
+  return updated;
+}
+
+async function unlinkNumber(simNumber, changedBy) {
+  const num = slotText(simNumber);
+  if (!num) return;
+  let cards;
+  try {
+    cards = await getAllSimCards();
+  } catch {
+    return;
+  }
+  for (const card of cards) {
+    const held = slotsHolding(card, num);
+    if (!held.length) continue;
+    const patch = {};
+    held.forEach((n) => { patch[slotKey(n)] = null; });
+    try {
+      await writeCardPatch(card, patch, changedBy);
+    } catch {
+      /* keep going: one broken row must not strand the rest */
+    }
+  }
+}
+
+/* Returns a warning string when the number could not be shown in All SIM
+   Cards, or null when the mobile's row now carries it. */
+async function linkNumberToMobile(simNumber, mobileId, changedBy) {
+  const num = slotText(simNumber);
+  if (!num) return null;
+  let cards;
+  try {
+    cards = await getAllSimCards();
+  } catch (e) {
+    return `SIM assigned, but All SIM Cards could not be refreshed (${e.message})`;
+  }
+  const target = findCardByMobile(cards, mobileId);
+  /* The number may still sit on the row of a previously assigned phone. */
+  for (const card of cards) {
+    if (target && card.id === target.id) continue;
+    const held = slotsHolding(card, num);
+    if (!held.length) continue;
+    const patch = {};
+    held.forEach((n) => { patch[slotKey(n)] = null; });
+    try {
+      await writeCardPatch(card, patch, changedBy);
+    } catch {
+      /* ignore, the link below still runs */
+    }
+  }
+  if (!target) {
+    return `SIM assigned, but no SIM Card row matches Mobile ID "${slotText(mobileId)}" - the number will not appear in All SIM Cards.`;
+  }
+  if (slotsHolding(target, num).length) return null;
+  const slot = freeSlotOf(target);
+  if (!slot) {
+    return `SIM assigned, but ${slotText(mobileId)} has no free SIM slot (sim_1..sim_20) - the number will not appear in All SIM Cards.`;
+  }
+  try {
+    await writeCardPatch(target, { [slotKey(slot)]: num }, changedBy);
+    return null;
+  } catch (e) {
+    return `SIM assigned, but the number could not be written to All SIM Cards (${e.message})`;
+  }
+}
+
+const changedByOf = (req) => req.user?.login_id || req.user?.name || req.user?.id || null;
+
+/* Best-effort sync wrapped so a sim_cards hiccup can never fail the Locker
+   call itself - the caller turns a thrown error into a warning message. */
+async function syncWarn(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    return `Sim Cards sync failed (${e.message})`;
+  }
+}
+
 export const addInventoryItem = async (req, res) => {
   try {
     const body = clean(req.body);
@@ -164,8 +319,27 @@ export const editInventoryItem = async (req, res) => {
     }
     const derived = computeExpiry(applyAutoExpiry(body).expiry_date);
     body.status = finalStatus({ status: body.status }, derived);
+    const before = await getInventoryItemById(req.params.id);
+    if (!before) return res.status(404).json({ message: 'Inventory item not found' });
     const item = await updateInventoryItem(req.params.id, body);
-    return res.json({ message: 'Inventory item updated', item, days_left: derived.days_left });
+    /* Keep the mobile's sim_cards row in step with the edit: a new number
+       replaces the old one, a changed/cleared mobile_id moves or removes it. */
+    const changedBy = changedByOf(req);
+    const oldNum = slotText(before.sim_number);
+    const newNum = slotText(item.sim_number);
+    const beforePhone = slotText(before.mobile_id);
+    const afterPhone = slotText(item.mobile_id);
+    let warning = null;
+    if (oldNum && !sameNumber(oldNum, newNum)) {
+      await syncWarn(() => unlinkNumber(oldNum, changedBy));
+    }
+    if (beforePhone !== afterPhone && beforePhone) {
+      await syncWarn(() => unlinkNumber(newNum || oldNum, changedBy));
+    }
+    if (afterPhone && newNum) {
+      warning = await syncWarn(() => linkNumberToMobile(newNum, afterPhone, changedBy));
+    }
+    return res.json({ message: 'Inventory item updated', item, days_left: derived.days_left, warning });
   } catch (error) {
     if (error?.code === '23505') {
       return res.status(409).json({ message: 'SIM Number already exists in inventory' });
@@ -176,6 +350,12 @@ export const editInventoryItem = async (req, res) => {
 
 export const removeInventoryItem = async (req, res) => {
   try {
+    const before = await getInventoryItemById(req.params.id);
+    /* Deleting an assigned SIM must not leave its number behind on the
+       mobile's row in All SIM Cards. */
+    if (before && slotText(before.mobile_id) && slotText(before.sim_number)) {
+      await syncWarn(() => unlinkNumber(before.sim_number, changedByOf(req)));
+    }
     await deleteInventoryItem(req.params.id);
     return res.json({ message: 'Inventory item deleted' });
   } catch (error) {
@@ -200,7 +380,12 @@ export const assignInventoryItem = async (req, res) => {
       assignment_date: assignment_date || new Date().toISOString().slice(0, 10),
       status: 'Assigned',
     });
-    return res.json({ message: 'SIM assigned', item: updated });
+    /* The Locker row alone is not enough: All SIM Cards reads sim_cards, so
+       the number has to be written onto the mobile's row as well. */
+    const warning = await syncWarn(() => linkNumberToMobile(
+      updated.sim_number, updated.mobile_id, changedByOf(req),
+    ));
+    return res.json({ message: 'SIM assigned', item: updated, warning });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -218,6 +403,8 @@ export const updateStatus = async (req, res) => {
        `assigned_to` is deliberately left alone: it holds the SIM's owner name,
        which belongs to the SIM itself and survives a release. */
     const updates = { status };
+    const before = await getInventoryItemById(req.params.id);
+    if (!before) return res.status(404).json({ message: 'Inventory item not found' });
     if (status !== 'Assigned') {
       Object.assign(updates, {
         mobile_id: null,
@@ -227,6 +414,11 @@ export const updateStatus = async (req, res) => {
       });
     }
     const item = await updateInventoryItem(req.params.id, updates);
+    /* A SIM handed back to the locker must also leave the mobile's row in
+       All SIM Cards, otherwise a released number keeps showing on the phone. */
+    if (status !== 'Assigned' && slotText(before.mobile_id) && slotText(before.sim_number)) {
+      await syncWarn(() => unlinkNumber(before.sim_number, changedByOf(req)));
+    }
     const derived = computeExpiry(applyAutoExpiry({ ...item }).expiry_date);
     return res.json({ message: 'Status updated', item: { ...item, status, ...derived } });
   } catch (error) {
@@ -241,6 +433,10 @@ export const deleteBulk = async (req, res) => {
       return res.status(400).json({ message: 'No items selected' });
     }
     for (const id of ids) {
+      const before = await getInventoryItemById(id);
+      if (before && slotText(before.mobile_id) && slotText(before.sim_number)) {
+        await syncWarn(() => unlinkNumber(before.sim_number, changedByOf(req)));
+      }
       await deleteInventoryItem(id);
     }
     return res.json({ message: `${ids.length} item(s) deleted` });

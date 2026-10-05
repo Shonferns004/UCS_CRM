@@ -2,12 +2,12 @@ import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef } from 
 import { MoreHorizontal, Plus, Eye, PencilLine, RefreshCw, History, Trash2 } from 'lucide-react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { effectiveStatus, dayClass, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, liveDaysLeft } from './helpers';
+import { mobileExpiryStatus, dayClass, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, liveDaysLeft, isPlaceholder } from './helpers';
 import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from '../../../components/Toast';
 import { ConfirmDialog } from './ImportModal';
 
-const STATUS_FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive'];
+const STATUS_FILTERS = ['All', 'Assigned', 'Active', 'Expiring Soon', 'Expired', 'Replaced', 'Inactive', 'No Sim'];
 const EXPIRY_FILTERS = ['All', 'Expired', 'Within 5 Days', 'Within 28 Days', 'More than 28 Days'];
 const SIM_NAME_FILTERS = ['Android', 'Nokia'];
 const WHATSAPP_NAME_FILTERS = ['All', 'BSCT', 'MANN', 'AFLF'];
@@ -23,6 +23,7 @@ const COLUMNS = [
   { key: 'mobile_id', label: 'Mobile ID No.' },
   { key: 'device_model', label: 'Device & Model Name' },
   { key: 'imei', label: 'IMEI No.' },
+  { key: 'status', label: 'Status' },
   { key: 'team', label: 'Team' },
   { key: 'w1_name', label: 'NGO' },
   { key: 'sim_1', label: 'W1 Number' },
@@ -52,7 +53,7 @@ const NOKIA_COLUMNS = [
 ];
 
 export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, onHistory, simName: simNameProp, onSimNameChange }) {
-  const { cards, refresh } = useSim();
+  const { cards, refresh, inventory, refreshInventory } = useSim();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
   const [owner, setOwner] = useState('All');
@@ -64,6 +65,10 @@ export default function Inventory({ onAdd, onView, onEdit, onReplace, onDelete, 
 const simName = simNameProp || simNameLocal;
 const setSimName = (v) => { setSimNameState(v); if (onSimNameChange) onSimNameChange(v); };
 useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }, [simNameProp]);
+  /* The status verdict joins the Locker (an assigned SIM's own expiry decides
+     whether the phone reads Active or Expired), so its list is loaded here even
+     when the SIM Inventory page was never opened. */
+  useEffect(() => { refreshInventory(); /* eslint-disable-next-line */ }, []);
   const [waName, setWaName] = useState('All');
   const [expiry, setExpiry] = useState('All');
   const [sortKey, setSortKey] = useState('mobile_id');
@@ -137,26 +142,87 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
     return map;
   }, [cards]);
 
+  /* A SIM assigned in the Locker lives in sim_inventory, while this table
+     reads sim_cards - two different tables, so the mobile's own status word
+     never changes when a SIM is handed to it. The two are joined on
+     mobile_id here, which is the same rule the Locker tabs use, so All SIM
+     Cards can show "Assigned" for a mobile that currently carries a locker
+     SIM. The WhatsApp alias matters because the backend links Android
+     phones through their "android whatsapp N" card. */
+  const lockerByMobile = useMemo(() => {
+    const map = {};
+    (inventory || []).forEach((it) => {
+      const id = String(it.mobile_id || '').trim().toLowerCase();
+      if (!id) return;
+      map[id] = it;
+      const wa = id.match(/^android whatsapp\s+(\d+)$/);
+      if (wa) map[`android ${wa[1]}`] = it;
+    });
+    return map;
+  }, [inventory]);
+
   const enriched = useMemo(() => cards.map((c) => {
     const merged = { ...c };
     const mm = String(c.mobile_id || '').match(/^android\s+(\d+)$/i);
-    if (mm && (c.mobile_id || '').toLowerCase().startsWith('android ') && !(c.mobile_id || '').toLowerCase().startsWith('android whatsapp')) {
-      const w = whatsappMerge[mm[1]];
-      if (w) {
-        merged.w1_name = w.w1_name; merged.sim_1 = w.sim_1;
-        merged.w2_name = w.w2_name; merged.sim_2 = w.sim_2;
-        merged.w3_name = w.w3_name; merged.sim_3 = w.sim_3;
-        merged.w4_name = w.w4_name; merged.sim_4 = w.sim_4;
+      if (mm && (c.mobile_id || '').toLowerCase().startsWith('android ') && !(c.mobile_id || '').toLowerCase().startsWith('android whatsapp')) {
+        const w = whatsappMerge[mm[1]];
+        if (w) {
+          /* The WhatsApp card carries the real numbers for slots 1-4, but a
+             SIM assigned from the Locker can land in the phone's own row - so
+             the phone's value shows whenever WhatsApp has nothing there,
+             instead of being hidden behind a placeholder. */
+          for (let n = 1; n <= 4; n++) {
+            const fromW = w[`sim_${n}`];
+            const own = c[`sim_${n}`];
+            merged[`w${n}_name`] = w[`w${n}_name`];
+            merged[`sim_${n}`] = isPlaceholder(fromW) && !isPlaceholder(own) ? own : fromW;
+          }
+          /* Slots past W4 carry SIMs assigned from the Locker, which the backend
+             writes to the WhatsApp card for Android phones - without copying them
+             here they would stay invisible on the phone's row. The phone's own
+             value is the fallback for slots that were filled by hand. */
+          for (let n = 5; n <= 8; n++) {
+            merged[`sim_${n}`] = w[`sim_${n}`] ?? c[`sim_${n}`] ?? null;
+          }
+        }
       }
-    }
-    return { ...merged, days_left: liveDaysLeft(merged), _status: effectiveStatus(merged) };
-  }), [cards, whatsappMerge]);
+    const locker = lockerByMobile[String(c.mobile_id || '').trim().toLowerCase()] || null;
+    return {
+      ...merged,
+      days_left: liveDaysLeft(merged),
+      /* Verdict, not the stored status word: a phone whose SIMs have all run
+         out reads Expired here even though the import still says "Active". */
+      _status: mobileExpiryStatus(merged, inventory),
+      _assigned: !!locker,
+      _assignedLocker: locker,
+    };
+  }), [cards, whatsappMerge, lockerByMobile, inventory]);
+
+  /* Two separate facts live side by side: whether a locker SIM sits in this
+     mobile (Assigned) and whether the phone still carries a valid SIM
+     (Active / Expiring Soon / Expired). The cell shows both, and the filter
+     answers either question, so an assigned-but-active row appears under
+     "Assigned" as well as under "Active". */
+  const expiryStatusOf = (c) => c._status;
+  const statusOf = (c) => (c._assigned ? 'Assigned' : expiryStatusOf(c));
 
   const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
   const devices = useMemo(() => [...new Set(enriched.map((c) => c.device_model).filter(Boolean))].sort(), [enriched]);
   const remarkOf = (c) => (simName === 'Nokia' ? (c.remark ?? '') : (c.signature ?? '')).toString().trim();
   const remarks = useMemo(() => [...new Set(enriched.map(remarkOf).filter(Boolean))].sort(), [enriched, simName]);
-  const nokiaStatuses = useMemo(() => [...new Set(enriched.filter((c) => (c.mobile_id || '').toLowerCase().startsWith('ufrs')).map((c) => c.status).filter(Boolean))].sort(), [enriched]);
+  const nokiaStatuses = useMemo(() => {
+    const set = new Set();
+    enriched.forEach((c) => {
+      if (!(c.mobile_id || '').toLowerCase().startsWith('ufrs')) return;
+      /* The options are the verdicts the rows actually render - the stored
+         word is what the import said, not what the phone still is. */
+      if (c._status) set.add(c._status);
+      /* "Assigned" comes from the Locker, so it has to be offered explicitly
+         or the row could never be filtered by it. */
+      if (c._assigned) set.add('Assigned');
+    });
+    return [...set].sort();
+  }, [enriched]);
 
   useEffect(() => { setPage(1); }, [search, status, owner, remark, team, device, simName, waName, expiry]);
 
@@ -172,7 +238,9 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
           simHit;
       });
     }
-    if (status !== 'All') list = list.filter((c) => (simName === 'Nokia' ? c.status : c._status) === status);
+    if (status !== 'All') {
+      list = list.filter((c) => (status === 'Assigned' ? !!c._assigned : expiryStatusOf(c) === status));
+    }
     if (owner !== 'All') list = list.filter((c) => normOwner(c.team) === normOwner(owner));
     if (remark !== 'All') list = list.filter((c) => remarkOf(c) === remark);
     if (team !== 'All') list = list.filter((c) => c.team === team);
@@ -217,7 +285,7 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
         }
         let va = a[sortKey], vb = b[sortKey];
         if (sortKey === 'days_left') { va = va === null ? Infinity : va; vb = vb === null ? Infinity : vb; }
-        if (sortKey === 'status') { va = a.status; vb = b.status; }
+        if (sortKey === 'status') { va = statusOf(a); vb = statusOf(b); }
         if (sortKey === 'issue_date' || sortKey === 'expiry_date') { va = va || '9999-12-31'; vb = vb || '9999-12-31'; }
         if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va;
         va = String(va ?? '').toLowerCase(); vb = String(vb ?? '').toLowerCase();
@@ -234,7 +302,20 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
   const start = (safePage - 1) * perPage;
   const pageRows = filtered.slice(start, start + perPage);
   const selectedCount = Object.values(selected).filter(Boolean).length;
-  const activeColumns = simName === 'Nokia' ? NOKIA_COLUMNS : COLUMNS;
+  const baseColumns = simName === 'Nokia' ? NOKIA_COLUMNS : COLUMNS;
+  const baseMaxSlot = simName === 'Nokia' ? 2 : 4;
+  /* Extra number columns: the fixed layouts stop at Sim 2 (Nokia) / W4
+     (Android), so a SIM assigned from the Locker into sim_5..sim_8 would have
+     nowhere to show up. A column is added only while some card actually uses
+     that slot, which keeps the table exactly as it looks today until needed. */
+  const extraColumns = useMemo(() => {
+    const used = [];
+    for (let n = baseMaxSlot + 1; n <= 8; n++) {
+      if (enriched.some((c) => !isPlaceholder(c[`sim_${n}`]))) used.push(n);
+    }
+    return used.map((n) => ({ key: `sim_${n}`, label: `SIM ${n}` }));
+  }, [enriched, baseMaxSlot]);
+  const activeColumns = [...baseColumns, ...extraColumns];
 
   const toggleSort = (key) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -402,8 +483,19 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
                             </Fragment>
                           ) : <td key={col.key} style={{ fontWeight: 600 }}>{idLink}</td>;
                         }
-                        case 'status':
-                          return <td key={col.key}><span className={`pill ${pillForStatus(c.status)}`}>{c.status || '—'}</span></td>;
+                        case 'status': {
+                          /* Assigned and the expiry verdict are shown together
+                             (Nokia and Android alike) so an assigned SIM still
+                             reads Active, Expiring Soon or Expired. */
+                          const expiry = expiryStatusOf(c);
+                          const assigned = !!c._assigned;
+                          return (
+                            <td key={col.key} className="status-cell">
+                              {assigned && <span className="pill pill-assigned">Assigned</span>}
+                              {expiry ? <span className={`pill ${pillForStatus(expiry)}`}>{expiry}</span> : null}
+                            </td>
+                          );
+                        }
                         case 'issue_date':
                         case 'expiry_date':
                           return <td key={col.key}>{formatDate(v)}</td>;

@@ -49,7 +49,10 @@ function SectionInner() {
   const [deleting, setDeleting] = useState(false)
   const [simName, setSimName] = useState('All')
 
-  useEffect(() => { sim.refresh(); /* eslint-disable-next-line */ }, [])
+  /* Cards and the Locker both load up front: the status verdict everywhere
+     (Active vs Expired) joins the two, so neither may wait for its own page
+     to be visited first. */
+  useEffect(() => { sim.refresh(); sim.refreshInventory(); /* eslint-disable-next-line */ }, [])
 
   /* The sticky topbar's height is content-driven, so it is measured rather than
      hard-coded, and published as --sim-chrome-top for the SIM History overlay to

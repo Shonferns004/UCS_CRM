@@ -212,6 +212,13 @@
 .panel-accounts .sim-scope .pill-expiring { background: var(--sim-amber-soft); color: var(--sim-amber); }
 .panel-accounts .sim-scope .pill-expired { background: var(--sim-red-soft); color: var(--sim-red); }
 .panel-accounts .sim-scope .pill-replaced { background: var(--sim-blue-soft); color: var(--sim-blue-dark); }
+.panel-accounts .sim-scope .pill-assigned { background: var(--sim-blue-soft); color: var(--sim-blue); font-weight: 700; }
+/* Assigned and the expiry verdict sit in the same cell / card header, so the
+   two pills need a gap instead of running into each other. */
+.panel-accounts .sim-scope .sim-table td .pill + .pill,
+.panel-accounts .sim-scope .stock-cards .pill + .pill,
+.panel-accounts .sim-scope .se-sum-cell .pill + .pill,
+.panel-accounts .sim-scope .detail-item .pill + .pill { margin-left: 6px; }
 .panel-accounts .sim-scope .pill-inactive { background: var(--sim-gray-soft); color: var(--sim-gray); }
 .panel-accounts .sim-scope .pill-neutral { background: var(--sim-gray-soft); color: var(--sim-gray); }
 

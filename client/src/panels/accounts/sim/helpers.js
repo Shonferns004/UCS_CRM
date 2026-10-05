@@ -98,6 +98,7 @@ export function dayLabel(dl) {
 export function pillForStatus(status) {
   const map = {
     Active: 'pill-active',
+    Assigned: 'pill-assigned',
     'Expiring Soon': 'pill-expiring',
     Expired: 'pill-expired',
     Replaced: 'pill-replaced',
@@ -125,6 +126,68 @@ export function liveDaysLeft(card) {
   if (!card) return null;
   if (card.expiry_date) return daysLeft(card.expiry_date);
   return card.days_left !== undefined && card.days_left !== null ? card.days_left : null;
+}
+
+/* Two spellings can describe the same phone: "android 1" is also linked through
+   its "android whatsapp 1" card. Every Locker -> card join (table pills, the
+   detail drawer, the status verdict) accepts either direction. */
+export function sameMobileId(a, b) {
+  const x = String(a || '').trim().toLowerCase();
+  const y = String(b || '').trim().toLowerCase();
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const wa = x.match(/^android whatsapp\s+(\d+)$/);
+  if (wa && `android ${wa[1]}` === y) return true;
+  const wb = y.match(/^android whatsapp\s+(\d+)$/);
+  return !!wb && `android ${wb[1]}` === x;
+}
+
+/* Live expiry verdict for a mobile: Active only while the phone still carries
+   at least one SIM that has not run out. When a Locker row sits on the phone it
+   decides (it owns its own number's dates and is immune to the stale imported
+   days_left snapshot); otherwise the card's own dates decide, which is what
+   effectiveStatus already does for a phone with no Locker SIM. A phone whose
+   numbers have all run out reads Expired instead of sitting on the stored
+   "Active" word forever. Thresholds match effectiveStatus (>5 Active, 0-5
+   Expiring Soon) so the Dashboard, the Expiring page and this table agree. */
+export function mobileExpiryStatus(card, inventory = []) {
+  if (!card) return null;
+  const base = card.status || 'Active';
+  if (base === 'Replaced') return 'Replaced';
+
+  const rows = inventory || [];
+  const assigned = rows.filter((it) => sameMobileId(it?.mobile_id, card.mobile_id));
+  const nums = simNumbersOf(card);
+
+  /* A mobile that carries no SIM at all is not "Active" - there is nothing
+     that could be active. Neither the Locker nor any card slot holds a number
+     for it, so it says so instead. */
+  if (!assigned.length && !nums.length) return 'No Sim';
+
+  const dls = [];
+  if (assigned.length) {
+    assigned.forEach((it) => dls.push(liveDaysLeft(it)));
+  } else {
+    const byNumber = new Map();
+    rows.forEach((row) => {
+      const k = String(row?.sim_number || '').trim().toLowerCase();
+      if (k && !byNumber.has(k)) byNumber.set(k, row);
+    });
+    nums.forEach((s) => {
+      const inv = byNumber.get(String(s.number).trim().toLowerCase()) || null;
+      dls.push(inv ? liveDaysLeft(inv) : liveDaysLeft(card));
+    });
+  }
+
+  if (dls.every((d) => d === null)) return base === 'Inactive' ? 'Inactive' : 'Active';
+  /* Every number has a date in the past - there is no active SIM left. One
+     number with an unknown date keeps the phone active: expiry is never
+     assumed. */
+  if (!dls.some((d) => d === null || d >= 0)) return 'Expired';
+  if (base === 'Inactive') return 'Inactive';
+  const known = dls.filter((d) => d !== null);
+  const soonest = known.length ? Math.min(...known.filter((d) => d >= 0)) : Infinity;
+  return soonest <= 5 ? 'Expiring Soon' : 'Active';
 }
 
 /* Slot cells keep the placeholder the source spreadsheet used for "no SIM
@@ -158,9 +221,14 @@ export function simNumbersOf(card) {
 
    Date source per number, best first:
      1. the SIM Locker row (`sim_inventory`) for that exact number - the only
-        place individual numbers carry their own issue/expiry dates;
+        place individual numbers carry their own issue/expiry dates, and the
+        only one immune to a stale card-level expiry;
      2. the mobile's own issue/expiry dates, which is what the schema stores
         per number by default.
+   A number the Locker has handed to this phone that never made it into a
+   sim_cards slot (the sync warning case) or that sits on the phone's WhatsApp
+   twin is added from the Locker's own mobile_id, so the drawer never reports
+   "0 active" for a phone that plainly carries one.
    Numbers that left the mobile are recovered from two audit trails so past
    SIMs never disappear: the replacement log (`old_sim` + replacement date)
    and the card's edit history (`changed_cols.sim_N.old` + when it changed).
@@ -184,8 +252,13 @@ export function classifySims({ card, inventory = [], replacements = [], history 
     current.add(s.number.toLowerCase());
     const inv = lockerByNumber.get(s.number.toLowerCase()) || null;
     const activatedOn = inv?.issue_date || inv?.assignment_date || card?.issue_date || null;
-    const expiresOn = inv?.expiry_date || card?.expiry_date || null;
-    const dl = expiresOn ? daysLeft(expiresOn) : null;
+    /* The Locker row owns its own number's dates; the card's dates only speak
+       for numbers the Locker has never heard of. Falling back to the card when
+       a Locker row exists is what pushed a SIM assigned today into the Expired
+       list - the phone's own auto-expiry was long past while the new SIM is
+       weeks from expiring. */
+    const expiresOn = inv ? (inv.expiry_date || null) : (card?.expiry_date || null);
+    const dl = inv ? liveDaysLeft(inv) : liveDaysLeft(card);
     const row = {
       key: `cur-${s.n}-${s.number}`,
       slot: s.n,
@@ -193,6 +266,32 @@ export function classifySims({ card, inventory = [], replacements = [], history 
       ngo: s.ngo,
       activatedOn,
       expiresOn,
+      daysLeft: dl,
+      note: null,
+    };
+    if (dl !== null && dl < 0) expired.push(row);
+    else active.push(row);
+  }
+
+  /* A SIM this Locker handed to the phone belongs on the list even when the
+     sim_cards slot write failed (the warning toast case) or when the number
+     landed on the phone's WhatsApp twin and this row is the phone's own card.
+     Without it the drawer reports "0 active" for a phone that plainly carries
+     one. */
+  for (const it of inventory) {
+    if (!sameMobileId(it?.mobile_id, card?.mobile_id)) continue;
+    const num = String(it.sim_number || '').trim();
+    const key = num.toLowerCase();
+    if (!num || isPlaceholder(num) || current.has(key)) continue;
+    current.add(key);
+    const dl = liveDaysLeft(it);
+    const row = {
+      key: `locker-${key}`,
+      slot: null,
+      number: num,
+      ngo: '',
+      activatedOn: it.issue_date || it.assignment_date || null,
+      expiresOn: it.expiry_date || null,
       daysLeft: dl,
       note: null,
     };
@@ -246,7 +345,9 @@ export function classifySims({ card, inventory = [], replacements = [], history 
     }
   }
 
-  active.sort((a, b) => a.slot - b.slot);
+  /* Locker-sourced rows carry no slot number, so a plain subtraction would be
+     NaN and leave them in whatever order they arrived. */
+  active.sort((a, b) => (a.slot ?? 999) - (b.slot ?? 999));
   expired.sort((a, b) => {
     if (a.slot !== b.slot && a.slot !== null && b.slot !== null) return a.slot - b.slot;
     if (a.slot === null && b.slot !== null) return 1;
