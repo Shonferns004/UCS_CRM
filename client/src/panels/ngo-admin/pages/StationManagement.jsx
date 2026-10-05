@@ -1509,7 +1509,7 @@ function donorTimeSince(iso) {
 //     red and offers to run again over the remainder.
 //   - Delete half a duplicate pair. The endpoint is all-or-nothing for the same
 //     reason; the modal never presents a partial success as a complete one.
-function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
+function StationDonorsModal({ station, ngoList, defaultNgoId, onClose, onChanged, onDownloadExcel }) {
   const [loading, setLoading] = useState(true);
   const [donors, setDonors] = useState([]);
   const [search, setSearch] = useState('');
@@ -1529,10 +1529,38 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
   const [blocked, setBlocked] = useState([]);
   const [result, setResult] = useState(null);
 
+  // ── NGO scope ────────────────────────────────────────────────────────────
+  //
+  // A station NAME is shared across NGOs - 'DH-5' is BOD-15 for BSCT, AOD-15 for
+  // AFLF and MOD-15 for MANN - so one name can hold a completely separate set of
+  // donors in each. The station row already shows one count pill per NGO
+  // ("BSCT: 900  MANN: 754"), which is why opening the list used to disagree with
+  // it: the list was asked for the station name alone and the endpoint unioned
+  // every NGO, returning 1824.
+  //
+  // So the scope is explicit and defaults to a single NGO: the tab the admin is
+  // currently looking at when that NGO owns this station, otherwise the station's
+  // first NGO. "All NGOs" stays reachable but is opt-in, and when it is used the
+  // table grows an NGO column so a combined list can never be misread as one
+  // station's donors.
+  const ngoOptions = useMemo(
+    () => (ngoList || []).filter(n => n && n.ngo_id).map(n => ({ id: String(n.ngo_id), name: n.ngo_name || '' })),
+    [ngoList],
+  );
+  const [activeNgo, setActiveNgo] = useState(() => String(defaultNgoId || ''));
+
+  // Re-scope when the caller hands down a different default (a different station
+  // row), but never stomp a choice the admin already made in this modal.
+  useEffect(() => {
+    if (defaultNgoId) setActiveNgo(String(defaultNgoId));
+  }, [defaultNgoId]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    apiGet(`/ngo-admin/donors-by-station?station=${encodeURIComponent(station)}`)
+    const params = new URLSearchParams({ station });
+    if (activeNgo) params.set('ngo_id', activeNgo);
+    apiGet(`/ngo-admin/donors-by-station?${params}`)
       .then(data => {
         if (cancelled) return;
         setDonors(Array.isArray(data) ? data : []);
@@ -1542,7 +1570,7 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
       .catch(err => { if (!cancelled) toast(err.message, 'error'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [station, refreshKey]);
+  }, [station, activeNgo, refreshKey]);
 
   // A station's rows can number in the hundreds, so every filter runs over the
   // full list and only the page slice is rendered.
@@ -1681,6 +1709,8 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
 
   const fieldStyle = { fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', background: '#fff' };
   const totalSelected = selected.length;
+  const scopeIsUnion = !activeNgo;
+  const activeNgoName = ngoOptions.find(n => n.id === activeNgo)?.name || '';
 
   return (
     <div className="modal-overlay" onClick={close}>
@@ -1688,12 +1718,42 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
         <div className="modal-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>Assigned Donors — {station}</h3>
+            {activeNgoName && <span className="pill pill-green">{activeNgoName}</span>}
+            {scopeIsUnion && <span className="pill pill-yellow">All NGOs combined</span>}
             <span className="pill pill-blue">{donors.length} donor{donors.length === 1 ? '' : 's'}</span>
           </div>
           <button className="btn btn-sm btn-outline" onClick={close} aria-label="Close"><X size={14} /></button>
         </div>
 
         <div className="modal-body" style={{ fontSize: 13 }}>
+          {/* NGO scope. The count above is scoped to this choice, so it always
+              matches the per-NGO pill on the station row it was opened from. */}
+          {ngoOptions.length > 1 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                NGO
+              </span>
+              {ngoOptions.map(n => (
+                <button
+                  key={n.id}
+                  className={`btn btn-sm ${activeNgo === n.id ? '' : 'btn-outline'}`}
+                  onClick={() => setActiveNgo(n.id)}
+                  style={activeNgo === n.id ? { background: 'var(--brand, #0f766e)', color: '#fff', borderColor: 'transparent' } : undefined}
+                >
+                  {n.name}
+                </button>
+              ))}
+              <button
+                className={`btn btn-sm ${scopeIsUnion ? '' : 'btn-outline'}`}
+                onClick={() => setActiveNgo('')}
+                title="Combine every NGO that uses this station name. These are different stations that share a name, so their donor counts add up."
+                style={scopeIsUnion ? { background: '#b45309', color: '#fff', borderColor: 'transparent' } : undefined}
+              >
+                All NGOs
+              </button>
+            </div>
+          )}
+
           {/* Filters + export */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
@@ -1711,7 +1771,7 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
               <option value="">All categories</option>
               {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <button className="btn btn-sm btn-outline" onClick={onDownloadExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button className="btn btn-sm btn-outline" onClick={() => onDownloadExcel(activeNgo)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Download size={13} /> Download Excel
             </button>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
@@ -1861,7 +1921,9 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
             <div className="loading" style={{ padding: 24 }}>Loading donors…</div>
           ) : donors.length === 0 ? (
             <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
-              <p style={{ color: 'var(--ink-soft)', margin: 0 }}>No donors are assigned to {station}.</p>
+              <p style={{ color: 'var(--ink-soft)', margin: 0 }}>
+                No donors are assigned to {station}{activeNgoName ? ` for ${activeNgoName}` : ''}.
+              </p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="empty-state" style={{ padding: 20, textAlign: 'center' }}>
@@ -1875,6 +1937,10 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
                     <th style={{ width: 34 }}>
                       <input type="checkbox" checked={allOnPageSelected} readOnly onChange={togglePage} aria-label="select page" />
                     </th>
+                    {/* NGO column only in the combined view: when scoped to one
+                        NGO every row shares it, and when combined it is the only
+                        thing that tells two same-named stations apart. */}
+                    {scopeIsUnion && <th style={{ width: '8%' }}>NGO</th>}
                     <th style={{ width: '20%' }}>Donor</th>
                     <th style={{ width: '13%' }}>Mobile</th>
                     <th style={{ width: '10%' }}>Category</th>
@@ -1894,6 +1960,11 @@ function StationDonorsModal({ station, onClose, onChanged, onDownloadExcel }) {
                         <td style={{ padding: '6px 4px' }}>
                           <input type="checkbox" checked={isSel} onChange={() => toggle(d.id)} aria-label={`select ${d.donor_name || 'donor'}`} />
                         </td>
+                        {scopeIsUnion && (
+                          <td style={{ fontSize: 11 }}>
+                            <span className="pill" style={{ fontSize: 10 }}>{d.ngo_name || '—'}</span>
+                          </td>
+                        )}
                         <td style={{ fontWeight: 600 }}>{d.donor_name || '—'}</td>
                         <td style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {d.donor_mobile || '—'}
@@ -1978,10 +2049,23 @@ export default function StationManagement() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef(null);
   const [ncfOpen, setNcfOpen] = useState(false);
-  // Station whose "View donor list" modal is open (null = closed). Kept as a
-  // station name rather than a row object so the modal survives a stations
-  // refetch, which is what fetchData() after a deletion triggers.
-  const [donorListStation, setDonorListStation] = useState(null);
+  // The station whose "View donor list" modal is open, held as { station, ngoList,
+  // defaultNgoId } rather than a bare name. A station name is reused across NGOs
+  // (DH-5 is BOD-15/AOD-15/MOD-15), so the modal needs to know WHICH of them the
+  // admin clicked - without it the list unions them all and the count disagrees
+  // with the per-NGO pill on the row.
+  const [donorListTarget, setDonorListTarget] = useState(null);
+
+  // Resolve which NGO a station row means: the tab currently being viewed when
+  // that NGO owns this station, else the row's first NGO. Falls back to null when
+  // the station belongs to no NGO, which the endpoint treats as "no scope".
+  const ngoScopeForRow = (s) => {
+    const rowNgos = (s.ngos || []).filter(n => n && n.ngo_id);
+    if (rowNgos.length === 0) return null;
+    const preferred = selectedNgoId && selectedNgoId !== 'all' ? String(selectedNgoId) : null;
+    const match = preferred ? rowNgos.find(n => String(n.ngo_id) === preferred) : null;
+    return (match || rowNgos[0]).ngo_id;
+  };
 
   useEffect(() => {
     if (!toolsOpen) return;
@@ -2117,9 +2201,14 @@ export default function StationManagement() {
     return true;
   });
 
-  const downloadStationExcel = async (stationName) => {
+  // ngoId scopes the export to one NGO. Omitted, the endpoint unions every NGO
+  // that uses this station NAME - which is a different number from the per-NGO
+  // pill on the station row, so the caller always passes the NGO it means.
+  const downloadStationExcel = async (stationName, ngoId) => {
     try {
-      const rows = await apiGet(`/ngo-admin/donors-by-station?station=${encodeURIComponent(stationName)}`);
+      const params = new URLSearchParams({ station: stationName });
+      if (ngoId) params.set('ngo_id', ngoId);
+      const rows = await apiGet(`/ngo-admin/donors-by-station?${params}`);
       const data = (Array.isArray(rows) ? rows : []).map(r => ({
         DonorID: r.donor_id,
         Name: r.donor_name,
@@ -2131,6 +2220,7 @@ export default function StationManagement() {
         Fro: r.fro_name,
         Status: r.status,
         Station: r.station,
+        NGO: r.ngo_name || '',
         Notes: r.notes,
         LastContacted: r.last_contacted_at,
         NextFollowUp: r.next_follow_up,
@@ -2492,8 +2582,12 @@ export default function StationManagement() {
                               returningId={returningId}
                               onReturn={at ? handleReturnEarly : null}
                               onUpload={() => setUploadStation(s.station)}
-                              onViewList={() => setDonorListStation(s.station)}
-                              onDownload={() => downloadStationExcel(s.station)}
+                              onViewList={() => setDonorListTarget({
+                                station: s.station,
+                                ngoList: s.ngos || [],
+                                defaultNgoId: ngoScopeForRow(s),
+                              })}
+                              onDownload={() => downloadStationExcel(s.station, ngoScopeForRow(s))}
                               onTarget={() => openTarget(s)}
                               onDelete={() => handleDeleteStation(s.station)}
                             />
@@ -2608,14 +2702,16 @@ export default function StationManagement() {
         />
       )}
 
-      {donorListStation && (
+      {donorListTarget && (
         <StationDonorsModal
-          station={donorListStation}
-          onClose={() => setDonorListStation(null)}
+          station={donorListTarget.station}
+          ngoList={donorListTarget.ngoList}
+          defaultNgoId={donorListTarget.defaultNgoId}
+          onClose={() => setDonorListTarget(null)}
           // Deleting a donor changes the station's donor pill and counts, so
           // refetch the row underneath while the modal is still open.
           onChanged={() => fetchData()}
-          onDownloadExcel={() => downloadStationExcel(donorListStation)}
+          onDownloadExcel={(ngoId) => downloadStationExcel(donorListTarget.station, ngoId)}
         />
       )}
     </div>

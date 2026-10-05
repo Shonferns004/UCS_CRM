@@ -33,6 +33,7 @@ import { effectiveIdleSeconds, openIdleSeconds, liveIdleSeconds, istDateStr, get
 import { getDayName, calculateAKI, getMonthsEmployed, getAKISlabs } from '../utils/incentive.js';
 import { isCovered } from '../utils/workAs.js';
 import { getActiveCoversForTargets, getActiveCoversByOperator } from '../models/workAsSessionModel.js';
+import { resolveStationNgoScope, dedupeStationDonors, ngoIdsMissingNames } from '../utils/stationDonorScope.js';
 // Loaded as a default import: the cache wrapper is CommonJS (redis.cjs) and
 // `require` does not exist in this ESM module. Calling require() at request
 // time was throwing "require is not defined" and taking the whole dashboard
@@ -1712,14 +1713,27 @@ export const getStations = async (req, res) => {
     const froDonorCount = {};
     const seen = new Set();
     for (const d of faData || []) {
-      if (seen.has(d.donor_id)) continue;
-      seen.add(d.donor_id);
       const s = d.station.trim();
+      // Dedupe per (station, ngo), NOT on donor_id alone. donor_id is the same
+      // person in every NGO they are assigned to, and faData is ordered by
+      // assigned_at DESC, so a set keyed on donor_id attributed each donor to
+      // whichever of their rows came first - usually an assignment in a
+      // different NGO - and then skipped them everywhere else. That is why the
+      // AOD-11 row read "AFLF: 755" while its donor list held 1819: all 1819
+      // of those donors are also active in another NGO, so the other NGO's row
+      // claimed each of them first.
+      //
+      // Keyed per station the count is exactly "distinct donors assigned here",
+      // which is what donors-by-station returns for the same (station, ngo) -
+      // so the pill and the list it opens can no longer disagree.
+      const key = `${s}::${d.ngo_id}::${d.donor_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       if (!totalDonorCount[s]) totalDonorCount[s] = {};
       totalDonorCount[s][d.ngo_id] = (totalDonorCount[s][d.ngo_id] || 0) + 1;
       if (d.fro_worker_id) {
-        const key = `${s}_${d.fro_worker_id}`;
-        froDonorCount[key] = (froDonorCount[key] || 0) + 1;
+        const froKey = `${s}_${d.fro_worker_id}`;
+        froDonorCount[froKey] = (froDonorCount[froKey] || 0) + 1;
       }
     }
 
@@ -2084,13 +2098,13 @@ export const getStationStats = async (req, res) => {
 
 export const getDonorsByStation = async (req, res) => {
   try {
-    const { station, status } = req.query;
+    const { station, status, ngo_id } = req.query;
     if (!station) {
       return res.status(400).json({ message: 'station query param is required' });
     }
 
     const access = await getUserNgoAccess(req.user.id, req.user.role);
-    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoIds.length === 0 && req.user.ngo_id) {
       ngoIds.push(req.user.ngo_id);
@@ -2100,18 +2114,59 @@ export const getDonorsByStation = async (req, res) => {
       return res.json([]);
     }
 
+    // WHY ngo_id EXISTS. A station NAME is not unique to an NGO. The same name is
+    // reused across NGOs and only the displayed code differs: 'DH-5' is BOD-15 for
+    // BSCT, AOD-15 for AFLF and MOD-15 for MANN (StationManagement.jsx:19-42).
+    // An NGO admin's access resolves to *every* NGO (getUserNgoAccess: role
+    // 'admin' short-circuits to all NGOs), so looking a station up by name alone
+    // silently unions unrelated stations together.
+    //
+    // That produced two visible bugs. The station row's donor count is per
+    // (station, ngo) - donor_count is a { ngo_id: count } map (getStations:1800)
+    // - so MANN's MOD-15 showed 754 while this endpoint reported 1824 for the very
+    // same station. And the cross-NGO dedupe below kept only the first row per
+    // donor_id, so a donor present in several NGOs was rendered with another
+    // NGO's FRO, status and dates: an FRO name that has nothing to do with the
+    // station being viewed.
+    //
+    // Callers that mean one station pass ngo_id and get exactly that station.
+    // Omitting it keeps the cross-NGO union for the surfaces that genuinely want
+    // it (super-admin Dashboard, accounts Old Data), which is why ngo_id is
+    // optional rather than required - but every row now carries its own
+    // ngo_id / ngo_name so a union can never be mistaken for a single station.
+    //
+    // One code path covers both cases: no ngo_id leaves ngoIds as the union, an
+    // ngo_id the caller may not access is refused rather than widened.
+    const scope = resolveStationNgoScope(ngoIds, ngo_id);
+    if (!scope.ok) return res.status(403).json({ message: scope.message });
+    ngoIds = scope.ids;
+
+    // Names come from the access rows, but an NGO resolved from req.user.ngo_id
+    // (the fallback above, when access is empty) has none, and a blank ngo_name
+    // is exactly what makes a unioned row unattributable. Fill those in.
+    const ngoNameById = new Map(access.map(a => [String(a.ngo_id), a.ngo_name]));
+    const unnamedIds = ngoIdsMissingNames(access, ngoIds);
+    if (unnamedIds.length > 0) {
+      const { data: ngos } = await db.from('ngos').select('id, name').in('id', unnamedIds);
+      for (const n of ngos || []) ngoNameById.set(String(n.id), n.name);
+    }
+
     const allDonors = [];
     for (const ngoId of ngoIds) {
       const donors = await getDonorsByStationAndStatus(ngoId, station, status || null);
       allDonors.push(...donors);
     }
 
-    const seen = new Set();
-    const unique = allDonors.filter(a => { const k = a.donor_id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const unique = dedupeStationDonors(allDonors);
 
     const result = unique.map(a => ({
       id: a.id,
       donor_id: a.donor_id,
+      // Which NGO this assignment actually belongs to. Required, not decorative:
+      // without it a cross-NGO response is indistinguishable from one station's
+      // list, which is exactly the confusion being fixed here.
+      ngo_id: a.ngo_id,
+      ngo_name: ngoNameById.get(String(a.ngo_id)) || '',
       donor_mobile: a.donor_profiles?.mobile_number || '',
       donor_mobile_2: a.donor_profiles?.mobile_2 || '',
       donor_name: a.donor_profiles?.name || 'Unknown',
@@ -3149,7 +3204,12 @@ export const deleteStationDonors = async (req, res) => {
         FROM fro_assignments fa
         JOIN donor_profiles dp ON dp.id = fa.donor_id
         LEFT JOIN LATERAL (
-          SELECT COUNT(*) FILTER (WHERE l.accounts_status IN ('verified', 'pending')) AS money_log_count,
+          -- A donor counts as having given money if EITHER the log is marked
+          -- verified/pending OR it carries a positive amount. Keying this on
+          -- accounts_status alone let a log with amount_collected > 0 and a null
+          -- / unverified status slip through and get its assignment deleted.
+          SELECT COUNT(*) FILTER (WHERE l.accounts_status IN ('verified', 'pending')
+                                      OR COALESCE(l.amount_collected, 0) > 0) AS money_log_count,
                  COALESCE(SUM(l.amount_collected) FILTER (WHERE l.amount_collected > 0), 0) AS collected_amount,
                  COALESCE(SUM(l.amount_collected) FILTER (WHERE l.accounts_status = 'verified'), 0) AS verified_amount,
                  COALESCE(SUM(l.amount_collected) FILTER (WHERE l.accounts_status = 'pending'), 0) AS pending_amount
@@ -3213,6 +3273,11 @@ export const deleteStationDonors = async (req, res) => {
         const bits = [];
         if (Number(t.verified_amount) > 0) bits.push(`₹${Number(t.verified_amount).toLocaleString('en-IN')} verified`);
         if (Number(t.pending_amount) > 0) bits.push(`₹${Number(t.pending_amount).toLocaleString('en-IN')} pending`);
+        // Money can be present without a verified/pending status, so fall back to
+        // the plain collected total rather than saying nothing was recorded.
+        if (bits.length === 0 && Number(t.collected_amount) > 0) {
+          bits.push(`₹${Number(t.collected_amount).toLocaleString('en-IN')} collected`);
+        }
         reasons.push(bits.length ? `collected money (${bits.join(', ')})` : 'collected money logged');
       }
       if (reasons.length === 0) continue;
@@ -3237,6 +3302,7 @@ export const deleteStationDonors = async (req, res) => {
     const previewRow = (t) => ({
       assignment_id: t.assignment_id,
       donor_id: t.donor_id,
+      ngo_id: t.ngo_id,
       donor_name: t.donor_name || 'Unknown',
       mobile_number: t.mobile_number || '',
       data_category: t.data_category || '',
