@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSim } from './store';
-import { effectiveStatus, dayLabel, formatDate, pillForStatus } from './helpers';
+import { effectiveStatus, dayLabel, formatDate, pillForStatus, liveDaysLeft } from './helpers';
 
 const PER_PAGE = 15;
 
@@ -16,7 +16,8 @@ export default function Expiring({ onView, onEdit, onReplace }) {
   const [tab, setTab] = useState('all');
   const [page, setPage] = useState(1);
 
-  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: effectiveStatus(c) })), [cards]);
+  // The tabs count days from the expiry date, not from the imported snapshot.
+  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: effectiveStatus(c), days_left: liveDaysLeft(c) })), [cards]);
 
   const expiring = useMemo(
     () => enriched.filter((c) => c._status === 'Expiring Soon' || c._status === 'Expired'),

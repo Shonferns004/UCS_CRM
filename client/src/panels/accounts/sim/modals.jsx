@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { toast } from '../../../components/Toast';
-import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandSimHistory } from './api';
+import { addSimCard, updateSimCard, replaceSimCard, fetchSimHistory, fetchBrandSimHistory, fetchInventory, fetchReplacementsForCard } from './api';
 import { Icon } from './components';
 import { useSim } from './store';
 import { AssignSimModal } from './SimInventory';
-import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS } from './helpers';
+import { SIM_STATUSES, SIM_TYPES, SIM_SLOTS, MAX_SIM_SLOTS, FORM_FIELDS, daysLeft, todayStr, effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus, SIM_BRAND_FILTERS, simBrandOf, numberHistoryEntries, groupEntriesByBrand, filterEntriesByRange, historyRangeFrom, HISTORY_PERIODS, liveDaysLeft, classifySims } from './helpers';
 
 function Field({ label, value, onChange, type = 'text', disabled, placeholder, full, required }) {
   return (
@@ -312,14 +312,113 @@ export function SimFormModal({ open, onClose, card, onSaved }) {
   );
 }
 
-export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
-  if (!open || !card) return null;
-  const dl = card.days_left !== undefined && card.days_left !== null ? card.days_left : daysLeft(card.expiry_date);
-  const status = effectiveStatus(card);
+/* The SIM Locker list carries the per-number issue/expiry dates. It barely
+   changes while the panel is open, so it is requested once per session and
+   reused by every modal; a failed request just means the mobile-level dates
+   are shown instead. */
+let lockerCache = null;
+function loadLockerDates() {
+  if (!lockerCache) {
+    lockerCache = fetchInventory()
+      .then((rows) => (Array.isArray(rows) ? rows : []))
+      .catch(() => []);
+  }
+  return lockerCache;
+}
 
-  const filledSlots = SIM_SLOTS
-    .map((n) => ({ n, v: card[`sim_${n}`] }))
-    .filter((s) => s.v && String(s.v).trim());
+/* One Active / Expired SIM table inside the modal. Every row shows the
+   number with the date it was activated and the date it expires or ended;
+   `expired` only switches the last column to "days ago" wording. */
+function SimListSection({ title, icon, count, tone, rows, showNgo, expiresLabel, expired, empty }) {
+  return (
+    <section className="sv-sec">
+      <div className="sv-sec-head">
+        <span className="sv-sec-ic">{icon}</span>
+        <h4>{title}</h4>
+        <span className={`sv-sec-count${tone ? ` ${tone}` : ''}`}>{count}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="sv-empty">{empty}</div>
+      ) : (
+        <div className="sv-table-wrap">
+          <table className="sv-simtable">
+            <thead>
+              <tr>
+                <th>Slot</th>
+                <th>Number</th>
+                {showNgo ? <th>NGO</th> : null}
+                <th>Activated</th>
+                <th>{expiresLabel}</th>
+                <th className="num">{expired ? 'Ended' : 'Days Left'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key}>
+                  <td className="c-slot">{r.slot ? `SIM ${r.slot}` : '—'}</td>
+                  <td className="c-num">{r.number}</td>
+                  {showNgo ? <td className="c-ngo">{r.ngo || '—'}</td> : null}
+                  <td>{formatDate(r.activatedOn)}</td>
+                  <td className="c-exp">
+                    {formatDate(r.expiresOn)}
+                    {r.note ? <span className="sv-note">{r.note}</span> : null}
+                  </td>
+                  <td className={`num days-cell ${r.daysLeft === null ? 'days-neutral' : dayClass(r.daysLeft)}`}>
+                    {expired
+                      ? (r.daysLeft === null ? '—' : r.daysLeft < 0 ? `${Math.abs(r.daysLeft)} days ago` : dayLabel(r.daysLeft))
+                      : (r.daysLeft === null ? 'No expiry' : dayLabel(r.daysLeft))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
+  const [locker, setLocker] = useState([]);
+  const [replacements, setReplacements] = useState([]);
+  const [changes, setChanges] = useState([]);
+  const [loadingDates, setLoadingDates] = useState(false);
+
+  const cardId = card ? card.id : null;
+
+  // Both audit trails are read unconditionally: replacement_count is not
+  // trustworthy (imports wipe it) and the Expired list has to show every past
+  // SIM, whichever trail recorded it.
+  useEffect(() => {
+    if (!open || !cardId) return undefined;
+    let alive = true;
+    setLocker([]);
+    setReplacements([]);
+    setChanges([]);
+    setLoadingDates(true);
+    const trail = (request) => request.then((r) => (Array.isArray(r) ? r : [])).catch(() => []);
+    Promise.all([
+      loadLockerDates(),
+      trail(fetchReplacementsForCard(cardId)),
+      trail(fetchSimHistory(cardId)),
+    ])
+      .then(([inv, reps, hist]) => {
+        if (!alive) return;
+        setLocker(inv);
+        setReplacements(reps);
+        setChanges(hist);
+      })
+      .finally(() => { if (alive) setLoadingDates(false); });
+    return () => { alive = false; };
+  }, [open, cardId]);
+
+  if (!open || !card) return null;
+
+  // The stored days_left column is a stale import snapshot, so the date wins.
+  const dl = liveDaysLeft(card);
+  const status = effectiveStatus(card);
+  const groups = classifySims({ card, inventory: locker, replacements, history: changes });
+  const showNgo = groups.active.some((r) => r.ngo) || groups.expired.some((r) => r.ngo);
 
   const totalSpan = (() => {
     if (!card.issue_date || !card.expiry_date) return null;
@@ -354,7 +453,7 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
 
   return (
     <div className="modal-overlay sim-view-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal drawer sim-view-drawer">
+      <div className="modal sim-view-modal">
         <div className="sv-head">
           <div className="sv-head-main">
             <span className="sv-avatar"><Icon name="simcard" size={20} /></span>
@@ -401,7 +500,41 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
             )}
           </div>
 
+          <div className="sv-chips">
+            <span className="sv-chip chip-active">{groups.active.length} Active</span>
+            <span className="sv-chip chip-expired">{groups.expired.length} Expired</span>
+            <span className="sv-chip chip-meta">
+              {loadingDates
+                ? 'Loading dates…'
+                : `${groups.filled} number${groups.filled === 1 ? '' : 's'} on this mobile`}
+            </span>
+          </div>
+
           <div className="sv-sections">
+            <SimListSection
+              title="Active SIMs"
+              icon={<Icon name="sim" size={14} />}
+              count={`${groups.active.length} active`}
+              tone="tone-active"
+              rows={groups.active}
+              showNgo={showNgo}
+              expiresLabel="Expires"
+              expired={false}
+              empty="No active SIM numbers on this mobile."
+            />
+
+            <SimListSection
+              title="Expired SIMs"
+              icon={<Icon name="clock" size={14} />}
+              count={`${groups.expired.length} expired`}
+              tone="tone-expired"
+              rows={groups.expired}
+              showNgo={showNgo}
+              expiresLabel="Expired On"
+              expired
+              empty="No expired or replaced numbers recorded for this mobile."
+            />
+
             <Section title="SIM Information" icon={<Icon name="sim" size={14} />} count={raw(card.sim_type)}>
               <Item k="Mobile ID" v={txt(card.mobile_id)} mono wide />
               <Item k="SIM Type" v={txt(card.sim_type)} />
@@ -420,16 +553,6 @@ export function SimViewModal({ card, open, onClose, onEdit, onReplace }) {
               <Item k="Owner" v={txt(card.owner)} />
               <Item k="NGO" v={txt(card.ngo)} />
               <Item k="Remark" v={txt(card.signature)} wide />
-            </Section>
-
-            <Section title="SIM Numbers" icon={<Icon name="simcard" size={14} />} count={`${filledSlots.length}/${MAX_SIM_SLOTS}`}>
-              {filledSlots.length === 0 ? (
-                <div className="sv-empty">No SIM numbers linked to this card yet.</div>
-              ) : (
-                filledSlots.map(({ n, v }) => (
-                  <Item key={n} k={`SIM ${n}`} v={txt(v)} mono />
-                ))
-              )}
             </Section>
           </div>
         </div>

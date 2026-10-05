@@ -189,6 +189,11 @@ export async function getMyStations() {
 export async function searchDonorsByMobile(q, opts = {}) {
   const params = new URLSearchParams({ q });
   if (opts.disposed) params.set('disposed', 'true');
+  // Send the station/NGO the FRO is currently looking at. Without these the
+  // backend searches every station the FRO holds, so a FRO viewing AOD-7 saw
+  // AOD-5 donors labelled with their own station.
+  if (opts.station) params.set('station', opts.station);
+  if (opts.ngoId) params.set('ngo_id', opts.ngoId);
   return api(`/fro/search-donors?${params}`, { _prefix: 'ucs' })
 }
 

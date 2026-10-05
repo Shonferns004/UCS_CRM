@@ -5892,14 +5892,28 @@ export const searchDonors = async (req, res) => {
       const matchedIds = donors.map(d => d.id);
 
       const { scope: myScope, stationNames } = await getMyStationScope(workerId, froActPairs(req));
-      const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+      // Same station/NGO narrowing as the default branch: a disposed-lead
+      // search must not surface stations the caller is not currently viewing.
+      let dScope = myScope || [];
+      let dStations = stationNames;
+      if (req.query.station && req.query.station !== 'all') {
+        dScope = dScope.filter(s => s.station === req.query.station);
+        dStations = [req.query.station];
+      }
+      if (req.query.ngo_id) {
+        dScope = dScope.filter(s => s.ngo_id === req.query.ngo_id);
+        dStations = dScope.map(s => s.station);
+      }
+      if (dStations.length === 0) return res.json([]);
+      const scopePairs = new Set(dScope.filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
 
       const { data: assignments } = await db
         .from('fro_assignments')
         .select('*, ngos!inner(name)')
         .in('donor_id', matchedIds)
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned');
+        .in('station', dStations)
+        .not('status', 'eq', 'reassigned')
+        .order('station', { ascending: true });
 
       const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
 
@@ -5956,13 +5970,31 @@ export const searchDonors = async (req, res) => {
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId, froActPairs(req));
     if (stationNames.length === 0) return res.json([]);
 
+    // Narrow to the station/NGO the caller is actually looking at. Without this
+    // the search spans EVERY station the FRO holds, so a FRO with AOD-5 and
+    // AOD-7 saw each other's donors under the wrong station label. Only an
+    // explicit station/ngo_id request narrows; no params = whole scope (the
+    // historical behaviour, still used when the FRO views "all stations").
+    let effScope = myScope || [];
+    let effStations = stationNames;
+    if (req.query.station && req.query.station !== 'all') {
+      effScope = effScope.filter(s => s.station === req.query.station);
+      effStations = [req.query.station];
+    }
+    if (req.query.ngo_id) {
+      if (!allowedNgoIds.includes(req.query.ngo_id)) return res.json([]);
+      effScope = effScope.filter(s => s.ngo_id === req.query.ngo_id);
+      effStations = effScope.map(s => s.station);
+    }
+    if (effStations.length === 0) return res.json([]);
+
     const { data: donorIdsFromStation } = await db
       .from('fro_assignments')
       .select('donor_id, ngo_id, station')
-      .in('station', stationNames)
+      .in('station', effStations)
       .not('status', 'eq', 'reassigned');
 
-    const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+    const scopePairs = new Set(effScope.filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
     const donorIdsInScope = [...new Set(
       (donorIdsFromStation || [])
         .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
@@ -5987,8 +6019,9 @@ export const searchDonors = async (req, res) => {
       .from('fro_assignments')
       .select('*, ngos!inner(name)')
       .in('donor_id', matchedIds)
-      .in('station', stationNames)
-      .not('status', 'eq', 'reassigned');
+      .in('station', effStations)
+      .not('status', 'eq', 'reassigned')
+      .order('station', { ascending: true });
     if (asgnError) throw asgnError;
 
     const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));

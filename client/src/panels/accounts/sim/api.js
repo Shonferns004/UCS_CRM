@@ -32,6 +32,13 @@ export async function fetchReplacements() {
   return call('/sim-cards/replacements', 'GET');
 }
 
+// Replacement log of a single mobile: the numbers a replace took off it.
+// The detail drawer uses them to show expired numbers that are no longer in
+// any sim_1..sim_20 slot.
+export async function fetchReplacementsForCard(id) {
+  return call(`/sim-cards/${id}/replacements`, 'GET');
+}
+
 export async function fetchSimHistory(id) {
   return call(`/sim-cards/${id}/history`, 'GET');
 }

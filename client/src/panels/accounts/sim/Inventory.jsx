@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState, useEffect, useLayoutEffect, useRef } from 
 import { MoreHorizontal, Plus, Eye, PencilLine, RefreshCw, History, Trash2 } from 'lucide-react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { effectiveStatus, dayClass, daysLeft, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES } from './helpers';
+import { effectiveStatus, dayClass, formatDate, pillForStatus, SIM_STATUSES, SIM_TYPES, liveDaysLeft } from './helpers';
 import { bulkChangeStatus, bulkDelete } from './api';
 import { toast } from '../../../components/Toast';
 import { ConfirmDialog } from './ImportModal';
@@ -149,7 +149,7 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
         merged.w4_name = w.w4_name; merged.sim_4 = w.sim_4;
       }
     }
-    return { ...merged, days_left: merged.days_left !== undefined && merged.days_left !== null ? merged.days_left : daysLeft(merged.expiry_date), _status: effectiveStatus(merged) };
+    return { ...merged, days_left: liveDaysLeft(merged), _status: effectiveStatus(merged) };
   }), [cards, whatsappMerge]);
 
   const teams = useMemo(() => [...new Set(enriched.map((c) => c.team).filter(Boolean))].sort(), [enriched]);
@@ -384,13 +384,24 @@ useEffect(() => { if (simNameProp !== undefined) setSimNameState(simNameProp); }
                     {activeColumns.map((col) => {
                       const v = c[col.key];
                       switch (col.key) {
-                        case 'mobile_id':
+                        case 'mobile_id': {
+                          // The id is what people click to see a mobile, so it
+                          // gets its own hit area instead of only the kebab.
+                          const idLink = c.mobile_id ? (
+                            <button
+                              type="button"
+                              className="sim-id-link"
+                              title={`View details of ${c.mobile_id}`}
+                              onClick={() => onView(c)}
+                            >{c.mobile_id}</button>
+                          ) : '—';
                           return simName === 'Android' ? (
                             <Fragment key={col.key}>
-                              <td style={{ fontWeight: 600 }}>{c.mobile_id || '—'}</td>
+                              <td style={{ fontWeight: 600 }}>{idLink}</td>
                               <td>{c.gb || '—'}</td>
                             </Fragment>
-                          ) : <td key={col.key} style={{ fontWeight: 600 }}>{c.mobile_id || '—'}</td>;
+                          ) : <td key={col.key} style={{ fontWeight: 600 }}>{idLink}</td>;
+                        }
                         case 'status':
                           return <td key={col.key}><span className={`pill ${pillForStatus(c.status)}`}>{c.status || '—'}</span></td>;
                         case 'issue_date':
