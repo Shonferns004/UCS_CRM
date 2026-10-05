@@ -107,7 +107,7 @@ export default function OldData() {
         <input placeholder="Search name or mobile..." value={search} onChange={e => setSearch(e.target.value)}
           style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--line)', width: 280 }} />
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
-          {station ? `${filtered.length} donors` : 'Select a station'}
+          {station ? `${filtered.length} donors across all NGOs using this station name` : 'Select a station'}
         </span>
       </div>
 
@@ -118,6 +118,7 @@ export default function OldData() {
               <tr>
                 <th>Sr.</th>
                 <th>Station</th>
+                <th>NGO</th>
                 <th>Agent Name</th>
                 <th>Donor Name</th>
                 <th>Mobile</th>
@@ -135,17 +136,21 @@ export default function OldData() {
             </thead>
             <tbody>
               {!station ? (
-                <tr><td colSpan={15} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Select a station to view data</td></tr>
+                <tr><td colSpan={16} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Select a station to view data</td></tr>
               ) : loading ? (
-                <tr><td colSpan={15} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Loading...</td></tr>
+                <tr><td colSpan={16} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Loading...</td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={15} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>No donors found for this station</td></tr>
+                <tr><td colSpan={16} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>No donors found for this station</td></tr>
               ) : paginated.map((d, i) => {
                 const isDup = duplicateMobiles.has(d.donor_mobile);
                 return (
                   <tr key={d.id || i} style={isDup ? { background: '#fef2f2' } : {}}>
                     <td style={{ color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{(page - 1) * PER_PAGE + i + 1}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{d.station || '\u2014'}</td>
+                    {/* This page is accounts-wide and lists station names without an
+                        NGO, so one name can match several NGOs. Show which NGO each
+                        row belongs to instead of silently unioning them. */}
+                    <td style={{ whiteSpace: 'nowrap' }}>{d.ngo_name || '\u2014'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{d.fro_name && d.fro_name !== 'Unassigned' ? d.fro_name : raw(d, 'Agent Name', 'agent_name', 'fro_name', 'Fro_Name') || '\u2014'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {d.donor_name || raw(d, 'Donor Name', 'donor_name', 'name', 'Name')}

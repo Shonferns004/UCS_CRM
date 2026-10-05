@@ -204,7 +204,7 @@ const ngoSortRank = (name) => {
   return hit ? NGO_TABS.indexOf(hit) : 99;
 };
 
-function StationDetailModal({ station, stats, stationInfo, onClose }) {
+function StationDetailModal({ station, stats, stationInfo, ngoId, onClose }) {
   const [donors, setDonors] = useState([]);
   const [loadingDonors, setLoadingDonors] = useState(false);
   const [search, setSearch] = useState('');
@@ -233,7 +233,13 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
     setLoadingDonors(true);
     setStatusFilter(status || '');
     try {
+      // ngo_id is required for a correct count: a station NAME is shared across
+      // NGOs (DH-5 is BOD-15/AOD-15/MOD-15), so omitting it unions unrelated
+      // stations and the donor total silently disagrees with the station's own
+      // figure. `ngoId` is the station's own NGO, resolved by the caller, so it
+      // stays scoped even when the admin is viewing the combined "All" tab.
       const params = new URLSearchParams({ station });
+      if (ngoId) params.set('ngo_id', ngoId);
       if (status) params.set('status', status);
       const data = await apiGet(`/ngo-admin/donors-by-station?${params}`, { signal: controller.signal, timeout: 30000 });
       if (!controller.signal.aborted) {
@@ -3368,6 +3374,17 @@ export default function Dashboard() {
           station={selectedStation}
           stats={stations[selectedStation]}
           stationInfo={stationInfoMap[selectedStation]}
+          ngoId={(() => {
+            // Which NGO this cell belongs to. The station grid is keyed by NAME,
+            // so the same name can appear under several NGO tabs; prefer the tab
+            // in view and fall back to the station's own first NGO. Without this
+            // the donor popup would union every NGO sharing the name.
+            const rowNgos = (stationInfoMap[selectedStation]?.ngos || []).filter(n => n && n.ngo_id);
+            if (rowNgos.length === 0) return '';
+            const preferred = selectedNgoId && selectedNgoId !== 'all' ? String(selectedNgoId) : null;
+            const hit = preferred ? rowNgos.find(n => String(n.ngo_id) === preferred) : null;
+            return (hit || rowNgos[0]).ngo_id;
+          })()}
           onClose={() => setSelectedStation(null)}
         />
       )}
