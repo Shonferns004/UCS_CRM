@@ -2082,8 +2082,14 @@
 /* NGO Admin extras */
 .panel-event-head .progress-bar, .panel-ngo-admin .progress-bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
 .panel-event-head .progress-fill, .panel-ngo-admin .progress-fill { height:100%; background:var(--sage); border-radius:4px; transition:width .3s; }
-.panel-ngo-admin .checkbox-col { width:40px; }
-.panel-ngo-admin .checkbox-col input[type="checkbox"] { width:16px; height:16px; accent-color:var(--sage); }
+    .panel-ngo-admin .checkbox-col { width:40px; }
+    .panel-ngo-admin .checkbox-col input[type="checkbox"] { width:16px; height:16px; accent-color:var(--sage); }
+    /* Row sequence number. Tabular so 1..9 and 10+ stay the same width and the
+       column does not visibly jitter as the list grows. */
+    .panel-ngo-admin .seq-col {
+      width:44px; text-align:right; color:var(--muted,#6b7280);
+      font-variant-numeric:tabular-nums; font-size:12px;
+    }
 .panel-ngo-admin .field input:focus, .panel-ngo-admin .field select:focus { border-color:var(--sage); }
 .panel-ngo-admin .btn-outline { background:transparent; border:1px solid var(--line); color:var(--ink); }
 .panel-ngo-admin .btn-outline:hover { background:var(--bg); }
