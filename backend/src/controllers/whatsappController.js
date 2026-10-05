@@ -433,6 +433,7 @@ export async function status(req, res) {
 }
 
 export async function sendDirect(req, res) {
+  console.log("req",req)
   try {
     const {
       to,
