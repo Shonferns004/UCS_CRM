@@ -513,6 +513,14 @@ export async function sendDirect(req, res) {
       { type: 'header', parameters: [{ type: 'document', document: { link: documentUrl, filename: displayName || 'receipt.pdf' } }] },
     ];
 
+    const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const formattedAmount = typeof amount === 'number' ? '₹' + amount.toLocaleString('en-IN') : amount;
+    const bodyParams = [donorName || 'Donor', formattedAmount || '0', receiptNo || 'N/A', date];
+    components.push({
+      type: 'body',
+      parameters: bodyParams.map(p => ({ type: 'text', text: String(p) })),
+    });
+
     const apiBase = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${account.phone_number_id}/messages`;
     const msgRes = await fetch(apiBase, {
       method: 'POST',
