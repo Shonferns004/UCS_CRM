@@ -6227,21 +6227,20 @@ export const getMyDisposedLeads = async (req, res) => {
       return scopePairs.has(pair) || effectiveScope.some(s => s.station === a.station && String(s.ngo_id) === String(a.ngo_id));
     });
 
-    const latestDispMap = {};
-    for (const dl of disposedLogs || []) {
-if (matchedIds.includes(dl.donor_id) && !latestDispMap[dl.donor_id]) {
-        latestDispMap[dl.donor_id] = dl;
-      }
-    }
-
-    // A donor can hold a BOD-1/MOD-3 assignment *and* a BOD-4 one, so scoping by
-    // "does this donor have an in-scope assignment" is not enough - it surfaces the
-    // donor's out-of-scope calls too. Every log carries assignment_id, so anchor on
-    // the assignment the call was actually logged against.
     const inScopeAssignIds = new Set(scopedAssignments.map(a => a.id));
+    // Pick each donor's most recent disposition THAT WAS LOGGED IN SCOPE, not
+    // simply their most recent disposition. Anchoring on the latest log globally
+    // meant a donor vanished from History whenever their newest call happened at
+    // another station — e.g. holding BOD-1 and BOD-5 and filtering History to
+    // BOD-1, a donor whose last touch was at BOD-5 dropped out entirely even
+    // though they had in-scope BOD-1 dispositions of their own. disposedLogs is
+    // already newest-first, so the first in-scope log per donor wins.
     const scopedDispMap = {};
-    for (const [donorId, dl] of Object.entries(latestDispMap)) {
-      if (inScopeAssignIds.has(dl.assignment_id)) scopedDispMap[donorId] = dl;
+    for (const dl of disposedLogs || []) {
+      if (!matchedIds.includes(dl.donor_id)) continue;
+      if (!inScopeAssignIds.has(dl.assignment_id)) continue;
+      if (scopedDispMap[dl.donor_id]) continue;
+      scopedDispMap[dl.donor_id] = dl;
     }
 
     const result = [];
