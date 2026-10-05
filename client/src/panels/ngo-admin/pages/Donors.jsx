@@ -162,6 +162,22 @@ export default function Donors({ onSelect }) {
   const [selectedNgoId, setSelectedNgoId] = useState('all');
   const [accessibleNgos, setAccessibleNgos] = useState([]);
   const [restoring, setRestoring] = useState(false);
+  // Server-side paging totals. The endpoint has always paginated (default
+  // page_size 50) but only REPORTS it when `paginated=true` is sent — otherwise it
+  // silently returns a bare 50-row array. This page never sent that flag and then
+  // paginated client-side over those 50 rows, so totalPages was always 1, the page
+  // controls never rendered, and every NGO with more than 50 donors was
+  // unreachable past the first 50. Reading the server's totals is what fixes it.
+  const [totalDonors, setTotalDonors] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  // Search now hits the server, so it is debounced: without this, `load` would
+  // re-run on every keystroke and re-run the full grouped-donor scan each time —
+  // the same per-character request storm just fixed on the FRO leads page.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
@@ -169,17 +185,26 @@ export default function Donors({ onSelect }) {
 
   const load = () => {
     setLoading(true);
-    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+    const params = new URLSearchParams();
+    params.set('paginated', 'true');
+    params.set('page', String(page));
+    params.set('page_size', String(PER_PAGE));
+    if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
+    // Search is sent to the server so it matches donors on EVERY page, not just
+    // the 50 currently loaded. The endpoint already supports it.
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
     Promise.all([
-      apiGet(`/ngo-admin/donors${ngoParam}`),
+      apiGet(`/ngo-admin/donors?${params.toString()}`),
       apiGet('/ngo-admin/fro-workers'),
     ]).then(([d, f]) => {
-      setDonors(d);
+      setDonors(Array.isArray(d) ? d : (d?.data || []));
+      setTotalDonors(d?.pagination?.total ?? 0);
+      setTotalPages(Math.max(1, d?.pagination?.totalPages ?? 1));
       setFroWorkers(f);
     }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false));
   };
 
-  useEffect(load, [selectedNgoId]);
+  useEffect(load, [selectedNgoId, page, debouncedSearch]);
 
   const handleRestoreWrong = async () => {
     if (!confirm('This will remove donors who were manually assigned to FROs they don\'t belong to (no station). Continue?')) return;
@@ -201,26 +226,21 @@ export default function Donors({ onSelect }) {
     return [...s].sort();
   }, [donors]);
 
+  // Station is the one filter still applied in the browser: the endpoint takes no
+  // station parameter, so this narrows the current page rather than the result
+  // set. Name/phone/city search moved server-side (see load).
   const filtered = useMemo(() => {
-    return donors.filter(d => {
-      if (stationFilter && d.station !== stationFilter) return false;
-      if (!search) return true;
-      const q = search.toLowerCase();
-      return (d.name && d.name.toLowerCase().includes(q)) ||
-             (d.mobile_number && d.mobile_number.includes(q)) ||
-             (d.city && d.city.toLowerCase().includes(q)) ||
-             (d.station && d.station.toLowerCase().includes(q)) ||
-             (d.ngo && d.ngo.toLowerCase().includes(q));
-    });
-  }, [donors, search, stationFilter]);
+    if (!stationFilter) return donors;
+    return donors.filter(d => d.station === stationFilter);
+  }, [donors, stationFilter]);
 
-  const totalPages = Math.ceil(filtered.length / PER_PAGE);
-  const paginated = useMemo(() => {
-    const start = (page - 1) * PER_PAGE;
-    return filtered.slice(start, start + PER_PAGE);
-  }, [filtered, page]);
+  // The server already returned exactly this page, so there is nothing left to
+  // slice — slicing again is what produced the duplicate/empty page bug before.
+  const paginated = filtered;
 
-  useEffect(() => { setPage(1); }, [search, stationFilter]);
+  // Any new query starts from page 1 — staying on page 7 of the old result set
+  // shows an empty table.
+  useEffect(() => { setPage(1); }, [selectedNgoId, debouncedSearch]);
 
   useEffect(() => { setSelected(new Set()); }, [page]);
 
@@ -268,7 +288,7 @@ export default function Donors({ onSelect }) {
               <option value="">All Stations</option>
               {stations.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <span className="count">{filtered.length} donors</span>
+            <span className="count">{totalDonors} donors</span>
             {totalPages > 1 && <span className="count" style={{ background: '#eef2ff', color: '#6366f1' }}>Page {page} of {totalPages}</span>}
             <button className="btn btn-sm" onClick={handleRestoreWrong} disabled={restoring} style={{marginLeft:'auto',background:restoring?'#e5e7eb':'#fef3c7',color:'#92400e',border:'1px solid #f59e0b',borderRadius:6,padding:'4px 12px',fontSize:12,fontWeight:600,cursor:restoring?'not-allowed':'pointer'}}>
               {restoring ? 'Restoring...' : 'Restore Wrong Assignments'}
@@ -281,6 +301,7 @@ export default function Donors({ onSelect }) {
               <thead>
                 <tr>
                   <th className="checkbox-col"><input type="checkbox" checked={paginated.length > 0 && selected.size === paginated.length} onChange={toggleAll} /></th>
+                  <th className="seq-col">#</th>
                   <th>Name</th>
                   <th>Phone</th>
                   <th>City</th>
@@ -294,9 +315,10 @@ export default function Donors({ onSelect }) {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map(d => (
+                {paginated.map((d, i) => (
                   <tr key={d.id}>
                     <td className="checkbox-col"><input type="checkbox" checked={selected.has(d.id)} onChange={() => toggle(d.id)} /></td>
+                    <td className="seq-col">{(page - 1) * PER_PAGE + i + 1}</td>
                     <td><a className="link" onClick={() => onSelect?.(d)} style={{ cursor: 'pointer' }}>{d.name || '—'}</a></td>
                     <td>{d.mobile_number}</td>
                     <td>{d.city || '—'}</td>
