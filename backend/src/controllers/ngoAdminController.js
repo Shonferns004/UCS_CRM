@@ -3058,6 +3058,371 @@ export const deleteNonConnectedFresh = async (req, res) => {
   }
 };
 
+// ─── Station donor removal (NGO admin) ──────────────────────────────────────
+//
+// Clears a wrongly-duplicated donor off a station so the number becomes free to
+// be assigned again inside that NGO. The rule this serves is the partial unique
+// index uq_fro_assignments_active_donor_ngo (backend/scripts/
+// add_assignment_dedup_index.sql): one ACTIVE fro_assignments row per
+// (donor_id, ngo_id). The DB enforces it, so the only way to clear a duplicate is
+// to retire one of the two rows — which is exactly what this does.
+//
+// WHY THIS HARD DELETES, given the DND history. Migration 165 is explicit that
+// the DND disposition used to DELETE the assignment and its logs, that this left
+// a donor "with no trace anywhere: the lead could not be explained, audited or
+// released", and that it produced "where did my data go" reports — so DND was
+// moved to a soft-mark plus a donor_dnd registry row (froController.js keeps the
+// assignment for exactly that reason). The admin path is a different kind of
+// operation: a low-frequency, deliberate cleanup of a lead the admin believes was
+// duplicated onto the station in the first place, and the guard below refuses any
+// donor carrying collected money or a receipt. But it is still a delete, so every
+// removal writes a station_donor_deletions audit row (migration 174) naming who
+// removed what, from which station, and how much was cascaded. That audit insert
+// is deliberately inside the same transaction as the delete: if the table is
+// missing the whole operation fails closed rather than deleting unrecorded.
+//
+// The cascade order and membership are taken verbatim from migration 107, which
+// did this same cascade in SQL for the DND cleanup:
+//   rejected_lead_tickets -> fro_scheduled_contacts -> work_queue
+//   -> fro_donor_logs -> fro_assignments
+// Tickets go first because they reference the logs. work_queue goes explicitly
+// because it has NO FK to either table (107:17), so nothing else would clear it
+// and the removed donor would keep being handed out by the auto-advance cursor.
+// donor_profiles, receipts and donor_dnd are left untouched (107:19).
+export const deleteStationDonors = async (req, res) => {
+  try {
+    const { assignment_ids } = req.body || {};
+    const dryRun = req.query.dry_run === 'true';
+
+    const ids = [...new Set((Array.isArray(assignment_ids) ? assignment_ids : []).map(Number).filter(Boolean))];
+    if (ids.length === 0) {
+      return res.status(400).json({ message: 'assignment_ids array is required', deleted: 0 });
+    }
+    // Bounded so one request cannot fan out into an unbounded cascade. A station
+    // holds hundreds of donors, but an admin removing a duplicate touches a few.
+    if (ids.length > 500) {
+      return res.status(400).json({ message: 'Too many assignments in one request (max 500)', deleted: 0 });
+    }
+
+    const access = await getUserNgoAccess(req.user.id, req.user.role);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0) {
+      return res.status(403).json({ message: 'No NGO access', deleted: 0 });
+    }
+
+    // One row per assignment the caller may touch, carrying both the money guard
+    // inputs and the cascade tallies the preview renders. Written as LATERALs
+    // rather than four round trips so the guard cannot be evaluated against a
+    // different snapshot than the counts shown to the admin.
+    //
+    // Restricted to ACTIVE rows the caller's NGOs own. A 'reassigned' row is
+    // already retired, and an id outside the caller's scope is not even
+    // acknowledged: returning 200 for it would confirm an existence this admin
+    // has no right to report.
+    const targets = await sql(`
+      SELECT fa.id AS assignment_id,
+             fa.donor_id,
+             fa.ngo_id,
+             fa.station,
+             fa.fro_worker_id,
+             fa.status,
+             fa.batch_type,
+             dp.name AS donor_name,
+             dp.mobile_number,
+             dp.data_category,
+             EXISTS (
+               SELECT 1 FROM donor_dnd d
+               WHERE d.donor_id = fa.donor_id
+                 AND d.ngo_id = fa.ngo_id
+                 AND d.released_at IS NULL
+             ) AS had_dnd_mark,
+             COALESCE(m.money_log_count, 0)  AS money_log_count,
+             COALESCE(m.collected_amount, 0) AS collected_amount,
+             COALESCE(m.verified_amount, 0)  AS verified_amount,
+             COALESCE(m.pending_amount, 0)   AS pending_amount,
+             COALESCE(rc.receipt_count, 0)  AS receipt_count,
+             COALESCE(rc.receipt_amount, 0) AS receipt_amount,
+             COALESCE(c.log_count, 0)        AS log_count,
+             COALESCE(c.schedule_count, 0)   AS schedule_count,
+             COALESCE(c.ticket_count, 0)     AS ticket_count,
+             COALESCE(c.queue_count, 0)      AS queue_count
+        FROM fro_assignments fa
+        JOIN donor_profiles dp ON dp.id = fa.donor_id
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) FILTER (WHERE l.accounts_status IN ('verified', 'pending')) AS money_log_count,
+                 COALESCE(SUM(l.amount_collected) FILTER (WHERE l.amount_collected > 0), 0) AS collected_amount,
+                 COALESCE(SUM(l.amount_collected) FILTER (WHERE l.accounts_status = 'verified'), 0) AS verified_amount,
+                 COALESCE(SUM(l.amount_collected) FILTER (WHERE l.accounts_status = 'pending'), 0) AS pending_amount
+            FROM fro_donor_logs l
+           WHERE l.assignment_id = fa.id
+        ) m ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS receipt_count, COALESCE(SUM(r.amount), 0) AS receipt_amount
+            FROM receipts r
+            JOIN fro_donor_logs l2 ON l2.id = r.log_id
+           WHERE l2.assignment_id = fa.id
+        ) rc ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT
+            (SELECT COUNT(*) FROM fro_donor_logs l3
+              WHERE l3.assignment_id = fa.id) AS log_count,
+            (SELECT COUNT(*) FROM fro_scheduled_contacts s
+              WHERE s.assignment_id = fa.id) AS schedule_count,
+            (SELECT COUNT(*) FROM rejected_lead_tickets t
+              JOIN fro_donor_logs l4 ON l4.id = t.fro_donor_log_id
+             WHERE l4.assignment_id = fa.id) AS ticket_count,
+            -- Scoped to this (worker, donor, ngo) rather than the bare pair used by
+            -- migration 107: the same donor may legitimately be queued at another
+            -- NGO on the same worker, and deleting that would be collateral damage.
+            -- Unattributed rows (ngo_id IS NULL) still go, since nothing else would
+            -- ever attribute them and they would keep the donor in the cursor.
+            (SELECT COUNT(*) FROM work_queue w
+              WHERE w.worker_id = fa.fro_worker_id
+                AND w.donor_id = fa.donor_id
+                AND (w.ngo_id = fa.ngo_id OR w.ngo_id IS NULL)) AS queue_count
+        ) c ON TRUE
+       WHERE fa.id = ANY($1)
+         AND fa.ngo_id = ANY($2)
+         AND (fa.status IS NULL OR fa.status <> 'reassigned')
+    `, [ids, ngoIds]);
+
+    const notFound = ids.length - targets.length;
+    if (targets.length === 0) {
+      return res.status(404).json({
+        message: 'No active station assignments matched those ids for your NGOs',
+        deleted: 0,
+      });
+    }
+
+    // ── The money guard ────────────────────────────────────────────────────
+    // A donor who has actually given money, or for whom a receipt exists, is
+    // reconciled financial history. Removing their assignment would strip the
+    // collection from the station while the money stays banked, so those are
+    // refused outright rather than warned about. Same predicate the dedup repair
+    // scripts use to decide which assignment of a duplicate group to keep
+    // (repair_active_dups_all_ngos.sql:39-46).
+    const blocked = [];
+    for (const t of targets) {
+      const reasons = [];
+      if (Number(t.receipt_count) > 0) {
+        reasons.push(Number(t.receipt_amount) > 0
+          ? `receipt of ₹${Number(t.receipt_amount).toLocaleString('en-IN')} linked`
+          : 'receipt linked');
+      }
+      if (Number(t.money_log_count) > 0) {
+        const bits = [];
+        if (Number(t.verified_amount) > 0) bits.push(`₹${Number(t.verified_amount).toLocaleString('en-IN')} verified`);
+        if (Number(t.pending_amount) > 0) bits.push(`₹${Number(t.pending_amount).toLocaleString('en-IN')} pending`);
+        reasons.push(bits.length ? `collected money (${bits.join(', ')})` : 'collected money logged');
+      }
+      if (reasons.length === 0) continue;
+      blocked.push({
+        assignment_id: t.assignment_id,
+        donor_id: t.donor_id,
+        donor_name: t.donor_name || 'Unknown',
+        mobile_number: t.mobile_number || '',
+        station: t.station || '',
+        reason: reasons.join('; '),
+      });
+    }
+
+    const deletable = targets.filter(t => !blocked.some(b => b.assignment_id === t.assignment_id));
+    const totals = targets.reduce((acc, t) => ({
+      logs: acc.logs + Number(t.log_count || 0),
+      schedules: acc.schedules + Number(t.schedule_count || 0),
+      tickets: acc.tickets + Number(t.ticket_count || 0),
+      queue_rows: acc.queue_rows + Number(t.queue_count || 0),
+    }), { logs: 0, schedules: 0, tickets: 0, queue_rows: 0 });
+
+    const previewRow = (t) => ({
+      assignment_id: t.assignment_id,
+      donor_id: t.donor_id,
+      donor_name: t.donor_name || 'Unknown',
+      mobile_number: t.mobile_number || '',
+      data_category: t.data_category || '',
+      station: t.station || '',
+      status: t.status,
+      log_count: Number(t.log_count || 0),
+      schedule_count: Number(t.schedule_count || 0),
+      ticket_count: Number(t.ticket_count || 0),
+      queue_count: Number(t.queue_count || 0),
+      had_dnd_mark: !!t.had_dnd_mark,
+    });
+
+    if (dryRun) {
+      return res.json({
+        dry_run: true,
+        matched: targets.length,
+        deletable: deletable.map(previewRow),
+        deletable_count: deletable.length,
+        blocked,
+        totals,
+        not_found: notFound,
+        message: `Dry run — ${deletable.length} of ${targets.length} assignment(s) can be deleted`,
+      });
+    }
+
+    // All-or-nothing. A partial delete would leave the admin believing a duplicate
+    // was cleared when one of the pair is still live, which is the exact state
+    // this endpoint exists to remove. The UI offers a re-run over the remainder.
+    if (blocked.length > 0) {
+      return res.status(409).json({
+        message: `${blocked.length} of ${targets.length} donor(s) cannot be deleted — nothing was deleted`,
+        deleted: 0,
+        blocked,
+        deletable_count: deletable.length,
+      });
+    }
+
+    const targetIds = targets.map(t => t.assignment_id);
+
+    let counts;
+    try {
+      counts = await db.transaction(async ({ from }) => {
+        // 1. Rejected-lead tickets first — they point at the logs in step 4.
+        const { data: logRows, error: logErr } = await from('fro_donor_logs')
+          .select('id')
+          .in('assignment_id', targetIds);
+        if (logErr) throw new Error(logErr.message);
+        const logIds = (logRows || []).map(r => r.id);
+
+        let ticketsDeleted = 0;
+        if (logIds.length > 0) {
+          const { data: tRows, error: tErr } = await from('rejected_lead_tickets')
+            .delete()
+            .in('fro_donor_log_id', logIds)
+            .select('id');
+          if (tErr) throw new Error(tErr.message);
+          ticketsDeleted = (tRows || []).length;
+        }
+
+        // 2. Scheduled contacts reference the assignment directly.
+        const { data: sRows, error: sErr } = await from('fro_scheduled_contacts')
+          .delete()
+          .in('assignment_id', targetIds)
+          .select('id');
+        if (sErr) throw new Error(sErr.message);
+        const schedulesDeleted = (sRows || []).length;
+
+        // 3. work_queue — raw SQL because the (worker, donor, ngo) triple has no
+        //    expressible form in the query builder. No FK cascade exists here
+        //    (migration 087 creates the table with FKs only on worker/donor), so
+        //    skipping this would leave the removed donor in the FRO's cursor.
+        const queueRows = await sql(`
+          DELETE FROM work_queue w
+           USING fro_assignments fa
+           WHERE fa.id = ANY($1)
+             AND w.worker_id = fa.fro_worker_id
+             AND w.donor_id = fa.donor_id
+             AND (w.ngo_id = fa.ngo_id OR w.ngo_id IS NULL)
+          RETURNING 1
+        `, [targetIds]);
+
+        // 4. The disposition/call logs themselves.
+        const { data: dRows, error: dErr } = await from('fro_donor_logs')
+          .delete()
+          .in('assignment_id', targetIds)
+          .select('id');
+        if (dErr) throw new Error(dErr.message);
+        const logsDeleted = (dRows || []).length;
+
+        // 5. The station's assignment row.
+        const { data: aRows, error: aErr } = await from('fro_assignments')
+          .delete()
+          .in('id', targetIds)
+          .select('id');
+        if (aErr) throw new Error(aErr.message);
+        const assignmentsDeleted = (aRows || []).length;
+
+        // 6. Audit, inside the same transaction as the delete it describes. If
+        //    migration 174 has not been applied this insert fails, the
+        //    transaction rolls back, and the removal does not happen unrecorded.
+        //
+        //    The actor is stored as text plus a name/role snapshot, not as a
+        //    users FK: an NGO admin's token carries a workers.id (and the env
+        //    super admin carries the literal 0), so a users FK would reject every
+        //    real deletion. See migration 174 for the full reasoning.
+        const actorId = req.user?.id == null ? null : String(req.user.id);
+        const { error: auditErr } = await from('station_donor_deletions').insert(targets.map(t => ({
+          assignment_id: t.assignment_id,
+          donor_id: t.donor_id,
+          ngo_id: t.ngo_id,
+          station: t.station || null,
+          fro_worker_id: t.fro_worker_id || null,
+          donor_name: t.donor_name || null,
+          mobile_number: t.mobile_number || null,
+          data_category: t.data_category || null,
+          status_at_delete: t.status || null,
+          batch_type: t.batch_type || null,
+          logs_deleted: Number(t.log_count || 0),
+          schedules_deleted: Number(t.schedule_count || 0),
+          tickets_deleted: Number(t.ticket_count || 0),
+          queue_rows_deleted: Number(t.queue_count || 0),
+          had_dnd_mark: !!t.had_dnd_mark,
+          deleted_by: actorId,
+          deleted_by_name: req.user?.name || null,
+          deleted_by_role: req.user?.role || null,
+          deleted_by_email: req.user?.email || null,
+        })));
+        if (auditErr) throw new Error(auditErr.message);
+
+        return { logsDeleted, schedulesDeleted, ticketsDeleted, queueRowsDeleted: queueRows.length, assignmentsDeleted };
+      });
+    } catch (txErr) {
+      // 42P01 = undefined_table. The most likely cause by far is migration 174
+      // not yet applied, and the answer is to apply it rather than to retry, so
+      // say that instead of surfacing a raw Postgres message.
+      if (txErr && (txErr.code === '42P01' || /station_donor_deletions/i.test(txErr.message || ''))) {
+        console.error('[station-donors] delete aborted: station_donor_deletions is missing — apply migration 174');
+        return res.status(503).json({
+          message: 'Station donor deletion audit table is missing. Apply migration 174_station_donor_deletion_audit.sql, then retry. Nothing was deleted.',
+          deleted: 0,
+        });
+      }
+      throw txErr;
+    }
+
+    // Station/donor counts are cached for the TL dashboard (bustTlCache), and the
+    // removal is exactly the kind of change a stale cache would misreport.
+    bustTlCache();
+
+    console.log(
+      `[station-donors] user=${req.user.id} assignments=${counts.assignmentsDeleted} `
+      + `logs=${counts.logsDeleted} schedules=${counts.schedulesDeleted} `
+      + `tickets=${counts.ticketsDeleted} queue=${counts.queueRowsDeleted}`
+      + ` station=${targets[0]?.station || '(mixed)'} ngo=${targets[0]?.ngo_id || '(mixed)'}`
+    );
+
+    const dndFlagged = targets.filter(t => t.had_dnd_mark).length;
+
+    return res.json({
+      deleted: counts.assignmentsDeleted,
+      per_donor: targets.map(previewRow),
+      blocked: [],
+      totals: {
+        logs: counts.logsDeleted,
+        schedules: counts.schedulesDeleted,
+        tickets: counts.ticketsDeleted,
+        queue_rows: counts.queueRowsDeleted,
+      },
+      dnd_marked: dndFlagged,
+      // Ids that were requested but matched nothing: another admin already
+      // removed them, they were already 'reassigned', or they belong to an NGO
+      // this caller cannot touch. Reported so a bulk delete never looks
+      // complete when it silently covered fewer rows than were ticked.
+      not_found: notFound,
+      message: `${counts.assignmentsDeleted} donor(s) removed from ${targets[0]?.station || 'the station'}`
+        + (notFound > 0 ? ` (${notFound} of ${ids.length} requested were no longer active)` : '')
+        + (dndFlagged > 0
+          ? ` — ${dndFlagged} still carry an active DND mark for this NGO, so the number stays suppressed until it is released`
+          : ''),
+    });
+  } catch (error) {
+    console.error('deleteStationDonors ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getAlerts = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
