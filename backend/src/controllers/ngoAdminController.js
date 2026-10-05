@@ -194,6 +194,16 @@ const cacheSet = (key, v) => {
 // FRO Status pill straight back to "Paused" right after a successful resume —
 // which reads as "resume is broken". Rare, admin-only actions: busting all tl:
 // keys is cheap and also covers other tabs/admins watching the same FRO.
+// Second-tier (Upstash) key for a dashboard payload. The payload is one whole
+// NGO roll-up — every station, every FRO, collections, targets, attendance — so
+// rebuilding it after a deploy or on a second instance is expensive. Keeping it
+// in Redis means a cold process warms from one GET instead of re-running the
+// full scan. Hashed because dashCacheKey embeds a user id and date range, which
+// is too long and too raw to use as a Redis key.
+const NGODASH_REDIS_PREFIX = 'v1:ngoadmin:dash:';
+const NGODASH_REDIS_TTL_S = 60;
+const dashRedisKey = (dashCacheKey) => NGODASH_REDIS_PREFIX + redis.hashKey(dashCacheKey);
+
 export const bustTlCache = () => {
   tlCacheGeneration += 1;
   for (const k of _rCache.keys()) {
@@ -844,6 +854,13 @@ export const getDashboard = async (req, res) => {
     if (req.query.fresh !== '1') {
       const cached = cacheGet(dashCacheKey, 60000);
       if (cached) return res.json(cached);
+      // Missed in-memory: try Upstash before rebuilding. fail-open, so a Redis
+      // outage or an unreachable network just falls through to the DB.
+      const l2 = await redis.get(dashRedisKey(dashCacheKey));
+      if (l2 && typeof l2 === 'object') {
+        cacheSet(dashCacheKey, l2);
+        return res.json(l2);
+      }
     }
     const access = await getUserNgoAccess(req.user.id, req.user.role);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
@@ -1146,6 +1163,9 @@ export const getDashboard = async (req, res) => {
       stations_summary: stationActivity.summary,
     };
     cacheSet(dashCacheKey, payload);
+    // Mirror into Upstash for the next cold start. Not awaited: the response
+    // should not wait on the network, and a failed write is harmless.
+    redis.set(dashRedisKey(dashCacheKey), payload, NGODASH_REDIS_TTL_S).catch(() => { });
     return res.json(payload);
   } catch (error) {
     return res.status(500).json({ message: error.message });

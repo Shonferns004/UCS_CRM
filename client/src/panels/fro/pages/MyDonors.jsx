@@ -48,10 +48,10 @@ const RETRYABLE_NOT_CONNECTED = new Set([
   'ringing_voicemail', 'busy_call_waiting', 'ooc_unreachable_network',
 ]);
 // Statuses the QUEUE treats as not-workable-anymore. This is deliberately NOT
-// applied to the My Leads list: the list shows every allotted donor and filters
-// through DONOR_STATUS_GROUPS + the "Show suppressed" toggle instead, so a FRO's
-// allotment and their visible list always reconcile and nothing silently vanishes
-// (it previously removed 6+ leads on top of the backend's own filtering).
+// applied to the My Leads list: the list shows every allotted donor, narrowed only
+// by the "Hidden: N" toggle, so a FRO's allotment and their visible list always
+// reconcile and nothing silently vanishes (it previously removed 6+ leads on top
+// of the backend's own filtering).
 //
 // It is still used by applyDonorPatch, which is what advances the #1 -> #2
 // cursor: a lead that was just dispositioned must leave the queue immediately or
@@ -79,23 +79,11 @@ const SUPPRESS_REASON_LABELS = {
   terminal_forever: 'Closed — do not rework',
   not_connected_forever: 'Closed — do not rework',
 };
-// Status-group buckets for the MY LEADS list filter. Grouped so the FRO can scan
-// "what still needs a call" vs "already scheduled / done / rejected".
-const DONOR_STATUS_GROUPS = {
-  pending: ['pending', 'contacted', 'visit_donate', 'email_sent', 'whatsapp_sent', 'transferred_senior', 'query_complaint', 'receipt_request', 'wants_80g_details', 'wants_trust_documents', 'csr_inquiry', 'payment_pending', 'will_donate_online'],
-  retryable: ['ringing', 'busy', 'unreachable', 'switched_off', 'out_of_coverage', 'voicemail', 'call_waiting', 'incoming_out', 'temporary_network_issue', 'call_disconnected', 'language_barrier'],
-  scheduled: ['scheduled', 'callback', 'follow_up', 'office_visit_scheduled', 'program_visit_scheduled'],
-  donated: ['lead_done', 'done', 'donation_collected', 'promise_to_pay', 'already_donated'],
-  rejected: ['not_interested', 'not_interested_now', 'dnd', 'wrong_number', 'wrong_person', 'invalid_number', 'rejected', 'payment_rejected', 'not_possible', 'others'],
-};
-const DONOR_STATUS_GROUP_LABELS = {
-  all: 'All statuses',
-  pending: 'Pending / New',
-  retryable: 'Retryable (ring / busy)',
-  scheduled: 'Scheduled / Callback',
-  donated: 'Donated / Done',
-  rejected: 'Not interested / Rejected',
-};
+// DONOR_STATUS_GROUPS / DONOR_STATUS_GROUP_LABELS (the "All statuses" dropdown that
+// grouped pending / retryable / scheduled / donated / rejected) were removed
+// alongside the "Donated: hidden" toggle: both hid allotted work behind controls
+// that were easy to leave enabled. The per-row SUPPRESS_REASON_LABELS badge still
+// explains any individual lead, so nothing is opaque without them.
 
 function isNewDonor(d) {
   return d.batch_type === 'new_data' || (d.batch_type == null && d.is_new !== false);
@@ -244,6 +232,12 @@ const LEADS_PAGE_SIZE = 10;
 // a lead's disposition changes what a search should return.
 const SEARCH_CACHE_TTL_MS = 30 * 1000;
 const SEARCH_CACHE_MAX = 50;
+// Must sit above a normal inter-keystroke gap (~150-300ms) so that typing a
+// number keeps resetting the timer and produces ONE request when typing stops,
+// rather than one per character.
+const SEARCH_DEBOUNCE_MS = 600;
+const SEARCH_MIN_CHARS = 2;
+const SEARCH_MIN_DIGITS = 3;
 
 export default function MyDonors({ embedded = false, portalEl = null }) {
   const isMobile = useIsMobile()
@@ -295,6 +289,9 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const backendSearchTimerRef = useRef(null);
   const searchCacheRef = useRef(new Map());
   const searchInflightRef = useRef(new Map());
+  // Mirrors the term the FRO last typed, so a late-arriving response can tell
+  // whether it is still wanted.
+  const latestSearchRef = useRef('');
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
   const pendingSelectRef = useRef(null);
@@ -320,17 +317,12 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const [selectedNgo, setSelectedNgo] = useState(savedView?.selectedNgo || null);
   // MY LEADS list view: the currently opened lead (null = showing the list).
   const [activeDonor, setActiveDonor] = useState(null);
-  const [listStatusFilter, setListStatusFilter] = useState('all');
-  const [listHideDonated, setListHideDonated] = useState(true);
   // Whether the MY LEADS list includes donors the backend flagged as suppressed
   // (DND, donated this month, or already worked/closed). Default OFF so
   // the working stack stays clean, but every one of those donors is reachable in
   // one click and always counted — nothing is silently missing.
   const [listShowSuppressed, setListShowSuppressed] = useState(false);
   const [listView, setListView] = useState('leads'); // 'leads' | 'followups' | 'history'
-  useEffect(() => {
-    if (listView === 'leads' && listStatusFilter !== 'all' && listStatusFilter !== 'pending') setListStatusFilter('all');
-  }, [listView, listStatusFilter]);
   const [historyLeads, setHistoryLeads] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   // Bumped whenever a disposition is saved. History is otherwise only fetched
@@ -357,7 +349,7 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   // has scrolled deep back to the top mid-task.
   useEffect(() => {
     setVisibleCount(LEADS_PAGE_SIZE);
-  }, [listView, dataTab, selectedStation, selectedNgo, searchQuery, listStatusFilter, listHideDonated, listShowSuppressed]);
+  }, [listView, dataTab, selectedStation, selectedNgo, searchQuery, listShowSuppressed]);
 
   // Grow the render window as the FRO reaches the bottom of the list. Reading
   // `hasMoreRef` (rather than the item count) keeps this handler free of the
@@ -1352,11 +1344,26 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
   const handleSearch = (q) => {
     setSearchQuery(q);
     if (backendSearchTimerRef.current) { clearTimeout(backendSearchTimerRef.current); backendSearchTimerRef.current = null; }
-    if (!q || q.trim().length < 2) {
+    const term = q.trim();
+    latestSearchRef.current = term;
+    // Every backend search is expensive: the handler materialises every in-scope
+    // donor id, then runs a leading-wildcard ILIKE across it. Typing a 10-digit
+    // number one key at a time used to fire roughly one such query per keystroke,
+    // because the 300ms debounce elapsed faster than a person types. Two changes
+    // collapse that:
+    //   - SEARCH_DEBOUNCE_MS now exceeds a normal inter-keystroke gap, so the
+    //     timer is repeatedly reset and only fires once typing actually stops.
+    //   - a bare-digit term (a phone number, the common case) must reach
+    //     SEARCH_MIN_DIGITS before any request is made. Partial numbers almost
+    //     never identify a donor and each one was a wasted full-scope scan.
+    // Alpha terms keep the lower 2-character floor, where a prefix is genuinely
+    // useful.
+    const isNumeric = /^\d+$/.test(term);
+    const minChars = isNumeric ? SEARCH_MIN_DIGITS : SEARCH_MIN_CHARS;
+    if (term.length < minChars) {
       setDisposedResults([]);
       return;
     }
-    const term = q.trim();
     // Cache is keyed by the term AND the scope it was searched under: the same
     // number means different donors at a different station, so reusing a result
     // across stations would show leads the FRO is not viewing.
@@ -1395,14 +1402,18 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
       })();
       searchInflightRef.current.set(cacheKey, request);
       try {
-        setDisposedResults(await request);
+        const value = await request;
+        // Responses can land out of order — a slow early query must not overwrite
+        // the results of a term the FRO has since finished typing. Drop anything
+        // that no longer matches what is in the box.
+        if (latestSearchRef.current === term) setDisposedResults(value);
       } catch {
-        setDisposedResults([]);
+        if (latestSearchRef.current === term) setDisposedResults([]);
       } finally {
         searchInflightRef.current.delete(cacheKey);
         setDisposedSearchLoading(false);
       }
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
   };
 
   const handleButtonClick = () => {
@@ -1498,16 +1509,17 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
     // The list shows EVERY allotted donor. Nothing is dropped for having a status —
     // the backend now returns the full list with is_suppressed flags instead of
     // deleting rows, so the FRO's allotment and their visible list always agree.
-    // Only two things still narrow it by default: the status-group dropdown, and
-    // the "Show suppressed" toggle.
-    // Only DND / donated-this-month leads are held back by default. Leads
-    // that were merely worked or closed stay in the list (badged, filterable).
+    // The status-group dropdown and the "Donated: hidden" toggle were both removed:
+    // they hid work the FRO was entitled to see behind controls that were easy to
+    // leave on. The only thing still narrowing the list by default is the
+    // "Hidden: N" toggle, which parks DND / donated-this-month leads — DND donors
+    // asked not to be contacted, so they must not surface by default, and that
+    // toggle stays as the one-click route to them.
+    // Leads that were merely worked or closed stay in the list (badged).
     const suppressedCount = donors.filter(d => d.is_suppressed).length;
     const closedCount = donors.filter(d => !d.is_suppressed && d.suppress_reason).length;
     const visible = donors.filter(d => {
       if (!listShowSuppressed && d.is_suppressed) return false;
-      if (listStatusFilter !== 'all' && !(DONOR_STATUS_GROUPS[listStatusFilter] || []).includes(d.status)) return false;
-      if (listHideDonated && d.has_donated_current_month) return false;
       return true;
     });
 
@@ -1639,12 +1651,6 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
               {stationList.map(s => <option key={s} value={s} style={{ color: 'var(--ink)' }}>{s}</option>)}
             </select>
             {listView === 'leads' && (
-              <button onClick={() => setListHideDonated(v => !v)} title={listHideDonated ? 'Show this-month donated leads' : 'Hide this-month donated leads'}
-                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listHideDonated ? 'var(--bg)' : 'var(--sage)', color: listHideDonated ? 'var(--ink-soft)' : '#fff', outline: 'none' }}>
-                {listHideDonated ? 'Donated: hidden' : 'Donated: shown'}
-              </button>
-            )}
-            {listView === 'leads' && (
               <button onClick={() => setListShowSuppressed(v => !v)}
                 title={listShowSuppressed
                   ? 'Hide leads held back (DND, donated this month)'
@@ -1652,22 +1658,6 @@ export default function MyDonors({ embedded = false, portalEl = null }) {
                 style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listShowSuppressed ? 'var(--sage)' : 'var(--bg)', color: listShowSuppressed ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
                 {listShowSuppressed ? 'Showing all leads' : `Hidden: ${suppressedCount}`}
               </button>
-            )}
-            {listView === 'leads' && (
-              <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listStatusFilter !== 'all' ? 'var(--sage)' : 'var(--bg)', color: listStatusFilter !== 'all' ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
-                {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => (
-                  <option key={k} value={k} style={{ color: 'var(--ink)' }}>{l}</option>
-                ))}
-              </select>
-            )}
-            {isHistory && (
-              <select value={listStatusFilter} onChange={e => setListStatusFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', background: listStatusFilter !== 'all' ? 'var(--sage)' : 'var(--bg)', color: listStatusFilter !== 'all' ? '#fff' : 'var(--ink-soft)', outline: 'none' }}>
-                {Object.entries(DONOR_STATUS_GROUP_LABELS).map(([k, l]) => (
-                  <option key={k} value={k} style={{ color: 'var(--ink)' }}>{l}</option>
-                ))}
-              </select>
             )}
           </div>
 
