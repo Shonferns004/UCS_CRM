@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSim } from './store';
-import { effectiveStatus, dayLabel, formatDate, pillForStatus, liveDaysLeft } from './helpers';
+import { mobileExpiryStatus, dayLabel, formatDate, pillForStatus, liveDaysLeft } from './helpers';
 
 const PER_PAGE = 15;
 
@@ -12,12 +12,13 @@ const TABS = [
 ];
 
 export default function Expiring({ onView, onEdit, onReplace }) {
-  const { cards, loading } = useSim();
+  const { cards, loading, inventory } = useSim();
   const [tab, setTab] = useState('all');
   const [page, setPage] = useState(1);
 
-  // The tabs count days from the expiry date, not from the imported snapshot.
-  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: effectiveStatus(c), days_left: liveDaysLeft(c) })), [cards]);
+  // The tabs count days from the expiry date, not from the imported snapshot,
+  // and a phone carrying a freshly assigned Locker SIM is not expiring at all.
+  const enriched = useMemo(() => cards.map((c) => ({ ...c, _status: mobileExpiryStatus(c, inventory), days_left: liveDaysLeft(c) })), [cards, inventory]);
 
   const expiring = useMemo(
     () => enriched.filter((c) => c._status === 'Expiring Soon' || c._status === 'Expired'),

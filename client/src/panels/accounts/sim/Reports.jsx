@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSim } from './store';
-import { effectiveStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
+import { mobileExpiryStatus, dayLabel, dayClass, formatDate, pillForStatus } from './helpers';
 
 const STATUS_COLORS = {
   Active: '#16a34a',
@@ -37,11 +37,11 @@ const AVATAR_COLORS = {
 };
 
 export default function Reports({ cards }) {
-  const { cards: ctxCards } = useSim();
+  const { cards: ctxCards, inventory } = useSim();
   const list = cards || ctxCards;
 
   const data = useMemo(() => {
-    const enriched = list.map((c) => ({ ...c, _status: effectiveStatus(c) }));
+    const enriched = list.map((c) => ({ ...c, _status: mobileExpiryStatus(c, inventory) }));
     const statusBreakdown = {};
     const teamBreakdown = {};
     enriched.forEach((c) => {
@@ -68,7 +68,7 @@ export default function Reports({ cards }) {
       replaced,
       inactive,
     };
-  }, [list]);
+  }, [list, inventory]);
 
   const summary = [
     { label: 'Total SIM Cards', val: data.total, icon: 'simcard' },

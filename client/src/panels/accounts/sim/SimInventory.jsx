@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useSim } from './store';
 import { Icon } from './components';
-import { daysLeft, formatDate, dayLabel, dayClass, autoExpiryDate, SIM_VALIDITY_DAYS, simBrandOf } from './helpers';
+import { daysLeft, formatDate, dayLabel, dayClass, autoExpiryDate, SIM_VALIDITY_DAYS, simBrandOf, pillForStatus, simNumbersOf } from './helpers';
 import { toast } from '../../../components/Toast';
 import { ConfirmDialog } from './ImportModal';
 
@@ -50,9 +50,27 @@ function pillForInv(status) {
   return map[status] || 'pill-neutral';
 }
 
+/* Days left for a Locker row. The expiry date is the fact, days_left only a
+   snapshot taken when the row was last written - so a SIM whose date has passed
+   still reads "8 days" until someone touches it. The date therefore wins, and
+   the stored number is the fallback for rows that carry no date at all. */
 function daysFor(item) {
-  if (item.days_left !== undefined && item.days_left !== null) return item.days_left;
-  return daysLeft(item.expiry_date);
+  const d = daysLeft(item.expiry_date);
+  if (d !== null) return d;
+  return item.days_left !== undefined && item.days_left !== null ? item.days_left : null;
+}
+
+/* The expiry verdict for a Locker row, using the same thresholds as the
+   backend's computeExpiry: more than 30 days is Active, 0-30 is Expiring
+   Soon, a past date is Expired, no date at all gives nothing to show.
+   Shown next to the Locker's own status word so an Assigned SIM also reads
+   Active instead of leaving the reader to guess. */
+function expiryStatusFor(item) {
+  const dl = daysFor(item);
+  if (dl === null || dl === undefined || Number.isNaN(dl)) return null;
+  if (dl < 0) return 'Expired';
+  if (dl <= 30) return 'Expiring Soon';
+  return 'Active';
 }
 
 function AddSimModal({ open, onClose, onSaved }) {
@@ -176,8 +194,60 @@ function AddSimModal({ open, onClose, onSaved }) {
   );
 }
 
+/* Warning text for handing a SIM to a phone that already carries one. The
+   numbers come from the phone's own card plus, for Android, its
+   "android whatsapp N" card (the row the table shows them on), plus any other
+   Locker SIM already linked to the same phone - the SIM being assigned is
+   excluded. Expiry is the earliest date among the rows that hold a number.
+   Returns null when the phone is empty, so nothing is shown in that case. */
+function existingSimNotice(cards, inventory, currentItemId, mobileId) {
+  const mid = String(mobileId || '').trim().toLowerCase();
+  if (!mid) return null;
+
+  const rows = [];
+  (cards || []).forEach((c) => {
+    const id = String(c.mobile_id || '').trim().toLowerCase();
+    if (!id) return;
+    if (id === mid) { rows.push(c); return; }
+    const wa = id.match(/^android whatsapp\s+(\d+)$/);
+    if (wa && `android ${wa[1]}` === mid) rows.push(c);
+  });
+
+  const numbers = [];
+  const seen = new Set();
+  const add = (n) => { const v = String(n || '').trim(); if (v && !seen.has(v)) { seen.add(v); numbers.push(v); } };
+  rows.forEach((r) => simNumbersOf(r).forEach((s) => add(s.number)));
+
+  let dl = null;
+  rows.forEach((r) => {
+    if (!simNumbersOf(r).length) return;
+    const d = r.expiry_date ? daysLeft(r.expiry_date) : (r.days_left !== undefined && r.days_left !== null ? r.days_left : null);
+    if (d !== null && d !== undefined && (dl === null || d < dl)) dl = d;
+  });
+
+  (inventory || []).forEach((it) => {
+    if (currentItemId && it.id === currentItemId) return;
+    if (String(it.mobile_id || '').trim().toLowerCase() !== mid) return;
+    const n = String(it.sim_number || '').trim();
+    if (!n) return;
+    add(n);
+    const d = daysFor(it);
+    if (d !== null && d !== undefined && (dl === null || d < dl)) dl = d;
+  });
+
+  if (numbers.length === 0) return null;
+
+  const shown = numbers.slice(0, 2).join(', ') + (numbers.length > 2 ? ` +${numbers.length - 2} more` : '');
+  const phone = String(mobileId).trim();
+  const base = `Phone ${phone} already has a SIM (${shown})`;
+  if (dl !== null && dl < 0) return `${base} that expired ${Math.abs(dl)} day(s) ago - the new SIM can be used now.`;
+  if (dl === 0) return `${base} expiring today - this new SIM is for use after the current one expires.`;
+  if (dl !== null) return `${base} - ${dl} day(s) left before expiry. This new SIM is for use after the current one expires.`;
+  return `${base}. This new SIM is for use after the current one expires.`;
+}
+
 export function AssignSimModal({ open, item, onClose, onSaved }) {
-  const { cards } = useSim();
+  const { cards, inventory } = useSim();
   const [form, setForm] = useState(() => ({
     mobile_id: item?.mobile_id || '',
     device: item?.device || '',
@@ -263,8 +333,16 @@ export function AssignSimModal({ open, item, onClose, onSaved }) {
     }
     setSaving(true);
     try {
-      await onSaved(item.id, { ...form, mobile_id: mid });
-      toast('SIM assigned', 'success');
+      /* A phone that already carries a SIM gets a heads-up before the save -
+         it never blocks, the new SIM is simply meant for use after the
+         current one ends. */
+      const notice = existingSimNotice(cards, inventory, item.id, mid);
+      if (notice) toast(notice, 'info', 9000);
+      const res = await onSaved(item.id, { ...form, mobile_id: mid });
+      /* The endpoint reports when the number could not be mirrored onto the
+         mobile's row in All SIM Cards (no matching row / no free slot). */
+      if (res && res.warning) toast(res.warning, 'error', 7000);
+      else toast('SIM assigned', 'success');
       onClose();
     } catch (e) {
       toast(e.message || 'Assign failed', 'error');
@@ -407,13 +485,28 @@ function InventoryDetails({ item, onClose }) {
             <Item k="Owner Name" v={item.assigned_to} />
             <Item k="Provider / Network" v={item.provider} />
             <Item k="SIM Type" v={item.sim_type} />
-            <Item k="Status" v={item.status} />
+            <Item
+              k="Status"
+              v={(() => {
+                const expiry = expiryStatusFor(item);
+                return (
+                  <>
+                    <span className={`pill ${pillForInv(item.status)}`}>{item.status}</span>
+                    {expiry && expiry !== item.status ? <span className={`pill ${pillForStatus(expiry)}`}>{expiry}</span> : null}
+                  </>
+                );
+              })()}
+            />
             <Item k="Location" v={item.location} />
             <Item k="SIM Card Issue Date" v={formatDate(item.issue_date)} />
             <Item k="Auto Expiry Date" v={formatDate(item.expiry_date)} />
             <Item k="SIM Expiry Days Left" v={dayLabel(dl)} />
           </div>
-          {item.status === 'Assigned' && (
+          {/* The tabs bucket a SIM by its mobile_id, not by the stored status
+              word (see the note in the row loop above), so the Assignment block
+              follows the same rule - a SIM linked to a phone must show its
+              phone even when an older backend left the status as "Available". */}
+          {(item.mobile_id || item.status === 'Assigned') && (
             <>
               <div className="section-title" style={{ margin: '18px 0 10px', fontSize: 13 }}>Assignment</div>
               <div className="detail-grid">
@@ -655,11 +748,17 @@ export default function SimInventory() {
                 {filtered.map((item) => {
                   const dl = daysFor(item);
                   const busy = busyId === item.id;
+                  /* The Locker word (Assigned / Available / ...) and the expiry
+                     verdict are separate facts - show both, skipping the second
+                     when it would just repeat the first. */
+                  const expiry = expiryStatusFor(item);
+                  const showExpiry = expiry && expiry !== item.status;
                   return (
                     <div className="stock-card" key={item.id}>
                       <div className="sc-head">
                         <span className="sc-num">{item.sim_name || item.sim_number || '—'}</span>
                         <span className={`pill ${pillForInv(item.status)}`}>{item.status}</span>
+                        {showExpiry ? <span className={`pill ${pillForStatus(expiry)}`}>{expiry}</span> : null}
                       </div>
                       <div className="sc-body">
                         {item.sim_name && item.sim_number && (
@@ -713,7 +812,10 @@ export default function SimInventory() {
 
       <AddSimModal key={addKey} open={addOpen} onClose={() => setAddOpen(false)} onSaved={addInventoryItem} />
       <AssignSimModal open={!!assignItem} item={assignItem} onClose={() => setAssignItem(null)} onSaved={assignInventoryItem} />
-      <InventoryDetails item={viewItem} onClose={() => setViewItem(null)} />
+      <InventoryDetails
+        item={viewItem && (inventory.find((i) => i.id === viewItem.id) || viewItem)}
+        onClose={() => setViewItem(null)}
+      />
 
       <ConfirmDialog
         open={!!pending}
